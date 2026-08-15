@@ -1401,8 +1401,8 @@
 // SUPABASE CONFIG — fill these in with your project's values
 // (Supabase Dashboard → Project Settings → API)
 // ============================================================
-const SUPABASE_URL = 'https://lstckpzmtacttwbmmbof.supabase.co';
-const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxzdGNrcHptdGFjdHR3Ym1tYm9mIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODY3ODA2NjAsImV4cCI6MjEwMjM1NjY2MH0.V27fsi49iKtPeOquMEEdebQ7GduCELiUnm_9iL5dxQs';
+const SUPABASE_URL = 'https://zurktjerrqmjbrhvtibm.supabase.co';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inp1cmt0amVycnFtamJyaHZ0aWJtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODYyNzQ3NTksImV4cCI6MjEwMTg1MDc1OX0.6YS8kX93mg76u6nC04vBc0y_H_rt7q_i1RLE9bJL3II';
 const EMAIL_DOMAIN = 'inventory.local';                  // placeholder domain used to turn usernames into login emails
 
 const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
@@ -2923,17 +2923,29 @@ function selectMobileMenuTab(tabId){
 // 如果已經在子分頁選單、或這個分頁本來就沒有子分頁,才退到最上層的選單首頁。
 // 直接算「看得到哪些分頁」重畫選單,不透過 renderTabBar()(它在權限跟目前分頁對不上時會自動
 // 呼叫 switchTab,那樣反而會把剛蓋上去的選單又關掉)。
+// 如果這個帳號本來就只看得到一個分頁(例如只有「訂貨」權限的訂貨用戶),不會有「只有一個按鍵
+// 可選」的選單首頁這一層——退到底最多就是那個分頁自己的子分頁選單(如果有的話),
+// 沒有子分頁的話就已經沒有更上層可退了,這時再按 🏠 不會有動作。
 function showMobileHomeMenu(){
-  if(document.body.classList.contains('mobile-subtab-content-active')){
-    document.body.classList.remove('mobile-subtab-content-active');
-    document.body.classList.add('mobile-subtab-menu-active');
-    return;
-  }
-  document.body.classList.add('mobile-menu-active');
-  document.body.classList.remove('mobile-subtab-menu-active');
   const allowed = getCurrentUserTabPermissions();
   syncTabOrder();
   const visibleIds = tabOrder.filter(id => allowed.includes(id));
+
+  if(document.body.classList.contains('mobile-subtab-content-active')){
+    document.body.classList.remove('mobile-subtab-content-active');
+    if(visibleIds.length === 1){
+      const tabEl = document.getElementById(visibleIds[0]);
+      const hasSubtabs = !!(tabEl && tabEl.querySelector('.subtab-bar'));
+      if(hasSubtabs) document.body.classList.add('mobile-subtab-menu-active');
+      // 沒有子分頁的話,這個分頁的內容本身就已經是最上層了,不用切去任何選單畫面
+    } else {
+      document.body.classList.add('mobile-subtab-menu-active');
+    }
+    return;
+  }
+  if(visibleIds.length === 1) return; // 只有一個分頁可選,已經在最上層了,🏠 不用再做任何事
+  document.body.classList.add('mobile-menu-active');
+  document.body.classList.remove('mobile-subtab-menu-active');
   renderMobileHomeMenu(visibleIds);
 }
 
@@ -8335,8 +8347,18 @@ async function startApp(){
   renderTabBar();
   // 登入後,如果是窄螢幕(手機),預設先顯示「選單首頁」而不是直接跳進某個分頁的內容;
   // 桌面版(寬螢幕)維持原本行為,直接看到分頁列+內容。
+  // 但如果這個帳號本來就只看得到一個分頁(例如只有「訂貨」權限的訂貨用戶),選單首頁只會有
+  // 一個按鍵可選,多這一層反而奇怪,直接跳進那個分頁(有子分頁的話會先進到子分頁選單畫面,
+  // 跟從選單點進去的效果一樣,只是省了「先看到只有一個按鍵的選單」這一步)。
   if(window.matchMedia('(max-width:768px)').matches){
-    showMobileHomeMenu();
+    const allowed = getCurrentUserTabPermissions();
+    syncTabOrder();
+    const visibleIds = tabOrder.filter(id => allowed.includes(id));
+    if(visibleIds.length === 1){
+      selectMobileMenuTab(visibleIds[0]);
+    } else {
+      showMobileHomeMenu();
+    }
   }
   document.getElementById('importCount').textContent = IMPORTED_STOCK_DATA.length;
   const allImported = IMPORTED_STOCK_DATA.every(item => products.some(p => p.sku === item.sku));
