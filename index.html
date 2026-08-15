@@ -25,9 +25,11 @@
     --crit-bg:#F3DFDB;
   }
   *{box-sizing:border-box;}
+  html{ overflow-x:hidden; width:100%; }
   body{
     margin:0; background:var(--bg); color:var(--ink);
     font-family:'Inter',sans-serif; -webkit-font-smoothing:antialiased;
+    overflow-x:hidden; width:100%;
   }
   .wrap{ max-width:1080px; margin:0 auto; padding:0 0 60px; }
 
@@ -77,7 +79,7 @@
     padding:6px 14px; border-radius:20px; cursor:pointer; letter-spacing:0.5px;
   }
   .lang-toggle-btn:hover{ background:var(--yellow); color:var(--ink); border-color:var(--yellow); }
-  .barcode{ display:flex; gap:3px; height:18px; margin-bottom:20px; opacity:0.85; }
+  .barcode{ display:flex; gap:3px; height:18px; margin-bottom:20px; opacity:0.85; overflow:hidden; max-width:100%; }
   .barcode i{ display:block; background:var(--yellow); }
   .header h1{
     font-family:'Archivo Black',sans-serif; font-size:26px; margin:0 0 6px; letter-spacing:0.5px;
