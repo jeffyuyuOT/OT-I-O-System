@@ -1144,7 +1144,7 @@
     <div class="section" id="orderCartSection" style="display:none;">
       <div class="section-title" data-i18n="secCart">購物車</div>
       <p style="font-size:12.5px;color:var(--ink-soft);margin:0 0 12px;" data-i18n="cartDesc">
-        請確認以下訂貨數量。按「繼續訂貨」可以回到訂貨頁面修改;按「送出訂貨」才會扣除庫存,並記錄到「訂貨後台管理 → 已完成訂單」。
+        請確認以下訂貨數量。按「繼續訂貨」可以回到訂貨頁面修改
       </p>
       <div id="cartItemsTable"></div>
       <div style="margin-top:14px;display:flex;gap:10px;">
@@ -1405,8 +1405,8 @@
 // SUPABASE CONFIG — fill these in with your project's values
 // (Supabase Dashboard → Project Settings → API)
 // ============================================================
-const SUPABASE_URL = '__SUPABASE_URL__';
-const SUPABASE_ANON_KEY = '__SUPABASE_ANON_KEY__';
+const SUPABASE_URL = 'https://lstckpzmtacttwbmmbof.supabase.co';
+const SUPABASE_ANON_KEY = 'sb_publishable_dBwODRl6OdU-_TVPBi1TKA_Feoq7EDa';
 const EMAIL_DOMAIN = 'inventory.local';                  // placeholder domain used to turn usernames into login emails
 
 const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
@@ -1663,8 +1663,8 @@ const I18N = {
     fieldHiddenToggle: '隱藏這個商品', fieldHiddenToggleHint: '(在庫存總覽預設不顯示,可用「顯示隱藏商品」查看)',
     btnConvertHistory: '🕘 切換紀錄', convertHistoryTitle: '批量商品切換紀錄',
     btnConvertBatchItem: '切換',
-    convertHistoryDesc: '保留最近 7 天的切換紀錄。若切換錯誤,可以點右側「復原」按鈕撤銷。',
-    noConvertHistory: '最近 7 天沒有切換紀錄。',
+    convertHistoryDesc: '保留最近一個月的切換紀錄。若切換錯誤,可以點右側「復原」按鈕撤銷。',
+    noConvertHistory: '最近一個月沒有切換紀錄。',
     convertFromLabel: '扣除', convertToLabel: '增加', btnUndoConversion: '復原',
     fieldTargetChild: '要轉換成哪個批量商品', fieldConvertQtyToChild: '要轉換的主商品數量',
     fieldConvertResultToChild: '換算為批量商品數量', deletedProductLabel: '(已刪除商品)',
@@ -1682,7 +1682,7 @@ const I18N = {
     noFilteredOrderableProducts: '沒有符合條件的商品。到「庫存總覽」分頁把商品標記為可訂貨,或到「訂貨後台管理 → 管理出貨方」調整這個出貨方能看到的商品範圍,也可以檢查一下分類篩選是不是選錯了。',
     btnConfirmOrder: '✅ 確認訂貨(立即扣庫存)',
     btnCart: '🛒 購物車', secCart: '購物車',
-    cartDesc: '請確認以下訂貨數量。按「繼續訂貨」可以回到訂貨頁面修改;按「送出訂貨」才會扣除庫存,並記錄到「訂貨後台管理 → 已完成訂單」。',
+    cartDesc: '請確認以下訂貨數量。按「繼續訂貨」可以回到訂貨頁面修改',
     btnOrderMore: '← 繼續訂貨', btnConfirmOrderFinal: '✅ 提交訂單',
     cartEmptyNote: '購物車是空的,請先在訂貨頁面填寫訂貨數量。',
     colWeeklyAvg: '每週平均用量(近3個月)', colOrderQty: '訂貨數量', oosLabel: '缺貨',
@@ -1733,11 +1733,16 @@ const I18N = {
     btnEditOrderParty: '指定/修改出貨方',
     orderNoPartyLinkedWarning: '⚠ 這張訂單沒有正式掛上任何出貨方,只有不限出貨方權限的帳號(例如管理者)看得到',
     errOrderBeingProcessed: '這張訂單正在「訂單核對」頁面處理中,請等處理完成(或請對方取消載入)後再修改。',
+    errOrderAlreadySigned: '這張訂單已經簽收過了,不能再修改。',
     btnAddProductToOrder: '+ 新增商品',
     btnCancelAddToOrder: '取消,不新增了',
     addToOrderBannerText: '正在為訂單 {orderNo} 新增商品,選好商品、進購物車按「提交訂單」就會直接併進這張訂單。',
     errOrderNoLongerEditable: '這張訂單目前狀態已經不能再修改了(可能已經核對、取消或簽收),請重新整理頁面確認。',
     addToOrderSuccessMsg: '✓ 已將 {n} 項商品併入訂單 {orderNo}。',
+    newlyAddedLabel: '新增',
+    colOrderNo: '訂單編號', fileNamePrefixOrder: '訂單_',
+    errPrintPopupBlocked: '⚠ 無法開啟列印視窗,請確認瀏覽器沒有封鎖彈出視窗。',
+    btnExportOrder: '📄 匯出', btnPrintOrder: '🖨️ 列印', colCheck: '核對',
     orderRemarkLabelPrefix: '附註:', orderRemarkEmptyLabel: '(尚無附註)', orderHasRemarkTitle: '這張訂單有附註',
     orderWasModifiedTitle: '這張訂單的品項後來被修改過(改過數量或刪除品項)',
     errEnterNonNegativeQty: '請輸入 0 以上的數量', confirmZeroQtyIsDelete: '把數量改成 0 等於刪除這項商品(退回庫存),要繼續嗎?',
@@ -1926,8 +1931,8 @@ const I18N = {
     fieldHiddenToggle: 'Hide this product', fieldHiddenToggleHint: '(hidden from Stock Overview by default; check "Show Hidden Products" to view)',
     btnConvertHistory: '🕘 Convert History', convertHistoryTitle: 'Multi-pack Convert History',
     btnConvertBatchItem: 'Convert',
-    convertHistoryDesc: 'Shows conversions from the last 7 days. Click "Undo" on the right to reverse a mistaken conversion.',
-    noConvertHistory: 'No conversions in the last 7 days.',
+    convertHistoryDesc: 'Shows conversions from the last one month. Click "Undo" on the right to reverse a mistaken conversion.',
+    noConvertHistory: 'No conversions in the last one month.',
     convertFromLabel: 'From', convertToLabel: 'To', btnUndoConversion: 'Undo',
     fieldTargetChild: 'Convert into which multi-pack', fieldConvertQtyToChild: 'Main product quantity to convert',
     fieldConvertResultToChild: 'Converted multi-pack quantity', deletedProductLabel: '(deleted product)',
@@ -1945,7 +1950,7 @@ const I18N = {
     noFilteredOrderableProducts: 'No products match. Mark products as orderable in Stock Overview, adjust which products this customer can see under Order Management → Manage Customers, or check whether the category filter is set correctly.',
     btnConfirmOrder: '✅ Confirm Order (Deducts Stock Immediately)',
     btnCart: '🛒 Cart', secCart: 'Cart',
-    cartDesc: 'Please review the order quantities below. "Order more" takes you back to the order page to make changes; "Confirm the order" deducts stock and logs it under Order Management → Completed Orders.',
+    cartDesc: 'Please review the order quantities below. "Order more" takes you back to the order page to make changes',
     btnOrderMore: '← Order more', btnConfirmOrderFinal: '✅ Submit Order',
     cartEmptyNote: 'Your cart is empty. Please fill in order quantities on the order page first.',
     colWeeklyAvg: 'Weekly Avg Usage (Last 3 Months)', colOrderQty: 'Order Qty', oosLabel: 'Out of Stock',
@@ -1996,11 +2001,16 @@ const I18N = {
     btnEditOrderParty: 'Set/Change Shipping Party',
     orderNoPartyLinkedWarning: '⚠ This order isn\'t linked to any shipping party — only accounts without shipping-party restrictions (e.g. admins) can see it',
     errOrderBeingProcessed: 'This order is currently being processed on the Order Verify page. Please wait until that finishes (or ask them to unload it) before editing.',
+    errOrderAlreadySigned: 'This order has already been signed for and can no longer be edited.',
     btnAddProductToOrder: '+ Add Product',
     btnCancelAddToOrder: 'Cancel, don\'t add',
     addToOrderBannerText: 'Adding products to order {orderNo} — pick products, go to cart, and "Submit Order" will merge them straight into this order.',
     errOrderNoLongerEditable: 'This order can no longer be edited (it may already be verified, cancelled, or signed for). Please refresh the page to confirm.',
     addToOrderSuccessMsg: '✓ Added {n} item(s) to order {orderNo}.',
+    newlyAddedLabel: 'New',
+    colOrderNo: 'Order #', fileNamePrefixOrder: 'Order_',
+    errPrintPopupBlocked: '⚠ Could not open the print window — please check your browser isn\'t blocking pop-ups.',
+    btnExportOrder: '📄 Export', btnPrintOrder: '🖨️ Print', colCheck: 'Check',
     orderRemarkLabelPrefix: 'Remark:', orderRemarkEmptyLabel: '(No remark yet)', orderHasRemarkTitle: 'This order has a remark',
     orderWasModifiedTitle: 'Items in this order were changed afterward (qty changed or item removed)',
     errEnterNonNegativeQty: 'Please enter a quantity of 0 or more', confirmZeroQtyIsDelete: 'Setting the quantity to 0 will delete this item (and restock it) — continue?',
@@ -2942,6 +2952,12 @@ function selectMobileMenuTab(tabId){
 // 如果這個帳號本來就只看得到一個分頁(例如只有「訂貨」權限的訂貨用戶),不會有「只有一個按鍵
 // 可選」的選單首頁這一層——退到底最多就是那個分頁自己的子分頁選單(如果有的話),
 // 沒有子分頁的話就已經沒有更上層可退了,這時再按 🏠 不會有動作。
+// 判斷目前是不是手機版寬度(跟 CSS 的 @media (max-width:768px) 用同一個斷點),給那些
+// 「手機版要彈出視窗顯示、桌面版維持原本畫面內文字」的地方共用,不用每個地方各自重複判斷。
+function isMobileViewport(){
+  return window.matchMedia('(max-width:768px)').matches;
+}
+
 function showMobileHomeMenu(){
   const allowed = getCurrentUserTabPermissions();
   syncTabOrder();
@@ -4939,8 +4955,12 @@ function openCart(){
   const { items, errors } = collectOrderItems();
 
   if(errors.length > 0){
-    msg.className = 'msg error';
-    msg.textContent = `⚠ ${errors.join('; ')}`;
+    if(isMobileViewport()){
+      showInfoModal(`⚠ ${errors.join('; ')}`);
+    } else {
+      msg.className = 'msg error';
+      msg.textContent = `⚠ ${errors.join('; ')}`;
+    }
     return;
   }
 
@@ -5041,8 +5061,7 @@ async function confirmOrderFromCart(){
   const { dateVal, noteVal, partyId, partyObj, partyName, items, errors } = collectOrderItems();
 
   if(errors.length > 0){
-    msg.className = 'msg error';
-    msg.textContent = `⚠ 訂貨失敗:${errors.join('; ')}`;
+    showInfoModal(`⚠ 訂貨失敗:${errors.join('; ')}`);
     return;
   }
 
@@ -5056,8 +5075,7 @@ async function confirmOrderFromCart(){
   try{
     orderNo = await getSafeNextOrderNo();
   } catch(e){
-    msg.className = 'msg error';
-    msg.textContent = '⚠ 取得訂單編號失敗,請重新整理頁面再試一次。';
+    showInfoModal('⚠ 取得訂單編號失敗,請重新整理頁面再試一次。');
     return;
   }
   const orderPayload = {
@@ -5076,8 +5094,7 @@ async function confirmOrderFromCart(){
     await upsertOrders([orderPayload]);
   } catch(e){
     console.error('建立待處理訂單失敗', e);
-    msg.className = 'msg error';
-    msg.textContent = '⚠ 訂貨失敗,請重新整理頁面再試一次或聯絡管理者。';
+    showInfoModal('⚠ 訂貨失敗,請重新整理頁面再試一次或聯絡管理者。');
     return;
   }
 
@@ -5101,11 +5118,9 @@ async function confirmOrderFromCart(){
 // 新品項加進去。存檔前重新檢查一次這張訂單還是待處理、沒被取消/簽收、也沒有正在被載入到
 // 「訂單核對」頁面——這段時間內狀態有可能被別的裝置動過,不能只信任進入這個流程當下的檢查。
 async function mergeItemsIntoExistingOrder(orderId, newItems){
-  const msg = document.getElementById('cartMsg');
   const order = orders.find(o => o.id === orderId);
   if(!order || order.deleted || orderStatus(order) !== 'pending' || order.signedAt){
-    msg.className = 'msg error';
-    msg.textContent = `⚠ ${t('errOrderNoLongerEditable')}`;
+    showInfoModal(`⚠ ${t('errOrderNoLongerEditable')}`);
     cancelAddItemsToOrder();
     return;
   }
@@ -5118,8 +5133,14 @@ async function mergeItemsIntoExistingOrder(orderId, newItems){
   const mergedItems = prevItems.map(it => ({ ...it }));
   newItems.forEach(newIt => {
     const existing = mergedItems.find(it => it.productId === newIt.productId && !it.deleted);
-    if(existing) existing.qty += newIt.qty;
-    else mergedItems.push({ ...newIt });
+    if(existing){
+      const oldQty = existing.qty;
+      existing.qty += newIt.qty;
+      if(!existing.qtyHistory) existing.qtyHistory = [];
+      existing.qtyHistory.push({ from: oldQty, to: existing.qty });
+    } else {
+      mergedItems.push({ ...newIt, qtyHistory: [{ added: true }] });
+    }
   });
   order.items = mergedItems;
 
@@ -5128,8 +5149,7 @@ async function mergeItemsIntoExistingOrder(orderId, newItems){
   } catch(e){
     order.items = prevItems;
     console.error('新增商品到既有訂單失敗', e);
-    msg.className = 'msg error';
-    msg.textContent = '⚠ 新增商品失敗,請重新整理頁面再試一次。';
+    showInfoModal('⚠ 新增商品失敗,請重新整理頁面再試一次。');
     return;
   }
 
@@ -5180,7 +5200,8 @@ function refreshOrderLists(){
 // 訂單卡片裡單一品項那一列的 HTML,「待處理訂單」跟「已完成訂單」共用:isPending=true 時用
 // 待處理專用的刪除/改數量流程(不動進出貨紀錄,因為都還沒扣庫存),isPending=false 時維持原本
 // 「未出庫/已出庫」那套(因為已經扣過庫存、有真的出貨紀錄要處理)。
-function orderItemRowHtml(o, it, isPending){
+function orderItemRowHtml(o, it, isPending, readOnly, context){
+  context = context || 'default';
   if(it.deleted){
     const label = isPending ? t('itemDeletedLabelPending') : (it.deleteStockStatus === 'stocked_out' ? t('itemDeletedLabelStockedOut') : t('itemDeletedLabel'));
     return `
@@ -5190,7 +5211,12 @@ function orderItemRowHtml(o, it, isPending){
       </div>
     `;
   }
-  const isEditingQty = !o.deleted && editingOrderItemKey === `${o.id}::${it.productId}`;
+  const canEdit = !o.deleted && !readOnly;
+  // editingOrderItemKey、輸入框的 id 都要帶上 context(是哪個畫面在渲染這一列),不能只用
+  // 訂單 id + 商品 id——因為同一張訂單有可能同時出現在好幾個地方(例如待處理訂單清單、又剛好
+  // 被載入在訂單核對頁面),如果 id 沒有區分畫面,document.getElementById 會抓到「第一個找到的
+  // 那個」,可能不是使用者實際在改的那一個,導致改數量看起來像沒有生效。
+  const isEditingQty = canEdit && editingOrderItemKey === `${context}::${o.id}::${it.productId}`;
   const saveFn = isPending ? 'savePendingOrderItemQty' : 'saveOrderItemQty';
   const deleteFn = isPending ? 'deletePendingOrderItem' : 'deleteOrderItem';
   if(isEditingQty){
@@ -5198,17 +5224,17 @@ function orderItemRowHtml(o, it, isPending){
       <div>
         <span>${it.name}${it.sku ? ` (${it.sku})` : ''}</span>
         <span>
-          <input type="number" id="orderItemQtyInput_${o.id}_${it.productId}" value="${it.qty}" min="0" step="1"
+          <input type="number" id="orderItemQtyInput_${context}_${o.id}_${it.productId}" value="${it.qty}" min="0" step="1"
             style="width:70px;font-family:inherit;font-size:inherit;" />
           <span class="row-unit">${it.unit}</span>
-          <span class="del-link" style="margin-left:8px;" onclick="${saveFn}('${o.id}','${it.productId}')">${t('btnSave')}</span>
+          <span class="del-link" style="margin-left:8px;" onclick="${saveFn}('${context}','${o.id}','${it.productId}')">${t('btnSave')}</span>
           <span class="del-link" style="margin-left:8px;" onclick="cancelEditOrderItemQty()">${t('btnCancel')}</span>
         </span>
       </div>
     `;
   }
   const qtyHistoryStr = (it.qtyHistory && it.qtyHistory.length > 0)
-    ? `(${it.qtyHistory.map(h => `${h.from}→${h.to}`).join(',')}) `
+    ? `(${it.qtyHistory.map(h => h.added ? t('newlyAddedLabel') : `${h.from}→${h.to}`).join(',')}) `
     : '';
   const qtyDisplay = qtyHistoryStr
     ? `<span style="color:var(--crit);">${qtyHistoryStr}${it.qty} ${it.unit}</span>`
@@ -5217,8 +5243,8 @@ function orderItemRowHtml(o, it, isPending){
     <div>
       <span>${it.name}${it.sku ? ` (${it.sku})` : ''}</span>
       <span>${qtyDisplay}
-        ${o.deleted ? '' : `<span class="del-link" style="margin-left:8px;" onclick="startEditOrderItemQty('${o.id}','${it.productId}')">${t('btnEditQty')}</span>`}
-        ${o.deleted ? '' : `<span class="del-link" style="margin-left:8px;color:var(--crit);" onclick="${deleteFn}('${o.id}','${it.productId}')">${t('btnDelete')}</span>`}
+        ${canEdit ? `<span class="del-link" style="margin-left:8px;" onclick="startEditOrderItemQty('${context}','${o.id}','${it.productId}')">${t('btnEditQty')}</span>` : ''}
+        ${canEdit ? `<span class="del-link" style="margin-left:8px;color:var(--crit);" onclick="${deleteFn}('${o.id}','${it.productId}')">${t('btnDelete')}</span>` : ''}
       </span>
     </div>
   `;
@@ -5250,7 +5276,10 @@ function renderOrders(){
     // 訂單本身沒有被整筆刪除,但裡面有品項被改過數量或個別刪除,才算「後來被修改過」
     // (整筆刪除已經有「已刪除」狀態標籤,不需要再重複標註)。
     const wasModified = !o.deleted && o.items.some(it => (it.qtyHistory && it.qtyHistory.length > 0) || it.deleted);
-    const itemsHtml = o.items.map(it => orderItemRowHtml(o, it, false)).join('');
+    // 已完成訂單在還沒簽收前,這裡(訂貨後台管理)還是能改;一旦簽收過(o.signedAt),不管哪一邊
+    // 都不能再改了,這裡也要跟著鎖住(readOnly=!!o.signedAt),之前沒有這個檢查,簽收後其實還是
+    // 能被改掉,這次一併修正。
+    const itemsHtml = o.items.map(it => orderItemRowHtml(o, it, false, !!o.signedAt, 'completed')).join('');
     const isEditingRemark = editingOrderRemarkId === o.id;
     const remarkHtml = isEditingRemark ? `
       <div style="margin:8px 0;">
@@ -5283,6 +5312,7 @@ function renderOrders(){
           ${remarkHtml}
           <div class="order-card-actions">
             <button class="btn ghost" onclick="exportSingleOrderSheet('${o.id}')">${t('btnExportThisOrder')}</button>
+            <button class="btn ghost" onclick="printCompletedOrder('${o.id}')">${t('btnPrintOrder')}</button>
             ${o.deleted ? '' : `<button class="btn ghost" onclick="deleteCompletedOrder('${o.id}')">${t('btnDeleteWholeOrder')}</button>`}
           </div>
         ` : ''}
@@ -5327,6 +5357,10 @@ function deleteCompletedOrder(orderId){
 function deleteOrderItem(orderId, productId){
   const order = orders.find(o => o.id === orderId);
   if(!order) return;
+  if(order.signedAt){
+    showInfoModal(t('errOrderAlreadySigned'));
+    return;
+  }
   const item = order.items.find(it => it.productId === productId && !it.deleted);
   if(!item) return;
   showConfirmModal(tf('confirmDeleteOrderItem', {name: item.name, qty: item.qty, unit: item.unit}), async () => {
@@ -5357,8 +5391,8 @@ function deleteOrderItem(orderId, productId){
   });
 }
 
-function startEditOrderItemQty(orderId, productId){
-  editingOrderItemKey = `${orderId}::${productId}`;
+function startEditOrderItemQty(context, orderId, productId){
+  editingOrderItemKey = `${context}::${orderId}::${productId}`;
   refreshOrderLists();
 }
 
@@ -5370,12 +5404,18 @@ function cancelEditOrderItemQty(){
 // 已完成訂單裡改品項數量:改多了要再扣庫存(等於補出貨),改少了要把差額退回庫存(入庫)。這兩種
 // 都會另外「新增」一筆進出貨紀錄(備註標註訂單號跟新舊數量),不會動到原本那筆出貨紀錄,方便之後
 // 對帳看得出這張訂單前後改過什麼。扣庫存的部分一樣走 RPC 做 atomic 檢查+扣除,庫存不夠會直接拒絕。
-async function saveOrderItemQty(orderId, productId){
+async function saveOrderItemQty(context, orderId, productId){
   const order = orders.find(o => o.id === orderId);
   if(!order) return;
+  if(order.signedAt){
+    showInfoModal(t('errOrderAlreadySigned'));
+    editingOrderItemKey = null;
+    refreshOrderLists();
+    return;
+  }
   const item = order.items.find(it => it.productId === productId && !it.deleted);
   if(!item) return;
-  const input = document.getElementById(`orderItemQtyInput_${orderId}_${productId}`);
+  const input = document.getElementById(`orderItemQtyInput_${context}_${orderId}_${productId}`);
   if(!input) return;
   const newQty = parseFloat(input.value);
   if(isNaN(newQty) || newQty < 0){
@@ -5493,7 +5533,7 @@ function renderPendingOrders(){
   container.innerHTML = list.map(o => {
     const isExpanded = expandedOrderIds.has(o.id);
     const wasModified = !o.deleted && o.items.some(it => (it.qtyHistory && it.qtyHistory.length > 0) || it.deleted);
-    const itemsHtml = o.items.map(it => orderItemRowHtml(o, it, true)).join('');
+    const itemsHtml = o.items.map(it => orderItemRowHtml(o, it, true, false, 'pending')).join('');
     const isEditingRemark = editingOrderRemarkId === o.id;
     const remarkHtml = isEditingRemark ? `
       <div style="margin:8px 0;">
@@ -5549,11 +5589,123 @@ function renderPendingOrders(){
             ${o.deleted ? '' : `<button class="btn" onclick="verifyOrder('${o.id}')" ${activeItemCount === 0 ? 'disabled' : ''}>${t('btnVerifyOrder')}</button>`}
             ${o.deleted ? '' : `<button class="btn ghost" onclick="openOrderInVerifyPage('${o.id}')" ${activeItemCount === 0 ? 'disabled' : ''}>${t('btnLoadIntoVerifyPage')}</button>`}
             ${o.deleted ? '' : `<button class="btn ghost" onclick="cancelPendingOrder('${o.id}')">${t('btnCancelWholeOrder')}</button>`}
+            <button class="btn ghost" onclick="exportPendingOrderExcel('${o.id}')">${t('btnExportOrder')}</button>
+            <button class="btn ghost" onclick="printPendingOrder('${o.id}')">${t('btnPrintOrder')}</button>
           </div>
         ` : ''}
       </div>
     `;
   }).join('');
+}
+
+// 待處理訂單的「匯出」「列印」:兩個都只看目前有效的品項、用目前的最終數量,不顯示 qtyHistory
+// 那些異動紀錄(那是給管理畫面自己看的,匯出/列印給外部用的單子只要看結果就好)。
+function escapeHtmlForPrint(str){
+  return String(str || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+// 待處理訂單、已完成訂單的「匯出」「列印」共用:一律只看目前有效的品項、用目前的最終數量,
+// 不顯示 qtyHistory 那些異動紀錄(那是給管理畫面自己看的,匯出/列印給外部用的單子只要看結果就好)。
+function buildOrderExportRows(order){
+  return order.items.filter(it => !it.deleted).map(it => ({ sku: it.sku || '', name: it.name, qty: it.qty, unit: it.unit }));
+}
+
+function exportOrderExcel(orderId, headerLabel){
+  const order = orders.find(o => o.id === orderId);
+  if(!order) return;
+  const items = buildOrderExportRows(order);
+  const aoa = [];
+  aoa.push([headerLabel]);
+  aoa.push([]);
+  aoa.push([t('colOrderNo'), order.orderNo || orderId]);
+  aoa.push([t('lblDate'), order.date || '']);
+  aoa.push([t('fieldShippingParty'), order.partyName || '']);
+  if(order.note) aoa.push([t('noteLabelPrefix').replace(/[:：]\s*$/,''), order.note]);
+  aoa.push([]);
+  aoa.push([t('fieldSku'), t('fieldName'), t('lblQty'), t('fieldUnit')]);
+  items.forEach(it => aoa.push([it.sku, it.name, it.qty, it.unit]));
+
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
+  ws['!cols'] = [{wch:9},{wch:28},{wch:10},{wch:10}]; // SKU 欄只要夠放代碼就好,不用跟商品名稱一樣寬
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Order');
+  const safeOrderNo = (order.orderNo || orderId).replace(/[^a-zA-Z0-9#_-]/g, '');
+  XLSX.writeFile(wb, `${t('fileNamePrefixOrder')}${safeOrderNo}.xlsx`);
+}
+
+function exportPendingOrderExcel(orderId){
+  exportOrderExcel(orderId, 'Pending Order');
+}
+
+// 列印(待處理訂單、已完成訂單共用):opts.includeCheckColumn 待處理訂單才會有(給撿貨的人拿筆
+// 現場勾選用,匯出的 Excel 不需要這欄);opts.headerLabel 是列印檔案最上面的英文標示。
+function printOrderDocument(orderId, opts){
+  const order = orders.find(o => o.id === orderId);
+  if(!order) return;
+  const items = buildOrderExportRows(order);
+  const includeCheck = !!opts.includeCheckColumn;
+  const includeSku = opts.includeSkuColumn !== false; // 預設顯示,已完成訂單那邊會特別關掉
+
+  const rowsHtml = items.map(it => `
+    <tr>
+      ${includeCheck ? `<td class="check-col"></td>` : ''}
+      ${includeSku ? `<td class="sku-col">${escapeHtmlForPrint(it.sku)}</td>` : ''}
+      <td>${escapeHtmlForPrint(it.name)}</td>
+      <td style="text-align:right;">${it.qty}</td>
+      <td>${escapeHtmlForPrint(it.unit)}</td>
+    </tr>
+  `).join('');
+  const checkTh = includeCheck ? `<th class="check-col">${escapeHtmlForPrint(t('colCheck'))}</th>` : '';
+  const skuTh = includeSku ? `<th class="sku-col">${escapeHtmlForPrint(t('fieldSku'))}</th>` : '';
+
+  const html = `<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>${escapeHtmlForPrint(order.orderNo || orderId)}</title>
+<style>
+  body{ font-family:'Microsoft JhengHei', Arial, sans-serif; padding:24px; color:#111; }
+  h1{ font-size:18px; margin:0 0 4px; }
+  h2{ font-size:12.5px; font-weight:700; letter-spacing:1.5px; text-transform:uppercase; color:#B23B2E; margin:0 0 14px; }
+  .meta{ font-size:13px; color:#333; margin-bottom:3px; }
+  table{ border-collapse:collapse; width:100%; margin-top:14px; }
+  th, td{ padding:7px 10px; border:1px solid #999; font-size:13px; text-align:left; }
+  th{ background:#eee; }
+  .sku-col{ width:1%; white-space:nowrap; }
+  .check-col{ width:44px; text-align:center; }
+</style>
+</head>
+<body>
+  <h2>${escapeHtmlForPrint(opts.headerLabel)}</h2>
+  <h1>${escapeHtmlForPrint(t('colOrderNo'))} ${escapeHtmlForPrint(order.orderNo || orderId)}</h1>
+  <div class="meta">${escapeHtmlForPrint(t('lblDate'))}${order.date || ''}</div>
+  <div class="meta">${escapeHtmlForPrint(t('fieldShippingParty'))}${escapeHtmlForPrint(order.partyName)}</div>
+  ${order.note ? `<div class="meta">${escapeHtmlForPrint(t('noteLabelPrefix'))}${escapeHtmlForPrint(order.note)}</div>` : ''}
+  <table>
+    <thead><tr>${checkTh}${skuTh}<th>${escapeHtmlForPrint(t('fieldName'))}</th><th>${escapeHtmlForPrint(t('lblQty'))}</th><th>${escapeHtmlForPrint(t('fieldUnit'))}</th></tr></thead>
+    <tbody>${rowsHtml}</tbody>
+  </table>
+</body>
+</html>`;
+  const printWindow = window.open('', '_blank');
+  if(!printWindow){
+    showInfoModal(t('errPrintPopupBlocked'));
+    return;
+  }
+  printWindow.document.write(html);
+  printWindow.document.close();
+  printWindow.onload = () => {
+    printWindow.focus();
+    printWindow.print();
+  };
+}
+
+function printPendingOrder(orderId){
+  printOrderDocument(orderId, { includeCheckColumn: true, headerLabel: 'Pending Order' });
+}
+
+function printCompletedOrder(orderId){
+  printOrderDocument(orderId, { includeCheckColumn: false, includeSkuColumn: false, headerLabel: 'Completed Order' });
 }
 
 // 待處理訂單裡刪除單一品項:訂單根本還沒核對、還沒扣庫存,沒有任何進出貨紀錄要處理,
@@ -5650,12 +5802,12 @@ async function saveOrderParty(orderId){
 // 待處理訂單裡改品項數量:訂單還沒核對、還沒扣庫存,不需要走 RPC 做庫存檢查,單純更新這個品項
 // 要訂的數量、存回訂單即可(下一次計算可訂數量時就會用新的數字)。按「儲存」後會先跳確認視窗,
 // 確認過才真的套用(訂單核對頁面、訂貨後台管理的待處理訂單清單都共用這個函式)。
-async function savePendingOrderItemQty(orderId, productId){
+async function savePendingOrderItemQty(context, orderId, productId){
   const order = orders.find(o => o.id === orderId);
   if(!order) return;
   const item = order.items.find(it => it.productId === productId && !it.deleted);
   if(!item) return;
-  const input = document.getElementById(`orderItemQtyInput_${orderId}_${productId}`);
+  const input = document.getElementById(`orderItemQtyInput_${context}_${orderId}_${productId}`);
   if(!input) return;
   const newQty = parseFloat(input.value);
   if(isNaN(newQty) || newQty < 0){
@@ -5810,7 +5962,7 @@ function renderVerifyPage(){
     itemsEl.innerHTML = `<div class="empty-note">${t('noOrderLoadedForVerify')}</div>`;
   } else {
     infoEl.innerHTML = `${activeOrder.orderNo ? `<b>${activeOrder.orderNo}</b> · ` : ''}${activeOrder.date}${activeOrder.partyName ? ` · ${tf('orderCardPartyLabel', {name: activeOrder.partyName})}` : ''}${activeOrder.note ? `<br/>${t('noteLabelPrefix')}${activeOrder.note}` : ''}`;
-    itemsEl.innerHTML = activeOrder.items.map(it => orderItemRowHtml(activeOrder, it, true)).join('') || `<div class="empty-note">${t('orderHistoryNoItemsLeft')}</div>`;
+    itemsEl.innerHTML = activeOrder.items.map(it => orderItemRowHtml(activeOrder, it, true, false, 'verify')).join('') || `<div class="empty-note">${t('orderHistoryNoItemsLeft')}</div>`;
   }
 
   renderVerifyPageRightItems();
@@ -5936,12 +6088,10 @@ function formatOrderDateTime(iso){
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
-// 「訂貨」分頁底下「訂購記錄」子分頁專用的編輯狀態:草稿是目前這張訂單「還剩哪些品項」的清單
-// (從 order.items 淺複製一份),使用者在畫面上調整數量、按「移除」都只改這份草稿,按「儲存」時才
-// 一次寫回 order.items 並存檔。跟「訂貨後台管理」那邊的編輯不一樣:這裡改數量或移除品項是直接
-// 覆蓋訂單本身的品項清單,不留 qtyHistory、不做軟刪除(item.deleted)標記。
-let editingOrderHistoryId = null;
-let orderHistoryEditDraft = null; // [{ productId, sku, name, unit, qty(原始數量) }, ...]
+// 「訂貨」分頁底下「訂購記錄」子分頁:品項的修改/刪除現在直接共用「訂貨後台管理 → 待處理訂單」
+// 那套 orderItemRowHtml + savePendingOrderItemQty/deletePendingOrderItem(isPending=true),
+// 會寫 qtyHistory、軟刪除品項,不再需要自己另外一套整批草稿編輯狀態——這樣同一張訂單不管在
+// 訂購記錄還是待處理訂單改,兩邊都會馬上看到彼此的異動紀錄。
 // 「訂購記錄」正在幫某張待處理訂單「新增商品」時,暫存要新增進去的是哪一張訂單(orderId)。
 // 設定這個之後,使用者會被導去「訂貨」頁面正常挑商品、進購物車確認,但按下「提交訂單」時
 // 不會建立一張新訂單,而是把選好的品項併進這張訂單裡(見 confirmOrderFromCart 裡的分流)。
@@ -5992,36 +6142,24 @@ function renderOrderHistory(){
   container.innerHTML = list.map(o => {
     const isExpanded = expandedOrderIds.has(o.id);
     const status = orderStatus(o);
-    // 可以修改的條件:訂單還是「待處理」(還沒核對、還沒進已完成訂單)、訂單本身沒被取消、也還沒簽收。
-    const editable = !o.deleted && status === 'pending' && !o.signedAt;
+    // 可以修改的條件:訂單還是「待處理」(還沒核對、還沒進已完成訂單)、訂單本身沒被取消、也還沒
+    // 簽收、而且沒有正被載入到「庫存管理 → 訂單核對」頁面——這個「正在核對中不能改」的限制只套用
+    // 在訂購記錄這邊(顧客自助修改),訂貨後台管理那邊不受這個限制,員工在待處理訂單清單一樣可以
+    // 隨時改(不管有沒有人正在核對頁面看這張訂單)。
+    const editable = !o.deleted && status === 'pending' && !o.signedAt && verifyPageOrderId !== o.id;
     // 可以簽收的條件:訂單已經核對過、真的出貨了(狀態 'confirmed'),還沒被刪除、也還沒簽收過。
     // 還沒核對的訂單理論上貨都還沒出,簽收沒有意義,所以待處理訂單先不給簽收。
     const signable = !o.deleted && status === 'confirmed' && !o.signedAt;
-    const isEditingThis = editingOrderHistoryId === o.id;
-    const draftItems = (isEditingThis && orderHistoryEditDraft) ? orderHistoryEditDraft : o.items;
 
-    const itemsHtml = draftItems.map(it => {
-      if(isEditingThis){
-        return `
-          <div>
-            <span>${it.name}${it.sku ? ` (${it.sku})` : ''}</span>
-            <span>
-              <input type="number" id="orderHistoryQty_${o.id}_${it.productId}" value="${it.qty}" min="1" step="1"
-                style="width:70px;font-family:inherit;font-size:inherit;" />
-              <span class="row-unit">${it.unit}</span>
-              <span class="del-link" style="margin-left:8px;color:var(--crit);" onclick="removeOrderHistoryDraftItem('${it.productId}')">${t('btnDelete')}</span>
-            </span>
-          </div>
-        `;
-      }
-      return `
-        <div>
-          <span>${it.name}${it.sku ? ` (${it.sku})` : ''}</span>
-          <span>${it.qty} ${it.unit}</span>
-        </div>
-      `;
-    }).join('') || `<div class="empty-note">${t('orderHistoryNoItemsLeft')}</div>`;
-    const addProductLinkHtml = isEditingThis
+    // 品項的顯示/修改/刪除跟「訂貨後台管理 → 待處理訂單」共用同一個 orderItemRowHtml,直接呼叫
+    // savePendingOrderItemQty/deletePendingOrderItem——這樣訂單還是「待處理」的時候,不管在訂購
+    // 記錄還是待處理訂單改,數量變更紀錄(qtyHistory)跟軟刪除標記都是寫在同一份 order.items 上,
+    // 兩邊都會立刻看到彼此的異動。但訂購記錄這邊只有訂單還是「待處理」時才能改——一旦核對變成
+    // 「已完成」,就只能在「訂貨後台管理 → 已完成訂單」那邊改(簽收前),訂購記錄這裡改成唯讀
+    // (readOnly=!editable),避免顧客自己把已經出貨、已經扣過庫存的訂單內容改掉。
+    const itemsHtml = o.items.map(it => orderItemRowHtml(o, it, status === 'pending', !editable, 'history')).join('')
+      || `<div class="empty-note">${t('orderHistoryNoItemsLeft')}</div>`;
+    const addProductLinkHtml = (editable && isExpanded)
       ? `<div style="margin-top:8px;"><span class="del-link" onclick="goAddProductsToOrder('${o.id}')">${t('btnAddProductToOrder')}</span></div>`
       : '';
 
@@ -6046,41 +6184,11 @@ function renderOrderHistory(){
           ${o.note ? `<div style="font-size:12px;color:var(--ink-soft);margin:8px 0 6px;">${t('noteLabelPrefix')}${o.note}</div>` : ''}
           <div class="order-items">${itemsHtml}</div>
           ${addProductLinkHtml}
-          <div class="order-card-actions">
-            ${isEditingThis ? `
-              <button class="btn" onclick="saveOrderHistoryEdit('${o.id}')">${t('btnSave')}</button>
-              <button class="btn ghost" onclick="cancelEditOrderHistory()">${t('btnCancel')}</button>
-            ` : `
-              ${editable ? `<button class="btn ghost" onclick="startEditOrderHistory('${o.id}')">${t('btnEditOrder')}</button>` : ''}
-              ${signable ? `<button class="btn" onclick="signOrderHistory('${o.id}')">${t('btnSignReceipt')}</button>` : ''}
-            `}
-          </div>
+          ${signable ? `<div class="order-card-actions"><button class="btn" onclick="signOrderHistory('${o.id}')">${t('btnSignReceipt')}</button></div>` : ''}
         ` : ''}
       </div>
     `;
   }).join('');
-}
-
-function startEditOrderHistory(orderId){
-  const order = orders.find(o => o.id === orderId);
-  if(!order || order.deleted || orderStatus(order) !== 'pending' || order.signedAt) return;
-  if(warnIfOrderBeingProcessed(orderId)) return;
-  editingOrderHistoryId = orderId;
-  orderHistoryEditDraft = order.items.map(it => ({ ...it }));
-  expandedOrderIds.add(orderId);
-  renderOrderHistory();
-}
-
-function cancelEditOrderHistory(){
-  editingOrderHistoryId = null;
-  orderHistoryEditDraft = null;
-  renderOrderHistory();
-}
-
-function removeOrderHistoryDraftItem(productId){
-  if(!orderHistoryEditDraft) return;
-  orderHistoryEditDraft = orderHistoryEditDraft.filter(it => it.productId !== productId);
-  renderOrderHistory();
 }
 
 // 「訂購記錄」編輯畫面裡的「新增商品」:離開這個編輯畫面,改導去「訂貨」頁面讓使用者正常挑
@@ -6094,8 +6202,6 @@ function goAddProductsToOrder(orderId){
 
   addingItemsToOrderId = orderId;
   orderQtyDraft = {};
-  editingOrderHistoryId = null;
-  orderHistoryEditDraft = null;
 
   switchTab('tab-order');
   switchOrderSubTab('subtab-order-place');
@@ -6124,76 +6230,6 @@ function cancelAddItemsToOrder(){
   const banner = document.getElementById('addToOrderBanner');
   if(banner) banner.style.display = 'none';
   renderOrderItemsTable();
-}
-
-// 儲存「訂購記錄」裡的修改:讀取畫面上每個品項目前的輸入框數量,連同(可能已經被移除的)草稿
-// 清單,直接整份覆蓋 order.items —— 不寫 qtyHistory、不做軟刪除標記,單純就是把這張還沒核對的
-// 訂單改成使用者現在畫面上看到的樣子。如果全部品項都被移除了,整張訂單直接視同取消(軟刪除)。
-async function saveOrderHistoryEdit(orderId){
-  const order = orders.find(o => o.id === orderId);
-  if(!order || !orderHistoryEditDraft) return;
-  if(order.deleted || orderStatus(order) !== 'pending' || order.signedAt){
-    cancelEditOrderHistory();
-    return;
-  }
-  if(warnIfOrderBeingProcessed(orderId)){
-    cancelEditOrderHistory();
-    return;
-  }
-
-  const newItems = [];
-  const errors = [];
-  for(const it of orderHistoryEditDraft){
-    const input = document.getElementById(`orderHistoryQty_${orderId}_${it.productId}`);
-    const qty = input ? parseFloat(input.value) : it.qty;
-    if(isNaN(qty) || qty <= 0){
-      errors.push(tf('errInvalidHistoryQty', { name: it.name }));
-      continue;
-    }
-    // 這個品項目前「還能訂到的上限」= 可訂數量(已經扣掉別人待處理訂單的量)再加回這張訂單原本
-    // 就佔用的量(因為那個量本來就是這張訂單自己的,不該被自己排擠掉)。
-    const maxAllowed = computeAvailableForOrder(it.productId) + it.qty;
-    if(qty > maxAllowed){
-      errors.push(tf('errHistoryQtyExceedsAvailable', { name: it.name, available: maxAllowed }));
-      continue;
-    }
-    newItems.push({ ...it, qty });
-  }
-
-  if(errors.length > 0){
-    showInfoModal(`⚠ ${errors.join('; ')}`);
-    return;
-  }
-
-  if(newItems.length === 0){
-    showConfirmModal(t('confirmEmptyOrderCancels'), () => finalizeOrderHistorySave(order, []));
-    return;
-  }
-  await finalizeOrderHistorySave(order, newItems);
-}
-
-async function finalizeOrderHistorySave(order, newItems){
-  const prevItems = order.items;
-  const prevDeleted = order.deleted;
-  const prevDeletedAt = order.deletedAt;
-  order.items = newItems;
-  if(newItems.length === 0){
-    order.deleted = true;
-    order.deletedAt = new Date().toISOString();
-  }
-  try{
-    await upsertOrders([order]);
-  } catch(e){
-    order.items = prevItems;
-    order.deleted = prevDeleted;
-    order.deletedAt = prevDeletedAt;
-    showInfoModal('⚠ 儲存失敗,請重新整理頁面再試一次。');
-    return;
-  }
-  editingOrderHistoryId = null;
-  orderHistoryEditDraft = null;
-  logInventoryAction('order_edit', `Order ${order.orderNo || order.id} - edited via order history (${newItems.length} item(s) remain)${newItems.length === 0 ? ', order cancelled' : ''}`, order.orderNo);
-  renderAll();
 }
 
 // 簽收:確認貨已經實際收到了。只有已經核對過、真的出貨的訂單(status='confirmed')才能簽收——
@@ -7083,7 +7119,7 @@ async function confirmConversion(){
 }
 
 // ===== 切換紀錄(Convert History)=====
-// 只保留最近 7 天的切換紀錄(用日期比對,無精確時間)。每筆紀錄是一組配對的 out/in 交易(同一個 conversionId)。
+// 只保留最近一個月(30 天)的切換紀錄(用日期比對,無精確時間)。每筆紀錄是一組配對的 out/in 交易(同一個 conversionId)。
 function formatTimeHHMM(iso){
   if(!iso) return '';
   const d = new Date(iso);
@@ -7093,7 +7129,7 @@ function formatTimeHHMM(iso){
 
 function getConversionRecords(){
   const cutoff = new Date();
-  cutoff.setDate(cutoff.getDate() - 7);
+  cutoff.setDate(cutoff.getDate() - 30);
   const cutoffStr = [cutoff.getFullYear(), String(cutoff.getMonth()+1).padStart(2,'0'), String(cutoff.getDate()).padStart(2,'0')].join('-');
   const byId = {};
   transactions.forEach(tx => {
@@ -8557,7 +8593,7 @@ function isUserActivelyEditing(){
     .some(el => el.style.display && el.style.display !== 'none');
   if(anyModalOpen) return true;
   return !!(editingTxId || editingProductId || editingPartyId || editingOrderItemKey ||
-    editingOrderRemarkId || editingUserModalId || editingOrderHistoryId || editingOrderPartyId ||
+    editingOrderRemarkId || editingUserModalId || editingOrderPartyId ||
     addingItemsToOrderId);
 }
 
