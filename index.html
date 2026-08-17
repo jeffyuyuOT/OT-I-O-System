@@ -25,6 +25,7 @@
     --crit-bg:#F3DFDB;
   }
   *{box-sizing:border-box;}
+  @keyframes appLoadingSpin{ to{ transform:rotate(360deg); } }
   html{ overflow-x:hidden; width:100%; }
   body{
     margin:0; background:var(--bg); color:var(--ink);
@@ -80,7 +81,7 @@
   }
   .lang-toggle-btn:hover{ background:var(--yellow); color:var(--ink); border-color:var(--yellow); }
   .brand-logo{ display:block; max-width:100%; height:auto; border-radius:4px; }
-  .brand-logo-header{ max-height:56px; margin-bottom:16px; }
+  .brand-logo-header{ max-height:38px; margin-bottom:14px; }
   .app-title-block{ line-height:1.15; }
   .app-title-brand{
     font-family:'Archivo Black',sans-serif; font-size:15px; letter-spacing:0.5px;
@@ -150,7 +151,7 @@
     background:var(--panel); border:1px solid var(--line); border-radius:4px; padding:32px 30px 28px;
     width:100%; max-width:340px; text-align:center;
   }
-  .brand-logo-login{ max-height:100px; margin:0 auto 18px; }
+  .brand-logo-login{ max-height:64px; margin:0 auto 18px; }
   .login-box h1{
     font-family:'Archivo Black',sans-serif; font-size:20px; margin:0 0 6px; letter-spacing:0.5px;
     text-transform:uppercase; color:var(--ink);
@@ -699,6 +700,10 @@
   </div>
 </div>
 
+<div id="appLoadingOverlay" style="display:none;position:fixed;inset:0;z-index:9999;background:var(--bg);align-items:center;justify-content:center;flex-direction:column;gap:14px;">
+  <div style="width:36px;height:36px;border:3px solid #3a3a34;border-top-color:var(--yellow);border-radius:50%;animation:appLoadingSpin 0.8s linear infinite;"></div>
+  <div style="color:#B8B6AC;font-family:'Inter',sans-serif;font-size:13px;" data-i18n="appLoadingText">載入中…</div>
+</div>
 <div id="appRoot" class="wrap" style="display:none;">
   <div class="header">
     <div class="header-actions">
@@ -1658,6 +1663,7 @@ const I18N = {
     selectAllLabel: '全選', btnViewNote: '▾', btnViewNoteTitle: '查看備註', mobileHomeBtnTitle: '選單',
     appTitle: 'Orange Tea AU | Inventory & Order Hub', appTitleOrderOnly: 'Orange Tea AU | Order Hub',
     appTitleSubtitle: 'Inventory & Order Hub', appTitleSubtitleOrderOnly: 'Order Hub',
+    appLoadingText: '載入中…',
     tabMaster: '系統管理', tabTx: '庫存管理', tabOverview: '庫存總覽', tabLog: '進出貨紀錄',
     tabInventoryLog: '後台紀錄', secInventoryLog: '後台紀錄',
     inventoryLogDesc: '列出所有操作動作(訂貨、進貨、出貨、入庫、修改訂單、刪除訂單…等),依時間先後排序(最新在最上面)，可用日期篩選特定時間段。',
@@ -1941,6 +1947,7 @@ const I18N = {
     selectAllLabel: 'Select All', btnViewNote: '▾', btnViewNoteTitle: 'View note', mobileHomeBtnTitle: 'Menu',
     appTitle: 'Orange Tea AU | Inventory & Order Hub', appTitleOrderOnly: 'Orange Tea AU | Order Hub',
     appTitleSubtitle: 'Inventory & Order Hub', appTitleSubtitleOrderOnly: 'Order Hub',
+    appLoadingText: 'Loading…',
     tabMaster: 'System Admin', tabTx: 'Inventory Management', tabOverview: 'Stock Overview', tabLog: 'Stock In/Out Log',
     tabInventoryLog: 'Inventory Log', secInventoryLog: 'Inventory Log',
     inventoryLogDesc: 'Every action taken in the app (place order, stock in, stock out, restock, edit order, delete order, etc.), newest first. Filter by date range to view a specific period.',
@@ -2712,9 +2719,11 @@ async function handleLoginSubmit(e){
   if(submitBtn) submitBtn.disabled = false;
   currentUser = profile;
   document.getElementById('loginScreen').style.display = 'none';
-  document.getElementById('appRoot').style.display = '';
+  document.getElementById('appLoadingOverlay').style.display = 'flex';
   showOnlyAllowedTabImmediately();
   await startApp();
+  document.getElementById('appLoadingOverlay').style.display = 'none';
+  document.getElementById('appRoot').style.display = '';
   return false;
 }
 
@@ -9036,9 +9045,11 @@ function showScanToast(text, isError){
     if(profile){
       currentUser = profile;
       document.getElementById('loginScreen').style.display = 'none';
-      document.getElementById('appRoot').style.display = '';
+      document.getElementById('appLoadingOverlay').style.display = 'flex';
       showOnlyAllowedTabImmediately();
       await startApp();
+      document.getElementById('appLoadingOverlay').style.display = 'none';
+      document.getElementById('appRoot').style.display = '';
       return;
     } else {
       await sb.auth.signOut();
