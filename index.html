@@ -965,7 +965,11 @@
       <p style="font-size:12.5px;color:var(--ink-soft);margin:0 0 12px;" data-i18n="forecastDesc">
         目前庫存可撐是跟庫存總覽一樣的算法(用平均出貨量推算);填了「預計進貨數量」之後,右邊「進貨後庫存可撐」會即時算出把這批貨加進去、大概還能再撐多久(用(預計進貨數量+目前庫存量)除以平均用量估算),方便抓進貨量的參考,不會真的異動庫存。
       </p>
-      <div class="form-grid" style="grid-template-columns:1fr;max-width:320px;margin-bottom:14px;">
+      <div class="form-grid" style="grid-template-columns:1fr 1fr;max-width:640px;margin-bottom:14px;">
+        <div class="field">
+          <label data-i18n="fieldFilterByForecastParty">依進貨對象篩選商品</label>
+          <select id="forecastPartyFilter" onchange="renderForecastTable()"></select>
+        </div>
         <div class="field">
           <label data-i18n="fieldFilterByCategory">依分類篩選商品</label>
           <select id="forecastCategoryFilter" onchange="renderForecastTable()"></select>
@@ -1880,6 +1884,7 @@ const I18N = {
     secForecast: '進貨預估',
     forecastDesc: '目前庫存可撐是跟庫存總覽一樣的算法(用平均出貨量推算);填了「預計進貨數量」之後,右邊「進貨後庫存可撐」會即時算出把這批貨加進去、大概還能再撐多久(用(預計進貨數量+目前庫存量)除以平均用量估算),方便抓進貨量的參考,不會真的異動庫存。',
     colCurrentRemain: '目前庫存可撐', colForecastQty: '預計進貨數量', colAfterRemain: '進貨後庫存可撐',
+    fieldFilterByForecastParty: '依進貨對象篩選商品',
     noProductsToShow: '沒有符合條件的商品。',
 
     secMultipackSettings: 'Multipack 商品設定',
@@ -2157,6 +2162,7 @@ const I18N = {
     secForecast: 'Purchase Forecast',
     forecastDesc: 'Current Stock Remaining uses the same calculation as Stock Overview (based on average usage). Once you fill in "Forecast Qty", the "Remaining After Purchase" column on the right instantly estimates how long stock would last with that batch added in (calculated as (forecast qty + current stock) ÷ average usage) — handy for sizing a purchase, and doesn\'t actually change any stock.',
     colCurrentRemain: 'Current Stock Remaining', colForecastQty: 'Forecast Qty', colAfterRemain: 'Remaining After Purchase',
+    fieldFilterByForecastParty: 'Filter Products by Supplier',
     noProductsToShow: 'No products match.',
 
     secMultipackSettings: 'Multi-pack Product Settings',
@@ -7616,6 +7622,22 @@ function gaugeInfo(days){
 // (預計進貨數量 + 目前庫存量)÷ 平均用量,估計進貨之後大概還能撐多久。
 let forecastQtyDraft = {}; // productId -> 使用者輸入的預計進貨數量(字串,留著畫面切換/重畫時不會歸零)
 
+function populateForecastPartyFilter(){
+  const sel = document.getElementById('forecastPartyFilter');
+  if(!sel) return;
+  // 「進貨對象」不是出貨方那種固定清單,是從「進貨(type='in')」紀錄裡實際出現過的對象文字整理出來的
+  // (登記進出貨時,類型選「進貨」填的那個「進貨方(供應商)」欄位)。
+  const partySet = new Set();
+  transactions.forEach(tItem => {
+    if(tItem.type === 'in' && tItem.party && tItem.party.trim()) partySet.add(tItem.party.trim());
+  });
+  const parties = Array.from(partySet).sort((a,b) => a.localeCompare(b));
+  const prev = sel.value;
+  sel.innerHTML = `<option value="">${t('logPartyAll')}</option>` +
+    parties.map(p => `<option value="${p.replace(/"/g,'&quot;')}">${p}</option>`).join('');
+  if(parties.includes(prev)) sel.value = prev;
+}
+
 function populateForecastCategoryFilter(){
   const sel = document.getElementById('forecastCategoryFilter');
   if(!sel) return;
@@ -7630,13 +7652,28 @@ function populateForecastCategoryFilter(){
 function renderForecastTable(){
   const container = document.getElementById('forecastTableContainer');
   if(!container) return;
+  populateForecastPartyFilter();
   populateForecastCategoryFilter();
+  const partyFilter = document.getElementById('forecastPartyFilter') ? document.getElementById('forecastPartyFilter').value : '';
   const catFilter = document.getElementById('forecastCategoryFilter') ? document.getElementById('forecastCategoryFilter').value : '';
   const now = new Date();
 
-  // 只看主商品(跟庫存總覽一樣,批量商品的量已經併進主商品的 computeTotalStock 裡了,不用重複列出)。
-  let items = products.filter(p => !p.parentId);
+  // 顯示的商品跟庫存總覽預設看到的一樣:只看主商品(批量商品的量已經併進主商品的
+  // computeTotalStock 裡,不用重複列出),而且不含被勾選「隱藏」的商品(庫存總覽預設也是這樣,
+  // 「顯示隱藏商品」沒特別打開的話不會看到)。
+  let items = products.filter(p => !p.parentId && !p.hidden);
+
+  // 先依「進貨對象」篩選:只要這個商品有任何一筆「進貨(type='in')」紀錄的對象是選定的這個,
+  // 不管商品現在是什麼分類都會顯示。
+  if(partyFilter){
+    const productIdsFromParty = new Set(
+      transactions.filter(tItem => tItem.type === 'in' && (tItem.party || '').trim() === partyFilter).map(tItem => tItem.productId)
+    );
+    items = items.filter(p => productIdsFromParty.has(p.id));
+  }
+  // 再依分類篩選(兩個篩選條件是「且」的關係,都有選的話兩個條件都要符合)。
   if(catFilter) items = items.filter(p => (p.category || '未分類') === catFilter);
+
   items = items.slice().sort((a,b) => (a.sku || '').localeCompare(b.sku || '', undefined, { numeric: true, sensitivity: 'base' }) || a.name.localeCompare(b.name));
 
   if(items.length === 0){
