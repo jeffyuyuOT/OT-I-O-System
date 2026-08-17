@@ -1764,7 +1764,7 @@ const I18N = {
     orderTabDesc: '只有標記為「可訂貨」的商品會出現在下面清單(在「庫存總覽」分頁的商品列點「加入訂貨」即可標記;也可以在「訂貨後台管理 → 管理出貨方」針對個別出貨方再調整能看到哪些商品)。庫存為 0 的商品會顯示「缺貨」且無法填數量,訂貨數量也不能超過目前庫存。<b>按下「購物車」不會扣除庫存,會先進入購物車確認,按下購物車裡的「送出訂貨」才會扣除庫存並記錄到「訂貨後台管理 → 已完成訂單」</b>,請確認數量無誤再送出;不小心送錯的話,可以到「已完成訂單」用刪除功能把庫存退回來。',
     fieldOrderDate: '訂貨日期', fieldShippingParty: '出貨方', fieldOrderNote: '備註(選填)',
     optUnspecified: '未指定',
-    orderPartyHelp: '沒有想要的出貨方嗎?到「訂貨後台管理 → 管理出貨方」新增即可。選了出貨方之後,下面的「每週平均用量」會用這個出貨方最近三個月的出貨紀錄計算,供訂貨時參考。',
+    orderPartyHelp: '沒有想要的出貨方嗎?到「訂貨後台管理 → 管理出貨方」新增即可。選了出貨方之後,下面的「每次訂貨平均用量」會用這個出貨方最近三個月的出貨紀錄計算,供訂貨時參考。',
     fieldFilterByCategory: '依分類篩選商品',
     noOrderableProducts: '目前沒有標記為「可訂貨」的商品。',
     noFilteredOrderableProducts: '沒有符合條件的商品。到「庫存總覽」分頁把商品標記為可訂貨,或到「訂貨後台管理 → 管理出貨方」調整這個出貨方能看到的商品範圍,也可以檢查一下分類篩選是不是選錯了。',
@@ -1773,7 +1773,7 @@ const I18N = {
     cartDesc: '請確認以下訂貨數量。按「繼續訂貨」可以回到訂貨頁面修改',
     btnOrderMore: '← 繼續訂貨', btnConfirmOrderFinal: '✅ 提交訂單',
     cartEmptyNote: '購物車是空的,請先在訂貨頁面填寫訂貨數量。',
-    colWeeklyAvg: '每週平均用量(近3個月)', colOrderQty: '訂貨數量', oosLabel: '缺貨',
+    colWeeklyAvg: '每次訂貨平均用量', colOrderQty: '訂貨數量', oosLabel: '缺貨',
     avgTitlePartySpecific: '以「{name}」最近三個月的出貨紀錄計算',
     avgTitlePartyFallback: '「{name}」最近三個月沒有這項商品的出貨紀錄,顯示整體最近三個月平均值供參考',
     avgTitleNoParty: '目前沒有選出貨方,顯示整體最近三個月平均值供參考',
@@ -2048,7 +2048,7 @@ const I18N = {
     orderTabDesc: 'Only products marked "Orderable" appear in the list below (mark a product from its row in Stock Overview by clicking "Add to Order"; you can also fine-tune which products each customer can see under Order Management → Manage Customers). Products with 0 stock show "Out of Stock" and can\'t be ordered; order quantity also can\'t exceed current stock. <b>Clicking "Cart" does not deduct stock — it takes you to the cart to review first. Only clicking "Confirm the order" in the cart deducts stock and logs it under Order Management → Completed Orders</b> — please double-check quantities before submitting. If you make a mistake, you can restock by deleting it from Completed Orders.',
     fieldOrderDate: 'Order Date', fieldShippingParty: 'Customer', fieldOrderNote: 'Note (optional)',
     optUnspecified: 'Unspecified',
-    orderPartyHelp: 'Don\'t see the customer you want? Add one under Order Management → Manage Customers. Once you pick a customer, the "Weekly Avg Usage" below is calculated from that customer\'s shipments over the last three months, as a reference while ordering.',
+    orderPartyHelp: 'Don\'t see the customer you want? Add one under Order Management → Manage Customers. Once you pick a customer, the "Avg per Order" below is calculated from that customer\'s shipments over the last three months, as a reference while ordering.',
     fieldFilterByCategory: 'Filter by Category',
     noOrderableProducts: 'No products are marked as orderable yet.',
     noFilteredOrderableProducts: 'No products match. Mark products as orderable in Stock Overview, adjust which products this customer can see under Order Management → Manage Customers, or check whether the category filter is set correctly.',
@@ -2057,7 +2057,7 @@ const I18N = {
     cartDesc: 'Please review the order quantities below. "Order more" takes you back to the order page to make changes',
     btnOrderMore: '← Order more', btnConfirmOrderFinal: '✅ Submit Order',
     cartEmptyNote: 'Your cart is empty. Please fill in order quantities on the order page first.',
-    colWeeklyAvg: 'Weekly Avg Usage (Last 3 Months)', colOrderQty: 'Order Qty', oosLabel: 'Out of Stock',
+    colWeeklyAvg: 'Avg per Order', colOrderQty: 'Order Qty', oosLabel: 'Out of Stock',
     avgTitlePartySpecific: 'Calculated from "{name}"\'s shipments over the last three months',
     avgTitlePartyFallback: '"{name}" has no shipment history for this product in the last three months — showing the overall 3-month average for reference',
     avgTitleNoParty: 'No supplier selected — showing the overall 3-month average for reference',
@@ -4856,57 +4856,33 @@ function getOrderableProductsForParty(partyObj){
   return products.filter(p => p.orderable && !p.hidden && !hiddenForParty.includes(p.id));
 }
 
-// 以「這個出貨方」的出貨紀錄估計每週平均用量:
-// 先看該出貨方過去出貨的「間隔天數」抓出貨週期(約一週一次、約兩週一次...),
-// 再用「每次出貨量的平均」除以對應的週數,估計每週平均用量。例如:
-// - 出貨間隔約 7 天(一週一次):每週平均用量 = 所有出貨單的平均出貨量。
-// - 出貨間隔約 14 天(兩週一次):每週平均用量 = 所有出貨單的平均出貨量 ÷ 2。
-// - 其他間隔(如約 21 天):以四捨五入到最接近的週數類推(÷3、÷4...)。
-// 出貨紀錄只有 1 筆時無法判斷間隔,退回用「該時期出貨量 / 該時期天數 x 7」估計。
-// 都是抓「該出貨方最近三個月」的出貨紀錄來算:
-// - 從固定起算日(2026/07/25)到現在還不滿三個月:該時期 = 2026/07/25 至今,總日數用實際經過天數。
-// - 從固定起算日到現在已經超過三個月:改用「最近三個月」的滑動區間(每家出貨方各自最近三個月的紀錄)計算。
-// 沒選出貨方或該出貨方在這段期間沒有這項商品的紀錄時,退回用整體出貨紀錄計算,供參考。
-const WEEKLY_AVG_START_DATE = new Date('2026-07-25T00:00:00');
-const THREE_MONTHS_DAYS = 91; // 約三個月(30.44 天 x 3),超過起算日三個月後改採最近三個月的滑動區間
+// 以「這個出貨方」最近三個月的出貨紀錄,算「每次訂貨平均用量」:
+// 直接抓最近三個月(從現在往前推 91 天,固定的滑動區間,不分階段)的出貨紀錄,
+// 平均用量 = 這段期間的出貨總量 ÷ 出貨筆數(不看出貨間隔、不換算成週期,單純算「平均一次出多少」)。
+// 出貨紀錄本身排除「切換」(子商品⇄主商品互轉,buildWeightedOutSeries 內建一定會排除)
+// 跟「訂貨單送出訂貨」自動產生的紀錄(excludeOrderFulfillment),但 Excel 匯入商品主檔調整庫存
+// 產生的出貨紀錄算數,因為那也是真的出貨量,只是沒有一筆一筆手動登記而已。
+// 沒選出貨方,或該出貨方在這段期間沒有這項商品的紀錄時,退回用整體出貨紀錄計算,供參考。
+const RECENT_AVG_WINDOW_DAYS = 91; // 約三個月(30.44 天 x 3)
 
-function computeWeeklyAvgForParty(productId, partyName, now){
-  const daysSinceStart = (now - WEEKLY_AVG_START_DATE) / (1000*60*60*24);
-  let windowStart, totalDays;
-  if(daysSinceStart <= THREE_MONTHS_DAYS){
-    windowStart = WEEKLY_AVG_START_DATE;
-    totalDays = Math.max(daysSinceStart, 1);
-  } else {
-    windowStart = new Date(now.getTime() - THREE_MONTHS_DAYS*24*60*60*1000);
-    totalDays = THREE_MONTHS_DAYS;
-  }
+function computePerOrderAvgForParty(productId, partyName, now){
+  const windowStart = new Date(now.getTime() - RECENT_AVG_WINDOW_DAYS*24*60*60*1000);
 
   // 主商品的話,這份序列已經把批量商品的加權出貨量合併進來了(切換紀錄不算),
-  // 同一天主商品+批量商品都有出貨會合併成一筆,避免打亂出貨間隔的判斷。
+  // 同一天主商品+批量商品都有出貨會合併成一筆。
   if(partyName){
-    const tx = buildWeightedOutSeries(productId, { onlyParty: partyName })
+    const tx = buildWeightedOutSeries(productId, { onlyParty: partyName, excludeOrderFulfillment: true })
       .filter(t => new Date(t.date) >= windowStart && new Date(t.date) <= now);
-    if(tx.length >= 2){
-      // 用出貨單之間的實際間隔天數算出平均出貨週期,再換算成「幾週一次」(四捨五入到最接近的整數週)。
-      let gapDaysSum = 0;
-      for(let i = 1; i < tx.length; i++){
-        gapDaysSum += (new Date(tx[i].date) - new Date(tx[i-1].date)) / (1000*60*60*24);
-      }
-      const avgGapDays = gapDaysSum / (tx.length - 1);
-      const weeksPerShipment = Math.max(1, Math.round(avgGapDays / 7));
+    if(tx.length >= 1){
       const avgQtyPerShipment = tx.reduce((s,t) => s + t.qty, 0) / tx.length;
-      return { avg: avgQtyPerShipment / weeksPerShipment, isPartySpecific: true };
-    }
-    if(tx.length === 1){
-      // 只有一筆紀錄,沒有間隔可算,退回用「時期總量 / 時期天數 x 7」估計。
-      const qty = tx[0].qty;
-      return { avg: (qty / totalDays) * 7, isPartySpecific: true };
+      return { avg: avgQtyPerShipment, isPartySpecific: true };
     }
   }
-  const tx2 = buildWeightedOutSeries(productId, {})
+  const tx2 = buildWeightedOutSeries(productId, { excludeOrderFulfillment: true })
     .filter(t => new Date(t.date) >= windowStart && new Date(t.date) <= now);
-  const qty2 = tx2.reduce((s,t) => s + t.qty, 0);
-  return { avg: (qty2 / totalDays) * 7, isPartySpecific: false };
+  if(tx2.length === 0) return { avg: 0, isPartySpecific: false };
+  const avgQtyPerShipment2 = tx2.reduce((s,t) => s + t.qty, 0) / tx2.length;
+  return { avg: avgQtyPerShipment2, isPartySpecific: false };
 }
 
 
@@ -4962,7 +4938,7 @@ function renderOrderItemsTable(){
     const isChildProduct = !!p.parentId; // 這個商品本身是不是 multipack 商品(不管有沒有縮排都要標 ⧉)
     const stock = Math.max(0, computeAvailableForOrder(p.id));
     const outOfStock = stock <= 0;
-    const w = computeWeeklyAvgForParty(p.id, partyObj ? partyObj.name : '', now);
+    const w = computePerOrderAvgForParty(p.id, partyObj ? partyObj.name : '', now);
     const avgTitle = partyObj
       ? (w.isPartySpecific ? tf('avgTitlePartySpecific', {name: partyObj.name}) : tf('avgTitlePartyFallback', {name: partyObj.name}))
       : t('avgTitleNoParty');
@@ -4976,7 +4952,7 @@ function renderOrderItemsTable(){
     const row = `
       <tr class="${outOfStock ? 'oos-row' : ''}">
         <td class="row-name" style="${isNested ? 'padding-left:26px;' : ''}">${p.sku ? `<span class="sku-badge">${p.sku}</span>` : ''}${isChildProduct ? '⧉ ' : ''}${p.name}${expandArrow}${outOfStock ? `<span class="oos-badge">${t('oosLabel')}</span>` : ''}</td>
-        <td class="row-num hide-mobile" ${isChildProduct ? '' : `title="${avgTitle}"`}>${isChildProduct ? '—' : `${w.avg.toFixed(1)} ${p.unit}/${lang === 'en' ? 'wk' : '週'}`}</td>
+        <td class="row-num hide-mobile" ${isChildProduct ? '' : `title="${avgTitle}"`}>${isChildProduct ? '—' : `${w.avg.toFixed(1)} ${p.unit}`}</td>
         <td class="row-num row-qty qty-col-data">
           <span class="td-mobile-label">${t('colOrderQty')}</span>
           <div class="qty-cell-inner">
@@ -7028,7 +7004,7 @@ async function saveProductEditModal(){
 
 // ===== 批量商品 ↔ 主商品 數量切換 =====
 // 切換是指:把批量商品的數量,依加權數換算成主商品的數量,批量商品扣、主商品加。
-// 這個變化不算是一般的出貨/進貨,不會影響平均出貨量的計算(computeAvgMonthlyOut / computeWeeklyAvgForParty 都會排除 conversion 紀錄)。
+// 這個變化不算是一般的出貨/進貨,不會影響平均出貨量的計算(computeAvgMonthlyOut / computePerOrderAvgForParty 都會排除 conversion 紀錄)。
 function openConversionModal(childId){
   const child = products.find(x => x.id === childId);
   if(!child || !child.parentId) return;
@@ -7596,7 +7572,9 @@ function computeTotalStock(productId){
 
 // 把某商品「自己」的出貨紀錄,加上(如果是主商品)所有批量商品的出貨紀錄經過加權後,
 // 合併成一份依日期加總的出貨序列,用來計算平均用量。切換(批量商品↔主商品)產生的紀錄不算數。
-// opts.onlyParty: 只計入某個出貨方的紀錄(訂貨頁面的每週平均用量會用到);opts.excludeSystem: 排除系統(訂貨單)產生的紀錄(庫存總覽的月均用量會用到)。
+// opts.onlyParty: 只計入某個出貨方的紀錄;opts.excludeOrderFulfillment: 排除「訂貨單送出訂貨」自動產生的出貨紀錄
+// (這種紀錄一定會有 orderId,用這個欄位判斷,而不是看 system 欄位——因為 Excel 匯入商品主檔調整庫存時
+// 產生的出貨紀錄也會標記 system:true,但那筆是真的出貨量,不該被這個排除規則誤殺,要留著算進平均用量)。
 function buildWeightedOutSeries(productId, opts){
   opts = opts || {};
   const p = products.find(x => x.id === productId);
@@ -7606,7 +7584,7 @@ function buildWeightedOutSeries(productId, opts){
     transactions.forEach(t => {
       if(t.productId !== pid || t.type !== 'out') return;
       if(t.conversion) return; // 切換數量不算入平均用量
-      if(opts.excludeSystem && t.system) return;
+      if(opts.excludeOrderFulfillment && t.orderId) return;
       if(opts.onlyParty && t.party !== opts.onlyParty) return;
       byDate[t.date] = (byDate[t.date] || 0) + t.qty * weight;
     });
@@ -7625,7 +7603,7 @@ function buildWeightedOutSeries(productId, opts){
 //   由 getEffectiveAvg 依此公式跟商品的初始估計值(manualAvg)混合計算。
 function computeAvgMonthlyOut(productId, now){
   // 主商品的話,這份序列已經把批量商品的加權出貨量合併進來了(切換紀錄不算)。
-  const outTx = buildWeightedOutSeries(productId, { excludeSystem: true });
+  const outTx = buildWeightedOutSeries(productId, { excludeOrderFulfillment: true });
   if(outTx.length === 0) return { avg: 0, historyDays: 0, hasRealData: false };
 
   const earliest = outTx.reduce((min, t) => {
