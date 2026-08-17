@@ -7698,20 +7698,29 @@ function renderForecastTable(){
   `;
 }
 
+// p 一律是「主商品」(family 的錨點,用來算加總庫存/平均出貨);畫面上實際顯示的名稱/SKU/單位,
+// 跟庫存總覽一樣改成看「顯示於庫存總覽」目前選的是哪個代表商品(getTotalStockBasisProduct)——
+// 如果庫存總覽那邊選的是某個 multipack 子商品當代表,這裡的商品名稱、單位也要跟著換,不能一直
+// 顯示主商品自己的名字。draft 數量還是用主商品的 id 存(family 的 key),不會因為代表換了就不見。
 function forecastRowHtml(p, now){
-  const stock = computeTotalStock(p.id);
-  const { avg } = getEffectiveAvg(p, now);
-  const currentGauge = gaugeInfo(daysRemaining(stock, avg));
+  const basis = getTotalStockBasisProduct(p);
+  const weight = getBasisWeight(basis, p);
+  const rawStock = computeTotalStock(p.id);
+  const { avg: rawAvg } = getEffectiveAvg(p, now);
+  const currentGauge = gaugeInfo(daysRemaining(rawStock, rawAvg));
   const draftVal = forecastQtyDraft[p.id] != null ? forecastQtyDraft[p.id] : '';
-  const forecastQty = parseFloat(draftVal);
-  const afterGauge = gaugeInfo(daysRemaining(stock + (isNaN(forecastQty) ? 0 : forecastQty), avg));
+  const enteredQty = parseFloat(draftVal);
+  // 使用者填的「預計進貨數量」是用代表商品的單位填的(例如選了 x20 的箱子就是填箱數),
+  // 要先乘上加權數換算回主商品自己的單位,才能跟原始庫存量、平均出貨量放在一起算天數。
+  const rawAddition = isNaN(enteredQty) ? 0 : enteredQty * weight;
+  const afterGauge = gaugeInfo(daysRemaining(rawStock + rawAddition, rawAvg));
   return `
     <tr id="forecastRow_${p.id}">
-      <td class="row-name">${p.sku ? `<span class="sku-badge">${p.sku}</span>` : ''}${p.name}</td>
+      <td class="row-name">${basis.sku ? `<span class="sku-badge">${basis.sku}</span>` : ''}${basis.name}</td>
       <td class="num"><span class="dot dot-${currentGauge.cls}" style="margin-right:5px;"></span>${currentGauge.label}</td>
       <td class="num">
         <input type="number" min="0" step="1" value="${draftVal}" style="width:90px;" id="forecastQtyInput_${p.id}"
-          oninput="updateForecastRow('${p.id}')" /><span class="row-unit">${p.unit}</span>
+          oninput="updateForecastRow('${p.id}')" /><span class="row-unit">${basis.unit}</span>
       </td>
       <td class="num" id="forecastAfterCell_${p.id}"><span class="dot dot-${afterGauge.cls}" style="margin-right:5px;"></span>${afterGauge.label}</td>
     </tr>
@@ -7726,10 +7735,13 @@ function updateForecastRow(productId){
   forecastQtyDraft[productId] = input.value;
   const p = products.find(x => x.id === productId);
   if(!p) return;
-  const stock = computeTotalStock(p.id);
-  const { avg } = getEffectiveAvg(p, new Date());
+  const basis = getTotalStockBasisProduct(p);
+  const weight = getBasisWeight(basis, p);
+  const rawStock = computeTotalStock(p.id);
+  const { avg: rawAvg } = getEffectiveAvg(p, new Date());
   const qty = parseFloat(input.value);
-  const afterGauge = gaugeInfo(daysRemaining(stock + (isNaN(qty) ? 0 : qty), avg));
+  const rawAddition = isNaN(qty) ? 0 : qty * weight;
+  const afterGauge = gaugeInfo(daysRemaining(rawStock + rawAddition, rawAvg));
   const cell = document.getElementById(`forecastAfterCell_${productId}`);
   if(cell) cell.innerHTML = `<span class="dot dot-${afterGauge.cls}" style="margin-right:5px;"></span>${afterGauge.label}`;
 }
