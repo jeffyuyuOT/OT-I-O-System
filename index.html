@@ -72,7 +72,7 @@
 
   /* Header: manifest board with barcode stripe */
   .header{
-    background:var(--ink); color:var(--bg); padding:18px 36px 22px 24px; position:relative; overflow:hidden;
+    background:var(--ink); color:var(--bg); padding:16px 36px 22px 24px; position:relative; overflow:hidden;
   }
   .lang-toggle-btn{
     position:absolute; top:24px; right:28px; background:transparent; border:1px solid rgba(255,255,255,0.35);
@@ -83,7 +83,7 @@
   .brand-logo{ display:block; max-width:100%; height:auto; border-radius:4px; }
   /* 實際的高度是寫在 <img> 標籤自己的 inline style(height:min(...) !important),這裡的
      class 只負責管間距,不要再改這裡的高度,改了也不會生效。 */
-  .brand-logo-header{ margin-bottom:8px; }
+  .brand-logo-header{ margin-bottom:4px; }
   .app-title-block{ line-height:1.15; }
   .app-title-brand{
     font-family:'Archivo Black',sans-serif; font-size:15px; letter-spacing:0.5px;
@@ -164,7 +164,7 @@
   .login-box button.btn{ width:100%; margin-top:4px; }
 
   .header-actions{
-    position:absolute; top:22px; right:28px; display:flex; align-items:center; gap:14px;
+    position:absolute; top:16px; right:28px; display:flex; align-items:center; gap:14px;
   }
 
   /* Logged-in user badge / logout */
@@ -221,19 +221,18 @@
   /* 進貨預估表格:用 colgroup 固定每欄寬度,確保表頭跟底下資料列的欄位邊界永遠對齊
      (不會因為某一列內容比較短/長,讓瀏覽器自動配置的欄寬跟表頭對不起來)。 */
   .forecast-table .fc-col-name{ width:38%; }
-  .forecast-table .fc-col-current{ width:19%; }
-  .forecast-table .fc-col-qty{ width:22%; }
+  .forecast-table .fc-col-current{ width:24%; }
+  .forecast-table .fc-col-qty{ width:17%; }
   .forecast-table .fc-col-after{ width:21%; }
   .fc-qty-input{ width:90px; font-family:inherit; font-size:inherit; }
   /* 預計進貨數量欄:輸入框的位置要固定,不能因為「Bag」「Bottles」「Boxes」這些單位字長短不一,
-     害整組(輸入框+單位)被當成一個整體對齊、跟著滑來滑去——所以裡面包一層 flex 容器置中對齊
-     (使用者特別要求這欄要對準標題文字中間,不是靠右),單位文字則給固定寬度(fc-unit-label),
-     這樣不管單位字有幾個字,輸入框本身的位置都不會變。
+     害整組(輸入框+單位)被當成一個整體對齊、跟著滑來滑去——所以裡面包一層 flex 容器靠右對齊,
+     單位文字則給固定寬度(fc-unit-label),這樣不管單位字有幾個字,輸入框本身的位置都不會變。
      這層 flex 特意包在 td 裡面的一個內層容器,不是直接放在 td 本身——如果直接把 td 設成
      display:flex,td 就不再是瀏覽器認得的表格儲存格版面模式,會不認 colgroup 訂的欄寬,寬度變成
      自己抓,結果就是這一欄的資料列跟表頭對不上,得繞這一層才能兩邊都要。 */
   .fc-qty-cell-inner{
-    display:inline-flex; justify-content:center; align-items:center;
+    display:inline-flex; justify-content:flex-end; align-items:center;
   }
   .fc-unit-label{
     display:inline-block; width:54px; text-align:left; margin-left:6px;
@@ -283,9 +282,9 @@
   /* 訂貨頁面的「訂貨數量」欄:同一種修法,輸入框位置要固定,不能因為商品單位字數不一樣就跟著
      滑動;而且這欄使用者特別要求要「置中」對齊標題,不是靠右——所以標題欄跟資料欄都改成置中,
      資料欄裡面再包一層固定寬度的單位文字,讓輸入框+單位這組內容的視覺中心點盡量對齊標題中間。 */
-  .qty-col-header{ text-align:center; }
-  .qty-col-data{ text-align:center; }
-  .qty-cell-inner{ display:inline-flex; align-items:center; justify-content:center; }
+  .qty-col-header{ text-align:right; }
+  .qty-col-data{ text-align:right; }
+  .qty-cell-inner{ display:inline-flex; align-items:center; justify-content:flex-end; }
   .qty-unit-label{
     display:inline-block; width:54px; text-align:left; margin-left:6px;
     font-family:'IBM Plex Mono',monospace; font-size:10.5px; color:var(--ink-soft);
