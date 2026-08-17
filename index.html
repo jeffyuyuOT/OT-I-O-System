@@ -4863,11 +4863,10 @@ function getOrderableProductsForParty(partyObj){
 // 以「這個出貨方」最近三個月的出貨紀錄,算「每次訂貨平均用量」:
 // 直接抓最近三個月(從現在往前推 91 天,固定的滑動區間,不分階段)的出貨紀錄,
 // 平均用量 = 這段期間的出貨總量 ÷ 出貨筆數(不看出貨間隔、不換算成週期,單純算「平均一次出多少」)。
-// 出貨紀錄本身排除「切換」(子商品⇄主商品互轉,buildWeightedOutSeries 內建一定會排除)、
-// 「訂貨單送出訂貨」自動產生的紀錄(excludeOrderFulfillment),還有「Excel 匯入商品主檔」時自動產生
-// 的庫存調整紀錄(excludeMasterImportAdjustment)——這種調整紀錄算庫存校正,不是一筆一筆出貨給
-// 客人,不該拿來算「每次訂貨平均用量」。但如果是「Excel 匯入登記進出貨(出貨單)」產生的紀錄,
-// 那才是真的出貨量,一樣算數。
+// 出貨紀錄本身排除「切換」(子商品⇄主商品互轉,buildWeightedOutSeries 內建一定會排除)、還有
+// 「Excel 匯入商品主檔」時自動產生的庫存調整紀錄(excludeMasterImportAdjustment)——這種調整紀錄
+// 算庫存校正,不是一筆一筆出貨給客人,不該拿來算「每次訂貨平均用量」。訂單(不管是客人在「訂貨」
+// 下的,還是 Excel 匯入出貨單併成待處理訂單、核對送出的)一經確認扣庫存,一律算數,不排除。
 // 沒選出貨方,或該出貨方在這段期間沒有這項商品的紀錄時,退回用整體出貨紀錄計算,供參考。
 const RECENT_AVG_WINDOW_DAYS = 91; // 約三個月(30.44 天 x 3)
 
@@ -4877,14 +4876,14 @@ function computePerOrderAvgForParty(productId, partyName, now){
   // 主商品的話,這份序列已經把批量商品的加權出貨量合併進來了(切換紀錄不算),
   // 同一天主商品+批量商品都有出貨會合併成一筆。
   if(partyName){
-    const tx = buildWeightedOutSeries(productId, { onlyParty: partyName, excludeOrderFulfillment: true, excludeMasterImportAdjustment: true })
+    const tx = buildWeightedOutSeries(productId, { onlyParty: partyName, excludeMasterImportAdjustment: true })
       .filter(t => new Date(t.date) >= windowStart && new Date(t.date) <= now);
     if(tx.length >= 1){
       const avgQtyPerShipment = tx.reduce((s,t) => s + t.qty, 0) / tx.length;
       return { avg: avgQtyPerShipment, isPartySpecific: true };
     }
   }
-  const tx2 = buildWeightedOutSeries(productId, { excludeOrderFulfillment: true, excludeMasterImportAdjustment: true })
+  const tx2 = buildWeightedOutSeries(productId, { excludeMasterImportAdjustment: true })
     .filter(t => new Date(t.date) >= windowStart && new Date(t.date) <= now);
   if(tx2.length === 0) return { avg: 0, isPartySpecific: false };
   const avgQtyPerShipment2 = tx2.reduce((s,t) => s + t.qty, 0) / tx2.length;
@@ -7578,12 +7577,15 @@ function computeTotalStock(productId){
 
 // 把某商品「自己」的出貨紀錄,加上(如果是主商品)所有批量商品的出貨紀錄經過加權後,
 // 合併成一份依日期加總的出貨序列,用來計算平均用量。切換(批量商品↔主商品)產生的紀錄不算數。
-// opts.onlyParty: 只計入某個出貨方的紀錄;opts.excludeOrderFulfillment: 排除「訂貨單送出訂貨」自動產生的
-// 出貨紀錄(這種紀錄一定會有 orderId);opts.excludeMasterImportAdjustment: 排除「Excel 匯入商品主檔」時,
+// opts.onlyParty: 只計入某個出貨方的紀錄;opts.excludeMasterImportAdjustment: 排除「Excel 匯入商品主檔」時,
 // 表格數量跟現有庫存對不上而自動產生的調整紀錄(這種紀錄一定會標記 masterImportAdjustment:true)——
 // 這種調整紀錄算庫存校正,不是真的一筆一筆出貨給客人,所以訂貨頁面的「每次訂貨平均用量」不算這個;
 // 但庫存總覽的「平均出貨」還是算,因為那邊看的是整體消耗速度,調整當下差的量本來就是消耗掉的。
-// 「Excel 匯入登記進出貨(出貨單)」產生的紀錄不會有這兩個標記,兩邊都照樣算入。
+// 「Excel 匯入登記進出貨(出貨單)」產生的紀錄不會有這個標記,一律算入。
+// 訂單(不管是客人在「訂貨」下的,還是 Excel 匯入出貨單併成待處理訂單、核對送出的)一經核對確認扣庫存,
+// 一律算是真的出貨給客人,兩種來源在資料上分不出來(都是走同一套「核對/送出訂貨」的程式碼,一樣會有
+// orderId),所以不特別排除有 orderId 的紀錄——這裡以前曾經排除過,但那樣反而會把 Excel 匯入出貨單
+// 核對確認後的出貨量也一起排除掉,不正確,已經拿掉這條規則。
 function buildWeightedOutSeries(productId, opts){
   opts = opts || {};
   const p = products.find(x => x.id === productId);
@@ -7593,7 +7595,6 @@ function buildWeightedOutSeries(productId, opts){
     transactions.forEach(t => {
       if(t.productId !== pid || t.type !== 'out') return;
       if(t.conversion) return; // 切換數量不算入平均用量
-      if(opts.excludeOrderFulfillment && t.orderId) return;
       if(opts.excludeMasterImportAdjustment && t.masterImportAdjustment) return;
       if(opts.onlyParty && t.party !== opts.onlyParty) return;
       byDate[t.date] = (byDate[t.date] || 0) + t.qty * weight;
@@ -7613,10 +7614,11 @@ function buildWeightedOutSeries(productId, opts){
 //   由 getEffectiveAvg 依此公式跟商品的初始估計值(manualAvg)混合計算。
 // 這裡故意不排除「Excel 匯入商品主檔」自動產生的庫存調整紀錄(不傳 excludeMasterImportAdjustment)——
 // 庫存總覽看的是整體消耗速度,調整當下差的那些量本來就是消耗掉的,要算進去;只有訂貨頁面的
-// 「每次訂貨平均用量」才會排除這種調整紀錄(見 computePerOrderAvgForParty)。
+// 「每次訂貨平均用量」才會排除這種調整紀錄(見 computePerOrderAvgForParty)。也不排除已核對確認的
+// 訂單出貨紀錄(不管訂單是客人下的還是 Excel 匯入出貨單來的,確認扣庫存後都是真的出貨量)。
 function computeAvgMonthlyOut(productId, now){
   // 主商品的話,這份序列已經把批量商品的加權出貨量合併進來了(切換紀錄不算)。
-  const outTx = buildWeightedOutSeries(productId, { excludeOrderFulfillment: true });
+  const outTx = buildWeightedOutSeries(productId, {});
   if(outTx.length === 0) return { avg: 0, historyDays: 0, hasRealData: false };
 
   const earliest = outTx.reduce((min, t) => {
