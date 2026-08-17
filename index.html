@@ -214,6 +214,13 @@
     background:var(--ink); color:var(--bg); padding:2px 8px; border-radius:20px; margin-left:8px;
   }
   .stock-table tr.cat-row:first-child td{ padding-top:4px; }
+  /* 進貨預估表格:用 colgroup 固定每欄寬度,確保表頭跟底下資料列的欄位邊界永遠對齊
+     (不會因為某一列內容比較短/長,讓瀏覽器自動配置的欄寬跟表頭對不起來)。 */
+  .forecast-table .fc-col-name{ width:38%; }
+  .forecast-table .fc-col-current{ width:19%; }
+  .forecast-table .fc-col-qty{ width:22%; }
+  .forecast-table .fc-col-after{ width:21%; }
+  .fc-qty-input{ width:90px; font-family:inherit; font-size:inherit; }
   .row-indicator{ width:18px; }
   .dot{ display:inline-block; width:10px; height:10px; border-radius:50%; }
   .dot-safe{ background:var(--safe); }
@@ -422,6 +429,11 @@
     .header{ padding:20px 16px 16px; }
     .header h1, .app-title-main{ font-size:24px; }
     .app-title-brand{ font-size:12px; }
+    .fc-qty-input{ width:56px; }
+    .forecast-table .fc-col-name{ width:44%; }
+    .forecast-table .fc-col-current{ width:17%; }
+    .forecast-table .fc-col-qty{ width:17%; }
+    .forecast-table .fc-col-after{ width:22%; }
     .header-actions{ position:static; display:flex; justify-content:space-between; margin-bottom:10px; gap:8px; }
     .lang-toggle-btn{ top:auto; right:auto; }
     .mobile-home-btn{
@@ -978,7 +990,7 @@
       <p style="font-size:12.5px;color:var(--ink-soft);margin:0 0 12px;" data-i18n="forecastDesc">
         目前庫存可撐是跟庫存總覽一樣的算法(用平均出貨量推算);填了「預計進貨數量」之後,右邊「進貨後庫存可撐」會即時算出把這批貨加進去、大概還能再撐多久(用(預計進貨數量+目前庫存量)除以平均用量估算),方便抓進貨量的參考,不會真的異動庫存。
       </p>
-      <div class="form-grid" style="grid-template-columns:1fr 1fr;max-width:640px;margin-bottom:14px;">
+      <div class="form-grid" style="grid-template-columns:1fr 1fr auto;max-width:900px;margin-bottom:14px;align-items:end;">
         <div class="field">
           <label data-i18n="fieldFilterByForecastParty">依進貨對象篩選商品</label>
           <select id="forecastPartyFilter" onchange="renderForecastTable()"></select>
@@ -987,6 +999,7 @@
           <label data-i18n="fieldFilterByCategory">依分類篩選商品</label>
           <select id="forecastCategoryFilter" onchange="renderForecastTable()"></select>
         </div>
+        <div id="forecastSummaryBar" style="font-size:12.5px;color:var(--ink-soft);white-space:nowrap;padding-bottom:9px;"></div>
       </div>
       <div id="forecastTableContainer"></div>
     </div>
@@ -1658,6 +1671,8 @@ const I18N = {
     fieldSku: 'SKU(選填)', fieldName: '商品名稱', fieldUnit: '單位', fieldCategory: '分類',
     fieldAvg: '月均使用量(選填)', fieldSafety: '安全庫存(選填)', fieldNote: '備註(選填)',
     fieldBarcode: '條碼', barcodeInputHint: '可以直接把游標點進這一欄,拿掃碼槍掃一次商品包裝上的條碼,掃到的號碼會自動打進來,不用手動輸入。',
+    fieldBoxDimensions: '箱子尺寸(公分)', fieldBoxLength: '長', fieldBoxWidth: '寬', fieldBoxHeight: '高',
+    boxDimensionsHint: '單位是公分。填了之後,進貨預估頁面才能算出這個商品的體積。',
     barcodeInputPlaceholder: '掃描或手動輸入條碼',
     barcodeValueTitle: '條碼:{barcode}',
     btnAddProduct: '新增商品', btnRegister: '提交', btnParseExcel: '解析 Excel',
@@ -1826,7 +1841,7 @@ const I18N = {
     txAddToCompletedOrderLabel: '併入已完成訂單(勾選才會賦予訂單編號,並顯示在「訂貨後台管理 → 已完成訂單」;不勾選則只是單純登記一筆出貨紀錄)',
     btnAddToBatch: '+ 加入清單', txBatchEmpty: '清單是空的,請先在上方選好商品跟數量後按「加入清單」。',
     secUploadMasterExcel: '上傳你自己的商品主檔 Excel',
-    secUploadMasterExcelDesc: '可以一次選取多個檔案。第一列要是欄位標題,系統會自動辨識這些欄位名稱(大小寫、中英文都可以):<br/><span style="font-family:\'IBM Plex Mono\',monospace;font-size:11.5px;">必要:SKU、Name/品名、Stock/庫存量&nbsp;&nbsp;|&nbsp;&nbsp;選填:Unit/單位、AvgMonthlySales/平均使用量、Categories/分類、SafetyStock/安全庫存、Note/備註、ParentSKU/主商品SKU、ChildWeight/加權數</span><br/><b>以 SKU 為比對主鍵</b>:表格裡的 SKU 如果跟現有商品相同,就算表格上的名稱不一樣,也會視為同一項商品並更新其他欄位;<b>商品名稱一律維持庫存總覽現有的名稱,不會被表格覆蓋</b>。SKU 不同或全新的 SKU 會用表格上的名稱新增成一項新商品。<b>沒有填 SKU 的資料列會被略過,不會寫入。</b><br/><b>批量商品(multi-pack)</b>:如果這一列是某個主商品底下的批量商品,在 ParentSKU 欄位填主商品的 SKU,並在 ChildWeight 欄位填加權數(換算主商品庫存時,這個批量商品的庫存量會先乘以這個數字);沒填 ParentSKU 就當一般商品匯入。ParentSKU 必須是同一份表格裡或系統裡已經存在的 SKU,而且那個商品本身不能又是別人的批量商品(不支援兩層巢狀)。',
+    secUploadMasterExcelDesc: '可以一次選取多個檔案。第一列要是欄位標題,系統會自動辨識這些欄位名稱(大小寫、中英文都可以):<br/><span style="font-family:\'IBM Plex Mono\',monospace;font-size:11.5px;">必要:SKU、Name/品名、Stock/庫存量&nbsp;&nbsp;|&nbsp;&nbsp;選填:Unit/單位、AvgMonthlySales/平均使用量、Categories/分類、SafetyStock/安全庫存、Note/備註、ParentSKU/主商品SKU、ChildWeight/加權數、Length/長、Width/寬、Height/高</span><br/><b>以 SKU 為比對主鍵</b>:表格裡的 SKU 如果跟現有商品相同,就算表格上的名稱不一樣,也會視為同一項商品並更新其他欄位;<b>商品名稱一律維持庫存總覽現有的名稱,不會被表格覆蓋</b>。SKU 不同或全新的 SKU 會用表格上的名稱新增成一項新商品。<b>沒有填 SKU 的資料列會被略過,不會寫入。</b><br/><b>批量商品(multi-pack)</b>:如果這一列是某個主商品底下的批量商品,在 ParentSKU 欄位填主商品的 SKU,並在 ChildWeight 欄位填加權數(換算主商品庫存時,這個批量商品的庫存量會先乘以這個數字);沒填 ParentSKU 就當一般商品匯入。ParentSKU 必須是同一份表格裡或系統裡已經存在的 SKU,而且那個商品本身不能又是別人的批量商品(不支援兩層巢狀)。<br/><b>箱子尺寸(Length/Width/Height)</b>:單位是公分,三個都填了「庫存管理 → 進貨預估」頁面才能算出這個商品的體積。',
     fieldSelectFiles: '選擇檔案(檔案在不同資料夾可分次加選)',
     secImportTxDesc: '上傳你填好的每日進出貨紀錄表(<b>可以一次選取多個檔案</b>),系統會依<b>檔名</b>自動判斷進貨或出貨(檔名需包含「stock in」或「stock out」),並自動比對商品名稱、抓出每一列的數量,整批登記成紀錄。每個檔案會各自偵測自己的日期/供應商。',
     secImportTxWarning: '注意:庫存主檔(像 stock.xlsx,含品名/庫存量/分類/安全庫存)請不要在這裡上傳,那個要到「系統管理 → 商品主頁」用「從 Excel 匯入商品主檔」。',
@@ -1899,6 +1914,7 @@ const I18N = {
     secForecast: '進貨預估',
     forecastDesc: '目前庫存可撐是跟庫存總覽一樣的算法(用平均出貨量推算);填了「預計進貨數量」之後,右邊「進貨後庫存可撐」會即時算出把這批貨加進去、大概還能再撐多久(用(預計進貨數量+目前庫存量)除以平均用量估算),方便抓進貨量的參考,不會真的異動庫存。',
     colCurrentRemain: '目前庫存可撐', colForecastQty: '預計進貨數量', colAfterRemain: '進貨後庫存可撐',
+    colForecastVolume: '體積', lblTotalBoxes: '總箱數:', lblTotalVolume: '總體積:', lblVolumeDefaultUnit: '材積',
     fieldFilterByForecastParty: '依進貨對象篩選商品',
     noProductsToShow: '沒有符合條件的商品。',
 
@@ -1938,6 +1954,8 @@ const I18N = {
     fieldSku: 'SKU (optional)', fieldName: 'Product Name', fieldUnit: 'Unit', fieldCategory: 'Category',
     fieldAvg: 'Avg Monthly Usage (optional)', fieldSafety: 'Safety Stock (optional)', fieldNote: 'Note (optional)',
     fieldBarcode: 'Barcode', barcodeInputHint: 'Click into this field and scan the product\'s barcode with a scanner gun — the code types straight in, no need to enter it by hand.',
+    fieldBoxDimensions: 'Box Dimensions (cm)', fieldBoxLength: 'Length', fieldBoxWidth: 'Width', fieldBoxHeight: 'Height',
+    boxDimensionsHint: 'Units are in centimeters. Fill these in to enable volume calculation on the Purchase Forecast page.',
     barcodeInputPlaceholder: 'Scan or type the barcode',
     barcodeValueTitle: 'Barcode: {barcode}',
     btnAddProduct: 'Add Product', btnRegister: 'Submit', btnParseExcel: 'Parse Excel',
@@ -2106,7 +2124,7 @@ const I18N = {
     txAddToCompletedOrderLabel: 'Add to Completed Orders with order# (if unchecked just logs a plain stock-out record)',
     btnAddToBatch: '+ Add to List', txBatchEmpty: 'The list is empty — pick a product and quantity above, then click "Add to List".',
     secUploadMasterExcel: 'Upload Your Own Product Master Excel',
-    secUploadMasterExcelDesc: 'You can select multiple files at once. The first row must be column headers — the system auto-detects these column names (case-insensitive, Chinese or English):<br/><span style="font-family:\'IBM Plex Mono\',monospace;font-size:11.5px;">Required: SKU, Name, Stock&nbsp;&nbsp;|&nbsp;&nbsp;Optional: Unit, AvgMonthlySales, Categories, SafetyStock, Note, ParentSKU, ChildWeight</span><br/><b>Matched by SKU</b>: if a row\'s SKU matches an existing product, it\'s treated as the same product and other fields are updated — even if the name in the sheet differs; <b>the product name always stays as whatever is currently in Stock Overview and is never overwritten by the sheet</b>. A different or brand-new SKU creates a new product using the name from the sheet. <b>Rows without a SKU are skipped.</b><br/><b>Multi-pack products</b>: if a row is a multi-pack (child) product under a main product, put the main product\'s SKU in ParentSKU and the weighting number in ChildWeight (when computing the main product\'s total stock, this multi-pack\'s stock is multiplied by that number first). Leave ParentSKU blank to import as a regular standalone product. ParentSKU must match a SKU that exists either elsewhere in this sheet or already in the system, and that product can\'t itself be another product\'s multi-pack (no two-level nesting).',
+    secUploadMasterExcelDesc: 'You can select multiple files at once. The first row must be column headers — the system auto-detects these column names (case-insensitive, Chinese or English):<br/><span style="font-family:\'IBM Plex Mono\',monospace;font-size:11.5px;">Required: SKU, Name, Stock&nbsp;&nbsp;|&nbsp;&nbsp;Optional: Unit, AvgMonthlySales, Categories, SafetyStock, Note, ParentSKU, ChildWeight, Length, Width, Height</span><br/><b>Matched by SKU</b>: if a row\'s SKU matches an existing product, it\'s treated as the same product and other fields are updated — even if the name in the sheet differs; <b>the product name always stays as whatever is currently in Stock Overview and is never overwritten by the sheet</b>. A different or brand-new SKU creates a new product using the name from the sheet. <b>Rows without a SKU are skipped.</b><br/><b>Multi-pack products</b>: if a row is a multi-pack (child) product under a main product, put the main product\'s SKU in ParentSKU and the weighting number in ChildWeight (when computing the main product\'s total stock, this multi-pack\'s stock is multiplied by that number first). Leave ParentSKU blank to import as a regular standalone product. ParentSKU must match a SKU that exists either elsewhere in this sheet or already in the system, and that product can\'t itself be another product\'s multi-pack (no two-level nesting).<br/><b>Box dimensions (Length/Width/Height)</b>: in centimeters — fill in all three to enable volume calculation on the "Inventory Management → Purchase Forecast" page.',
     fieldSelectFiles: 'Choose Files (add more from different folders as needed)',
     secImportTxDesc: 'Upload your filled-in daily stock in/out sheets (<b>you can select multiple files at once</b>). The system uses the <b>file name</b> to auto-detect stock in or out (file name must include "stock in" or "stock out"), matches product names automatically, reads the quantity in each row, and logs them all as records. Each file\'s date/supplier is detected independently.',
     secImportTxWarning: 'Note: don\'t upload a product master file here (like stock.xlsx, containing name/stock/category/safety stock) — use "Import from Excel" under "System Admin → Product Master" for that.',
@@ -2179,6 +2197,7 @@ const I18N = {
     secForecast: 'Purchase Forecast',
     forecastDesc: 'Current Stock Remaining uses the same calculation as Stock Overview (based on average usage). Once you fill in "Forecast Qty", the "Remaining After Purchase" column on the right instantly estimates how long stock would last with that batch added in (calculated as (forecast qty + current stock) ÷ average usage) — handy for sizing a purchase, and doesn\'t actually change any stock.',
     colCurrentRemain: 'Current Stock Remaining', colForecastQty: 'Forecast Qty', colAfterRemain: 'Remaining After Purchase',
+    colForecastVolume: 'Volume', lblTotalBoxes: 'Total Boxes:', lblTotalVolume: 'Total Volume:', lblVolumeDefaultUnit: 'Dimensional',
     fieldFilterByForecastParty: 'Filter Products by Supplier',
     noProductsToShow: 'No products match.',
 
@@ -4403,7 +4422,10 @@ async function importStockItems(items){
         note: item.note || '',
         orderable: false,
         parentId: null,
-        childWeight: null
+        childWeight: null,
+        boxLengthCm: (item.boxLengthCm !== null && item.boxLengthCm !== undefined && !isNaN(item.boxLengthCm)) ? item.boxLengthCm : undefined,
+        boxWidthCm: (item.boxWidthCm !== null && item.boxWidthCm !== undefined && !isNaN(item.boxWidthCm)) ? item.boxWidthCm : undefined,
+        boxHeightCm: (item.boxHeightCm !== null && item.boxHeightCm !== undefined && !isNaN(item.boxHeightCm)) ? item.boxHeightCm : undefined
       });
       if(item.qty > 0){
         const tx = {
@@ -4430,6 +4452,9 @@ async function importStockItems(items){
     if(item.avg !== null && item.avg !== undefined && existing.manualAvg !== item.avg){ existing.manualAvg = item.avg; changed = true; }
     if(item.safetyStock !== null && item.safetyStock !== undefined && existing.safetyStock !== item.safetyStock){ existing.safetyStock = item.safetyStock; changed = true; }
     if(item.note && existing.note !== item.note){ existing.note = item.note; changed = true; }
+    if(item.boxLengthCm !== null && item.boxLengthCm !== undefined && !isNaN(item.boxLengthCm) && existing.boxLengthCm !== item.boxLengthCm){ existing.boxLengthCm = item.boxLengthCm; changed = true; }
+    if(item.boxWidthCm !== null && item.boxWidthCm !== undefined && !isNaN(item.boxWidthCm) && existing.boxWidthCm !== item.boxWidthCm){ existing.boxWidthCm = item.boxWidthCm; changed = true; }
+    if(item.boxHeightCm !== null && item.boxHeightCm !== undefined && !isNaN(item.boxHeightCm) && existing.boxHeightCm !== item.boxHeightCm){ existing.boxHeightCm = item.boxHeightCm; changed = true; }
 
     const currentStock = computeStock(existing.id);
     const diff = item.qty - currentStock;
@@ -4509,7 +4534,10 @@ const MASTER_COLUMN_ALIASES = {
   safetyStock: ['safetystock','安全庫存'],
   note: ['note','notes','備註','remark'],
   parentSku: ['parentsku','mainproductsku','主商品sku','母商品sku','主商品編號','multipackparentsku'],
-  childWeight: ['childweight','weight','加權數','庫存量加權數','weightnumber']
+  childWeight: ['childweight','weight','加權數','庫存量加權數','weightnumber'],
+  boxLength: ['boxlength','length','長','箱長','長度cm','lengthcm'],
+  boxWidth: ['boxwidth','width','寬','箱寬','寬度cm','widthcm'],
+  boxHeight: ['boxheight','height','高','箱高','高度cm','heightcm']
 };
 
 function normalizeHeader(h){
@@ -4616,6 +4644,9 @@ function parseMasterExcelFile(){
         const colNote = findColumnIndex(headerRow, MASTER_COLUMN_ALIASES.note);
         const colParentSku = findColumnIndex(headerRow, MASTER_COLUMN_ALIASES.parentSku);
         const colChildWeight = findColumnIndex(headerRow, MASTER_COLUMN_ALIASES.childWeight);
+        const colBoxLength = findColumnIndex(headerRow, MASTER_COLUMN_ALIASES.boxLength);
+        const colBoxWidth = findColumnIndex(headerRow, MASTER_COLUMN_ALIASES.boxWidth);
+        const colBoxHeight = findColumnIndex(headerRow, MASTER_COLUMN_ALIASES.boxHeight);
 
         if(colName === -1 || colQty === -1){
           fileErrors.push(`${file.name}:找不到「Name/品名」或「Stock/庫存量」欄位`);
@@ -4644,7 +4675,10 @@ function parseMasterExcelFile(){
             safetyStock: colSafety !== -1 && row[colSafety] !== null && row[colSafety] !== '' ? parseFloat(row[colSafety]) : null,
             note: colNote !== -1 && row[colNote] ? String(row[colNote]).trim() : null,
             parentSku: colParentSku !== -1 && row[colParentSku] !== null && row[colParentSku] !== '' ? String(row[colParentSku]).trim() : null,
-            childWeight: colChildWeight !== -1 && row[colChildWeight] !== null && row[colChildWeight] !== '' ? parseFloat(row[colChildWeight]) : null
+            childWeight: colChildWeight !== -1 && row[colChildWeight] !== null && row[colChildWeight] !== '' ? parseFloat(row[colChildWeight]) : null,
+            boxLengthCm: colBoxLength !== -1 && row[colBoxLength] !== null && row[colBoxLength] !== '' ? parseFloat(row[colBoxLength]) : null,
+            boxWidthCm: colBoxWidth !== -1 && row[colBoxWidth] !== null && row[colBoxWidth] !== '' ? parseFloat(row[colBoxWidth]) : null,
+            boxHeightCm: colBoxHeight !== -1 && row[colBoxHeight] !== null && row[colBoxHeight] !== '' ? parseFloat(row[colBoxHeight]) : null
           });
         }
       } catch(err){
@@ -6831,6 +6865,15 @@ function renderProductEditModalBody(p, opts){
       <input type="text" id="editProdBarcode" value="${(p.barcode || '').replace(/"/g,'&quot;')}" placeholder="${t('barcodeInputPlaceholder')}" style="width:100%;" />
       <div class="field-hint">${t('barcodeInputHint')}</div>
     </div>
+    <div class="field-block">
+      <label>${t('fieldBoxDimensions')}</label>
+      <div class="form-grid" style="grid-template-columns:1fr 1fr 1fr;gap:8px;">
+        <input type="number" id="editProdBoxL" min="0" step="0.1" value="${p.boxLengthCm !== null && p.boxLengthCm !== undefined ? p.boxLengthCm : ''}" placeholder="${t('fieldBoxLength')}" />
+        <input type="number" id="editProdBoxW" min="0" step="0.1" value="${p.boxWidthCm !== null && p.boxWidthCm !== undefined ? p.boxWidthCm : ''}" placeholder="${t('fieldBoxWidth')}" />
+        <input type="number" id="editProdBoxH" min="0" step="0.1" value="${p.boxHeightCm !== null && p.boxHeightCm !== undefined ? p.boxHeightCm : ''}" placeholder="${t('fieldBoxHeight')}" />
+      </div>
+      <div class="field-hint">${t('boxDimensionsHint')}</div>
+    </div>
     ${!opts.isNew ? `
     <div class="field-block">
       <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-weight:400;">
@@ -6882,6 +6925,12 @@ async function saveProductEditModal(){
   const note = document.getElementById('editProdNote').value.trim();
   const barcodeEl = document.getElementById('editProdBarcode');
   const barcode = barcodeEl ? barcodeEl.value.trim() : '';
+  const boxLRaw = document.getElementById('editProdBoxL') ? document.getElementById('editProdBoxL').value.trim() : '';
+  const boxWRaw = document.getElementById('editProdBoxW') ? document.getElementById('editProdBoxW').value.trim() : '';
+  const boxHRaw = document.getElementById('editProdBoxH') ? document.getElementById('editProdBoxH').value.trim() : '';
+  const boxLengthCm = boxLRaw ? parseFloat(boxLRaw) : null;
+  const boxWidthCm = boxWRaw ? parseFloat(boxWRaw) : null;
+  const boxHeightCm = boxHRaw ? parseFloat(boxHRaw) : null;
 
   if(!name){ msg.className = 'msg error'; msg.textContent = '商品名稱不能空白'; return; }
   if(products.some(x => x.id !== id && x.name === name)){ msg.className = 'msg error'; msg.textContent = '已經有另一個商品叫這個名字了'; return; }
@@ -6903,7 +6952,10 @@ async function saveProductEditModal(){
       manualAvg: avgRaw === '' ? null : parseFloat(avgRaw),
       safetyStock: safetyRaw === '' ? null : parseFloat(safetyRaw),
       note, orderable: false, parentId: parent.id, childWeight: weightVal,
-      barcode: barcode || undefined
+      barcode: barcode || undefined,
+      boxLengthCm: boxLengthCm !== null && !isNaN(boxLengthCm) ? boxLengthCm : undefined,
+      boxWidthCm: boxWidthCm !== null && !isNaN(boxWidthCm) ? boxWidthCm : undefined,
+      boxHeightCm: boxHeightCm !== null && !isNaN(boxHeightCm) ? boxHeightCm : undefined
     });
   } else {
     p.sku = sku;
@@ -6918,6 +6970,9 @@ async function saveProductEditModal(){
     p.safetyStock = safetyRaw === '' ? null : parseFloat(safetyRaw);
     p.note = note;
     p.barcode = barcode || undefined;
+    p.boxLengthCm = boxLengthCm !== null && !isNaN(boxLengthCm) ? boxLengthCm : undefined;
+    p.boxWidthCm = boxWidthCm !== null && !isNaN(boxWidthCm) ? boxWidthCm : undefined;
+    p.boxHeightCm = boxHeightCm !== null && !isNaN(boxHeightCm) ? boxHeightCm : undefined;
     const hiddenEl = document.getElementById('editProdHidden');
     if(hiddenEl) p.hidden = hiddenEl.checked;
     const showInTotalEl = document.getElementById('editProdShowInTotal');
@@ -7588,6 +7643,22 @@ function gaugeInfo(days){
 // (computeTotalStock + getEffectiveAvg + daysRemaining),填了「預計進貨數量」之後即時算出
 // (預計進貨數量 + 目前庫存量)÷ 平均用量,估計進貨之後大概還能撐多久。
 let forecastQtyDraft = {}; // productId -> 使用者輸入的預計進貨數量(字串,留著畫面切換/重畫時不會歸零)
+let forecastVolumeUnit = 'cm3'; // 'cm3'(材積,預設) 或 'm3'(cubic meter)
+
+// 商品箱子體積(cm³):要長寬高三個都有填才算得出來,缺一個就回傳 null(表示這個商品目前
+// 沒辦法算體積,畫面上顯示「-」)。體積是看 basis(畫面上實際顯示的代表商品)自己填的尺寸,
+// 跟名稱/單位一樣的判斷方式。
+function computeBoxVolumeCm3(basis){
+  if(basis.boxLengthCm == null || basis.boxWidthCm == null || basis.boxHeightCm == null) return null;
+  if(isNaN(basis.boxLengthCm) || isNaN(basis.boxWidthCm) || isNaN(basis.boxHeightCm)) return null;
+  return basis.boxLengthCm * basis.boxWidthCm * basis.boxHeightCm;
+}
+
+function formatForecastVolume(cm3){
+  if(cm3 === null) return '-';
+  if(forecastVolumeUnit === 'm3') return `${(cm3 / 1000000).toLocaleString(undefined, {minimumFractionDigits:3, maximumFractionDigits:3})} m³`;
+  return `${cm3.toLocaleString(undefined, {maximumFractionDigits:0})} cm³`;
+}
 
 function populateForecastPartyFilter(){
   const sel = document.getElementById('forecastPartyFilter');
@@ -7643,13 +7714,19 @@ function renderForecastTable(){
 
   items = items.slice().sort((a,b) => (a.sku || '').localeCompare(b.sku || '', undefined, { numeric: true, sensitivity: 'base' }) || a.name.localeCompare(b.name));
 
+  // 篩選列右邊的「總箱數」「總體積」:交給共用的 updateForecastSummary() 算,避免這裡重複一份邏輯。
+  updateForecastSummary();
+
   if(items.length === 0){
     container.innerHTML = `<div class="empty-note">${t('noProductsToShow')}</div>`;
     return;
   }
 
   container.innerHTML = `
-    <table class="stock-table">
+    <table class="stock-table forecast-table">
+      <colgroup>
+        <col class="fc-col-name"><col class="fc-col-current"><col class="fc-col-qty"><col class="fc-col-after">
+      </colgroup>
       <thead>
         <tr>
           <th>${t('fieldName')}</th>
@@ -7686,7 +7763,7 @@ function forecastRowHtml(p, now){
       <td class="row-name">${basis.sku ? `<span class="sku-badge">${basis.sku}</span>` : ''}${basis.name}</td>
       <td class="num"><span class="dot dot-${currentGauge.cls}" style="margin-right:5px;"></span>${currentGauge.label}</td>
       <td class="num">
-        <input type="number" min="0" step="1" value="${draftVal}" style="width:90px;" id="forecastQtyInput_${p.id}"
+        <input type="number" min="0" step="1" value="${draftVal}" class="fc-qty-input" id="forecastQtyInput_${p.id}"
           oninput="updateForecastRow('${p.id}')" /><span class="row-unit">${basis.unit}</span>
       </td>
       <td class="num" id="forecastAfterCell_${p.id}"><span class="dot dot-${afterGauge.cls}" style="margin-right:5px;"></span>${afterGauge.label}</td>
@@ -7694,8 +7771,10 @@ function forecastRowHtml(p, now){
   `;
 }
 
-// 只更新「這一列」的預計進貨數量跟右邊的試算結果,不整個表格重畫——不然使用者打字打到一半,
-// 表格被背景自動同步之類的機制重畫,輸入框會被打斷、游標位置也會跳掉。
+// 只更新「這一列」的預計進貨數量、體積、右邊的試算結果,不整個表格重畫——不然使用者打字打到一半,
+// 表格被背景自動同步之類的機制重畫,輸入框會被打斷、游標位置也會跳掉。但因為總箱數/總體積這個
+// 加總數字牽涉到「所有列」,單一列改動還是得重算一次加總,所以這裡額外呼叫 updateForecastSummary()
+// 只重畫上面那條加總小字,不動整個表格。
 function updateForecastRow(productId){
   const input = document.getElementById(`forecastQtyInput_${productId}`);
   if(!input) return;
@@ -7711,6 +7790,44 @@ function updateForecastRow(productId){
   const afterGauge = gaugeInfo(daysRemaining(rawStock + rawAddition, rawAvg));
   const cell = document.getElementById(`forecastAfterCell_${productId}`);
   if(cell) cell.innerHTML = `<span class="dot dot-${afterGauge.cls}" style="margin-right:5px;"></span>${afterGauge.label}`;
+
+  updateForecastSummary();
+}
+
+// 只重算、重畫上面那條「總箱數 / 總體積」的加總小字,不動整個表格(避免打字時整表重畫打斷輸入)。
+function updateForecastSummary(){
+  const summaryBar = document.getElementById('forecastSummaryBar');
+  if(!summaryBar) return;
+  const partyFilter = document.getElementById('forecastPartyFilter') ? document.getElementById('forecastPartyFilter').value : '';
+  const catFilter = document.getElementById('forecastCategoryFilter') ? document.getElementById('forecastCategoryFilter').value : '';
+  let items = products.filter(p => !p.parentId && !p.hidden);
+  if(partyFilter){
+    const productIdsFromParty = new Set(
+      transactions.filter(tItem => tItem.type === 'in' && (tItem.party || '').trim() === partyFilter).map(tItem => tItem.productId)
+    );
+    items = items.filter(p => productIdsFromParty.has(p.id));
+  }
+  if(catFilter) items = items.filter(p => (p.category || '未分類') === catFilter);
+
+  let totalBoxes = 0, totalVolumeCm3 = 0;
+  items.forEach(p => {
+    const basis = getTotalStockBasisProduct(p);
+    const qty = parseFloat(forecastQtyDraft[p.id]);
+    if(!isNaN(qty)){
+      totalBoxes += qty;
+      const boxVol = computeBoxVolumeCm3(basis);
+      if(boxVol !== null) totalVolumeCm3 += boxVol * qty;
+    }
+  });
+
+  summaryBar.innerHTML = `
+    <span>${t('lblTotalBoxes')}<strong>${totalBoxes ? totalBoxes.toLocaleString() : '0'}</strong></span>
+    <span style="margin-left:14px;">${t('lblTotalVolume')}<strong>${formatForecastVolume(totalVolumeCm3 || 0)}</strong></span>
+    <select id="forecastVolumeUnitSelect" onchange="forecastVolumeUnit=this.value;renderForecastTable();" style="margin-left:8px;font-size:11.5px;padding:2px 4px;">
+      <option value="cm3" ${forecastVolumeUnit === 'cm3' ? 'selected' : ''}>cm³ (${t('lblVolumeDefaultUnit')})</option>
+      <option value="m3" ${forecastVolumeUnit === 'm3' ? 'selected' : ''}>m³ (cubic meter)</option>
+    </select>
+  `;
 }
 
 function populateCategoryDropdowns(){
