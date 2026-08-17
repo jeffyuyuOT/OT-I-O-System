@@ -203,6 +203,7 @@
     letter-spacing:0.3px; color:var(--ink-soft); padding:0 8px 8px; border-bottom:1px solid var(--ink);
   }
   .stock-table thead th.num{ text-align:right; }
+  .stock-table tbody td.num{ text-align:right; }
   .stock-table thead th.sortable-th{ cursor:pointer; user-select:none; white-space:nowrap; }
   .stock-table thead th.sortable-th:hover{ color:var(--ink); }
   .stock-table tbody td{ padding:7px 8px; border-bottom:1px solid var(--line); vertical-align:middle; }
@@ -995,16 +996,16 @@
       <p style="font-size:12.5px;color:var(--ink-soft);margin:0 0 12px;" data-i18n="forecastDesc">
         目前庫存可撐是跟庫存總覽一樣的算法(用平均出貨量推算);填了「預計進貨數量」之後,右邊「進貨後庫存可撐」會即時算出把這批貨加進去、大概還能再撐多久(用(預計進貨數量+目前庫存量)除以平均用量估算),方便抓進貨量的參考,不會真的異動庫存。
       </p>
-      <div class="form-grid" style="grid-template-columns:1fr 1fr auto;max-width:900px;margin-bottom:14px;align-items:end;">
-        <div class="field">
+      <div style="display:flex;align-items:end;gap:16px;margin-bottom:14px;flex-wrap:wrap;">
+        <div class="field" style="width:260px;">
           <label data-i18n="fieldFilterByForecastParty">依進貨對象篩選商品</label>
           <select id="forecastPartyFilter" onchange="renderForecastTable()"></select>
         </div>
-        <div class="field">
+        <div class="field" style="width:260px;">
           <label data-i18n="fieldFilterByCategory">依分類篩選商品</label>
           <select id="forecastCategoryFilter" onchange="renderForecastTable()"></select>
         </div>
-        <div id="forecastSummaryBar" style="font-size:12.5px;color:var(--ink-soft);white-space:nowrap;padding-bottom:9px;"></div>
+        <div id="forecastSummaryBar" style="margin-left:auto;font-size:15px;color:var(--ink-soft);white-space:nowrap;padding-bottom:9px;"></div>
       </div>
       <div id="forecastTableContainer"></div>
     </div>
@@ -7832,7 +7833,7 @@ function updateForecastSummary(){
   summaryBar.innerHTML = `
     <span>${t('lblTotalBoxes')}<strong>${totalBoxes ? totalBoxes.toLocaleString() : '0'}</strong></span>
     <span style="margin-left:14px;">${t('lblTotalVolume')}<strong>${formatForecastVolume(totalVolumeCm3 || 0)}</strong></span>
-    <select id="forecastVolumeUnitSelect" onchange="forecastVolumeUnit=this.value;renderForecastTable();" style="margin-left:8px;font-size:11.5px;padding:2px 4px;">
+    <select id="forecastVolumeUnitSelect" onchange="forecastVolumeUnit=this.value;renderForecastTable();" style="margin-left:8px;font-size:13.5px;padding:3px 5px;">
       <option value="cm3" ${forecastVolumeUnit === 'cm3' ? 'selected' : ''}>cm³ (${t('lblVolumeDefaultUnit')})</option>
       <option value="m3" ${forecastVolumeUnit === 'm3' ? 'selected' : ''}>m³ (cubic meter)</option>
     </select>
