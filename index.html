@@ -1734,6 +1734,11 @@ const I18N = {
     orderNoPartyLinkedWarning: '⚠ 這張訂單沒有正式掛上任何出貨方,只有不限出貨方權限的帳號(例如管理者)看得到',
     errOrderBeingProcessed: '這張訂單正在「訂單核對」頁面處理中,請等處理完成(或請對方取消載入)後再修改。',
     errOrderAlreadySigned: '這張訂單已經簽收過了,不能再修改。',
+    confirmRestoreLatestBackup: '找到最新備份「{filename}」({products} 項商品、{transactions} 筆進出貨紀錄)。還原會完全覆蓋目前 App 裡的資料,確定要繼續嗎?',
+    restoredFromFileMsg: '✓ 已從「{filename}」還原:{products} 項商品、{transactions} 筆進出貨紀錄、{orders} 張訂單',
+    exportedBackupToLocationMsg: '✓ 已匯出備份檔到你選的位置:{filename}({products} 項商品、{transactions} 筆進出貨紀錄)',
+    exportedBackupMsg: '✓ 已匯出備份檔:{filename}({products} 項商品、{transactions} 筆進出貨紀錄)',
+    restoredBackupMsg: '✓ 已還原備份:{products} 項商品、{transactions} 筆進出貨紀錄、{orders} 張訂單',
     btnAddProductToOrder: '+ 新增商品',
     btnCancelAddToOrder: '取消,不新增了',
     addToOrderBannerText: '正在為訂單 {orderNo} 新增商品,選好商品、進購物車按「提交訂單」就會直接併進這張訂單。',
@@ -2002,6 +2007,11 @@ const I18N = {
     orderNoPartyLinkedWarning: '⚠ This order isn\'t linked to any shipping party — only accounts without shipping-party restrictions (e.g. admins) can see it',
     errOrderBeingProcessed: 'This order is currently being processed on the Order Verify page. Please wait until that finishes (or ask them to unload it) before editing.',
     errOrderAlreadySigned: 'This order has already been signed for and can no longer be edited.',
+    confirmRestoreLatestBackup: 'Found the latest backup "{filename}" ({products} product(s), {transactions} stock record(s)). Restoring will completely overwrite the app\'s current data. Continue?',
+    restoredFromFileMsg: '✓ Restored from "{filename}": {products} product(s), {transactions} stock record(s), {orders} order(s)',
+    exportedBackupToLocationMsg: '✓ Exported backup to your chosen location: {filename} ({products} product(s), {transactions} stock record(s))',
+    exportedBackupMsg: '✓ Exported backup: {filename} ({products} product(s), {transactions} stock record(s))',
+    restoredBackupMsg: '✓ Restored backup: {products} product(s), {transactions} stock record(s), {orders} order(s)',
     btnAddProductToOrder: '+ Add Product',
     btnCancelAddToOrder: 'Cancel, don\'t add',
     addToOrderBannerText: 'Adding products to order {orderNo} — pick products, go to cart, and "Submit Order" will merge them straight into this order.',
@@ -2164,6 +2174,7 @@ async function setLang(newLang){
   try{ localStorage.setItem('inventoryAppLang', lang); } catch(e){}
   try{ await dbSet('lang', lang); } catch(e){}
   applyStaticTranslations();
+  renderCurrentUserBadge();
   renderTabBar();
   renderAll();
   setTxType(currentTxType);
@@ -3625,7 +3636,7 @@ async function restoreFromBackupFolder(){
     return;
   }
 
-  showConfirmModal(`找到最新備份「${found.filename}」(${backup.products.length} 項商品、${backup.transactions.length} 筆進出貨紀錄)。還原會完全覆蓋目前 App 裡的資料,確定要繼續嗎?`, async () => {
+  showConfirmModal(tf('confirmRestoreLatestBackup', { filename: found.filename, products: backup.products.length, transactions: backup.transactions.length }), async () => {
     products = backup.products;
     transactions = backup.transactions;
     orders = Array.isArray(backup.orders) ? backup.orders : [];
@@ -3645,7 +3656,7 @@ async function restoreFromBackupFolder(){
     lastAutoBackupMode = 'folder';
     updateAutoBackupStatus();
     msg.className = 'msg ok';
-    msg.textContent = `✓ 已從「${found.filename}」還原:${products.length} 項商品、${transactions.length} 筆進出貨紀錄、${orders.length} 張訂單`;
+    msg.textContent = tf('restoredFromFileMsg', { filename: found.filename, products: products.length, transactions: transactions.length, orders: orders.length });
     renderTabBar();
     renderAll();
   });
@@ -4955,12 +4966,7 @@ function openCart(){
   const { items, errors } = collectOrderItems();
 
   if(errors.length > 0){
-    if(isMobileViewport()){
-      showInfoModal(`⚠ ${errors.join('; ')}`);
-    } else {
-      msg.className = 'msg error';
-      msg.textContent = `⚠ ${errors.join('; ')}`;
-    }
+    showInfoModal(`⚠ ${errors.join('; ')}`);
     return;
   }
 
@@ -5304,7 +5310,7 @@ function renderOrders(){
             ${o.remark ? `<span title="${t('orderHasRemarkTitle')}" style="margin-left:6px;color:var(--yellow-dark);">📝</span>` : ''}
             ${wasModified ? `<span title="${t('orderWasModifiedTitle')}" style="margin-left:6px;color:var(--warn);">✎</span>` : ''}
           </span>
-          <span class="order-status-pill ${o.deleted ? 'deleted' : 'confirmed'}">${o.deleted ? t('statusOrderDeleted') : t('statusCompleted')}</span>
+          <span class="order-status-pill ${o.deleted ? 'deleted' : 'confirmed'}">${o.deleted ? t('statusOrderDeleted') : t('statusCompleted')}</span>${o.signedAt ? `<span title="${tf('orderSignedAtTitle', {datetime: formatOrderDateTime(o.signedAt)})}" style="margin-left:6px;color:var(--safe);">✔ ${t('statusSigned')}</span>` : ''}
         </div>
         ${isExpanded ? `
           ${o.note ? `<div style="font-size:12px;color:var(--ink-soft);margin:8px 0 6px;">${t('noteLabelPrefix')}${o.note}</div>` : ''}
@@ -8326,7 +8332,7 @@ async function exportFullBackup(){
       await writable.write(content);
       await writable.close();
       msg.className = 'msg ok';
-      msg.textContent = `✓ 已匯出備份檔到你選的位置:${handle.name}(${products.length} 項商品、${transactions.length} 筆進出貨紀錄)`;
+      msg.textContent = tf('exportedBackupToLocationMsg', { filename: handle.name, products: products.length, transactions: transactions.length });
       return;
     } catch(e){
       if(e && e.name === 'AbortError') return; // 使用者自己取消,不用當成錯誤
@@ -8337,7 +8343,7 @@ async function exportFullBackup(){
 
   downloadFile(filename, content, 'application/json');
   msg.className = 'msg ok';
-  msg.textContent = `✓ 已匯出備份檔:${filename}(${products.length} 項商品、${transactions.length} 筆進出貨紀錄)`;
+  msg.textContent = tf('exportedBackupMsg', { filename, products: products.length, transactions: transactions.length });
 }
 
 function importFullBackup(){
@@ -8390,7 +8396,7 @@ function importFullBackup(){
         await saveShippingParties();
         await saveCategoryOrder();
         msg.className = 'msg ok';
-        msg.textContent = `✓ 已還原備份:${products.length} 項商品、${transactions.length} 筆進出貨紀錄、${orders.length} 張訂單`;
+        msg.textContent = tf('restoredBackupMsg', { products: products.length, transactions: transactions.length, orders: orders.length });
         fileInput.value = '';
         renderTabBar();
         renderAll();
