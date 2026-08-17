@@ -5863,6 +5863,16 @@ async function savePendingOrderItemQty(context, orderId, productId){
     return;
   }
 
+  // 改多了要檢查庫存夠不夠:這個品項目前「還能訂到的上限」= 可訂數量(已經扣掉其他人尚未核對的
+  // 訂單佔用量)再加回這張訂單原本自己就佔用的量(不然會被自己原本訂的量重複排擠掉)。
+  if(newQty > item.qty){
+    const maxAllowed = computeAvailableForOrder(productId) + item.qty;
+    if(newQty > maxAllowed){
+      showInfoModal(tf('errHistoryQtyExceedsAvailable', { name: item.name, available: maxAllowed }));
+      return;
+    }
+  }
+
   showConfirmModal(tf('confirmChangeOrderItemQty', { name: item.name, from: item.qty, to: newQty, unit: item.unit }), async () => {
     const oldQty = item.qty;
     item.qty = newQty;
