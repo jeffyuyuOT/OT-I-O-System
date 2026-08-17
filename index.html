@@ -850,6 +850,7 @@
     <div class="subtab-bar">
       <button class="subtab-btn active" onclick="switchTxSubTab('subtab-tx-register')" id="btn-subtab-tx-register" data-i18n="subtabTxRegister">登記進出貨</button>
       <button class="subtab-btn" onclick="switchTxSubTab('subtab-tx-verify')" id="btn-subtab-tx-verify" data-i18n="subtabTxVerify">訂單核對</button>
+      <button class="subtab-btn" onclick="switchTxSubTab('subtab-tx-forecast')" id="btn-subtab-tx-forecast" data-i18n="subtabTxForecast">進貨預估</button>
       <button class="subtab-btn" onclick="switchTxSubTab('subtab-tx-data')" id="btn-subtab-tx-data" data-i18n="subtabTxData">資料維護</button>
     </div>
 
@@ -955,6 +956,22 @@
         <button class="btn" onclick="runOrderVerification()" data-i18n="btnRunOrderVerify">✓ 核對(扣庫存)</button>
       </div>
       <div id="verifyPageMsg" class="msg"></div>
+    </div>
+    </div>
+
+    <div id="subtab-tx-forecast" class="subtab-content">
+    <div class="section">
+      <div class="section-title" data-i18n="secForecast">進貨預估</div>
+      <p style="font-size:12.5px;color:var(--ink-soft);margin:0 0 12px;" data-i18n="forecastDesc">
+        目前庫存可撐是跟庫存總覽一樣的算法(用平均出貨量推算);填了「預計進貨數量」之後,右邊「進貨後庫存可撐」會即時算出把這批貨加進去、大概還能再撐多久(用(預計進貨數量+目前庫存量)除以平均用量估算),方便抓進貨量的參考,不會真的異動庫存。
+      </p>
+      <div class="form-grid" style="grid-template-columns:1fr;max-width:320px;margin-bottom:14px;">
+        <div class="field">
+          <label data-i18n="fieldFilterByCategory">依分類篩選商品</label>
+          <select id="forecastCategoryFilter" onchange="renderForecastTable()"></select>
+        </div>
+      </div>
+      <div id="forecastTableContainer"></div>
     </div>
     </div>
 
@@ -1859,7 +1876,11 @@ const I18N = {
     tabOrderSectionDesc: '調整上方分頁列(系統管理、庫存管理…等)顯示的先後順序。',
     tabOrderPanelDesc: '用箭頭調整分頁在畫面上排列的順序。',
     subtabSysSettings: '系統設置', subtabSysProduct: '商品主頁',
-    subtabTxRegister: '登記進出貨', subtabTxVerify: '訂單核對', subtabTxData: '資料維護',
+    subtabTxRegister: '登記進出貨', subtabTxVerify: '訂單核對', subtabTxForecast: '進貨預估', subtabTxData: '資料維護',
+    secForecast: '進貨預估',
+    forecastDesc: '目前庫存可撐是跟庫存總覽一樣的算法(用平均出貨量推算);填了「預計進貨數量」之後,右邊「進貨後庫存可撐」會即時算出把這批貨加進去、大概還能再撐多久(用(預計進貨數量+目前庫存量)除以平均用量估算),方便抓進貨量的參考,不會真的異動庫存。',
+    colCurrentRemain: '目前庫存可撐', colForecastQty: '預計進貨數量', colAfterRemain: '進貨後庫存可撐',
+    noProductsToShow: '沒有符合條件的商品。',
 
     secMultipackSettings: 'Multipack 商品設定',
     autoConvertMultipackLabel: '訂貨數量達到 multipack 商品的加權數時,自動轉換成該 multipack 商品',
@@ -2132,7 +2153,11 @@ const I18N = {
     tabOrderSectionDesc: 'Adjust the order the tabs above (System Admin, Inventory Management, etc.) are displayed in.',
     tabOrderPanelDesc: 'Use the arrows to reorder the tabs as they appear on screen.',
     subtabSysSettings: 'System Settings', subtabSysProduct: 'Product Master',
-    subtabTxRegister: 'Register Stock', subtabTxVerify: 'Order Verify', subtabTxData: 'Data Maintenance',
+    subtabTxRegister: 'Register Stock', subtabTxVerify: 'Order Verify', subtabTxForecast: 'Purchase Forecast', subtabTxData: 'Data Maintenance',
+    secForecast: 'Purchase Forecast',
+    forecastDesc: 'Current Stock Remaining uses the same calculation as Stock Overview (based on average usage). Once you fill in "Forecast Qty", the "Remaining After Purchase" column on the right instantly estimates how long stock would last with that batch added in (calculated as (forecast qty + current stock) ÷ average usage) — handy for sizing a purchase, and doesn\'t actually change any stock.',
+    colCurrentRemain: 'Current Stock Remaining', colForecastQty: 'Forecast Qty', colAfterRemain: 'Remaining After Purchase',
+    noProductsToShow: 'No products match.',
 
     secMultipackSettings: 'Multi-pack Product Settings',
     autoConvertMultipackLabel: 'When an order quantity reaches a multi-pack product\'s weight, auto-convert it into that multi-pack product',
@@ -3098,6 +3123,7 @@ function switchTxSubTab(subtabId){
   container.querySelectorAll('.subtab-btn').forEach(el => el.classList.remove('active'));
   if(subtabId === 'subtab-tx-data'){ populateExportPartySelect(); }
   if(subtabId === 'subtab-tx-verify'){ renderVerifyPage(); renderVerifyPageProductSelect(); }
+  if(subtabId === 'subtab-tx-forecast'){ renderForecastTable(); }
   document.getElementById(subtabId).classList.add('active-subtab');
   document.getElementById('btn-' + subtabId).classList.add('active');
 }
@@ -7584,6 +7610,93 @@ function gaugeInfo(days){
   return { pct: 100, cls: 'safe', label: months >= 2 ? tn('daysLeftMonths', months.toFixed(1)) : tn('daysLeftDays', days.toFixed(0)), color: 'var(--safe)' };
 }
 
+// ===== 庫存管理 → 進貨預估 =====
+// 純粹試算用的畫面,不會真的異動庫存或建立任何紀錄:目前庫存可撐直接沿用庫存總覽同一套算法
+// (computeTotalStock + getEffectiveAvg + daysRemaining),填了「預計進貨數量」之後即時算出
+// (預計進貨數量 + 目前庫存量)÷ 平均用量,估計進貨之後大概還能撐多久。
+let forecastQtyDraft = {}; // productId -> 使用者輸入的預計進貨數量(字串,留著畫面切換/重畫時不會歸零)
+
+function populateForecastCategoryFilter(){
+  const sel = document.getElementById('forecastCategoryFilter');
+  if(!sel) return;
+  syncCategoryOrder();
+  const usedCats = categoryOrder.filter(c => products.some(p => (p.category || '未分類') === c && !p.parentId));
+  const prev = sel.value;
+  sel.innerHTML = `<option value="">${t('catFilterAll')}</option>` +
+    usedCats.map(c => `<option value="${c.replace(/"/g,'&quot;')}">${catLabel(c)}</option>`).join('');
+  if(usedCats.includes(prev)) sel.value = prev;
+}
+
+function renderForecastTable(){
+  const container = document.getElementById('forecastTableContainer');
+  if(!container) return;
+  populateForecastCategoryFilter();
+  const catFilter = document.getElementById('forecastCategoryFilter') ? document.getElementById('forecastCategoryFilter').value : '';
+  const now = new Date();
+
+  // 只看主商品(跟庫存總覽一樣,批量商品的量已經併進主商品的 computeTotalStock 裡了,不用重複列出)。
+  let items = products.filter(p => !p.parentId);
+  if(catFilter) items = items.filter(p => (p.category || '未分類') === catFilter);
+  items = items.slice().sort((a,b) => (a.sku || '').localeCompare(b.sku || '', undefined, { numeric: true, sensitivity: 'base' }) || a.name.localeCompare(b.name));
+
+  if(items.length === 0){
+    container.innerHTML = `<div class="empty-note">${t('noProductsToShow')}</div>`;
+    return;
+  }
+
+  container.innerHTML = `
+    <table class="stock-table">
+      <thead>
+        <tr>
+          <th>${t('fieldName')}</th>
+          <th class="num">${t('colCurrentRemain')}</th>
+          <th class="num">${t('colForecastQty')}</th>
+          <th class="num">${t('colAfterRemain')}</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${items.map(p => forecastRowHtml(p, now)).join('')}
+      </tbody>
+    </table>
+  `;
+}
+
+function forecastRowHtml(p, now){
+  const stock = computeTotalStock(p.id);
+  const { avg } = getEffectiveAvg(p, now);
+  const currentGauge = gaugeInfo(daysRemaining(stock, avg));
+  const draftVal = forecastQtyDraft[p.id] != null ? forecastQtyDraft[p.id] : '';
+  const forecastQty = parseFloat(draftVal);
+  const afterGauge = gaugeInfo(daysRemaining(stock + (isNaN(forecastQty) ? 0 : forecastQty), avg));
+  return `
+    <tr id="forecastRow_${p.id}">
+      <td class="row-name">${p.sku ? `<span class="sku-badge">${p.sku}</span>` : ''}${p.name}</td>
+      <td class="num"><span class="dot dot-${currentGauge.cls}" style="margin-right:5px;"></span>${currentGauge.label}</td>
+      <td class="num">
+        <input type="number" min="0" step="1" value="${draftVal}" style="width:90px;" id="forecastQtyInput_${p.id}"
+          oninput="updateForecastRow('${p.id}')" /><span class="row-unit">${p.unit}</span>
+      </td>
+      <td class="num" id="forecastAfterCell_${p.id}"><span class="dot dot-${afterGauge.cls}" style="margin-right:5px;"></span>${afterGauge.label}</td>
+    </tr>
+  `;
+}
+
+// 只更新「這一列」的預計進貨數量跟右邊的試算結果,不整個表格重畫——不然使用者打字打到一半,
+// 表格被背景自動同步之類的機制重畫,輸入框會被打斷、游標位置也會跳掉。
+function updateForecastRow(productId){
+  const input = document.getElementById(`forecastQtyInput_${productId}`);
+  if(!input) return;
+  forecastQtyDraft[productId] = input.value;
+  const p = products.find(x => x.id === productId);
+  if(!p) return;
+  const stock = computeTotalStock(p.id);
+  const { avg } = getEffectiveAvg(p, new Date());
+  const qty = parseFloat(input.value);
+  const afterGauge = gaugeInfo(daysRemaining(stock + (isNaN(qty) ? 0 : qty), avg));
+  const cell = document.getElementById(`forecastAfterCell_${productId}`);
+  if(cell) cell.innerHTML = `<span class="dot dot-${afterGauge.cls}" style="margin-right:5px;"></span>${afterGauge.label}`;
+}
+
 function populateCategoryDropdowns(){
   syncCategoryOrder();
   const newCatSel = document.getElementById('newProductCategory');
@@ -8292,6 +8405,7 @@ function renderAll(){
   renderOrderHistory();
   renderVerifyPage();
   renderPartiesTable();
+  renderForecastTable();
   const masterTabEl = document.getElementById('tab-master');
   if(masterTabEl && masterTabEl.classList.contains('active-tab')) loadUsers().then(renderUsersTab);
 }
