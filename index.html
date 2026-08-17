@@ -81,7 +81,7 @@
   }
   .lang-toggle-btn:hover{ background:var(--yellow); color:var(--ink); border-color:var(--yellow); }
   .brand-logo{ display:block; max-width:100%; height:auto; border-radius:4px; }
-  .brand-logo-header{ max-height:52px; margin-bottom:16px; }
+  .brand-logo-header{ max-height:64px; margin-bottom:18px; }
   .app-title-block{ line-height:1.15; }
   .app-title-brand{
     font-family:'Archivo Black',sans-serif; font-size:15px; letter-spacing:0.5px;
@@ -151,7 +151,7 @@
     background:var(--panel); border:1px solid var(--line); border-radius:4px; padding:32px 30px 28px;
     width:100%; max-width:340px; text-align:center;
   }
-  .brand-logo-login{ max-height:88px; margin:0 auto 18px; }
+  .brand-logo-login{ max-height:130px; margin:0 auto 18px; }
   .login-box h1{
     font-family:'Archivo Black',sans-serif; font-size:20px; margin:0 0 6px; letter-spacing:0.5px;
     text-transform:uppercase; color:var(--ink);
@@ -223,6 +223,17 @@
   .forecast-table .fc-col-qty{ width:22%; }
   .forecast-table .fc-col-after{ width:21%; }
   .fc-qty-input{ width:90px; font-family:inherit; font-size:inherit; }
+  /* 預計進貨數量欄:輸入框的位置要固定,不能因為「Bag」「Bottles」「Boxes」這些單位字長短不一,
+     害整組(輸入框+單位)被當成一個整體向右對齊、跟著滑來滑去——所以這一欄改用 flex 靠右,
+     但單位文字給固定寬度(fc-unit-label),這樣不管單位字有幾個字,輸入框本身的位置都不會變。 */
+  .fc-qty-cell{
+    display:flex; justify-content:flex-end; align-items:center;
+    padding:7px 8px; border-bottom:1px solid var(--line);
+  }
+  .fc-unit-label{
+    display:inline-block; width:54px; text-align:left; margin-left:6px;
+    font-family:'IBM Plex Mono',monospace; font-size:12.5px; color:var(--ink-soft);
+  }
   .row-indicator{ width:18px; }
   .dot{ display:inline-block; width:10px; height:10px; border-radius:50%; }
   .dot-safe{ background:var(--safe); }
@@ -7772,9 +7783,9 @@ function forecastRowHtml(p, now){
     <tr id="forecastRow_${p.id}">
       <td class="row-name">${basis.sku ? `<span class="sku-badge">${basis.sku}</span>` : ''}${basis.name}</td>
       <td class="num"><span class="dot dot-${currentGauge.cls}" style="margin-right:5px;"></span>${currentGauge.label}</td>
-      <td class="num">
+      <td class="fc-qty-cell">
         <input type="number" min="0" step="1" value="${draftVal}" class="fc-qty-input" id="forecastQtyInput_${p.id}"
-          oninput="updateForecastRow('${p.id}')" /><span class="row-unit">${basis.unit}</span>
+          oninput="updateForecastRow('${p.id}')" /><span class="fc-unit-label">${basis.unit}</span>
       </td>
       <td class="num" id="forecastAfterCell_${p.id}"><span class="dot dot-${afterGauge.cls}" style="margin-right:5px;"></span>${afterGauge.label}</td>
     </tr>
