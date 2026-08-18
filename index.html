@@ -424,6 +424,12 @@
     position:fixed; inset:0; background:rgba(0,0,0,0.5); z-index:1000;
     align-items:center; justify-content:center;
   }
+  /* showInfoModal()/showConfirmModal() 共用這個 confirmModalOverlay,常常是在「另一個 modal
+     還開著」的當下被觸發(例如商品編輯視窗裡驗證失敗、跳出警示)——如果跟其他 modal 用一樣的
+     z-index,誰疊在上面純粹看 DOM 順序,這個共用的提示視窗剛好排在比較前面,會被後面開的
+     modal(例如商品編輯視窗)蓋住,使用者當下完全看不到,要關掉那個視窗才會「突然」看到提示。
+     這裡給它一個更高的 z-index,確保這個共用提示視窗永遠疊在最上面,不管當下還有哪個 modal 開著。 */
+  #confirmModalOverlay{ z-index:1200; }
   .modal-box{
     background:var(--panel); max-width:420px; width:90%; min-width:0;
     padding:24px; border-radius:4px; box-shadow:0 10px 40px rgba(0,0,0,0.3);
@@ -1814,8 +1820,6 @@ const I18N = {
     btnRunOrderVerify: '✓ 核對(扣庫存)',
     errSelectProductFirst: '請先選擇商品', errEnterPositiveQty: '請輸入大於 0 的數量',
     btnAddItemToOrder: '+ 新增商品', fieldProduct: '商品', fieldQty: '數量',
-    addItemQtyPlaceholder: '正數=出貨,負數=入庫',
-    addItemToCompletedHint: '正數代表補出貨(扣庫存),負數代表入庫/退貨(加庫存),跟改數量是同一套邏輯。',
     errAddItemQtyNonZero: '請輸入不是 0 的數量(正數=出貨,負數=入庫)',
     errProductAlreadyInOrder: '這個商品已經在這張訂單裡了,請用「改數量」調整,不要重複新增。',
     errAddItemInsufficientStock: '庫存不夠:「{name}」目前庫存總量只有 {available} {unit},無法出貨這麼多。',
@@ -1864,6 +1868,7 @@ const I18N = {
     orderWasModifiedTitle: '這張訂單的品項後來被修改過(改過數量或刪除品項)',
     errEnterNonNegativeQty: '請輸入 0 以上的數量', confirmZeroQtyIsDelete: '把數量改成 0 等於刪除這項商品(退回庫存),要繼續嗎?',
     errEnterValidQty: '請輸入有效的數量',
+    errQtyMustBeInteger: '數量必須是整數,不能有小數。',
     orderItemQtyChangedNote: '訂單 {orderNo} 調整數量:{name} {oldQty}→{newQty} {unit}',
     errAdjustQtyInsufficientStock: '「{name}」庫存不足,目前只剩 {available} 可用(需要再扣 {requested})',
     errAdjustQtyGeneric: '調整數量失敗,請重新整理頁面再試一次。',
@@ -2122,8 +2127,6 @@ const I18N = {
     btnRunOrderVerify: '✓ Verify (Deduct Stock)',
     errSelectProductFirst: 'Please select a product first', errEnterPositiveQty: 'Please enter a quantity greater than 0',
     btnAddItemToOrder: '+ Add Item', fieldProduct: 'Product', fieldQty: 'Qty',
-    addItemQtyPlaceholder: 'Positive=ship out, negative=stock in',
-    addItemToCompletedHint: 'Positive means an additional shipment (deducts stock); negative means stock-in/return (adds stock) — same logic as adjusting quantity.',
     errAddItemQtyNonZero: 'Please enter a non-zero quantity (positive = ship out, negative = stock in)',
     errProductAlreadyInOrder: 'This product is already in this order. Use "Edit Qty" to adjust it instead of adding it again.',
     errAddItemInsufficientStock: 'Insufficient stock: "{name}" currently only has {available} {unit} total — can\'t ship that much.',
@@ -2172,6 +2175,7 @@ const I18N = {
     orderWasModifiedTitle: 'Items in this order were changed afterward (qty changed or item removed)',
     errEnterNonNegativeQty: 'Please enter a quantity of 0 or more', confirmZeroQtyIsDelete: 'Setting the quantity to 0 will delete this item (and restock it) — continue?',
     errEnterValidQty: 'Please enter a valid quantity',
+    errQtyMustBeInteger: 'Quantity must be a whole number, no decimals.',
     orderItemQtyChangedNote: 'Order {orderNo} qty changed: {name} {oldQty}→{newQty} {unit}',
     errAdjustQtyInsufficientStock: '"{name}" doesn\'t have enough stock — only {available} available (need {requested} more)',
     errAdjustQtyGeneric: 'Failed to adjust quantity, please refresh the page and try again.',
@@ -5536,12 +5540,11 @@ function renderOrders(){
           </div>
           <div style="width:110px;">
             <label style="display:block;font-size:11px;color:var(--ink-soft);margin-bottom:4px;">${t('fieldQty')}</label>
-            <input type="number" id="addItemQtyInput_${o.id}" step="0.01" placeholder="${t('addItemQtyPlaceholder')}" style="width:100%;" />
+            <input type="number" id="addItemQtyInput_${o.id}" step="1" style="width:100%;" />
           </div>
           <button class="btn" onclick="saveAddItemToCompletedOrder('${o.id}')">${t('btnSave')}</button>
           <button class="btn ghost" onclick="cancelAddItemToCompletedOrder()">${t('btnCancel')}</button>
         </div>
-        <div style="font-size:11px;color:var(--ink-soft);margin-top:6px;">${t('addItemToCompletedHint')}</div>
       </div>
     ` : '';
     return `
@@ -5697,6 +5700,7 @@ async function saveAddItemToCompletedOrder(orderId){
   const qty = parseFloat(qtyInput.value);
   if(!productId){ showInfoModal(t('errSelectProductFirst')); return; }
   if(isNaN(qty) || qty === 0){ showInfoModal(t('errAddItemQtyNonZero')); return; }
+  if(!Number.isInteger(qty)){ showInfoModal(t('errQtyMustBeInteger')); return; }
 
   const p = products.find(x => x.id === productId);
   if(!p){ showInfoModal(t('errSelectProductFirst')); return; }
@@ -5766,6 +5770,10 @@ async function saveOrderItemQty(context, orderId, productId){
   const newQty = parseFloat(input.value);
   if(isNaN(newQty)){
     showInfoModal(t('errEnterValidQty'));
+    return;
+  }
+  if(!Number.isInteger(newQty)){
+    showInfoModal(t('errQtyMustBeInteger'));
     return;
   }
   if(newQty === item.qty){
