@@ -5313,7 +5313,7 @@ function refreshOrderLists(){
 // 訂單卡片裡單一品項那一列的 HTML,「待處理訂單」跟「已完成訂單」共用:isPending=true 時用
 // 待處理專用的刪除/改數量流程(不動進出貨紀錄,因為都還沒扣庫存),isPending=false 時維持原本
 // 「未出庫/已出庫」那套(因為已經扣過庫存、有真的出貨紀錄要處理)。
-function orderItemRowHtml(o, it, isPending, readOnly, context, allowDeleteWhenReadOnly){
+function orderItemRowHtml(o, it, isPending, readOnly, context){
   context = context || 'default';
   if(it.deleted){
     const label = isPending ? t('itemDeletedLabelPending') : (it.deleteStockStatus === 'stocked_out' ? t('itemDeletedLabelStockedOut') : t('itemDeletedLabel'));
@@ -5324,13 +5324,7 @@ function orderItemRowHtml(o, it, isPending, readOnly, context, allowDeleteWhenRe
       </div>
     `;
   }
-  // 數量編輯:簽收後一律鎖住,不管哪個畫面都不能再改數量。
   const canEdit = !o.deleted && !readOnly;
-  // 刪除:簽收後預設也鎖住,但呼叫端可以傳 allowDeleteWhenReadOnly=true 開放——已完成訂單那邊
-  // 是這樣用的,簽收只代表客人已經確認收到這批數量,不代表事後發現真的送錯品項時不能整項刪除
-  // 改正,只是改了以後庫存異動要用「補一筆入庫」處理,不能直接改數字(那個才會動到已經簽名承認過
-  // 的數量,更新的行為,所以還是鎖住)。
-  const canDelete = !o.deleted && (!readOnly || allowDeleteWhenReadOnly);
   // editingOrderItemKey、輸入框的 id 都要帶上 context(是哪個畫面在渲染這一列),不能只用
   // 訂單 id + 商品 id——因為同一張訂單有可能同時出現在好幾個地方(例如待處理訂單清單、又剛好
   // 被載入在訂單核對頁面),如果 id 沒有區分畫面,document.getElementById 會抓到「第一個找到的
@@ -5363,7 +5357,7 @@ function orderItemRowHtml(o, it, isPending, readOnly, context, allowDeleteWhenRe
       <span>${it.name}${it.sku ? ` (${it.sku})` : ''}</span>
       <span>${qtyDisplay}
         ${canEdit ? `<span class="del-link" style="margin-left:8px;" onclick="startEditOrderItemQty('${context}','${o.id}','${it.productId}')">${t('btnEditQty')}</span>` : ''}
-        ${canDelete ? `<span class="del-link" style="margin-left:8px;color:var(--crit);" onclick="${deleteFn}('${o.id}','${it.productId}')">${t('btnDelete')}</span>` : ''}
+        ${canEdit ? `<span class="del-link" style="margin-left:8px;color:var(--crit);" onclick="${deleteFn}('${o.id}','${it.productId}')">${t('btnDelete')}</span>` : ''}
       </span>
     </div>
   `;
@@ -5398,7 +5392,7 @@ function renderOrders(){
     // 已完成訂單在還沒簽收前,這裡(訂貨後台管理)還是能改;一旦簽收過(o.signedAt),不管哪一邊
     // 都不能再改了,這裡也要跟著鎖住(readOnly=!!o.signedAt),之前沒有這個檢查,簽收後其實還是
     // 能被改掉,這次一併修正。
-    const itemsHtml = o.items.map(it => orderItemRowHtml(o, it, false, !!o.signedAt, 'completed', true)).join('');
+    const itemsHtml = o.items.map(it => orderItemRowHtml(o, it, false, !!o.signedAt, 'completed')).join('');
     const isEditingRemark = editingOrderRemarkId === o.id;
     const remarkHtml = isEditingRemark ? `
       <div style="margin:8px 0;">
@@ -5473,12 +5467,13 @@ function deleteCompletedOrder(orderId){
 // (對帳才看得出來曾經出過貨),另外在進出貨紀錄裡新增一筆「入庫」紀錄把庫存加回來。商品本身還
 // 留在訂單明細裡,標註「已刪除」;如果訂單裡的商品全部都被刪除了,訂單本身也標註為已刪除
 // (軟刪除),但仍保留在紀錄裡。
-// 已簽收的訂單也可以刪除品項(簽收只代表客人確認收到那個數量,不代表事後發現送錯還不能改正)——
-// 只有數量編輯(改成別的數字)還是鎖住,不能動到客人已經簽名承認過的數量本身。這個函式本身不再
-// 檔 signedAt,靠畫面端(orderItemRowHtml 的 allowDeleteWhenReadOnly)決定哪些畫面才顯示刪除按鈕。
 function deleteOrderItem(orderId, productId){
   const order = orders.find(o => o.id === orderId);
   if(!order) return;
+  if(order.signedAt){
+    showInfoModal(t('errOrderAlreadySigned'));
+    return;
+  }
   const item = order.items.find(it => it.productId === productId && !it.deleted);
   if(!item) return;
   showConfirmModal(tf('confirmDeleteOrderItem', {name: item.name, qty: item.qty, unit: item.unit}), async () => {
