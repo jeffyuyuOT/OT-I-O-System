@@ -1629,6 +1629,7 @@ let stockSortField = null; // null = 預設順序(分類順序 + 原始建立順
 let stockSortDir = 'asc';
 let lastAutoBackupMode = null; // 'folder' | 'download' | 'unsupported' | null
 let editingTxId = null;
+let appendingNoteTxId = null; // 已簽收訂單相關的進出貨紀錄:不能整列編輯,只能疊加新增附註,用這個狀態控制哪一列在顯示新增附註的輸入框。
 let editingProductId = null;
 let editingPartyId = null;
 let openPartyProductPanelId = null;
@@ -1824,6 +1825,7 @@ const I18N = {
     orderNoPartyLinkedWarning: '⚠ 這張訂單沒有正式掛上任何出貨方,只有不限出貨方權限的帳號(例如管理者)看得到',
     errOrderBeingProcessed: '這張訂單正在「訂單核對」頁面處理中,請等處理完成(或請對方取消載入)後再修改。',
     errOrderAlreadySigned: '這張訂單已經簽收過了,不能再修改。',
+    btnAddNote: '新增附註', appendNotePlaceholder: '輸入要補充的附註,會接在原本的備註後面…',
     confirmRestoreLatestBackup: '找到最新備份「{filename}」({products} 項商品、{transactions} 筆進出貨紀錄)。還原會完全覆蓋目前 App 裡的資料,確定要繼續嗎?',
     restoredFromFileMsg: '✓ 已從「{filename}」還原:{products} 項商品、{transactions} 筆進出貨紀錄、{orders} 張訂單',
     exportedBackupToLocationMsg: '✓ 已匯出備份檔到你選的位置:{filename}({products} 項商品、{transactions} 筆進出貨紀錄)',
@@ -2108,6 +2110,7 @@ const I18N = {
     orderNoPartyLinkedWarning: '⚠ This order isn\'t linked to any shipping party — only accounts without shipping-party restrictions (e.g. admins) can see it',
     errOrderBeingProcessed: 'This order is currently being processed on the Order Verify page. Please wait until that finishes (or ask them to unload it) before editing.',
     errOrderAlreadySigned: 'This order has already been signed for and can no longer be edited.',
+    btnAddNote: 'Add Note', appendNotePlaceholder: 'Enter a note to append after the existing note…',
     confirmRestoreLatestBackup: 'Found the latest backup "{filename}" ({products} product(s), {transactions} stock record(s)). Restoring will completely overwrite the app\'s current data. Continue?',
     restoredFromFileMsg: '✓ Restored from "{filename}": {products} product(s), {transactions} stock record(s), {orders} order(s)',
     exportedBackupToLocationMsg: '✓ Exported backup to your chosen location: {filename} ({products} product(s), {transactions} stock record(s))',
@@ -3467,6 +3470,33 @@ async function resetOrderNoSequence(){
   if(error){ console.error('重設訂單編號序列失敗', error); throw error; }
 }
 
+// 從一組訂單裡找出「最大的訂單編號」(數字部分),沒有任何訂單或都沒有編號就回傳 0。
+function maxOrderNoIn(orderList){
+  let max = 0;
+  (orderList || []).forEach(o => {
+    if(o.orderNo){
+      const m = String(o.orderNo).match(/(\d+)/);
+      if(m) max = Math.max(max, parseInt(m[1], 10));
+    }
+  });
+  return max;
+}
+
+// 還原備份之後要呼叫這個,把資料庫序列「推進」到還原進來的訂單編號之後,避免序列停在
+// 比較低的舊位置,之後新建的訂單撞到還原回來的舊編號(見 sync_order_no_seq_migration.sql
+// 裡的完整說明)。呼叫失敗只記錄在 console,不擋住整個還原流程——序列沒同步到,使用者
+// 之後如果真的撞號,還是可以照舊的方式用「清除並重設訂單編號」處理。
+async function syncOrderNoSequenceAfterRestore(orderList){
+  const maxNo = maxOrderNoIn(orderList);
+  if(maxNo <= 0) return;
+  try{
+    const { error } = await sb.rpc('sync_order_no_seq', { p_min_next: maxNo + 1 });
+    if(error) throw error;
+  } catch(e){
+    console.error('同步訂單編號序列失敗(可能是 sync_order_no_seq_migration.sql 還沒在 Supabase 執行過)', e);
+  }
+}
+
 // inventory_log 這張表通常只開放「新增/讀取」給一般前端角色(RLS 刻意不開放 DELETE,
 // 避免使用者能竄改自己的操作稽核紀錄),所以直接用 sb.from('inventory_log').delete() 在
 // 資料庫端會被權限擋掉、實際刪 0 筆,但不一定會丟出明確錯誤。要真的清空必須透過一個
@@ -3762,6 +3792,7 @@ async function restoreFromBackupFolder(){
     await replaceAllOrders(orders);
     await saveShippingParties();
     await saveCategoryOrder();
+    await syncOrderNoSequenceAfterRestore(orders);
     // 這個資料夾既然能讀,順便記起來,之後自動備份也直接寫進同一個地方。
     backupDirHandle = dirHandle;
     lastAutoBackupMode = 'folder';
@@ -5324,6 +5355,8 @@ function orderItemRowHtml(o, it, isPending, readOnly, context){
       </div>
     `;
   }
+  // 已簽收的訂單完全鎖住,不能改數量、也不能刪除品項——簽收後這張訂單所有相關紀錄都不能再更動,
+  // 只能疊加新增附註(見 orderRemark 那組函式),不能修改或刪除既有內容。
   const canEdit = !o.deleted && !readOnly;
   // editingOrderItemKey、輸入框的 id 都要帶上 context(是哪個畫面在渲染這一列),不能只用
   // 訂單 id + 商品 id——因為同一張訂單有可能同時出現在好幾個地方(例如待處理訂單清單、又剛好
@@ -5426,7 +5459,7 @@ function renderOrders(){
           <div class="order-card-actions">
             <button class="btn ghost" onclick="exportSingleOrderSheet('${o.id}')">${t('btnExportThisOrder')}</button>
             <button class="btn ghost" onclick="printCompletedOrder('${o.id}')">${t('btnPrintOrder')}</button>
-            ${o.deleted ? '' : `<button class="btn ghost" onclick="deleteCompletedOrder('${o.id}')">${t('btnDeleteWholeOrder')}</button>`}
+            ${(o.deleted || o.signedAt) ? '' : `<button class="btn ghost" onclick="deleteCompletedOrder('${o.id}')">${t('btnDeleteWholeOrder')}</button>`}
           </div>
         ` : ''}
       </div>
@@ -5442,9 +5475,14 @@ function toggleOrderExpand(orderId){
 
 // 刪除整筆訂單採「軟刪除」:退回庫存、把訂單裡的商品跟訂單本身都標註為已刪除,
 // 但訂單紀錄仍保留在「已完成訂單」清單裡(顯示並標註已刪除),不會從紀錄裡清除。
+// 已簽收的訂單完全鎖住,整張訂單也不能刪除——簽收後不能再更動任何內容,只能疊加新增附註。
 function deleteCompletedOrder(orderId){
   const order = orders.find(o => o.id === orderId);
   if(!order) return;
+  if(order.signedAt){
+    showInfoModal(t('errOrderAlreadySigned'));
+    return;
+  }
   const activeItems = order.items.filter(it => !it.deleted);
   showConfirmModal(tf('confirmDeleteOrder', {n: activeItems.length}), async () => {
     const removed = transactions.filter(t => t.orderId === orderId);
@@ -5467,6 +5505,8 @@ function deleteCompletedOrder(orderId){
 // (對帳才看得出來曾經出過貨),另外在進出貨紀錄裡新增一筆「入庫」紀錄把庫存加回來。商品本身還
 // 留在訂單明細裡,標註「已刪除」;如果訂單裡的商品全部都被刪除了,訂單本身也標註為已刪除
 // (軟刪除),但仍保留在紀錄裡。
+// 已簽收的訂單完全鎖住,不能刪除品項、也不能改數量——簽收後這張訂單的所有內容都不能再更動,
+// 只能疊加新增附註,不能修改或刪除既有內容。
 function deleteOrderItem(orderId, productId){
   const order = orders.find(o => o.id === orderId);
   if(!order) return;
@@ -7436,9 +7476,21 @@ function orderNosForTxList(txList){
   return [...nos];
 }
 
+// 這筆進出貨紀錄是不是跟「已簽收」的訂單有關(靠 orderId 對回 orders 找那張訂單的簽收狀態)。
+// 已簽收訂單的所有相關紀錄都要鎖住,不能編輯、也不能刪除,只能疊加新增附註。
+function isTxLinkedToSignedOrder(tx){
+  if(!tx.orderId) return false;
+  const order = orders.find(o => o.id === tx.orderId);
+  return !!(order && order.signedAt);
+}
+
 function deleteTransaction(id){
   const tx = transactions.find(t => t.id === id);
   if(!tx) return;
+  if(isTxLinkedToSignedOrder(tx)){
+    showInfoModal(t('errOrderAlreadySigned'));
+    return;
+  }
   const proceed = async () => {
     const removed = transactions.filter(t => t.id === id);
     transactions = transactions.filter(t => t.id !== id);
@@ -7459,6 +7511,10 @@ function deleteBatchByNote(){
   if(!note){ showInfoModal('請先選擇要刪除的批次備註'); return; }
   const removedPreview = transactions.filter(t => t.note === note);
   const count = removedPreview.length;
+  if(removedPreview.some(isTxLinkedToSignedOrder)){
+    showInfoModal(t('errOrderAlreadySigned'));
+    return;
+  }
   const linked = removedPreview.filter(t => t.orderId);
   const proceed = async () => {
     const removed = transactions.filter(t => t.note === note);
@@ -8350,6 +8406,23 @@ function renderLog(){
       <tbody>
         ${rows.map(tx => {
           const p = productMap[tx.productId];
+          const lockedBySignedOrder = isTxLinkedToSignedOrder(tx);
+          if(appendingNoteTxId === tx.id){
+            return `<tr class="editing-row">
+              <td></td>
+              <td class="col-date">${tx.date}</td>
+              <td class="col-product">${p ? p.name : '(已刪除商品)'}</td>
+              <td class="col-type"><span class="type-pill ${tx.type}">${tx.type === 'in' ? t('typeIn') : (tx.type === 'restock' ? t('typeRestock') : t('typeOut'))}</span></td>
+              <td class="col-qty">${tx.qty}${p ? ' ' + p.unit : ''}</td>
+              <td class="col-party">${tx.party || '—'}</td>
+              <td colspan="2">
+                ${tx.note ? `<div style="color:var(--ink-soft);font-size:11.5px;white-space:pre-wrap;margin-bottom:4px;">${tx.note.replace(/</g,'&lt;')}</div>` : ''}
+                <input type="text" id="appendNoteInput" placeholder="${t('appendNotePlaceholder')}" style="width:100%;" />
+                <span class="del-link" onclick="saveAppendNoteToTx('${tx.id}')" style="color:var(--safe);margin-right:8px;">${t('btnSave')}</span>
+                <span class="del-link" onclick="cancelAppendNoteToTx()">${t('btnCancel')}</span>
+              </td>
+            </tr>`;
+          }
           if(editingTxId === tx.id){
             const productOptions = products.map(prod =>
               `<option value="${prod.id}" ${prod.id === tx.productId ? 'selected' : ''}>${prod.name}(${prod.unit})</option>`
@@ -8376,6 +8449,8 @@ function renderLog(){
           }
           const createdAt = idCreatedTime(tx.id);
           const timeHtml = createdAt ? `<div class="tx-time">${formatHHMM(createdAt)}</div>` : '';
+          const editLabel = lockedBySignedOrder ? t('btnAddNote') : t('btnEdit');
+          const editIcon = lockedBySignedOrder ? '➕' : '📝';
           return `<tr class="${selectedTxIds.has(tx.id) ? 'selected-row' : ''}">
             <td class="col-check"><input type="checkbox" ${selectedTxIds.has(tx.id) ? 'checked' : ''} onchange="toggleSelectTx('${tx.id}', this.checked)" /></td>
             <td class="col-date">${tx.date}${timeHtml}</td>
@@ -8387,10 +8462,10 @@ function renderLog(){
               ? `<span class="tx-note-text" onclick="toggleTxNoteDisplay(this)" title="${t('btnViewNoteTitle')}">${tx.note.replace(/</g,'&lt;')}</span>`
               : '—'}</td>
             <td class="col-actions" style="white-space:nowrap;">
-              <span class="del-link action-text-edit" onclick="startEditTransaction('${tx.id}')" style="margin-right:8px;">${t('btnEdit')}</span>
-              <span class="del-link action-text-delete" onclick="deleteTransaction('${tx.id}')">${t('btnDelete')}</span>
-              <span class="del-link action-icon-edit" onclick="startEditTransaction('${tx.id}')" title="${t('btnEdit')}">📝</span>
-              <span class="del-link action-icon-delete" onclick="deleteTransaction('${tx.id}')" title="${t('btnDelete')}" style="color:var(--crit);">🗑</span>
+              <span class="del-link action-text-edit" onclick="startEditTransaction('${tx.id}')" style="margin-right:8px;">${editLabel}</span>
+              ${lockedBySignedOrder ? '' : `<span class="del-link action-text-delete" onclick="deleteTransaction('${tx.id}')">${t('btnDelete')}</span>`}
+              <span class="del-link action-icon-edit" onclick="startEditTransaction('${tx.id}')" title="${editLabel}">${editIcon}</span>
+              ${lockedBySignedOrder ? '' : `<span class="del-link action-icon-delete" onclick="deleteTransaction('${tx.id}')" title="${t('btnDelete')}" style="color:var(--crit);">🗑</span>`}
             </td>
           </tr>`;
         }).join('')}
@@ -8506,6 +8581,10 @@ function deleteSelectedTx(){
   const count = selectedTxIds.size;
   if(count === 0) return;
   const removedPreview = transactions.filter(t => selectedTxIds.has(t.id));
+  if(removedPreview.some(isTxLinkedToSignedOrder)){
+    showInfoModal(t('errOrderAlreadySigned'));
+    return;
+  }
   const linked = removedPreview.filter(t => t.orderId);
   const proceed = async () => {
     const removed = transactions.filter(t => selectedTxIds.has(t.id));
@@ -8523,6 +8602,11 @@ function deleteSelectedTx(){
 }
 
 function startEditTransaction(id){
+  const tx = transactions.find(t => t.id === id);
+  if(tx && isTxLinkedToSignedOrder(tx)){
+    startAppendNoteToTx(id);
+    return;
+  }
   editingTxId = id;
   renderLog();
 }
@@ -8530,6 +8614,37 @@ function startEditTransaction(id){
 function cancelEditTransaction(){
   editingTxId = null;
   renderLog();
+}
+
+// 已簽收訂單相關的進出貨紀錄:內容鎖住不能改,只能疊加新增附註(不會覆蓋掉原本的備註內容,
+// 是接在後面),讓使用者還是有地方可以補充說明,但改不動原始紀錄本身。
+function startAppendNoteToTx(id){
+  appendingNoteTxId = id;
+  renderLog();
+}
+
+function cancelAppendNoteToTx(){
+  appendingNoteTxId = null;
+  renderLog();
+}
+
+async function saveAppendNoteToTx(id){
+  const tx = transactions.find(t => t.id === id);
+  if(!tx) return;
+  const input = document.getElementById('appendNoteInput');
+  const addition = input ? input.value.trim() : '';
+  if(!addition) return;
+  const oldTx = { ...tx };
+  const stamp = formatOrderDateTime(new Date().toISOString());
+  tx.note = tx.note ? `${tx.note}\n[${stamp}] ${addition}` : `[${stamp}] ${addition}`;
+  try{ await updateTransaction(oldTx, tx); }
+  catch(e){
+    Object.assign(tx, oldTx);
+    showInfoModal('新增附註失敗,請重新整理頁面再試一次。');
+    return;
+  }
+  appendingNoteTxId = null;
+  renderAll();
 }
 
 async function saveEditTransaction(id){
@@ -8679,6 +8794,7 @@ function importFullBackup(){
         await replaceAllOrders(orders);
         await saveShippingParties();
         await saveCategoryOrder();
+        await syncOrderNoSequenceAfterRestore(orders);
         msg.className = 'msg ok';
         msg.textContent = tf('restoredBackupMsg', { products: products.length, transactions: transactions.length, orders: orders.length });
         fileInput.value = '';
@@ -8882,7 +8998,7 @@ function isUserActivelyEditing(){
   const anyModalOpen = [...document.querySelectorAll('.modal-overlay')]
     .some(el => el.style.display && el.style.display !== 'none');
   if(anyModalOpen) return true;
-  return !!(editingTxId || editingProductId || editingPartyId || editingOrderItemKey ||
+  return !!(editingTxId || appendingNoteTxId || editingProductId || editingPartyId || editingOrderItemKey ||
     editingOrderRemarkId || editingUserModalId || editingOrderPartyId ||
     addingItemsToOrderId);
 }
