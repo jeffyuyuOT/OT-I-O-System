@@ -1384,14 +1384,6 @@
         <button class="btn ghost" onclick="clearLogFilters()" data-i18n="btnClearFilter">清除篩選</button>
       </div>
 
-      <div class="toolbar" style="margin-top:6px;">
-        <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;">
-          <select id="batchNoteFilter">
-            <option value="" data-i18n="batchDeleteDefaultOpt">整批刪除:選擇批次備註</option>
-          </select>
-          <button class="btn ghost" onclick="deleteBatchByNote()" data-i18n="btnDeleteBatch">刪除這批全部紀錄</button>
-        </div>
-      </div>
       <div id="logTable"><div class="empty-note" data-i18n="noRecordsYet">尚無紀錄</div></div>
     </div>
   </div>
@@ -1628,8 +1620,7 @@ let autoConvertMultipackEnabled = false;
 let stockSortField = null; // null = 預設順序(分類順序 + 原始建立順序);其他值:'name' | 'stock' | 'avg' | 'safety' | 'remain'
 let stockSortDir = 'asc';
 let lastAutoBackupMode = null; // 'folder' | 'download' | 'unsupported' | null
-let editingTxId = null;
-let appendingNoteTxId = null; // 已簽收訂單相關的進出貨紀錄:不能整列編輯,只能疊加新增附註,用這個狀態控制哪一列在顯示新增附註的輸入框。
+let appendingNoteTxId = null; // 進出貨紀錄已經不能整列編輯了,只能疊加新增附註,用這個狀態控制哪一列在顯示新增附註的輸入框。
 let editingProductId = null;
 let editingPartyId = null;
 let openPartyProductPanelId = null;
@@ -1643,7 +1634,6 @@ let expandedOrderIds = new Set();
 let editingOrderItemKey = null; // `${orderId}::${productId}`,已完成訂單裡目前正在編輯數量的那個品項
 let editingOrderRemarkId = null; // 已完成訂單裡目前正在編輯附註的那張訂單 id
 let editingOrderPartyId = null; // 待處理訂單裡目前正在編輯出貨方的那張訂單 id
-let selectedTxIds = new Set();
 let selectedProductIds = new Set();
 let users = [];
 let currentUser = null;
@@ -4458,7 +4448,13 @@ async function confirmTxImport(){
     msg.textContent = '⚠ 匯入失敗,請重新整理頁面再試一次。';
     return;
   }
-  if(newOrders.length > 0){ orders.push(...newOrders); recomputeOrderCounterFromOrders(); }
+  if(newOrders.length > 0){
+    orders.push(...newOrders);
+    recomputeOrderCounterFromOrders();
+    newOrders.forEach(o => {
+      logInventoryAction('order_place', `Created pending order ${o.orderNo} via Excel import (${o.partyName || 'No recipient specified'}, ${o.items.length} item(s)), stock not yet deducted`, o.orderNo);
+    });
+  }
   msg.className = 'msg ok';
   const unlinkedOrders = newOrders.filter(o => !o.partyId);
   let orderNote = '';
@@ -7483,56 +7479,13 @@ function orderNosForTxList(txList){
 
 // 這筆進出貨紀錄是不是跟「已簽收」的訂單有關(靠 orderId 對回 orders 找那張訂單的簽收狀態)。
 // 已簽收訂單的所有相關紀錄都要鎖住,不能編輯、也不能刪除,只能疊加新增附註。
+// 進出貨紀錄的每一筆都是既成事實的異動紀錄,不能編輯、不能刪除,只能疊加新增附註
+// (見 startAppendNoteToTx / saveAppendNoteToTx)——這個函式仍保留給其他地方參考「這筆紀錄
+// 是不是跟已簽收訂單有關」,但編輯/刪除本身已經沒有任何 UI 入口會呼叫到了。
 function isTxLinkedToSignedOrder(tx){
   if(!tx.orderId) return false;
   const order = orders.find(o => o.id === tx.orderId);
   return !!(order && order.signedAt);
-}
-
-function deleteTransaction(id){
-  const tx = transactions.find(t => t.id === id);
-  if(!tx) return;
-  if(isTxLinkedToSignedOrder(tx)){
-    showInfoModal(t('errOrderAlreadySigned'));
-    return;
-  }
-  const proceed = async () => {
-    const removed = transactions.filter(t => t.id === id);
-    transactions = transactions.filter(t => t.id !== id);
-    await deleteTransactions(removed);
-    await markOrderItemsDeletedFromTxRemoval(removed);
-    renderAll();
-  };
-  if(tx.orderId){
-    const orderNos = orderNosForTxList([tx]);
-    showConfirmModal(tf('orderLinkedTxWarningSingle', {orderNo: orderNos[0] || tx.orderId}), proceed);
-  } else {
-    showConfirmModal('確定要刪除這筆紀錄嗎?', proceed);
-  }
-}
-
-function deleteBatchByNote(){
-  const note = document.getElementById('batchNoteFilter').value;
-  if(!note){ showInfoModal('請先選擇要刪除的批次備註'); return; }
-  const removedPreview = transactions.filter(t => t.note === note);
-  const count = removedPreview.length;
-  if(removedPreview.some(isTxLinkedToSignedOrder)){
-    showInfoModal(t('errOrderAlreadySigned'));
-    return;
-  }
-  const linked = removedPreview.filter(t => t.orderId);
-  const proceed = async () => {
-    const removed = transactions.filter(t => t.note === note);
-    transactions = transactions.filter(t => t.note !== note);
-    await deleteTransactions(removed);
-    await markOrderItemsDeletedFromTxRemoval(removed);
-    renderAll();
-  };
-  if(linked.length > 0){
-    showConfirmModal(tf('orderLinkedTxWarningMulti', {count: linked.length, orderNos: orderNosForTxList(linked).join('、')}), proceed);
-  } else {
-    showConfirmModal(`確定要刪除備註為「${note}」的全部 ${count} 筆紀錄嗎?此動作無法復原。`, proceed);
-  }
 }
 
 function computeStock(productId){
@@ -7552,11 +7505,13 @@ function computePendingReserved(productId){
   return total;
 }
 
-// 訂貨頁面用的「可訂數量」= 目前實際庫存 − 尚未核對的待處理訂單已經預訂走的量。
-// 實際庫存(computeStock/庫存總覽)本身不會因為有待處理訂單就減少,只有在訂單「核對」通過、
-// 真的扣庫存的那一刻才會變動;但下訂單當下要先扣掉別人還沒核對的預訂量,才不會大家都訂到同一批貨。
+// 訂貨頁面用的「可訂數量」= 商品的庫存總量(主商品自己的庫存 + 底下批量商品換算後的量,因為
+// 批量商品可以拆箱切換成主商品出貨,不能只看主商品自己那一欄有沒有貨)− 尚未核對的待處理訂單
+// 已經預訂走的量。庫存總量(computeTotalStock)本身不會因為有待處理訂單就減少,只有在訂單
+// 「核對」通過、真的扣庫存的那一刻才會變動;但下訂單當下要先扣掉別人還沒核對的預訂量,才不會
+// 大家都訂到同一批貨。
 function computeAvailableForOrder(productId){
-  return computeStock(productId) - computePendingReserved(productId);
+  return computeTotalStock(productId) - computePendingReserved(productId);
 }
 
 // 取得某商品的批量商品清單(只有「主商品」會有批量商品;批量商品本身沒有批量商品)。
@@ -8337,16 +8292,6 @@ function renderLog(){
   const dateFrom = document.getElementById('logDateFrom').value;
   const dateTo = document.getElementById('logDateTo').value;
 
-  const batchSel = document.getElementById('batchNoteFilter');
-  const prevBatch = batchSel.value;
-  const distinctNotes = [...new Set(transactions.map(t => t.note).filter(Boolean))];
-  batchSel.innerHTML = '<option value="">整批刪除:選擇批次備註</option>' +
-    distinctNotes.map(n => {
-      const count = transactions.filter(t => t.note === n).length;
-      return `<option value="${n.replace(/"/g,'&quot;')}">${n}(${count} 筆)</option>`;
-    }).join('');
-  if(distinctNotes.includes(prevBatch)) batchSel.value = prevBatch;
-
   const partySel = document.getElementById('logPartyFilter');
   const prevParty = partySel.value;
   const outParties = [...new Set(transactions.filter(t => t.type === 'out' && t.party).map(t => t.party))].sort();
@@ -8390,31 +8335,16 @@ function renderLog(){
     return;
   }
 
-  // keep only selections that are still visible in this filtered view
-  const visibleIds = new Set(rows.map(t => t.id));
-  selectedTxIds = new Set([...selectedTxIds].filter(id => visibleIds.has(id)));
-  const allSelected = rows.length > 0 && rows.every(t => selectedTxIds.has(t.id));
-
   container.innerHTML = `
-    ${selectedTxIds.size > 0 ? `
-      <div class="selection-bar">
-        <span>${tn('selectedTx', selectedTxIds.size)}</span>
-        <button class="btn ghost" onclick="deleteSelectedTx()">${t('btnDeleteSelectedTx')}</button>
-        <button class="btn ghost" onclick="clearTxSelection()">${t('btnClearSelection')}</button>
-      </div>
-    ` : ''}
     <table class="log tx-log-table">
       <thead><tr>
-        <th style="width:28px;"><input type="checkbox" ${allSelected ? 'checked' : ''} onchange="toggleSelectAllTx(this.checked)" /></th>
         <th style="width:92px;">${t('colDate')}</th><th>${t('colProduct')}</th><th>${t('colType')}</th><th>${t('colQty')}</th><th>${t('colParty')}</th><th>${t('colNote')}</th><th></th>
       </tr></thead>
       <tbody>
         ${rows.map(tx => {
           const p = productMap[tx.productId];
-          const lockedBySignedOrder = isTxLinkedToSignedOrder(tx);
           if(appendingNoteTxId === tx.id){
             return `<tr class="editing-row">
-              <td></td>
               <td class="col-date">${tx.date}</td>
               <td class="col-product">${p ? p.name : '(已刪除商品)'}</td>
               <td class="col-type"><span class="type-pill ${tx.type}">${tx.type === 'in' ? t('typeIn') : (tx.type === 'restock' ? t('typeRestock') : t('typeOut'))}</span></td>
@@ -8428,36 +8358,9 @@ function renderLog(){
               </td>
             </tr>`;
           }
-          if(editingTxId === tx.id){
-            const productOptions = products.map(prod =>
-              `<option value="${prod.id}" ${prod.id === tx.productId ? 'selected' : ''}>${prod.name}(${prod.unit})</option>`
-            ).join('');
-            return `<tr class="editing-row">
-              <td></td>
-              <td><input type="date" id="editDate" value="${tx.date}" /></td>
-              <td><select id="editProduct">${productOptions}</select></td>
-              <td>
-                <select id="editType">
-                  <option value="in" ${tx.type === 'in' ? 'selected' : ''}>${t('typeIn')}</option>
-                  <option value="out" ${tx.type === 'out' ? 'selected' : ''}>${t('typeOut')}</option>
-                  <option value="restock" ${tx.type === 'restock' ? 'selected' : ''}>${t('typeRestock')}</option>
-                </select>
-              </td>
-              <td><input type="number" id="editQty" min="0" step="1" value="${tx.qty}" style="width:80px;" /></td>
-              <td><input type="text" id="editParty" value="${tx.party ? tx.party.replace(/"/g,'&quot;') : ''}" style="width:100px;" /></td>
-              <td><input type="text" id="editNote" value="${tx.note ? tx.note.replace(/"/g,'&quot;') : ''}" style="width:100%;" /></td>
-              <td style="white-space:nowrap;">
-                <span class="del-link" onclick="saveEditTransaction('${tx.id}')" style="color:var(--safe);margin-right:8px;">${t('btnSave')}</span>
-                <span class="del-link" onclick="cancelEditTransaction()">${t('btnCancel')}</span>
-              </td>
-            </tr>`;
-          }
           const createdAt = idCreatedTime(tx.id);
           const timeHtml = createdAt ? `<div class="tx-time">${formatHHMM(createdAt)}</div>` : '';
-          const editLabel = lockedBySignedOrder ? t('btnAddNote') : t('btnEdit');
-          const editIcon = lockedBySignedOrder ? '➕' : '📝';
-          return `<tr class="${selectedTxIds.has(tx.id) ? 'selected-row' : ''}">
-            <td class="col-check"><input type="checkbox" ${selectedTxIds.has(tx.id) ? 'checked' : ''} onchange="toggleSelectTx('${tx.id}', this.checked)" /></td>
+          return `<tr>
             <td class="col-date">${tx.date}${timeHtml}</td>
             <td class="col-product">${p ? p.name : '(已刪除商品)'}</td>
             <td class="col-type"><span class="type-pill ${tx.type}">${tx.type === 'in' ? t('typeIn') : (tx.type === 'restock' ? t('typeRestock') : t('typeOut'))}</span></td>
@@ -8467,10 +8370,8 @@ function renderLog(){
               ? `<span class="tx-note-text" onclick="toggleTxNoteDisplay(this)" title="${t('btnViewNoteTitle')}">${tx.note.replace(/</g,'&lt;')}</span>`
               : '—'}</td>
             <td class="col-actions" style="white-space:nowrap;">
-              <span class="del-link action-text-edit" onclick="startEditTransaction('${tx.id}')" style="margin-right:8px;">${editLabel}</span>
-              ${lockedBySignedOrder ? '' : `<span class="del-link action-text-delete" onclick="deleteTransaction('${tx.id}')">${t('btnDelete')}</span>`}
-              <span class="del-link action-icon-edit" onclick="startEditTransaction('${tx.id}')" title="${editLabel}">${editIcon}</span>
-              ${lockedBySignedOrder ? '' : `<span class="del-link action-icon-delete" onclick="deleteTransaction('${tx.id}')" title="${t('btnDelete')}" style="color:var(--crit);">🗑</span>`}
+              <span class="del-link action-text-edit" onclick="startAppendNoteToTx('${tx.id}')">${t('btnAddNote')}</span>
+              <span class="del-link action-icon-edit" onclick="startAppendNoteToTx('${tx.id}')" title="${t('btnAddNote')}">➕</span>
             </td>
           </tr>`;
         }).join('')}
@@ -8551,78 +8452,9 @@ function renderInventoryLog(){
   `;
 }
 
-function toggleSelectTx(id, checked){
-  if(checked) selectedTxIds.add(id);
-  else selectedTxIds.delete(id);
-  renderLog();
-}
-
-function toggleSelectAllTx(checked){
-  const filterId = document.getElementById('logFilter').value;
-  const typeFilter = document.getElementById('logTypeFilter').value;
-  const partyFilter = document.getElementById('logPartyFilter').value;
-  const dateFrom = document.getElementById('logDateFrom').value;
-  const dateTo = document.getElementById('logDateTo').value;
-  const showSystem = document.getElementById('showSystemTx') && document.getElementById('showSystemTx').checked;
-
-  let rows = transactions.filter(t => !filterId || t.productId === filterId);
-  if(!showSystem) rows = rows.filter(t => !t.system || t.orderId);
-  if(typeFilter) rows = rows.filter(t => t.type === typeFilter);
-  if(partyFilter) rows = rows.filter(t => t.party === partyFilter);
-  if(dateFrom) rows = rows.filter(t => t.date >= dateFrom);
-  if(dateTo) rows = rows.filter(t => t.date <= dateTo);
-
-  if(checked) rows.forEach(t => selectedTxIds.add(t.id));
-  else rows.forEach(t => selectedTxIds.delete(t.id));
-  renderLog();
-}
-
-function clearTxSelection(){
-  selectedTxIds.clear();
-  renderLog();
-}
-
-function deleteSelectedTx(){
-  const count = selectedTxIds.size;
-  if(count === 0) return;
-  const removedPreview = transactions.filter(t => selectedTxIds.has(t.id));
-  if(removedPreview.some(isTxLinkedToSignedOrder)){
-    showInfoModal(t('errOrderAlreadySigned'));
-    return;
-  }
-  const linked = removedPreview.filter(t => t.orderId);
-  const proceed = async () => {
-    const removed = transactions.filter(t => selectedTxIds.has(t.id));
-    transactions = transactions.filter(t => !selectedTxIds.has(t.id));
-    selectedTxIds.clear();
-    await deleteTransactions(removed);
-    await markOrderItemsDeletedFromTxRemoval(removed);
-    renderAll();
-  };
-  if(linked.length > 0){
-    showConfirmModal(tf('orderLinkedTxWarningMulti', {count: linked.length, orderNos: orderNosForTxList(linked).join('、')}), proceed);
-  } else {
-    showConfirmModal(tn('confirmDeleteTx', count), proceed);
-  }
-}
-
-function startEditTransaction(id){
-  const tx = transactions.find(t => t.id === id);
-  if(tx && isTxLinkedToSignedOrder(tx)){
-    startAppendNoteToTx(id);
-    return;
-  }
-  editingTxId = id;
-  renderLog();
-}
-
-function cancelEditTransaction(){
-  editingTxId = null;
-  renderLog();
-}
-
 // 已簽收訂單相關的進出貨紀錄:內容鎖住不能改,只能疊加新增附註(不會覆蓋掉原本的備註內容,
-// 是接在後面),讓使用者還是有地方可以補充說明,但改不動原始紀錄本身。
+// 是接在後面),讓使用者還是有地方可以補充說明,但改不動原始紀錄本身。這是「進出貨紀錄」
+// 現在唯一的編輯入口——整個紀錄表已經不能整列編輯或刪除了。
 function startAppendNoteToTx(id){
   appendingNoteTxId = id;
   renderLog();
@@ -8649,37 +8481,6 @@ async function saveAppendNoteToTx(id){
     return;
   }
   appendingNoteTxId = null;
-  renderAll();
-}
-
-async function saveEditTransaction(id){
-  const tx = transactions.find(t => t.id === id);
-  if(!tx) return;
-
-  const productId = document.getElementById('editProduct').value;
-  const type = document.getElementById('editType').value;
-  const qty = parseFloat(document.getElementById('editQty').value);
-  const date = document.getElementById('editDate').value;
-  const party = document.getElementById('editParty').value.trim();
-  const note = document.getElementById('editNote').value.trim();
-
-  if(!qty || qty <= 0 || !date){ showInfoModal('數量與日期不能空白,且數量需大於 0'); return; }
-
-  const oldTx = { ...tx };
-  tx.productId = productId;
-  tx.type = type;
-  tx.qty = qty;
-  tx.date = date;
-  tx.party = party;
-  tx.note = note;
-
-  try{ await updateTransaction(oldTx, tx); }
-  catch(e){
-    Object.assign(tx, oldTx);
-    showInfoModal('編輯失敗,請重新整理頁面再試一次。');
-    return;
-  }
-  editingTxId = null;
   renderAll();
 }
 
@@ -9004,7 +8805,7 @@ function isUserActivelyEditing(){
   const anyModalOpen = [...document.querySelectorAll('.modal-overlay')]
     .some(el => el.style.display && el.style.display !== 'none');
   if(anyModalOpen) return true;
-  return !!(editingTxId || appendingNoteTxId || editingProductId || editingPartyId || editingOrderItemKey ||
+  return !!(appendingNoteTxId || editingProductId || editingPartyId || editingOrderItemKey ||
     editingOrderRemarkId || editingUserModalId || editingOrderPartyId ||
     addingItemsToOrderId);
 }
