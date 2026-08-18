@@ -7323,12 +7323,17 @@ function getConversionRecords(){
     .map(pair => {
       const fromP = products.find(x => x.id === pair.out.productId);
       const toP = products.find(x => x.id === pair.in.productId);
-      const createdAt = pair.out.createdAt || pair.in.createdAt || '';
+      // createdAt 這個欄位只存在記憶體裡,沒有存進資料庫,重新整理頁面後就會不見,導致同一天
+      // 好幾筆切換記錄的排序退化成只看日期(當天全部同分同秒,排序就變成不穩定)。id 本身開頭
+      // 就是建立當下的時間戳記(見 genId/idCreatedTime),不管有沒有重新整理過都在,拿來排序
+      // 才會穩定、精確到毫秒,不會有這個問題。
+      const idTime = idCreatedTime(pair.out.id) || idCreatedTime(pair.in.id);
+      const createdAt = pair.out.createdAt || pair.in.createdAt || (idTime ? idTime.toISOString() : '');
       return {
         conversionId: pair.out.conversionId,
         date: pair.out.date,
-        time: formatTimeHHMM(createdAt),
-        sortKey: createdAt || pair.out.date,
+        time: formatTimeHHMM(createdAt) || (idTime ? formatHHMM(idTime) : ''),
+        sortKey: (idTime ? idTime.getTime() : 0) || (createdAt ? new Date(createdAt).getTime() : 0) || new Date(pair.out.date).getTime(),
         fromName: fromP ? fromP.name : t('deletedProductLabel'),
         fromQty: pair.out.qty,
         fromUnit: fromP ? fromP.unit : '',
@@ -7337,7 +7342,7 @@ function getConversionRecords(){
         toUnit: toP ? toP.unit : ''
       };
     })
-    .sort((a, b) => b.sortKey.localeCompare(a.sortKey));
+    .sort((a, b) => b.sortKey - a.sortKey);
 }
 
 function openConvertHistoryWindow(){
@@ -7385,9 +7390,18 @@ function renderConvertHistoryWindow(){
 // 商品現在的庫存變成負的——如果切換之後那個商品又被出貨掉了(不管是透過訂單還是登記進出貨),
 // 庫存可能已經不夠讓這筆切換完整復原,這種情況要擋下來並清楚告知是哪個商品、目前只剩多少庫存。
 // 「type 是 out(切換當下扣掉的那筆)」復原時是把庫存加回去,不會有變負的風險,不用檢查。
+// 這個警示要顯示在「切換紀錄」那個彈出視窗裡,不是主視窗——因為使用者按「復原」的時候,
+// 注意力跟滑鼠焦點都在切換紀錄那個彈出視窗上,如果用 showInfoModal() 彈在主視窗,使用者根本
+// 看不到(除非剛好切回主視窗分頁才會發現),等於沒有真的示警到。彈出視窗是純手刻的極簡 HTML,
+// 沒有主視窗那一整套彈窗 UI 可以用,所以直接用瀏覽器原生的 alert() 顯示在那個視窗上最直接可靠。
 async function undoConversion(conversionId){
   const pair = transactions.filter(tx => tx.conversionId === conversionId);
   if(pair.length === 0) return;
+
+  const alertInPopup = (message) => {
+    if(convertHistoryWindowRef && !convertHistoryWindowRef.closed) convertHistoryWindowRef.alert(message);
+    else showInfoModal(message);
+  };
 
   for(const tx of pair){
     if(tx.type !== 'in') continue;
@@ -7395,7 +7409,7 @@ async function undoConversion(conversionId){
     const afterRevert = currentStock - tx.qty;
     if(afterRevert < 0){
       const p = products.find(x => x.id === tx.productId);
-      showInfoModal(tf('errUndoConversionWouldGoNegative', {
+      alertInPopup(tf('errUndoConversionWouldGoNegative', {
         name: p ? p.name : tx.productId,
         stock: currentStock,
         unit: p ? p.unit : '',
@@ -8560,7 +8574,8 @@ async function saveAppendNoteToTx(id){
     return;
   }
   const p = products.find(x => x.id === tx.productId);
-  logInventoryAction('tx_note_append', `Appended note to ${p ? p.name : tx.productId} record (${tx.date}): "${addition}"`, tx.orderId || null);
+  const linkedOrder = tx.orderId ? orders.find(o => o.id === tx.orderId) : null;
+  logInventoryAction('tx_note_append', `Appended note to ${p ? p.name : tx.productId} record (${tx.date}): "${addition}"`, linkedOrder ? linkedOrder.orderNo : null);
   appendingNoteTxId = null;
   renderAll();
 }
