@@ -1644,6 +1644,7 @@ let orderCounter = 0;
 let expandedOrderIds = new Set();
 let editingOrderItemKey = null; // `${orderId}::${productId}`,已完成訂單裡目前正在編輯數量的那個品項
 let editingOrderRemarkId = null; // 已完成訂單裡目前正在編輯附註的那張訂單 id
+let addingItemToCompletedOrderId = null; // 已完成訂單裡目前正在顯示「新增商品」表單的那張訂單 id
 let editingOrderPartyId = null; // 待處理訂單裡目前正在編輯出貨方的那張訂單 id
 let selectedProductIds = new Set();
 let users = [];
@@ -1812,6 +1813,14 @@ const I18N = {
     verifyPageNoItemsAdded: '還沒有加入任何商品。',
     btnRunOrderVerify: '✓ 核對(扣庫存)',
     errSelectProductFirst: '請先選擇商品', errEnterPositiveQty: '請輸入大於 0 的數量',
+    btnAddItemToOrder: '+ 新增商品', fieldProduct: '商品', fieldQty: '數量',
+    addItemQtyPlaceholder: '正數=出貨,負數=入庫',
+    addItemToCompletedHint: '正數代表補出貨(扣庫存),負數代表入庫/退貨(加庫存),跟改數量是同一套邏輯。',
+    errAddItemQtyNonZero: '請輸入不是 0 的數量(正數=出貨,負數=入庫)',
+    errProductAlreadyInOrder: '這個商品已經在這張訂單裡了,請用「改數量」調整,不要重複新增。',
+    errAddItemInsufficientStock: '庫存不夠:「{name}」目前庫存總量只有 {available} {unit},無法出貨這麼多。',
+    orderItemAddedNote: '訂單 {orderNo} 新增商品:{name} {qty} {unit}({direction})',
+    directionOut: '出貨', directionIn: '入庫',
     errSelectPendingOrderFirst: '請先選擇要核對的待處理訂單',
     verifyMismatchIntro: '兩邊品項對不起來:',
     verifyMismatchMissingOnRight: '「{name}」訂單上有 {qty},但新增商品清單裡沒有',
@@ -1847,12 +1856,14 @@ const I18N = {
     errOrderNoLongerEditable: '這張訂單目前狀態已經不能再修改了(可能已經核對、取消或簽收),請重新整理頁面確認。',
     addToOrderSuccessMsg: '✓ 已將 {n} 項商品併入訂單 {orderNo}。',
     newlyAddedLabel: '新增',
+    stockedInLabel: '入庫',
     colOrderNo: '訂單編號', fileNamePrefixOrder: '訂單_',
     errPrintPopupBlocked: '⚠ 無法開啟列印視窗,請確認瀏覽器沒有封鎖彈出視窗。',
     btnExportOrder: '📄 匯出', btnPrintOrder: '🖨️ 列印', colCheck: '核對',
     orderRemarkLabelPrefix: '附註:', orderRemarkEmptyLabel: '(尚無附註)', orderHasRemarkTitle: '這張訂單有附註',
     orderWasModifiedTitle: '這張訂單的品項後來被修改過(改過數量或刪除品項)',
     errEnterNonNegativeQty: '請輸入 0 以上的數量', confirmZeroQtyIsDelete: '把數量改成 0 等於刪除這項商品(退回庫存),要繼續嗎?',
+    errEnterValidQty: '請輸入有效的數量',
     orderItemQtyChangedNote: '訂單 {orderNo} 調整數量:{name} {oldQty}→{newQty} {unit}',
     errAdjustQtyInsufficientStock: '「{name}」庫存不足,目前只剩 {available} 可用(需要再扣 {requested})',
     errAdjustQtyGeneric: '調整數量失敗,請重新整理頁面再試一次。',
@@ -2110,6 +2121,14 @@ const I18N = {
     verifyPageNoItemsAdded: 'No products added yet.',
     btnRunOrderVerify: '✓ Verify (Deduct Stock)',
     errSelectProductFirst: 'Please select a product first', errEnterPositiveQty: 'Please enter a quantity greater than 0',
+    btnAddItemToOrder: '+ Add Item', fieldProduct: 'Product', fieldQty: 'Qty',
+    addItemQtyPlaceholder: 'Positive=ship out, negative=stock in',
+    addItemToCompletedHint: 'Positive means an additional shipment (deducts stock); negative means stock-in/return (adds stock) — same logic as adjusting quantity.',
+    errAddItemQtyNonZero: 'Please enter a non-zero quantity (positive = ship out, negative = stock in)',
+    errProductAlreadyInOrder: 'This product is already in this order. Use "Edit Qty" to adjust it instead of adding it again.',
+    errAddItemInsufficientStock: 'Insufficient stock: "{name}" currently only has {available} {unit} total — can\'t ship that much.',
+    orderItemAddedNote: 'Order {orderNo} - added item: {name} {qty} {unit} ({direction})',
+    directionOut: 'shipped out', directionIn: 'stocked in',
     errSelectPendingOrderFirst: 'Please select a pending order to verify first',
     verifyMismatchIntro: 'Items don\'t match:',
     verifyMismatchMissingOnRight: '"{name}": order has {qty}, but it\'s missing from the added-products list',
@@ -2145,12 +2164,14 @@ const I18N = {
     errOrderNoLongerEditable: 'This order can no longer be edited (it may already be verified, cancelled, or signed for). Please refresh the page to confirm.',
     addToOrderSuccessMsg: '✓ Added {n} item(s) to order {orderNo}.',
     newlyAddedLabel: 'New',
+    stockedInLabel: 'Stocked In',
     colOrderNo: 'Order #', fileNamePrefixOrder: 'Order_',
     errPrintPopupBlocked: '⚠ Could not open the print window — please check your browser isn\'t blocking pop-ups.',
     btnExportOrder: '📄 Export', btnPrintOrder: '🖨️ Print', colCheck: 'Check',
     orderRemarkLabelPrefix: 'Remark:', orderRemarkEmptyLabel: '(No remark yet)', orderHasRemarkTitle: 'This order has a remark',
     orderWasModifiedTitle: 'Items in this order were changed afterward (qty changed or item removed)',
     errEnterNonNegativeQty: 'Please enter a quantity of 0 or more', confirmZeroQtyIsDelete: 'Setting the quantity to 0 will delete this item (and restock it) — continue?',
+    errEnterValidQty: 'Please enter a valid quantity',
     orderItemQtyChangedNote: 'Order {orderNo} qty changed: {name} {oldQty}→{newQty} {unit}',
     errAdjustQtyInsufficientStock: '"{name}" doesn\'t have enough stock — only {available} available (need {requested} more)',
     errAdjustQtyGeneric: 'Failed to adjust quantity, please refresh the page and try again.',
@@ -5430,7 +5451,7 @@ function orderItemRowHtml(o, it, isPending, readOnly, context){
       <div>
         <span>${it.name}${it.sku ? ` (${it.sku})` : ''}</span>
         <span>
-          <input type="number" id="orderItemQtyInput_${context}_${o.id}_${it.productId}" value="${it.qty}" min="0" step="1"
+          <input type="number" id="orderItemQtyInput_${context}_${o.id}_${it.productId}" value="${it.qty}" ${isPending ? 'min="0"' : ''} step="1"
             style="width:70px;font-family:inherit;font-size:inherit;" />
           <span class="row-unit">${it.unit}</span>
           <span class="del-link" style="margin-left:8px;" onclick="${saveFn}('${context}','${o.id}','${it.productId}')">${t('btnSave')}</span>
@@ -5442,9 +5463,11 @@ function orderItemRowHtml(o, it, isPending, readOnly, context){
   const qtyHistoryStr = (it.qtyHistory && it.qtyHistory.length > 0)
     ? `(${it.qtyHistory.map(h => h.added ? t('newlyAddedLabel') : `${h.from}→${h.to}`).join(',')}) `
     : '';
+  const isRestockDisplay = it.qty < 0;
+  const qtyLabel = `${it.qty} ${it.unit}${isRestockDisplay ? ` <span style="color:var(--safe);font-weight:600;">(${t('stockedInLabel')})</span>` : ''}`;
   const qtyDisplay = qtyHistoryStr
-    ? `<span style="color:var(--crit);">${qtyHistoryStr}${it.qty} ${it.unit}</span>`
-    : `${it.qty} ${it.unit}`;
+    ? `<span style="color:var(--crit);">${qtyHistoryStr}</span>${qtyLabel}`
+    : qtyLabel;
   return `
     <div>
       <span>${it.name}${it.sku ? ` (${it.sku})` : ''}</span>
@@ -5501,6 +5524,26 @@ function renderOrders(){
         <span class="del-link" style="margin-left:8px;" onclick="startEditOrderRemark('${o.id}')">${t('btnEditRemark')}</span>
       </div>
     `;
+    const isAddingItem = addingItemToCompletedOrderId === o.id;
+    const addItemHtml = isAddingItem ? `
+      <div style="margin:10px 0;padding:10px;border:1px solid var(--line);border-radius:2px;background:#fff;">
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;">
+          <div style="flex:1;min-width:160px;">
+            <label style="display:block;font-size:11px;color:var(--ink-soft);margin-bottom:4px;">${t('fieldProduct')}</label>
+            <select id="addItemProductSelect_${o.id}" style="width:100%;">
+              ${products.filter(p => !p.hidden).map(p => `<option value="${p.id}">${p.sku ? `[${p.sku}] ` : ''}${p.name}(${p.unit})</option>`).join('')}
+            </select>
+          </div>
+          <div style="width:110px;">
+            <label style="display:block;font-size:11px;color:var(--ink-soft);margin-bottom:4px;">${t('fieldQty')}</label>
+            <input type="number" id="addItemQtyInput_${o.id}" step="0.01" placeholder="${t('addItemQtyPlaceholder')}" style="width:100%;" />
+          </div>
+          <button class="btn" onclick="saveAddItemToCompletedOrder('${o.id}')">${t('btnSave')}</button>
+          <button class="btn ghost" onclick="cancelAddItemToCompletedOrder()">${t('btnCancel')}</button>
+        </div>
+        <div style="font-size:11px;color:var(--ink-soft);margin-top:6px;">${t('addItemToCompletedHint')}</div>
+      </div>
+    ` : '';
     return `
       <div class="order-card ${o.deleted ? 'order-card-deleted' : ''}">
         <div class="order-card-head" style="cursor:pointer;" onclick="toggleOrderExpand('${o.id}')">
@@ -5516,7 +5559,9 @@ function renderOrders(){
           ${o.note ? `<div style="font-size:12px;color:var(--ink-soft);margin:8px 0 6px;">${t('noteLabelPrefix')}${o.note}</div>` : ''}
           <div class="order-items">${itemsHtml}</div>
           ${remarkHtml}
+          ${addItemHtml}
           <div class="order-card-actions">
+            ${(o.deleted || o.signedAt || isAddingItem) ? '' : `<button class="btn ghost" onclick="startAddItemToCompletedOrder('${o.id}')">${t('btnAddItemToOrder')}</button>`}
             <button class="btn ghost" onclick="exportSingleOrderSheet('${o.id}')">${t('btnExportThisOrder')}</button>
             <button class="btn ghost" onclick="printCompletedOrder('${o.id}')">${t('btnPrintOrder')}</button>
             ${(o.deleted || o.signedAt) ? '' : `<button class="btn ghost" onclick="deleteCompletedOrder('${o.id}')">${t('btnDeleteWholeOrder')}</button>`}
@@ -5576,13 +5621,22 @@ function deleteOrderItem(orderId, productId){
   }
   const item = order.items.find(it => it.productId === productId && !it.deleted);
   if(!item) return;
-  showConfirmModal(tf('confirmDeleteOrderItem', {name: item.name, qty: item.qty, unit: item.unit}), async () => {
+  showConfirmModal(tf('confirmDeleteOrderItem', {name: item.name, qty: Math.abs(item.qty), unit: item.unit}), async () => {
     const now = new Date().toISOString();
     try{
       const txId = genId();
-      const noteText = tf('orderItemDeletedRestockNote', { orderNo: order.orderNo || '', name: item.name, qty: item.qty, unit: item.unit });
-      const tx = { id: txId, productId, type: 'restock', qty: item.qty, date: todayISO(), party: order.partyName || '', note: noteText, system: true, orderId };
+      // item.qty 有可能是負的(這一項當初是用「新增商品」以負數新增、代表入庫/退貨的品項)——
+      // 這種情況下刪除要做相反的事:當初新增的時候是「入庫」(restock),刪除要把那筆入庫的量
+      // 「扣」回去,所以是 out;反過來,一般正數品項(當初出貨)刪除時是把出貨的量加回去,是 restock。
+      const isRestockItem = item.qty < 0;
+      const noteText = tf('orderItemDeletedRestockNote', { orderNo: order.orderNo || '', name: item.name, qty: Math.abs(item.qty), unit: item.unit });
+      const tx = { id: txId, productId, type: isRestockItem ? 'out' : 'restock', qty: Math.abs(item.qty), date: todayISO(), party: order.partyName || '', note: noteText, system: true, orderId };
       transactions.push(tx);
+      // 刪除是把 item.qty 這個異動「反過來」:item.qty 本身帶正負號,直接加回去就對了——
+      // 原本是正數(出貨)的話,加回去等於補回庫存;原本是負數(入庫)的話,加回去(等於加一個
+      // 負數,也就是減少)會正確把當初多加的庫存扣掉。之前這裡漏了更新這個本機快取,畫面上的
+      // 庫存要等下一次背景同步才會更新回來,這次一併補上,操作完馬上就是正確的數字。
+      productStockMap[productId] = (productStockMap[productId] || 0) + item.qty;
       await insertTransactions([tx]);
     } catch(e){
       console.error('刪除訂單商品失敗', e);
@@ -5614,6 +5668,85 @@ function cancelEditOrderItemQty(){
   refreshOrderLists();
 }
 
+function startAddItemToCompletedOrder(orderId){
+  addingItemToCompletedOrderId = orderId;
+  renderOrders();
+}
+
+function cancelAddItemToCompletedOrder(){
+  addingItemToCompletedOrderId = null;
+  renderOrders();
+}
+
+// 已完成訂單新增商品:輸入正數代表補出貨(要扣庫存),輸入負數代表入庫/退貨(要加庫存)——
+// 跟「改數量」是同一套邏輯(數量增加=出貨,減少=入庫),差別只在於這是從 0 開始新增一項,
+// 不是調整既有品項的數量。已簽收的訂單整張都鎖住了,不能新增。
+async function saveAddItemToCompletedOrder(orderId){
+  const order = orders.find(o => o.id === orderId);
+  if(!order) return;
+  if(order.signedAt){
+    showInfoModal(t('errOrderAlreadySigned'));
+    addingItemToCompletedOrderId = null;
+    renderOrders();
+    return;
+  }
+  const productSelect = document.getElementById(`addItemProductSelect_${orderId}`);
+  const qtyInput = document.getElementById(`addItemQtyInput_${orderId}`);
+  if(!productSelect || !qtyInput) return;
+  const productId = productSelect.value;
+  const qty = parseFloat(qtyInput.value);
+  if(!productId){ showInfoModal(t('errSelectProductFirst')); return; }
+  if(isNaN(qty) || qty === 0){ showInfoModal(t('errAddItemQtyNonZero')); return; }
+
+  const p = products.find(x => x.id === productId);
+  if(!p){ showInfoModal(t('errSelectProductFirst')); return; }
+
+  // 同一項商品已經在這張訂單裡(還沒被刪除)的話不能重複新增,請改用「改數量」處理,
+  // 避免同一張訂單裡同個商品出現兩列造成混淆。
+  if(order.items.some(it => it.productId === productId && !it.deleted)){
+    showInfoModal(t('errProductAlreadyInOrder'));
+    return;
+  }
+
+  const isOut = qty > 0;
+  if(isOut){
+    // 正數 = 補出貨,先檢查庫存總量夠不夠(批量商品可以拆箱切換成主商品出貨,所以看總量,
+    // 不是只看主商品自己那一格),同時扣掉別的待處理訂單已經預訂走的量。
+    const available = computeTotalStock(productId) - computePendingReserved(productId);
+    if(qty > available){
+      showInfoModal(tf('errAddItemInsufficientStock', { name: p.name, available: Math.max(0, available), unit: p.unit }));
+      return;
+    }
+  }
+
+  const txId = genId();
+  const noteText = tf('orderItemAddedNote', { orderNo: order.orderNo || '', name: p.name, qty: Math.abs(qty), unit: p.unit, direction: isOut ? t('directionOut') : t('directionIn') });
+  const tx = { id: txId, productId, type: isOut ? 'out' : 'restock', qty: Math.abs(qty), date: todayISO(), party: order.partyName || '', note: noteText, system: true, orderId };
+
+  try{
+    transactions.push(tx);
+    // qty 本身帶正負號,直接拿來扣就對了:正數(出貨)扣掉等於減少庫存;負數(入庫)扣掉一個
+    // 負數(等於加)會正確地把庫存加回去。
+    productStockMap[productId] = (productStockMap[productId] || 0) - qty;
+    await insertTransactions([tx]);
+  } catch(e){
+    console.error('新增商品到訂單失敗', e);
+    showInfoModal('⚠ 操作失敗,請重新整理頁面再試一次。');
+    return;
+  }
+
+  order.items.push({
+    productId, sku: p.sku || '', name: p.name, unit: p.unit, qty,
+    qtyHistory: [{ added: true }]
+  });
+  try{ await upsertOrders([order]); }
+  catch(e){ console.error('儲存新增商品失敗', e); }
+
+  addingItemToCompletedOrderId = null;
+  logInventoryAction('order_edit', `Order ${order.orderNo || orderId} - added item: ${p.name} ${Math.abs(qty)} ${p.unit} (${isOut ? 'shipped out' : 'stocked in'})`, order.orderNo);
+  renderAll();
+}
+
 // 已完成訂單裡改品項數量:改多了要再扣庫存(等於補出貨),改少了要把差額退回庫存(入庫)。這兩種
 // 都會另外「新增」一筆進出貨紀錄(備註標註訂單號跟新舊數量),不會動到原本那筆出貨紀錄,方便之後
 // 對帳看得出這張訂單前後改過什麼。扣庫存的部分一樣走 RPC 做 atomic 檢查+扣除,庫存不夠會直接拒絕。
@@ -5631,8 +5764,8 @@ async function saveOrderItemQty(context, orderId, productId){
   const input = document.getElementById(`orderItemQtyInput_${context}_${orderId}_${productId}`);
   if(!input) return;
   const newQty = parseFloat(input.value);
-  if(isNaN(newQty) || newQty < 0){
-    showInfoModal(t('errEnterNonNegativeQty'));
+  if(isNaN(newQty)){
+    showInfoModal(t('errEnterValidQty'));
     return;
   }
   if(newQty === item.qty){
@@ -5801,6 +5934,7 @@ function renderPendingOrders(){
           <div class="order-card-actions">
             ${o.deleted ? '' : `<button class="btn" onclick="verifyOrder('${o.id}')" ${activeItemCount === 0 ? 'disabled' : ''}>${t('btnVerifyOrder')}</button>`}
             ${o.deleted ? '' : `<button class="btn ghost" onclick="openOrderInVerifyPage('${o.id}')" ${activeItemCount === 0 ? 'disabled' : ''}>${t('btnLoadIntoVerifyPage')}</button>`}
+            ${o.deleted ? '' : `<button class="btn ghost" onclick="goAddProductsToOrder('${o.id}')">${t('btnAddItemToOrder')}</button>`}
             ${o.deleted ? '' : `<button class="btn ghost" onclick="cancelPendingOrder('${o.id}')">${t('btnCancelWholeOrder')}</button>`}
             <button class="btn ghost" onclick="exportPendingOrderExcel('${o.id}')">${t('btnExportOrder')}</button>
             <button class="btn ghost" onclick="printPendingOrder('${o.id}')">${t('btnPrintOrder')}</button>
@@ -9014,7 +9148,7 @@ function isUserActivelyEditing(){
   if(anyModalOpen) return true;
   return !!(appendingNoteTxId || editingProductId || editingPartyId || editingOrderItemKey ||
     editingOrderRemarkId || editingUserModalId || editingOrderPartyId ||
-    addingItemsToOrderId);
+    addingItemsToOrderId || addingItemToCompletedOrderId);
 }
 
 async function silentBackgroundRefresh(){
