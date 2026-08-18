@@ -1645,6 +1645,8 @@ let pendingConversionChildId = null; // 目前開啟「切換」視窗的批量�
 let conversionMode = null; // 'toParent'(批量商品→主商品,原本的切換) | 'toChild'(主商品→批量商品,組裝多入裝)
 let conversionParentId = null; // 'toChild' 模式下,來源主商品 id
 let conversionSourceBatchProductId = null; // 如果這次切換是從「登記進出貨」清單裡按切換鍵開啟的,記住是哪個品項,切換成功後要把它從清單移除
+let conversionSourceVerifyProductId = null; // 如果這次切換是從「訂單核對→新增商品(實際點貨)」清單裡按切換鍵開啟的,記住是哪個品項,切換成功後要把它從清單移除
+let conversionDefaultQty = 1; // 切換視窗數量輸入框預設值——一般切換預設 1,但從登記進出貨/訂單核對清單按切換鍵開啟時,預設帶入那個品項目前清單上的數量
 let convertHistoryWindowRef = null; // 開啟中的「切換紀錄」分頁參照
 
 const DEFAULT_CATEGORY_ORDER = ['Frozen Beverages','Gelato','Other Beverages/ Ingredients','Tea','Toppings','Packaging'];
@@ -1750,6 +1752,7 @@ const I18N = {
     fieldTargetChild: '要轉換成哪個批量商品', fieldConvertQtyToChild: '要轉換的主商品數量',
     fieldConvertResultToChild: '換算為批量商品數量', deletedProductLabel: '(已刪除商品)',
     errEnterPositiveQty: '請輸入大於 0 的數量', errExceedParentStock: '轉換數量不能超過目前主商品庫存量({n})',
+    errConversionMustBeInteger: '切換數量必須是整數,不能有小數。', errConversionResultNotInteger: '換算後是 {result} {unit},不是整數,無法切換——請調整輸入的數量。',
     errNoConversionRelation: '這項商品沒有設定主商品/批量商品關係,無法切換。',
 
     tabOrder: '訂貨', tabOrderAdmin: '訂貨後台管理',
@@ -1784,6 +1787,9 @@ const I18N = {
     errVerifyNoActiveItems: '這張訂單的商品都已經被取消了,沒有可以核對的品項。',
     itemDeletedLabelPending: '已刪除(尚未扣庫存)',
     logActionOrderVerify: '核對訂單',
+    logActionTxNoteAppend: '新增附註',
+    logActionConversionUndo: '復原切換',
+    errUndoConversionWouldGoNegative: '無法復原這筆切換:「{name}」目前庫存只有 {stock} {unit},但復原需要扣掉 {needed} {unit},會讓庫存變成負的(可能是切換之後這項商品又出貨掉了)。',
     confirmChangeOrderItemQty: '確定要把「{name}」的數量從 {from} 改成 {to} {unit} 嗎?',
     secOrderVerifyPage: '訂單核對',
     orderVerifyPageDesc: '左邊是目前載入的待處理訂單內容,可以直接在這裡修改數量或刪除品項(異動會同步回那張待處理訂單本身)。右邊登記實際點貨/驗收的商品,按下方「核對(扣庫存)」會比對兩邊的品項跟數量是否完全一致 —— 一致才會真的扣庫存、把訂單移到已完成訂單;不一致的話會列出所有對不上的品項,不會扣庫存。',
@@ -2036,6 +2042,7 @@ const I18N = {
     fieldTargetChild: 'Convert into which multi-pack', fieldConvertQtyToChild: 'Main product quantity to convert',
     fieldConvertResultToChild: 'Converted multi-pack quantity', deletedProductLabel: '(deleted product)',
     errEnterPositiveQty: 'Please enter a quantity greater than 0', errExceedParentStock: 'Conversion quantity can\'t exceed current main product stock ({n})',
+    errConversionMustBeInteger: 'Conversion quantity must be a whole number, no decimals.', errConversionResultNotInteger: 'That works out to {result} {unit}, which isn\'t a whole number — this conversion can\'t proceed. Please adjust the quantity.',
     errNoConversionRelation: 'This product has no main product/multi-pack relationship set up, so it can\'t be converted.',
 
     tabOrder: 'Place Order', tabOrderAdmin: 'Order Management',
@@ -2070,6 +2077,9 @@ const I18N = {
     errVerifyNoActiveItems: 'All items in this order have already been cancelled — there is nothing left to verify.',
     itemDeletedLabelPending: 'Deleted (stock not yet deducted)',
     logActionOrderVerify: 'Verify order',
+    logActionTxNoteAppend: 'Append note',
+    logActionConversionUndo: 'Undo conversion',
+    errUndoConversionWouldGoNegative: 'Can\'t undo this conversion: "{name}" currently only has {stock} {unit} in stock, but undoing requires deducting {needed} {unit}, which would make stock negative (this product may have shipped out since the conversion happened).',
     confirmChangeOrderItemQty: 'Change the quantity of "{name}" from {from} to {to} {unit}?',
     secOrderVerifyPage: 'Order Verify',
     orderVerifyPageDesc: 'The left side shows the pending order currently loaded — you can change quantities or remove items directly here (changes sync back to that pending order). On the right, register the products actually received. "Verify (Deduct Stock)" below compares both sides\' items and quantities — only an exact match will actually deduct stock and move the order to Completed Orders; a mismatch lists every item that doesn\'t line up and deducts nothing.',
@@ -3949,11 +3959,33 @@ function renderTxBatchList(){
 function openConversionFromTxBatch(productId){
   const p = products.find(x => x.id === productId);
   if(!p) return;
+  const item = txBatchItems.find(it => it.productId === productId);
+  conversionDefaultQty = item ? item.qty : 1;
   if(p.parentId){
     conversionSourceBatchProductId = productId;
     openConversionModal(productId);
   } else if(getChildProducts(productId).length > 0){
     conversionSourceBatchProductId = productId;
+    openParentToChildConversionModal(productId);
+  } else {
+    showInfoModal(t('errNoConversionRelation'));
+  }
+}
+
+// 從「訂單核對→新增商品(實際點貨)」清單裡按「切換」:邏輯跟登記進出貨那邊的切換完全一樣,
+// 只是切換成功後要清掉的是 verifyPageRightItems 裡的那個品項,不是 txBatchItems。用途是:
+// 點貨的時候實際上是整箱批量商品出貨(例如拿了一箱「Grape x 20 bottle」),但訂單核對比對的
+// 是主商品(「Grape」)的數量,所以要先把點到的批量商品切換成主商品的量,才能正確比對訂單。
+function openConversionFromVerifyPage(productId){
+  const p = products.find(x => x.id === productId);
+  if(!p) return;
+  const item = verifyPageRightItems.find(it => it.productId === productId);
+  conversionDefaultQty = item ? item.qty : 1;
+  if(p.parentId){
+    conversionSourceVerifyProductId = productId;
+    openConversionModal(productId);
+  } else if(getChildProducts(productId).length > 0){
+    conversionSourceVerifyProductId = productId;
     openParentToChildConversionModal(productId);
   } else {
     showInfoModal(t('errNoConversionRelation'));
@@ -6143,6 +6175,7 @@ function renderVerifyPageRightItems(){
     <div>
       <span>${it.sku ? `<span class="sku-badge">${it.sku}</span>` : ''}${it.name}</span>
       <span>${it.qty} ${it.unit}
+        <span class="del-link" style="margin-left:8px;" onclick="openConversionFromVerifyPage('${it.productId}')" title="${t('btnConvertBatchItem')}">🔄</span>
         <span class="del-link" style="margin-left:8px;color:var(--crit);" onclick="removeVerifyPageItem(${idx})">${t('btnDelete')}</span>
       </span>
     </div>
@@ -7060,6 +7093,7 @@ function openConversionModal(childId){
   pendingConversionChildId = childId;
   conversionParentId = null;
   const childStock = computeStock(childId);
+  const defaultQty = Math.min(conversionDefaultQty, childStock) || 1;
   document.getElementById('conversionModalTitle').textContent = `${t('btnConvertToParent')} —「${child.name}」→「${parent.name}」`;
   document.getElementById('conversionModalBody').innerHTML = `
     <p style="font-size:12.5px;color:var(--ink-soft);margin:0 0 12px;">
@@ -7067,7 +7101,7 @@ function openConversionModal(childId){
     </p>
     <div class="field-block">
       <label>${t('fieldConvertQtyToParent')}(${child.unit})</label>
-      <input type="number" id="conversionQty" min="0" max="${childStock}" step="1" value="1" oninput="updateConversionPreview()" style="width:100%;" />
+      <input type="number" id="conversionQty" min="0" max="${childStock}" step="1" value="${defaultQty}" oninput="updateConversionPreview()" style="width:100%;" />
     </div>
     <div class="field-block">
       <label>${t('fieldConvertResultToParent')}(${parent.unit})</label>
@@ -7100,6 +7134,7 @@ function renderParentToChildConversionBody(){
   const selectedChild = children.find(c => c.id === pendingConversionChildId) || children[0];
   pendingConversionChildId = selectedChild.id;
   const parentStock = computeStock(parent.id);
+  const defaultQty = Math.min(conversionDefaultQty, parentStock) || 1;
   document.getElementById('conversionModalTitle').textContent = `${t('btnConvertToChild')} —「${parent.name}」→「${selectedChild.name}」`;
   document.getElementById('conversionModalBody').innerHTML = `
     <p style="font-size:12.5px;color:var(--ink-soft);margin:0 0 12px;">
@@ -7115,7 +7150,7 @@ function renderParentToChildConversionBody(){
     ` : ''}
     <div class="field-block">
       <label>${t('fieldConvertQtyToChild')}(${parent.unit})</label>
-      <input type="number" id="conversionQty" min="0" max="${parentStock}" step="1" value="1" oninput="updateConversionPreview()" style="width:100%;" />
+      <input type="number" id="conversionQty" min="0" max="${parentStock}" step="1" value="${defaultQty}" oninput="updateConversionPreview()" style="width:100%;" />
     </div>
     <div class="field-block">
       <label>${t('fieldConvertResultToChild')}(${selectedChild.unit})</label>
@@ -7161,6 +7196,8 @@ function closeConversionModal(){
   conversionMode = null;
   conversionParentId = null;
   conversionSourceBatchProductId = null;
+  conversionSourceVerifyProductId = null;
+  conversionDefaultQty = 1;
   document.getElementById('conversionModalOverlay').style.display = 'none';
 }
 
@@ -7173,11 +7210,17 @@ async function confirmConversion(){
     if(!parent || !child){ closeConversionModal(); return; }
     const qty = parseFloat(document.getElementById('conversionQty').value);
     if(isNaN(qty) || qty <= 0){ msg.className = 'msg error'; msg.textContent = t('errEnterPositiveQty'); return; }
+    if(!Number.isInteger(qty)){ msg.className = 'msg error'; msg.textContent = t('errConversionMustBeInteger'); return; }
     const parentStock = computeStock(parent.id);
     if(qty > parentStock){ msg.className = 'msg error'; msg.textContent = tn('errExceedParentStock', parentStock); return; }
 
     const weight = child.childWeight || 1;
     const convertedQty = qty / weight;
+    if(!Number.isInteger(convertedQty)){
+      msg.className = 'msg error';
+      msg.textContent = tf('errConversionResultNotInteger', { result: convertedQty.toLocaleString(undefined, {maximumFractionDigits: 4}), unit: child.unit });
+      return;
+    }
     const dateVal = todayISO();
     const nowIso = new Date().toISOString();
     const conversionId = genId();
@@ -7198,9 +7241,12 @@ async function confirmConversion(){
       return;
     }
     const batchProductId = conversionSourceBatchProductId;
+    const verifyProductId = conversionSourceVerifyProductId;
     closeConversionModal();
     if(batchProductId) txBatchItems = txBatchItems.filter(it => it.productId !== batchProductId);
+    if(verifyProductId) verifyPageRightItems = verifyPageRightItems.filter(it => it.productId !== verifyProductId);
     renderAll();
+    renderVerifyPageRightItems();
     return;
   }
 
@@ -7212,11 +7258,17 @@ async function confirmConversion(){
 
   const qty = parseFloat(document.getElementById('conversionQty').value);
   if(isNaN(qty) || qty <= 0){ msg.className = 'msg error'; msg.textContent = '請輸入大於 0 的數量'; return; }
+  if(!Number.isInteger(qty)){ msg.className = 'msg error'; msg.textContent = t('errConversionMustBeInteger'); return; }
   const childStock = computeStock(childId);
   if(qty > childStock){ msg.className = 'msg error'; msg.textContent = `切換數量不能超過目前批量商品庫存量(${childStock})`; return; }
 
   const weight = child.childWeight || 1;
   const convertedQty = qty * weight;
+  if(!Number.isInteger(convertedQty)){
+    msg.className = 'msg error';
+    msg.textContent = tf('errConversionResultNotInteger', { result: convertedQty.toLocaleString(undefined, {maximumFractionDigits: 4}), unit: parent.unit });
+    return;
+  }
   const dateVal = todayISO();
   const nowIso = new Date().toISOString();
   const conversionId = genId();
@@ -7237,9 +7289,12 @@ async function confirmConversion(){
     return;
   }
   const batchProductId = conversionSourceBatchProductId;
+  const verifyProductId = conversionSourceVerifyProductId;
   closeConversionModal();
   if(batchProductId) txBatchItems = txBatchItems.filter(it => it.productId !== batchProductId);
+  if(verifyProductId) verifyPageRightItems = verifyPageRightItems.filter(it => it.productId !== verifyProductId);
   renderAll();
+  renderVerifyPageRightItems();
 }
 
 // ===== 切換紀錄(Convert History)=====
@@ -7326,11 +7381,33 @@ function renderConvertHistoryWindow(){
 
 // 復原一組切換紀錄:把配對的兩筆交易一起刪除。這個 function 是給「切換紀錄」分頁(window.opener)呼叫的,
 // 所以定義在最上層(全域),讓另一個分頁可以透過 window.opener.undoConversion(...) 呼叫到。
+// 復原前要先檢查:這兩筆交易裡,「type 是 in(切換當下新增進去的那筆)」如果被移除,會不會讓那個
+// 商品現在的庫存變成負的——如果切換之後那個商品又被出貨掉了(不管是透過訂單還是登記進出貨),
+// 庫存可能已經不夠讓這筆切換完整復原,這種情況要擋下來並清楚告知是哪個商品、目前只剩多少庫存。
+// 「type 是 out(切換當下扣掉的那筆)」復原時是把庫存加回去,不會有變負的風險,不用檢查。
 async function undoConversion(conversionId){
   const pair = transactions.filter(tx => tx.conversionId === conversionId);
   if(pair.length === 0) return;
+
+  for(const tx of pair){
+    if(tx.type !== 'in') continue;
+    const currentStock = computeStock(tx.productId);
+    const afterRevert = currentStock - tx.qty;
+    if(afterRevert < 0){
+      const p = products.find(x => x.id === tx.productId);
+      showInfoModal(tf('errUndoConversionWouldGoNegative', {
+        name: p ? p.name : tx.productId,
+        stock: currentStock,
+        unit: p ? p.unit : '',
+        needed: tx.qty
+      }));
+      return;
+    }
+  }
+
   transactions = transactions.filter(tx => tx.conversionId !== conversionId);
   await deleteTransactions(pair);
+  logInventoryAction('conversion_undo', `Reverted conversion (id ${conversionId})`, null);
   renderAll();
   renderConvertHistoryWindow();
 }
@@ -8389,7 +8466,9 @@ const INVENTORY_LOG_ACTION_LABEL_KEY = {
   order_edit: 'logActionOrderEdit',
   order_delete: 'logActionOrderDelete',
   order_remark: 'logActionOrderRemark',
-  order_verify: 'logActionOrderVerify'
+  order_verify: 'logActionOrderVerify',
+  tx_note_append: 'logActionTxNoteAppend',
+  conversion_undo: 'logActionConversionUndo'
 };
 function inventoryLogActionLabel(actionType){
   const key = INVENTORY_LOG_ACTION_LABEL_KEY[actionType];
@@ -8480,6 +8559,8 @@ async function saveAppendNoteToTx(id){
     showInfoModal('新增附註失敗,請重新整理頁面再試一次。');
     return;
   }
+  const p = products.find(x => x.id === tx.productId);
+  logInventoryAction('tx_note_append', `Appended note to ${p ? p.name : tx.productId} record (${tx.date}): "${addition}"`, tx.orderId || null);
   appendingNoteTxId = null;
   renderAll();
 }
