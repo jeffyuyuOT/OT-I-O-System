@@ -1461,6 +1461,16 @@
   </div>
 </div>
 
+<div id="showInTotalPickerOverlay" class="modal-overlay" style="display:none;">
+  <div class="modal-box">
+    <div class="section-title" style="margin-bottom:16px;" data-i18n="showInTotalPickerTitle">選擇要顯示於庫存總覽的商品</div>
+    <div id="showInTotalPickerBody"></div>
+    <div class="modal-actions" style="margin-top:6px;">
+      <button class="btn ghost" onclick="cancelShowInTotalPicker()" data-i18n="btnCancel">取消</button>
+    </div>
+  </div>
+</div>
+
 <div id="restoreDefaultModalOverlay" class="modal-overlay" style="display:none;">
   <div class="modal-box">
     <div class="section-title" style="margin-bottom:10px;" data-i18n="btnRestoreDefault">還原預設 / Restore Default</div>
@@ -1622,6 +1632,7 @@ let stockSortDir = 'asc';
 let lastAutoBackupMode = null; // 'folder' | 'download' | 'unsupported' | null
 let appendingNoteTxId = null; // 進出貨紀錄已經不能整列編輯了,只能疊加新增附註,用這個狀態控制哪一列在顯示新增附註的輸入框。
 let editingProductId = null;
+let pendingTotalStockBasisChoice = null; // 商品編輯視窗裡取消勾選「顯示於庫存總覽」時,自動或使用者選出的接手商品 id(存到儲存的時候才真的套用)
 let editingPartyId = null;
 let openPartyProductPanelId = null;
 let partyProductBulkSelected = new Set();
@@ -1820,7 +1831,7 @@ const I18N = {
     itemDeletedLabel: '已刪除(退回庫存)', itemDeletedLabelStockedOut: '已刪除(已出庫,已入庫退回)',
     btnEditQty: '改數量', btnEditRemark: '編輯附註', orderRemarkPlaceholder: '對這張訂單做點附註⋯⋯',
     btnEditOrderParty: '指定/修改出貨方',
-    orderNoPartyLinkedWarning: '⚠ 這張訂單沒有正式掛上任何出貨方,只有不限出貨方權限的帳號(例如管理者)看得到',
+    orderNoPartyLinkedWarning: '⚠ 這張訂單沒有正式掛上任何出貨方',
     errOrderBeingProcessed: '這張訂單正在「訂單核對」頁面處理中,請等處理完成(或請對方取消載入)後再修改。',
     errOrderAlreadySigned: '這張訂單已經簽收過了,不能再修改。',
     warnOrderNoSeqSyncFailed: '⚠ 但訂單編號序列同步失敗(可能是 sync_order_no_seq_migration.sql 還沒在 Supabase 執行過),之後新建的訂單可能會撞號,請確認已在 Supabase SQL Editor 執行過這份 migration。',
@@ -1964,6 +1975,11 @@ const I18N = {
     autoConvertMultipackHint: '只有主商品「剛好只有一種 multipack 商品」,或已經在編輯商品畫面勾選「顯示於總庫存量」指定某個 multipack 商品時才會生效;數量不足整數倍的部分,仍會用主商品下單。',
     fieldShowInTotalStock: '顯示於庫存總覽',
     fieldShowInTotalStockHint: '— 勾選後,庫存總覽的清單會用這個商品(而不是主商品)代表整個商品家族,總庫存量/平均出貨/安全庫存都會依它的加權數換算顯示。同一個商品家族(主商品+底下所有 multipack 商品)只能勾選一個,勾了別的,這裡會自動取消。',
+    fieldShowInTotalStockHiddenHint: '— 這個商品目前是隱藏狀態,不能設定為顯示於庫存總覽的代表商品,請先取消隱藏。',
+    errHiddenCannotShowInTotal: '隱藏中的商品不能設定為「顯示於庫存總覽」的代表商品,請先取消隱藏。',
+    errCannotUnsetShowInTotalAllHidden: '無法取消勾選:同一個商品家族裡,其他相關商品目前全部都是隱藏狀態,沒有其他商品可以接手當「顯示於庫存總覽」的代表。請先把其中一個取消隱藏,才能取消這裡的勾選。',
+    showInTotalPickerTitle: '選擇要顯示於庫存總覽的商品',
+    showInTotalPickerDesc: '這個商品家族裡有多個商品可以接手當「顯示於庫存總覽」的代表,請選一個:',
 
     secRestoreDefault: '還原預設',
     restoreDefaultDesc: '清空資料回到初始狀態,動作無法復原,執行前建議先於下方「完整資料備份」匯出完整備份。',
@@ -2113,7 +2129,7 @@ const I18N = {
     itemDeletedLabel: 'Deleted (Restocked)', itemDeletedLabelStockedOut: 'Deleted (was stocked out, restocked back)',
     btnEditQty: 'Edit Qty', btnEditRemark: 'Edit Remark', orderRemarkPlaceholder: 'Add a remark about this order…',
     btnEditOrderParty: 'Set/Change Shipping Party',
-    orderNoPartyLinkedWarning: '⚠ This order isn\'t linked to any shipping party — only accounts without shipping-party restrictions (e.g. admins) can see it',
+    orderNoPartyLinkedWarning: '⚠ This order isn\'t linked to any shipping party',
     errOrderBeingProcessed: 'This order is currently being processed on the Order Verify page. Please wait until that finishes (or ask them to unload it) before editing.',
     errOrderAlreadySigned: 'This order has already been signed for and can no longer be edited.',
     warnOrderNoSeqSyncFailed: '⚠ But syncing the order number sequence failed (sync_order_no_seq_migration.sql may not have been run in Supabase yet) — new orders created from now on may collide with restored order numbers. Please confirm that migration has been run in the Supabase SQL Editor.',
@@ -2257,6 +2273,11 @@ const I18N = {
     autoConvertMultipackHint: 'Only applies when a main product has exactly one multi-pack product, or a multi-pack product has been marked "Show in Total Stock" for it in the product edit screen; any amount that isn\'t an exact multiple still gets ordered as the main product.',
     fieldShowInTotalStock: 'Show in Stock Overview',
     fieldShowInTotalStockHint: '— when checked, the Stock Overview list represents this whole product family using this product (instead of the main product), converting Total Stock/Avg Usage/Safety Stock by its weight. Only one member of a product family (main product + all its multi-packs) can be checked at a time; checking another one here automatically unchecks this.',
+    fieldShowInTotalStockHiddenHint: '— this product is currently hidden and can\'t be set as the family\'s Stock Overview representative. Unhide it first.',
+    errHiddenCannotShowInTotal: 'A hidden product can\'t be set as the "show in Stock Overview" representative. Please unhide it first.',
+    errCannotUnsetShowInTotalAllHidden: 'Can\'t uncheck this: every other product in this family is currently hidden, so there\'s no other product available to take over as the Stock Overview representative. Unhide one of them first, then try again.',
+    showInTotalPickerTitle: 'Choose which product represents this family in Stock Overview',
+    showInTotalPickerDesc: 'Multiple products in this family could take over as the Stock Overview representative — pick one:',
 
     secRestoreDefault: 'Restore Default',
     restoreDefaultDesc: 'Wipes data back to a clean state. This cannot be undone — export a full backup below ("Full Data Backup") first.',
@@ -6879,6 +6900,7 @@ function openProductEditModal(id){
   if(!p) return;
   editingProductId = id;
   addingChildParentId = null;
+  pendingTotalStockBasisChoice = null;
   document.getElementById('productEditModalTitle').textContent = `${t('btnEdit')} — ${p.name}`;
   document.getElementById('productEditModalBody').innerHTML = renderProductEditModalBody(p);
   document.getElementById('productEditModalMsg').textContent = '';
@@ -6988,9 +7010,10 @@ function renderProductEditModalBody(p, opts){
     ` : ''}
     ${showBasisToggle ? `
     <div class="field-block">
-      <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-weight:400;">
-        <input type="checkbox" id="editProdShowInTotal" ${currentBasisId === p.id ? 'checked' : ''} />
-        <span>${t('fieldShowInTotalStock')}<span style="color:var(--ink-soft);font-weight:400;"> ${t('fieldShowInTotalStockHint')}</span></span>
+      <label style="display:flex;align-items:center;gap:6px;cursor:${p.hidden ? 'not-allowed' : 'pointer'};font-weight:400;">
+        <input type="checkbox" id="editProdShowInTotal" ${currentBasisId === p.id ? 'checked' : ''} ${p.hidden ? 'disabled' : ''}
+          onchange="handleShowInTotalToggle(this, '${p.id}')" />
+        <span>${t('fieldShowInTotalStock')}<span style="color:var(--ink-soft);font-weight:400;"> ${p.hidden ? t('fieldShowInTotalStockHiddenHint') : t('fieldShowInTotalStockHint')}</span></span>
       </label>
     </div>
     ` : ''}
@@ -7010,6 +7033,7 @@ function renderProductEditModalBody(p, opts){
 function closeProductEditModal(){
   editingProductId = null;
   addingChildParentId = null;
+  pendingTotalStockBasisChoice = null;
   document.getElementById('productEditModalOverlay').style.display = 'none';
 }
 
@@ -7664,15 +7688,86 @@ function formatMultipackQty(n){
 // 設定/取消「顯示於總覽量」:productId 可以是主商品自己的 id,也可以是它某個 multipack 子商品的 id。
 // 整個商品家族(主商品+全部 multipack 子商品)共用同一個欄位(記在主商品身上),所以勾選其中一個,
 // 其他成員原本的勾選會自動被取消 —— 不用另外寫同步邏輯,天生就只會有一個生效。
+let showInTotalPickerCheckboxEl = null; // 「顯示於庫存總覽」選擇視窗開著的時候,記住是哪一個 checkbox 觸發的,取消選擇時要復原勾選狀態
+
+// 商品編輯視窗裡「顯示於庫存總覽」勾選框被使用者手動切換時呼叫——切換當下就要驗證/處理,不是
+// 等按下「儲存」才發現,因為取消勾選可能需要跳出視窗讓使用者選接手的商品。
+function handleShowInTotalToggle(checkboxEl, productId){
+  const p = products.find(x => x.id === productId);
+  if(!p) return;
+  if(checkboxEl.checked){
+    // 勾選:隱藏商品不能被設成代表(checkbox 本來就是 disabled,這裡多一層防呆)。
+    if(p.hidden){ checkboxEl.checked = false; showInfoModal(t('errHiddenCannotShowInTotal')); return; }
+    pendingTotalStockBasisChoice = null;
+    return;
+  }
+  // 取消勾選:找同一個商品家族(主商品+底下所有批量商品)裡,除了自己以外的其他成員,
+  // 優先考慮還沒被隱藏的那些,決定接下來要換誰當「顯示於庫存總覽」的代表。
+  const familyParent = p.parentId ? products.find(x => x.id === p.parentId) : p;
+  if(!familyParent) return;
+  const members = [familyParent, ...getChildProducts(familyParent.id)].filter(m => m.id !== p.id);
+  const visibleCandidates = members.filter(m => !m.hidden);
+
+  if(visibleCandidates.length === 0){
+    // 沒有其他非隱藏的相關商品可以接手,不能取消——維持勾選狀態,說明原因。
+    checkboxEl.checked = true;
+    showInfoModal(t('errCannotUnsetShowInTotalAllHidden'));
+    return;
+  }
+  if(visibleCandidates.length === 1){
+    pendingTotalStockBasisChoice = visibleCandidates[0].id;
+    return;
+  }
+  // 兩個以上候選,跳出視窗讓使用者自己選。選擇視窗開著期間先讓 checkbox 維持未勾選的畫面狀態,
+  // 如果使用者按「取消」不選,cancelShowInTotalPicker() 會把 checkbox 復原成勾選。
+  openShowInTotalPickerModal(checkboxEl, visibleCandidates);
+}
+
+function openShowInTotalPickerModal(checkboxEl, candidates){
+  showInTotalPickerCheckboxEl = checkboxEl;
+  const body = document.getElementById('showInTotalPickerBody');
+  body.innerHTML = `
+    <p style="font-size:12.5px;color:var(--ink-soft);margin:0 0 12px;">${t('showInTotalPickerDesc')}</p>
+    ${candidates.map(c => `
+      <button class="btn ghost" style="width:100%;text-align:left;margin-bottom:8px;" onclick="chooseShowInTotalCandidate('${c.id}')">${c.name.replace(/"/g,'&quot;')}${c.sku ? ` (${c.sku})` : ''}</button>
+    `).join('')}
+  `;
+  document.getElementById('showInTotalPickerOverlay').style.display = 'flex';
+}
+
+function chooseShowInTotalCandidate(candidateId){
+  pendingTotalStockBasisChoice = candidateId;
+  showInTotalPickerCheckboxEl = null;
+  document.getElementById('showInTotalPickerOverlay').style.display = 'none';
+}
+
+function cancelShowInTotalPicker(){
+  if(showInTotalPickerCheckboxEl) showInTotalPickerCheckboxEl.checked = true;
+  showInTotalPickerCheckboxEl = null;
+  pendingTotalStockBasisChoice = null;
+  document.getElementById('showInTotalPickerOverlay').style.display = 'none';
+}
+
+// 儲存商品編輯視窗時真正套用「顯示於庫存總覽」的選擇。checked=true 就直接把這個商品設成代表;
+// checked=false 且這個商品原本就是代表(不管是明確設定的,還是沒設定時預設用主商品自己代表),
+// 就改用 handleShowInTotalToggle() 當下已經自動算好、或使用者在選擇視窗裡選好的接手商品
+// (pendingTotalStockBasisChoice),而不是直接歸零——如果因為某種原因(例如使用者跳過切換直接
+// 按存檔)沒有算出接手商品,就維持原狀不變更,不會讓庫存總覽突然沒有代表商品可顯示。
 function applyTotalStockBasisChoice(product, checked){
   if(!product) return;
   const parent = product.parentId ? products.find(x => x.id === product.parentId) : product;
   if(!parent) return;
   if(checked){
+    if(product.hidden) return;
     parent.totalStockBasisId = product.id;
-  } else if(parent.totalStockBasisId === product.id){
-    parent.totalStockBasisId = null;
+    pendingTotalStockBasisChoice = null;
+    return;
   }
+  const isCurrentlyBasis = parent.totalStockBasisId ? (parent.totalStockBasisId === product.id) : (parent.id === product.id);
+  if(isCurrentlyBasis && pendingTotalStockBasisChoice){
+    parent.totalStockBasisId = pendingTotalStockBasisChoice;
+  }
+  pendingTotalStockBasisChoice = null;
 }
 
 // 主商品庫存總量 = 主商品自己的庫存量 + Σ(批量商品庫存量 × 該批量商品的加權數)。
