@@ -923,6 +923,10 @@
 
     <div id="subtab-tx-register" class="subtab-content active-subtab">
     <div class="section">
+      <div id="addToOrderViaRegisterBanner" style="display:none;margin-bottom:14px;padding:10px 14px;background:var(--yellow);border-radius:2px;font-size:12.5px;font-weight:600;color:var(--ink);">
+        <span id="addToOrderViaRegisterBannerLabel"></span>
+        <span class="del-link" style="margin-left:10px;font-weight:600;" onclick="cancelAddToExistingOrderViaRegister()" data-i18n="btnCancelAddToOrder">取消,不新增了</span>
+      </div>
       <div class="section-title"><span data-i18n="secRegisterTx">登記進出貨</span></div>
       <p style="font-size:11.5px;color:var(--ink-soft);margin:0 0 12px;" data-i18n="txBatchDesc">先選好下面共用的類型/日期/對象/備註,再從清單依序把商品加進來;按「登記」時,清單裡的每一項商品都會各自登記一筆紀錄,但共用同一個類型/日期/對象,備註也會套用到全部品項。</p>
       <div class="form-grid" style="grid-template-columns:1fr 1fr 1fr 1.4fr;">
@@ -1650,7 +1654,8 @@ let orderCounter = 0;
 let expandedOrderIds = new Set();
 let editingOrderItemKey = null; // `${orderId}::${productId}`,已完成訂單裡目前正在編輯數量的那個品項
 let editingOrderRemarkId = null; // 已完成訂單裡目前正在編輯附註的那張訂單 id
-let addingItemToCompletedOrderId = null; // 已完成訂單裡目前正在顯示「新增商品」表單的那張訂單 id
+let addToExistingOrderId = null; // 從「新增商品」導去「登記進出貨」頁面時,記住要併回哪一張訂單(待處理或已完成都可能)
+let addToExistingOrderMode = null; // 'pending'(併進待處理訂單草稿,不扣庫存)或 'completed'(併進已完成訂單,會真的扣/加庫存)
 let editingOrderPartyId = null; // 待處理訂單裡目前正在編輯出貨方的那張訂單 id
 let selectedProductIds = new Set();
 let users = [];
@@ -1857,6 +1862,8 @@ const I18N = {
     btnAddProductToOrder: '+ 新增商品',
     btnCancelAddToOrder: '取消,不新增了',
     addToOrderBannerText: '正在為訂單 {orderNo} 新增商品,選好商品、進購物車按「提交訂單」就會直接併進這張訂單。',
+    addToPendingOrderBannerText: '正在為待處理訂單 {orderNo} 新增商品——選好商品、按「登記」就會併進這張訂單的草稿,不會扣庫存(等訂單之後核對才會真的扣)。',
+    addToCompletedOrderBannerText: '正在為已完成訂單 {orderNo} 新增商品——選好商品、按「登記」會直接併進這張訂單,並立即依你選的「出貨/入庫」類型扣或加庫存。',
     errOrderNoLongerEditable: '這張訂單目前狀態已經不能再修改了(可能已經核對、取消或簽收),請重新整理頁面確認。',
     addToOrderSuccessMsg: '✓ 已將 {n} 項商品併入訂單 {orderNo}。',
     newlyAddedLabel: '新增',
@@ -2164,6 +2171,8 @@ const I18N = {
     btnAddProductToOrder: '+ Add Product',
     btnCancelAddToOrder: 'Cancel, don\'t add',
     addToOrderBannerText: 'Adding products to order {orderNo} — pick products, go to cart, and "Submit Order" will merge them straight into this order.',
+    addToPendingOrderBannerText: 'Adding products to pending order {orderNo} — pick products and click "Register"; they\'ll merge into this order\'s draft with no stock impact (stock is only deducted once the order is verified).',
+    addToCompletedOrderBannerText: 'Adding products to completed order {orderNo} — pick products and click "Register"; they\'ll merge straight into this order, deducting or adding stock immediately based on the Stock In/Out type you choose.',
     errOrderNoLongerEditable: 'This order can no longer be edited (it may already be verified, cancelled, or signed for). Please refresh the page to confirm.',
     addToOrderSuccessMsg: '✓ Added {n} item(s) to order {orderNo}.',
     newlyAddedLabel: 'New',
@@ -5346,16 +5355,16 @@ async function confirmOrderFromCart(){
 // 不建立新訂單、不佔新的訂單號。同一個商品如果訂單裡已經有了,直接把數量加上去;沒有的話當
 // 新品項加進去。存檔前重新檢查一次這張訂單還是待處理、沒被取消/簽收、也沒有正在被載入到
 // 「訂單核對」頁面——這段時間內狀態有可能被別的裝置動過,不能只信任進入這個流程當下的檢查。
-async function mergeItemsIntoExistingOrder(orderId, newItems){
+// 共用的核心合併邏輯:把 newItems 併進 orderId 這張「待處理」訂單,不含任何特定畫面的清理動作
+// (取消模式、跳轉分頁、彈出成功訊息…那些留給呼叫端自己依畫面情境處理)。「訂貨」分頁的新增商品
+// 跟「登記進出貨」分頁的新增商品(併入待處理訂單草稿)都共用這個核心。
+async function mergeItemsIntoOrderCore(orderId, newItems){
   const order = orders.find(o => o.id === orderId);
   if(!order || order.deleted || orderStatus(order) !== 'pending' || order.signedAt){
-    showInfoModal(`⚠ ${t('errOrderNoLongerEditable')}`);
-    cancelAddItemsToOrder();
-    return;
+    return { ok: false, reason: 'not_editable' };
   }
-  if(warnIfOrderBeingProcessed(orderId)){
-    cancelAddItemsToOrder();
-    return;
+  if(verifyPageOrderId === orderId){
+    return { ok: false, reason: 'being_processed' };
   }
 
   const prevItems = order.items;
@@ -5378,11 +5387,24 @@ async function mergeItemsIntoExistingOrder(orderId, newItems){
   } catch(e){
     order.items = prevItems;
     console.error('新增商品到既有訂單失敗', e);
-    showInfoModal('⚠ 新增商品失敗,請重新整理頁面再試一次。');
-    return;
+    return { ok: false, reason: 'save_failed' };
   }
 
-  logInventoryAction('order_edit', `Order ${order.orderNo || orderId} - added ${newItems.length} item(s) via order history "add product" flow`, order.orderNo);
+  logInventoryAction('order_edit', `Order ${order.orderNo || orderId} - added ${newItems.length} item(s)`, order.orderNo);
+  return { ok: true, order };
+}
+
+async function mergeItemsIntoExistingOrder(orderId, newItems){
+  if(warnIfOrderBeingProcessed(orderId)){
+    cancelAddItemsToOrder();
+    return;
+  }
+  const result = await mergeItemsIntoOrderCore(orderId, newItems);
+  if(!result.ok){
+    showInfoModal(result.reason === 'not_editable' ? `⚠ ${t('errOrderNoLongerEditable')}` : '⚠ 新增商品失敗,請重新整理頁面再試一次。');
+    cancelAddItemsToOrder();
+    return;
+  }
 
   cancelAddItemsToOrder();
   document.getElementById('orderCartSection').style.display = 'none';
@@ -5390,7 +5412,7 @@ async function mergeItemsIntoExistingOrder(orderId, newItems){
   switchOrderSubTab('subtab-order-history');
   expandedOrderIds.add(orderId);
   renderAll();
-  showInfoModal(tf('addToOrderSuccessMsg', { orderNo: order.orderNo || orderId, n: newItems.length }));
+  showInfoModal(tf('addToOrderSuccessMsg', { orderNo: result.order.orderNo || orderId, n: newItems.length }));
 }
 
 // 訂單狀態統一從這裡讀取:沒有 status 欄位的舊資料視為 'confirmed'(已完成),跟 confirm_order/
@@ -5528,25 +5550,7 @@ function renderOrders(){
         <span class="del-link" style="margin-left:8px;" onclick="startEditOrderRemark('${o.id}')">${t('btnEditRemark')}</span>
       </div>
     `;
-    const isAddingItem = addingItemToCompletedOrderId === o.id;
-    const addItemHtml = isAddingItem ? `
-      <div style="margin:10px 0;padding:10px;border:1px solid var(--line);border-radius:2px;background:#fff;">
-        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;">
-          <div style="flex:1;min-width:160px;">
-            <label style="display:block;font-size:11px;color:var(--ink-soft);margin-bottom:4px;">${t('fieldProduct')}</label>
-            <select id="addItemProductSelect_${o.id}" style="width:100%;">
-              ${products.filter(p => !p.hidden).map(p => `<option value="${p.id}">${p.sku ? `[${p.sku}] ` : ''}${p.name}(${p.unit})</option>`).join('')}
-            </select>
-          </div>
-          <div style="width:110px;">
-            <label style="display:block;font-size:11px;color:var(--ink-soft);margin-bottom:4px;">${t('fieldQty')}</label>
-            <input type="number" id="addItemQtyInput_${o.id}" step="1" style="width:100%;" />
-          </div>
-          <button class="btn" onclick="saveAddItemToCompletedOrder('${o.id}')">${t('btnSave')}</button>
-          <button class="btn ghost" onclick="cancelAddItemToCompletedOrder()">${t('btnCancel')}</button>
-        </div>
-      </div>
-    ` : '';
+    const isAddingItem = false; // 舊版內嵌新增商品表單已經改用「登記進出貨」頁面的流程,這裡固定 false,保留變數只是因為下面按鈕的隱藏條件還在用它。
     return `
       <div class="order-card ${o.deleted ? 'order-card-deleted' : ''}">
         <div class="order-card-head" style="cursor:pointer;" onclick="toggleOrderExpand('${o.id}')">
@@ -5561,10 +5565,9 @@ function renderOrders(){
         ${isExpanded ? `
           ${o.note ? `<div style="font-size:12px;color:var(--ink-soft);margin:8px 0 6px;">${t('noteLabelPrefix')}${o.note}</div>` : ''}
           <div class="order-items">${itemsHtml}</div>
+          ${(o.deleted || o.signedAt || isAddingItem) ? '' : `<div style="margin:8px 0;"><span class="del-link" onclick="goAddProductsViaRegister('${o.id}', 'completed')">${t('btnAddItemToOrder')}</span></div>`}
           ${remarkHtml}
-          ${addItemHtml}
           <div class="order-card-actions">
-            ${(o.deleted || o.signedAt || isAddingItem) ? '' : `<button class="btn ghost" onclick="startAddItemToCompletedOrder('${o.id}')">${t('btnAddItemToOrder')}</button>`}
             <button class="btn ghost" onclick="exportSingleOrderSheet('${o.id}')">${t('btnExportThisOrder')}</button>
             <button class="btn ghost" onclick="printCompletedOrder('${o.id}')">${t('btnPrintOrder')}</button>
             ${(o.deleted || o.signedAt) ? '' : `<button class="btn ghost" onclick="deleteCompletedOrder('${o.id}')">${t('btnDeleteWholeOrder')}</button>`}
@@ -5669,86 +5672,6 @@ function startEditOrderItemQty(context, orderId, productId){
 function cancelEditOrderItemQty(){
   editingOrderItemKey = null;
   refreshOrderLists();
-}
-
-function startAddItemToCompletedOrder(orderId){
-  addingItemToCompletedOrderId = orderId;
-  renderOrders();
-}
-
-function cancelAddItemToCompletedOrder(){
-  addingItemToCompletedOrderId = null;
-  renderOrders();
-}
-
-// 已完成訂單新增商品:輸入正數代表補出貨(要扣庫存),輸入負數代表入庫/退貨(要加庫存)——
-// 跟「改數量」是同一套邏輯(數量增加=出貨,減少=入庫),差別只在於這是從 0 開始新增一項,
-// 不是調整既有品項的數量。已簽收的訂單整張都鎖住了,不能新增。
-async function saveAddItemToCompletedOrder(orderId){
-  const order = orders.find(o => o.id === orderId);
-  if(!order) return;
-  if(order.signedAt){
-    showInfoModal(t('errOrderAlreadySigned'));
-    addingItemToCompletedOrderId = null;
-    renderOrders();
-    return;
-  }
-  const productSelect = document.getElementById(`addItemProductSelect_${orderId}`);
-  const qtyInput = document.getElementById(`addItemQtyInput_${orderId}`);
-  if(!productSelect || !qtyInput) return;
-  const productId = productSelect.value;
-  const qty = parseFloat(qtyInput.value);
-  if(!productId){ showInfoModal(t('errSelectProductFirst')); return; }
-  if(isNaN(qty) || qty === 0){ showInfoModal(t('errAddItemQtyNonZero')); return; }
-  if(!Number.isInteger(qty)){ showInfoModal(t('errQtyMustBeInteger')); return; }
-
-  const p = products.find(x => x.id === productId);
-  if(!p){ showInfoModal(t('errSelectProductFirst')); return; }
-
-  // 同一項商品已經在這張訂單裡(還沒被刪除)的話不能重複新增,請改用「改數量」處理,
-  // 避免同一張訂單裡同個商品出現兩列造成混淆。
-  if(order.items.some(it => it.productId === productId && !it.deleted)){
-    showInfoModal(t('errProductAlreadyInOrder'));
-    return;
-  }
-
-  const isOut = qty > 0;
-  if(isOut){
-    // 正數 = 補出貨,先檢查庫存總量夠不夠(批量商品可以拆箱切換成主商品出貨,所以看總量,
-    // 不是只看主商品自己那一格),同時扣掉別的待處理訂單已經預訂走的量。
-    const available = computeTotalStock(productId) - computePendingReserved(productId);
-    if(qty > available){
-      showInfoModal(tf('errAddItemInsufficientStock', { name: p.name, available: Math.max(0, available), unit: p.unit }));
-      return;
-    }
-  }
-
-  const txId = genId();
-  const noteText = tf('orderItemAddedNote', { orderNo: order.orderNo || '', name: p.name, qty: Math.abs(qty), unit: p.unit, direction: isOut ? t('directionOut') : t('directionIn') });
-  const tx = { id: txId, productId, type: isOut ? 'out' : 'restock', qty: Math.abs(qty), date: todayISO(), party: order.partyName || '', note: noteText, system: true, orderId };
-
-  try{
-    transactions.push(tx);
-    // qty 本身帶正負號,直接拿來扣就對了:正數(出貨)扣掉等於減少庫存;負數(入庫)扣掉一個
-    // 負數(等於加)會正確地把庫存加回去。
-    productStockMap[productId] = (productStockMap[productId] || 0) - qty;
-    await insertTransactions([tx]);
-  } catch(e){
-    console.error('新增商品到訂單失敗', e);
-    showInfoModal('⚠ 操作失敗,請重新整理頁面再試一次。');
-    return;
-  }
-
-  order.items.push({
-    productId, sku: p.sku || '', name: p.name, unit: p.unit, qty,
-    qtyHistory: [{ added: true }]
-  });
-  try{ await upsertOrders([order]); }
-  catch(e){ console.error('儲存新增商品失敗', e); }
-
-  addingItemToCompletedOrderId = null;
-  logInventoryAction('order_edit', `Order ${order.orderNo || orderId} - added item: ${p.name} ${Math.abs(qty)} ${p.unit} (${isOut ? 'shipped out' : 'stocked in'})`, order.orderNo);
-  renderAll();
 }
 
 // 已完成訂單裡改品項數量:改多了要再扣庫存(等於補出貨),改少了要把差額退回庫存(入庫)。這兩種
@@ -5937,12 +5860,12 @@ function renderPendingOrders(){
         ${isExpanded ? `
           ${o.note ? `<div style="font-size:12px;color:var(--ink-soft);margin:8px 0 6px;">${t('noteLabelPrefix')}${o.note}</div>` : ''}
           <div class="order-items">${itemsHtml}</div>
+          ${o.deleted ? '' : `<div style="margin:8px 0;"><span class="del-link" onclick="goAddProductsViaRegister('${o.id}', 'pending')">${t('btnAddItemToOrder')}</span></div>`}
           ${remarkHtml}
           ${o.deleted ? '' : partyEditHtml}
           <div class="order-card-actions">
             ${o.deleted ? '' : `<button class="btn" onclick="verifyOrder('${o.id}')" ${activeItemCount === 0 ? 'disabled' : ''}>${t('btnVerifyOrder')}</button>`}
             ${o.deleted ? '' : `<button class="btn ghost" onclick="openOrderInVerifyPage('${o.id}')" ${activeItemCount === 0 ? 'disabled' : ''}>${t('btnLoadIntoVerifyPage')}</button>`}
-            ${o.deleted ? '' : `<button class="btn ghost" onclick="goAddProductsToOrder('${o.id}')">${t('btnAddItemToOrder')}</button>`}
             ${o.deleted ? '' : `<button class="btn ghost" onclick="cancelPendingOrder('${o.id}')">${t('btnCancelWholeOrder')}</button>`}
             <button class="btn ghost" onclick="exportPendingOrderExcel('${o.id}')">${t('btnExportOrder')}</button>
             <button class="btn ghost" onclick="printPendingOrder('${o.id}')">${t('btnPrintOrder')}</button>
@@ -6596,6 +6519,63 @@ function cancelAddItemsToOrder(){
   const banner = document.getElementById('addToOrderBanner');
   if(banner) banner.style.display = 'none';
   renderOrderItemsTable();
+}
+
+// 「訂貨後台管理」的「新增商品」統一走這裡,改導去「庫存管理 → 登記進出貨」,不再導去「訂貨」
+// 分頁——因為倉庫管理員這個身分預設就沒有「訂貨」分頁的權限(那是給下單的客人/內勤用的),但
+// 「登記進出貨」他們本來就熟悉,也支援掃碼槍找商品,對倉庫管理員來說更順手。
+// mode='pending':併進待處理訂單的草稿,不會扣庫存(等訂單之後核對才會真的扣)。
+// mode='completed':併進已完成訂單,送出當下就會真的扣/加庫存(用登記進出貨原本的「出貨/入庫」
+// 類型選擇決定方向,不需要額外的正負號規則)。已簽收的訂單兩種模式都不能用。
+function goAddProductsViaRegister(orderId, mode){
+  const order = orders.find(o => o.id === orderId);
+  if(!order || order.deleted || order.signedAt) return;
+  if(mode === 'pending'){
+    if(orderStatus(order) !== 'pending') return;
+    if(warnIfOrderBeingProcessed(orderId)) return;
+  } else if(mode === 'completed'){
+    if(orderStatus(order) !== 'confirmed') return;
+  } else {
+    return;
+  }
+
+  addToExistingOrderId = orderId;
+  addToExistingOrderMode = mode;
+  txBatchItems = [];
+
+  switchTab('tab-tx');
+  switchTxSubTab('subtab-tx-register');
+  setTxType('out'); // 新增商品一律當「出貨」處理,併回訂單的商品概念上都是要出給這個出貨方的
+
+  const partySelect = document.getElementById('txPartySelect');
+  if(partySelect){
+    partySelect.value = order.partyId || '';
+    partySelect.disabled = true;
+  }
+  const banner = document.getElementById('addToOrderViaRegisterBanner');
+  if(banner){
+    banner.style.display = '';
+    const label = document.getElementById('addToOrderViaRegisterBannerLabel');
+    if(label){
+      label.textContent = mode === 'pending'
+        ? tf('addToPendingOrderBannerText', { orderNo: order.orderNo || orderId })
+        : tf('addToCompletedOrderBannerText', { orderNo: order.orderNo || orderId });
+    }
+  }
+  renderTxBatchList();
+}
+
+// 離開「幫既有訂單新增商品」模式(取消,或流程結束後):把出貨對象選單解鎖、隱藏提示橫幅、
+// 清掉暫存的品項清單跟狀態,恢復成一般的登記進出貨頁面。
+function cancelAddToExistingOrderViaRegister(){
+  addToExistingOrderId = null;
+  addToExistingOrderMode = null;
+  txBatchItems = [];
+  const partySelect = document.getElementById('txPartySelect');
+  if(partySelect) partySelect.disabled = false;
+  const banner = document.getElementById('addToOrderViaRegisterBanner');
+  if(banner) banner.style.display = 'none';
+  renderTxBatchList();
 }
 
 // 簽收:確認貨已經實際收到了。只有已經核對過、真的出貨的訂單(status='confirmed')才能簽收——
@@ -7599,6 +7579,60 @@ async function undoConversion(conversionId){
   renderConvertHistoryWindow();
 }
 
+// 併入「已完成訂單」(會真的扣/加庫存):針對這批品項各自建一筆進出貨紀錄(連結這張訂單的
+// orderId),並把品項併進訂單的 items 清單。txType 決定方向,呼叫前應該已經檢查過出貨數量
+// 沒有超過庫存(見 submitTxBatch 既有的檢查)。item.qty 統一存成「正=出貨、負=入庫」的淨值,
+// 跟已完成訂單「新增商品」/「改數量」用的是同一套慣例,畫面顯示、之後改數量/刪除都能正確運作。
+// 同一項商品如果已經在這張訂單裡,直接擋下來請使用者從這批清單移除,不嘗試自動合併,避免
+// 複雜的加總邏輯藏著算錯的風險。
+async function mergeItemsIntoCompletedOrderCore(orderId, batchItems, txType, date, party, note){
+  const order = orders.find(o => o.id === orderId);
+  if(!order || order.deleted || orderStatus(order) !== 'confirmed' || order.signedAt){
+    return { ok: false, reason: 'not_editable' };
+  }
+  const dup = batchItems.find(bIt => order.items.some(it => it.productId === bIt.productId && !it.deleted));
+  if(dup){
+    return { ok: false, reason: 'duplicate', productName: dup.name };
+  }
+
+  const newTxs = batchItems.map(it => ({
+    id: genId(), productId: it.productId, type: txType, qty: it.qty, date, party,
+    note: `${order.orderNo || orderId}${note ? '、' + note : ''}`,
+    system: true, orderId
+  }));
+
+  const prevItems = order.items;
+  const newOrderItems = batchItems.map(it => ({
+    productId: it.productId, sku: it.sku || '', name: it.name, unit: it.unit,
+    qty: txType === 'out' ? it.qty : -it.qty,
+    qtyHistory: [{ added: true }]
+  }));
+  order.items = [...prevItems, ...newOrderItems];
+
+  transactions.push(...newTxs);
+  batchItems.forEach(it => {
+    const delta = txType === 'out' ? -it.qty : it.qty;
+    productStockMap[it.productId] = (productStockMap[it.productId] || 0) + delta;
+  });
+
+  try{
+    await insertTransactions(newTxs);
+    await upsertOrders([order]);
+  } catch(e){
+    newTxs.forEach(tx => { const i = transactions.indexOf(tx); if(i >= 0) transactions.splice(i, 1); });
+    order.items = prevItems;
+    batchItems.forEach(it => {
+      const delta = txType === 'out' ? -it.qty : it.qty;
+      productStockMap[it.productId] = (productStockMap[it.productId] || 0) - delta;
+    });
+    console.error('新增商品到已完成訂單失敗', e);
+    return { ok: false, reason: 'save_failed' };
+  }
+
+  logInventoryAction('order_edit', `Order ${order.orderNo || orderId} - added ${batchItems.length} item(s) (${txType === 'out' ? 'shipped out' : 'stocked in'})`, order.orderNo);
+  return { ok: true, order };
+}
+
 async function submitTxBatch(){
   const date = document.getElementById('txDate').value;
   let party = '';
@@ -7627,6 +7661,49 @@ async function submitTxBatch(){
       msg.textContent = `⚠ 以下商品出貨數量超過目前庫存,無法提交:${insufficient.map(it => `「${it.name}」需要 ${it.qty} ${it.unit},庫存剩 ${it.available} ${it.unit}`).join('; ')}`;
       return;
     }
+  }
+
+  // ===== 從「訂貨後台管理→待處理訂單/已完成訂單→新增商品」導過來的,不走下面一般登記的流程 =====
+  if(addToExistingOrderMode === 'pending'){
+    const targetOrderId = addToExistingOrderId;
+    const newItems = txBatchItems.map(it => ({ productId: it.productId, sku: it.sku || '', name: it.name, unit: it.unit, qty: it.qty }));
+    const result = await mergeItemsIntoOrderCore(targetOrderId, newItems);
+    if(!result.ok){
+      msg.className = 'msg error';
+      msg.textContent = result.reason === 'not_editable' ? `⚠ ${t('errOrderNoLongerEditable')}` : '⚠ 新增商品失敗,請重新整理頁面再試一次。';
+      return;
+    }
+    const count = txBatchItems.length;
+    cancelAddToExistingOrderViaRegister();
+    document.getElementById('txNote').value = '';
+    switchTab('tab-order-admin');
+    switchOrderAdminSubTab('subtab-order-pending');
+    expandedOrderIds.add(targetOrderId);
+    renderAll();
+    showInfoModal(tf('addToOrderSuccessMsg', { orderNo: result.order.orderNo || targetOrderId, n: count }));
+    return;
+  }
+  if(addToExistingOrderMode === 'completed'){
+    if(currentTxType !== 'out' && currentTxType !== 'in' && currentTxType !== 'restock'){ msg.className='msg error'; msg.textContent='請選擇類型'; return; }
+    const targetOrderId = addToExistingOrderId;
+    const batchItems = txBatchItems.map(it => ({ productId: it.productId, sku: it.sku || '', name: it.name, unit: it.unit, qty: it.qty }));
+    const result = await mergeItemsIntoCompletedOrderCore(targetOrderId, batchItems, currentTxType, date, party, note);
+    if(!result.ok){
+      msg.className = 'msg error';
+      msg.textContent = result.reason === 'not_editable' ? `⚠ ${t('errOrderNoLongerEditable')}`
+        : result.reason === 'duplicate' ? `⚠ ${t('errProductAlreadyInOrder')}`
+        : '⚠ 新增商品失敗,請重新整理頁面再試一次。';
+      return;
+    }
+    const count = txBatchItems.length;
+    cancelAddToExistingOrderViaRegister();
+    document.getElementById('txNote').value = '';
+    switchTab('tab-order-admin');
+    switchOrderAdminSubTab('subtab-order-completed');
+    expandedOrderIds.add(targetOrderId);
+    renderAll();
+    showInfoModal(tf('addToOrderSuccessMsg', { orderNo: result.order.orderNo || targetOrderId, n: count }));
+    return;
   }
 
   // 登記進出貨提交「出貨」時,如果有勾選「併入已完成訂單」,才等同於直接完成一張訂單:賦予訂單編號,
@@ -9156,7 +9233,7 @@ function isUserActivelyEditing(){
   if(anyModalOpen) return true;
   return !!(appendingNoteTxId || editingProductId || editingPartyId || editingOrderItemKey ||
     editingOrderRemarkId || editingUserModalId || editingOrderPartyId ||
-    addingItemsToOrderId || addingItemToCompletedOrderId);
+    addingItemsToOrderId || addToExistingOrderMode);
 }
 
 async function silentBackgroundRefresh(){
