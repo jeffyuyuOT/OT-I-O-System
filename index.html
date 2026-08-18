@@ -2708,14 +2708,17 @@ const CAPABILITY_DEFS = [
 ];
 
 // 各主要身分預設可看的分頁,新增使用者時會依身分帶入,之後可再針對個別帳號自行調整(不受身分限制)。
+// 三種身分預設分別是:
+//   - 管理者(admin):全部分頁。
+//   - 庫存管理員(inventory):庫存管理、庫存總覽、訂貨後台管理、進出貨紀錄、後台紀錄。
+//   - 訂貨用戶(order):只有訂貨分頁。
 // 注意:tab-master(系統管理)現在包含使用者管理、商品主檔匯入,以及完整資料備份/還原/還原預設,
-// 所以「庫存管理員」預設不再帶這個分頁;如果庫存管理員也需要這些功能,可以再手動幫個別帳號
-// 打開 tab-master,並用上面的 cap-manage-users 限制他們碰不到使用者管理。「匯出報表」現在在
-// tab-tx(庫存管理→匯入/匯出)底下,庫存管理員預設就看得到,不受影響。
+// 所以「庫存管理員」預設不帶這個分頁;如果庫存管理員也需要這些功能,可以再手動幫個別帳號
+// 打開 tab-master,並用上面的 cap-manage-users 限制他們碰不到使用者管理。
 const ROLE_DEFAULT_TABS = {
   admin: TAB_DEFS.map(d => d.id),
   order: ['tab-order'],
-  inventory: ['tab-tx', 'tab-overview', 'tab-log']
+  inventory: ['tab-tx', 'tab-overview', 'tab-order-admin', 'tab-log', 'tab-inventory-log']
 };
 
 // Turn a plain username into the placeholder email Supabase Auth needs.
@@ -3220,6 +3223,7 @@ function switchTab(tabId){
   // display:none, so re-render whichever tab just became visible
   if(tabId === 'tab-overview'){ populateCategoryDropdowns(); renderStockCards(); }
   if(tabId === 'tab-log'){ renderLog(); }
+  if(tabId === 'tab-inventory-log'){ renderInventoryLog(); }
   if(tabId === 'tab-tx'){ renderProductSelect(); renderTxBatchList(); populateExportPartySelect(); }
   if(tabId === 'tab-order'){
     populatePartySelect(); renderOrderItemsTable(); renderOrderHistory();
@@ -8915,6 +8919,7 @@ function renderAll(){
   renderTxBatchList();
   renderStockCards();
   renderLog();
+  renderInventoryLog();
   populatePartySelect();
   renderOrderItemsTable();
   renderOrders();
