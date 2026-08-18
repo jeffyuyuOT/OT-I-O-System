@@ -891,7 +891,7 @@
         <p style="font-size:12.5px;color:var(--ink-soft);margin:0 0 12px;" data-i18n-html="secUploadMasterExcelDesc">
           可以一次選取多個檔案。第一列要是欄位標題,系統會自動辨識這些欄位名稱(大小寫、中英文都可以):<br/>
           <span style="font-family:'IBM Plex Mono',monospace;font-size:11.5px;">
-            必要:SKU、Name/品名、Stock/庫存量&nbsp;&nbsp;|&nbsp;&nbsp;選填:Unit/單位、AvgMonthlySales/平均使用量、Categories/分類、SafetyStock/安全庫存、Note/備註
+            必要:SKU、Name/品名、Stock/庫存量&nbsp;&nbsp;|&nbsp;&nbsp;選填:Unit/單位、AvgMonthlySales/平均使用量、Categories/分類、SafetyStock/安全庫存(填月數,不是填數量)、Note/備註
           </span><br/>
           <b>以 SKU 為比對主鍵</b>:表格裡的 SKU 如果跟現有商品相同,就算表格上的名稱不一樣,也會視為同一項商品並更新其他欄位;<b>商品名稱一律維持庫存總覽現有的名稱,不會被表格覆蓋</b>。SKU 不同或全新的 SKU 會用表格上的名稱新增成一項新商品。<b>沒有填 SKU 的資料列會被略過,不會寫入。</b>
         </p>
@@ -1129,8 +1129,8 @@
           <input id="newProductAvg" type="number" min="0" step="0.1" placeholder="沒有紀錄可留空" />
         </div>
         <div class="field">
-          <label data-i18n="fieldSafety">安全庫存(選填)</label>
-          <input id="newProductSafety" type="number" min="0" step="0.1" placeholder="選填" />
+          <label data-i18n="fieldSafety">安全庫存(月數,選填)</label>
+          <input id="newProductSafety" type="number" min="0" step="0.01" placeholder="例如 1.5" />
         </div>
         <div class="field">
           <label data-i18n="fieldNote">備註(選填)</label>
@@ -1701,7 +1701,7 @@ const I18N = {
     secAddProduct: '新增商品', secRegisterTx: '登記進出貨', secImportTx: '從 Excel 匯入進出貨紀錄',
     secStockOverview: '庫存總覽', secTxLog: '進出貨紀錄',
     fieldSku: 'SKU(選填)', fieldName: '商品名稱', fieldUnit: '單位', fieldCategory: '分類',
-    fieldAvg: '月均使用量(選填)', fieldSafety: '安全庫存(選填)', fieldNote: '備註(選填)',
+    fieldAvg: '月均使用量(選填)', fieldSafety: '安全庫存(月數,選填)', fieldNote: '備註(選填)',
     fieldBarcode: '條碼', barcodeInputHint: '可以直接把游標點進這一欄,拿掃碼槍掃一次商品包裝上的條碼,掃到的號碼會自動打進來,不用手動輸入。',
     fieldBoxDimensions: '箱子尺寸(公分)', fieldBoxLength: '長', fieldBoxWidth: '寬', fieldBoxHeight: '高',
     boxDimensionsHint: '單位是公分。填了之後,進貨預估頁面才能算出這個商品的體積。',
@@ -1712,6 +1712,8 @@ const I18N = {
     btnCloseSection: '不用了,關閉這個區塊', btnParseImport: '解析並匯入',
     btnEdit: '編輯', btnDelete: '刪除', btnSave: '儲存', btnCancel: '取消', btnClearFilter: '清除篩選',
     colProduct: '商品', colStock: '庫存量', colTotalStock: '總庫存量', colAvgOut: '平均出貨', colSafety: '安全庫存',
+    fieldSafetyStockMonths: '安全庫存(月數)', fieldSafetyStockMonthsPlaceholder: '例如 1.5',
+    safetyStockMonthsHint: '填幾個月,不是填數量。系統會用「月數 × 目前平均月出貨量」即時算出安全庫存的數量,平均出貨變動時,這個數量也會跟著自動調整,不用手動改。',
     colRemain: '庫存可撐', colNote: '備註', colDate: '日期', colType: '類型', colQty: '數量', colParty: '對象',
     typeIn: '進貨', typeOut: '出貨', typeRestock: '入庫',
     thStockUnit: '單位', thNoData: '還沒有商品資料,先在上方新增一個商品試試看。',
@@ -1862,6 +1864,7 @@ const I18N = {
     avgQualifierMixed: '(混合)', avgQualifierEst: '(估)',
     avgTitleTransition: '混合估計:目前已有 {n} 個月的出貨紀錄,與初始輸入值依比例混合計算,累積滿 12 個月出貨紀錄後將完全採用實際紀錄',
     avgTitleEstOnly: '尚無出貨紀錄,採用 Excel 匯入的初始估計值',
+    safetyStockMonthsTitle: '安全庫存設定:{months} 個月,依目前平均月出貨量即時換算成的數量',
     hiddenBadge: '已隱藏', orderableBadge: '可訂貨',
     orderCardPartyLabel: '出貨方:{name}',
     confirmDeleteOrder: '確定要刪除這筆訂單紀錄嗎?對應的 {n} 項商品數量會退回庫存總覽。',
@@ -1879,7 +1882,7 @@ const I18N = {
     txAddToCompletedOrderLabel: '併入已完成訂單(勾選才會賦予訂單編號,並顯示在「訂貨後台管理 → 已完成訂單」;不勾選則只是單純登記一筆出貨紀錄)',
     btnAddToBatch: '+ 加入清單', txBatchEmpty: '清單是空的,請先在上方選好商品跟數量後按「加入清單」。',
     secUploadMasterExcel: '上傳你自己的商品主檔 Excel',
-    secUploadMasterExcelDesc: '可以一次選取多個檔案。第一列要是欄位標題,系統會自動辨識這些欄位名稱(大小寫、中英文都可以):<br/><span style="font-family:\'IBM Plex Mono\',monospace;font-size:11.5px;">必要:SKU、Name/品名、Stock/庫存量&nbsp;&nbsp;|&nbsp;&nbsp;選填:Unit/單位、AvgMonthlySales/平均使用量、Categories/分類、SafetyStock/安全庫存、Note/備註、ParentSKU/主商品SKU、ChildWeight/加權數、Length/長、Width/寬、Height/高</span><br/><b>以 SKU 為比對主鍵</b>:表格裡的 SKU 如果跟現有商品相同,就算表格上的名稱不一樣,也會視為同一項商品並更新其他欄位;<b>商品名稱一律維持庫存總覽現有的名稱,不會被表格覆蓋</b>。SKU 不同或全新的 SKU 會用表格上的名稱新增成一項新商品。<b>沒有填 SKU 的資料列會被略過,不會寫入。</b><br/><b>批量商品(multi-pack)</b>:如果這一列是某個主商品底下的批量商品,在 ParentSKU 欄位填主商品的 SKU,並在 ChildWeight 欄位填加權數(換算主商品庫存時,這個批量商品的庫存量會先乘以這個數字);沒填 ParentSKU 就當一般商品匯入。ParentSKU 必須是同一份表格裡或系統裡已經存在的 SKU,而且那個商品本身不能又是別人的批量商品(不支援兩層巢狀)。<br/><b>箱子尺寸(Length/Width/Height)</b>:單位是公分,三個都填了「庫存管理 → 進貨預估」頁面才能算出這個商品的體積。',
+    secUploadMasterExcelDesc: '可以一次選取多個檔案。第一列要是欄位標題,系統會自動辨識這些欄位名稱(大小寫、中英文都可以):<br/><span style="font-family:\'IBM Plex Mono\',monospace;font-size:11.5px;">必要:SKU、Name/品名、Stock/庫存量&nbsp;&nbsp;|&nbsp;&nbsp;選填:Unit/單位、AvgMonthlySales/平均使用量、Categories/分類、SafetyStock/安全庫存(填月數,不是填數量)、Note/備註、ParentSKU/主商品SKU、ChildWeight/加權數、Length/長、Width/寬、Height/高</span><br/><b>以 SKU 為比對主鍵</b>:表格裡的 SKU 如果跟現有商品相同,就算表格上的名稱不一樣,也會視為同一項商品並更新其他欄位;<b>商品名稱一律維持庫存總覽現有的名稱,不會被表格覆蓋</b>。SKU 不同或全新的 SKU 會用表格上的名稱新增成一項新商品。<b>沒有填 SKU 的資料列會被略過,不會寫入。</b><br/><b>批量商品(multi-pack)</b>:如果這一列是某個主商品底下的批量商品,在 ParentSKU 欄位填主商品的 SKU,並在 ChildWeight 欄位填加權數(換算主商品庫存時,這個批量商品的庫存量會先乘以這個數字);沒填 ParentSKU 就當一般商品匯入。ParentSKU 必須是同一份表格裡或系統裡已經存在的 SKU,而且那個商品本身不能又是別人的批量商品(不支援兩層巢狀)。<br/><b>箱子尺寸(Length/Width/Height)</b>:單位是公分,三個都填了「庫存管理 → 進貨預估」頁面才能算出這個商品的體積。',
     fieldSelectFiles: '選擇檔案(檔案在不同資料夾可分次加選)',
     secImportTxDesc: '上傳你填好的每日進出貨紀錄表(<b>可以一次選取多個檔案</b>),系統會依<b>檔名</b>自動判斷進貨或出貨(檔名需包含「stock in」或「stock out」),並自動比對商品名稱、抓出每一列的數量,整批登記成紀錄。每個檔案會各自偵測自己的日期/供應商。',
     secImportTxWarning: '注意:庫存主檔(像 stock.xlsx,含品名/庫存量/分類/安全庫存)請不要在這裡上傳,那個要到「系統管理 → 商品主頁」用「從 Excel 匯入商品主檔」。',
@@ -1991,7 +1994,7 @@ const I18N = {
     secAddProduct: 'Add Product', secRegisterTx: 'Log Stock In/Out', secImportTx: 'Import Stock In/Out from Excel',
     secStockOverview: 'Stock Overview', secTxLog: 'Stock In/Out Log',
     fieldSku: 'SKU (optional)', fieldName: 'Product Name', fieldUnit: 'Unit', fieldCategory: 'Category',
-    fieldAvg: 'Avg Monthly Usage (optional)', fieldSafety: 'Safety Stock (optional)', fieldNote: 'Note (optional)',
+    fieldAvg: 'Avg Monthly Usage (optional)', fieldSafety: 'Safety Stock (months, optional)', fieldNote: 'Note (optional)',
     fieldBarcode: 'Barcode', barcodeInputHint: 'Click into this field and scan the product\'s barcode with a scanner gun — the code types straight in, no need to enter it by hand.',
     fieldBoxDimensions: 'Box Dimensions (cm)', fieldBoxLength: 'Length', fieldBoxWidth: 'Width', fieldBoxHeight: 'Height',
     boxDimensionsHint: 'Units are in centimeters. Fill these in to enable volume calculation on the Purchase Forecast page.',
@@ -2002,6 +2005,8 @@ const I18N = {
     btnCloseSection: 'Dismiss this section', btnParseImport: 'Parse & Import',
     btnEdit: 'Edit', btnDelete: 'Delete', btnSave: 'Save', btnCancel: 'Cancel', btnClearFilter: 'Clear Filters',
     colProduct: 'Product', colStock: 'Stock', colTotalStock: 'Total Stock', colAvgOut: 'Avg Usage', colSafety: 'Safety Stock',
+    fieldSafetyStockMonths: 'Safety Stock (months)', fieldSafetyStockMonthsPlaceholder: 'e.g. 1.5',
+    safetyStockMonthsHint: 'Enter a number of months, not a quantity. The system calculates the safety stock quantity live as "months × current average monthly shipment" — when the average changes, this number automatically updates too, no manual adjustment needed.',
     colRemain: 'Days Left', colNote: 'Note', colDate: 'Date', colType: 'Type', colQty: 'Qty', colParty: 'Party',
     typeIn: 'In', typeOut: 'Out', typeRestock: 'Restock',
     thStockUnit: 'Unit', thNoData: 'No products yet — add one above to get started.',
@@ -2152,6 +2157,7 @@ const I18N = {
     avgQualifierMixed: '(blended)', avgQualifierEst: '(est.)',
     avgTitleTransition: 'Blended estimate: {n} months of shipment records so far, blended with the initial input value — once 12 months of records accumulate, it will switch fully to actual data',
     avgTitleEstOnly: 'No shipment records yet — using the initial estimate from the Excel import',
+    safetyStockMonthsTitle: 'Safety stock set to {months} month(s) — converted live from the current average monthly shipment',
     hiddenBadge: 'Hidden', orderableBadge: 'Orderable',
     orderCardPartyLabel: 'Customer: {name}',
     confirmDeleteOrder: 'Delete this order record? {n} product(s) will be restocked to Stock Overview.',
@@ -2169,7 +2175,7 @@ const I18N = {
     txAddToCompletedOrderLabel: 'Add to Completed Orders with order# (if unchecked just logs a plain stock-out record)',
     btnAddToBatch: '+ Add to List', txBatchEmpty: 'The list is empty — pick a product and quantity above, then click "Add to List".',
     secUploadMasterExcel: 'Upload Your Own Product Master Excel',
-    secUploadMasterExcelDesc: 'You can select multiple files at once. The first row must be column headers — the system auto-detects these column names (case-insensitive, Chinese or English):<br/><span style="font-family:\'IBM Plex Mono\',monospace;font-size:11.5px;">Required: SKU, Name, Stock&nbsp;&nbsp;|&nbsp;&nbsp;Optional: Unit, AvgMonthlySales, Categories, SafetyStock, Note, ParentSKU, ChildWeight, Length, Width, Height</span><br/><b>Matched by SKU</b>: if a row\'s SKU matches an existing product, it\'s treated as the same product and other fields are updated — even if the name in the sheet differs; <b>the product name always stays as whatever is currently in Stock Overview and is never overwritten by the sheet</b>. A different or brand-new SKU creates a new product using the name from the sheet. <b>Rows without a SKU are skipped.</b><br/><b>Multi-pack products</b>: if a row is a multi-pack (child) product under a main product, put the main product\'s SKU in ParentSKU and the weighting number in ChildWeight (when computing the main product\'s total stock, this multi-pack\'s stock is multiplied by that number first). Leave ParentSKU blank to import as a regular standalone product. ParentSKU must match a SKU that exists either elsewhere in this sheet or already in the system, and that product can\'t itself be another product\'s multi-pack (no two-level nesting).<br/><b>Box dimensions (Length/Width/Height)</b>: in centimeters — fill in all three to enable volume calculation on the "Inventory Management → Purchase Forecast" page.',
+    secUploadMasterExcelDesc: 'You can select multiple files at once. The first row must be column headers — the system auto-detects these column names (case-insensitive, Chinese or English):<br/><span style="font-family:\'IBM Plex Mono\',monospace;font-size:11.5px;">Required: SKU, Name, Stock&nbsp;&nbsp;|&nbsp;&nbsp;Optional: Unit, AvgMonthlySales, Categories, SafetyStock (in months, not a quantity), Note, ParentSKU, ChildWeight, Length, Width, Height</span><br/><b>Matched by SKU</b>: if a row\'s SKU matches an existing product, it\'s treated as the same product and other fields are updated — even if the name in the sheet differs; <b>the product name always stays as whatever is currently in Stock Overview and is never overwritten by the sheet</b>. A different or brand-new SKU creates a new product using the name from the sheet. <b>Rows without a SKU are skipped.</b><br/><b>Multi-pack products</b>: if a row is a multi-pack (child) product under a main product, put the main product\'s SKU in ParentSKU and the weighting number in ChildWeight (when computing the main product\'s total stock, this multi-pack\'s stock is multiplied by that number first). Leave ParentSKU blank to import as a regular standalone product. ParentSKU must match a SKU that exists either elsewhere in this sheet or already in the system, and that product can\'t itself be another product\'s multi-pack (no two-level nesting).<br/><b>Box dimensions (Length/Width/Height)</b>: in centimeters — fill in all three to enable volume calculation on the "Inventory Management → Purchase Forecast" page.',
     fieldSelectFiles: 'Choose Files (add more from different folders as needed)',
     secImportTxDesc: 'Upload your filled-in daily stock in/out sheets (<b>you can select multiple files at once</b>). The system uses the <b>file name</b> to auto-detect stock in or out (file name must include "stock in" or "stock out"), matches product names automatically, reads the quantity in each row, and logs them all as records. Each file\'s date/supplier is detected independently.',
     secImportTxWarning: 'Note: don\'t upload a product master file here (like stock.xlsx, containing name/stock/category/safety stock) — use "Import from Excel" under "System Admin → Product Master" for that.',
@@ -2404,72 +2410,72 @@ async function loadCategoryOrder(){
 }
 
 const IMPORTED_STOCK_DATA = [
-  {"sku":"A001","name":"Concentrated Passion fruit (Local)","unit":"Boxes","qty":32.0,"avg":20.7,"category":"Frozen Beverages","safetyStock":62.1},
-  {"sku":"A002","name":"Grape","unit":"Bottles","qty":439.0,"avg":75.9,"category":"Frozen Beverages","safetyStock":227.7},
-  {"sku":"A003","name":"Grapefruit","unit":"Bottles","qty":761.0,"avg":174.3,"category":"Frozen Beverages","safetyStock":522.9},
-  {"sku":"A004","name":"Guava","unit":"Bottles","qty":1171.0,"avg":181.6,"category":"Frozen Beverages","safetyStock":544.8},
-  {"sku":"A005","name":"Kumquat","unit":"Bottles","qty":112.0,"avg":36.5,"category":"Frozen Beverages","safetyStock":109.5},
-  {"sku":"A006","name":"Lemon","unit":"Bottles","qty":472.0,"avg":91.4,"category":"Frozen Beverages","safetyStock":274.2},
-  {"sku":"A007","name":"Lychee","unit":"Bottles","qty":1030.0,"avg":182.5,"category":"Frozen Beverages","safetyStock":547.5},
-  {"sku":"A008","name":"Orange","unit":"Bottles","qty":1597.0,"avg":289.2,"category":"Frozen Beverages","safetyStock":867.6},
-  {"sku":"A009","name":"Passion fruit","unit":"Bottles","qty":2279.0,"avg":397.7,"category":"Frozen Beverages","safetyStock":1193.1},
-  {"sku":"A010","name":"Mango Puree","unit":"Bottles","qty":575.0,"avg":77.9,"category":"Frozen Beverages","safetyStock":233.7},
-  {"sku":"A011","name":"Sweet Taro Paste","unit":"Bag","qty":1208.0,"avg":198.0,"category":"Frozen Beverages","safetyStock":594.0},
-  {"sku":"A012","name":"Frozen Mango Chunks (Costco 2kg)","unit":"Bag","qty":10.0,"avg":19.5,"category":"Frozen Beverages","safetyStock":58.5},
-  {"sku":"B001","name":"Earl Grey Tea Gelato","unit":"Tub","qty":9.0,"avg":5.9,"category":"Gelato","safetyStock":17.7},
-  {"sku":"B002","name":"Smoked Oolong Tea Gelato","unit":"Tub","qty":9.0,"avg":5.0,"category":"Gelato","safetyStock":15.0},
-  {"sku":"B003","name":"Vanilla Gelato","unit":"Tub","qty":15.0,"avg":10.3,"category":"Gelato","safetyStock":30.9},
-  {"sku":"B004","name":"Bayberry Tea Gelato","unit":"Tub","qty":16.0,"avg":1.4,"category":"Gelato","safetyStock":4.2},
-  {"sku":"C001","name":"Matcha Powder","unit":"Bag","qty":87.0,"avg":24.9,"category":"Other Beverages/ Ingredients","safetyStock":74.7},
-  {"sku":"C002","name":"Wintermelon block","unit":"CTN","qty":13.0,"avg":8.7,"category":"Other Beverages/ Ingredients","safetyStock":26.1},
-  {"sku":"C003","name":"Dry Plum","unit":"Bag","qty":5.0,"avg":2.9,"category":"Other Beverages/ Ingredients","safetyStock":8.7},
-  {"sku":"C004","name":"HQ Non-dairy Creamer","unit":"CTN","qty":0.0,"avg":32.1,"category":"Other Beverages/ Ingredients","safetyStock":96.3},
-  {"sku":"C005","name":"Raw Sugar","unit":"Bag","qty":231.0,"avg":353.3,"category":"Other Beverages/ Ingredients","safetyStock":1059.9},
-  {"sku":"C006","name":"Brown Sugar","unit":"CTN","qty":9.0,"avg":10.5,"category":"Other Beverages/ Ingredients","safetyStock":31.5},
-  {"sku":"C007","name":"Red Sugar","unit":"CTN","qty":10.0,"avg":8.1,"category":"Other Beverages/ Ingredients","safetyStock":24.3},
-  {"sku":"C008","name":"Sesame powder","unit":"Bag","qty":124.0,"avg":7.1,"category":"Other Beverages/ Ingredients","safetyStock":21.3},
-  {"sku":"C009","name":"Vanilla Ice powder","unit":"Bag","qty":12.0,"avg":1.8,"category":"Other Beverages/ Ingredients","safetyStock":5.4},
-  {"sku":"C010","name":"Choolate powder","unit":"Bag","qty":18.0,"avg":2.5,"category":"Other Beverages/ Ingredients","safetyStock":7.5},
-  {"sku":"C011","name":"Dried Hawthorn Fruit","unit":"Bag","qty":38.0,"avg":54.3,"category":"Other Beverages/ Ingredients","safetyStock":162.9},
-  {"sku":"D001","name":"Black Tea","unit":"Bag","qty":166.0,"avg":102.3,"category":"Tea","safetyStock":306.9},
-  {"sku":"D002","name":"Mountain Green Tea","unit":"Bag","qty":26.0,"avg":72.0,"category":"Tea","safetyStock":216.0},
-  {"sku":"D003","name":"Jasmine Green Tea","unit":"Bag","qty":30.0,"avg":98.9,"category":"Tea","safetyStock":296.7},
-  {"sku":"D004","name":"Oolong Tea","unit":"Bag","qty":89.0,"avg":42.9,"category":"Tea","safetyStock":128.7},
-  {"sku":"D005","name":"Buckwheat Tea","unit":"Bag","qty":22.0,"avg":38.3,"category":"Tea","safetyStock":114.9},
-  {"sku":"D006","name":"Bayberry Tea","unit":"Bag","qty":62.0,"avg":11.8,"category":"Tea","safetyStock":35.4},
-  {"sku":"E001","name":"Black Tapioca Pearls 2.0","unit":"CTN","qty":81.0,"avg":39.3,"category":"Toppings","safetyStock":117.9},
-  {"sku":"E002","name":"Black Tapioca Pearls 2.5","unit":"CTN","qty":33.0,"avg":13.7,"category":"Toppings","safetyStock":41.1},
-  {"sku":"E003","name":"Coconut Jelly","unit":"Can","qty":2.0,"avg":26.9,"category":"Toppings","safetyStock":80.7},
-  {"sku":"E004","name":"Aloe Vera","unit":"Can","qty":169.0,"avg":99.7,"category":"Toppings","safetyStock":299.1},
-  {"sku":"E005","name":"Grass (Herbal) Jelly Juice","unit":"Can","qty":25.0,"avg":27.0,"category":"Toppings","safetyStock":81.0},
-  {"sku":"E006","name":"Red Bean Paste","unit":"Can","qty":60.0,"avg":27.4,"category":"Toppings","safetyStock":82.2},
-  {"sku":"E007","name":"Sweet Taro Lump","unit":"Can","qty":40.0,"avg":30.6,"category":"Toppings","safetyStock":91.8},
-  {"sku":"E008","name":"Fig (Aiyu) Jelly Powder","unit":"Bag","qty":73.0,"avg":3.9,"category":"Toppings","safetyStock":11.7},
-  {"sku":"E009","name":"Konjac Jelly Powder","unit":"Bag","qty":105.0,"avg":24.1,"category":"Toppings","safetyStock":72.3},
-  {"sku":"E010","name":"Tapioca Starch","unit":"Bag","qty":16.0,"avg":6.6,"category":"Toppings","safetyStock":19.8},
-  {"sku":"E011","name":"12x Yolk Flavour Pudding","unit":"Bag","qty":35.0,"avg":4.9,"category":"Toppings","safetyStock":14.7},
-  {"sku":"E012","name":"Chia Seed","unit":"Bottle","qty":17.0,"avg":2.3,"category":"Toppings","safetyStock":6.9},
-  {"sku":"E013","name":"Oero Crumb","unit":"Bag","qty":49.0,"avg":10.0,"category":"Toppings","safetyStock":30.0},
-  {"sku":"E014","name":"Osmanthus Jelly","unit":"Bag","qty":62.0,"avg":4.0,"category":"Toppings","safetyStock":12.0},
-  {"sku":"E015","name":"Coffee Jelly","unit":"Can","qty":12.0,"avg":null,"category":"Toppings","safetyStock":0.0},
-  {"sku":"F001","name":"Big Paper straw","unit":"CTN","qty":1.0,"avg":0.3,"category":"Packaging","safetyStock":0.9},
-  {"sku":"F002","name":"Big Straw","unit":"CTN","qty":7.0,"avg":12.5,"category":"Packaging","safetyStock":37.5},
-  {"sku":"F003","name":"Small Straw","unit":"CTN","qty":5.0,"avg":1.5,"category":"Packaging","safetyStock":4.5},
-  {"sku":"F004","name":"Cup Sleeve","unit":"CTN","qty":6.0,"avg":0.3,"category":"Packaging","safetyStock":0.9},
-  {"sku":"F005","name":"500cc Paper Cup","unit":"CTN","qty":42.0,"avg":0.3,"category":"Packaging","safetyStock":0.9},
-  {"sku":"F006","name":"700cc Paper Cup","unit":"CTN","qty":99.0,"avg":1.5,"category":"Packaging","safetyStock":4.5},
-  {"sku":"F007","name":"360cc PP Cup","unit":"CTN","qty":0.0,"avg":0.0,"category":"Packaging","safetyStock":0.0},
-  {"sku":"F008","name":"500cc PP Cup","unit":"CTN","qty":0.0,"avg":5.5,"category":"Packaging","safetyStock":16.5},
-  {"sku":"F009","name":"700cc PP Cup","unit":"CTN","qty":35.0,"avg":24.7,"category":"Packaging","safetyStock":74.1},
-  {"sku":"F010","name":"90 Round Cover","unit":"CTN","qty":4.0,"avg":0.5,"category":"Packaging","safetyStock":1.5},
-  {"sku":"F011","name":"Smart Lid (clear)","unit":"CTN","qty":5.0,"avg":0.0,"category":"Packaging","safetyStock":0.0},
-  {"sku":"F012","name":"Sealing Film","unit":"Roll","qty":18.0,"avg":8.9,"category":"Packaging","safetyStock":26.7},
-  {"sku":"F013","name":"Takeaway bag (4-cup)","unit":"Pack","qty":89.0,"avg":8.9,"category":"Packaging","safetyStock":26.7},
-  {"sku":"F014","name":"Paper Tray","unit":"Pieces","qty":866.0,"avg":161.0,"category":"Packaging","safetyStock":483.0},
-  {"sku":"F015","name":"Stamp cards","unit":"Stacks","qty":103.0,"avg":9.4,"category":"Packaging","safetyStock":28.2},
-  {"sku":"F016","name":"Testing cup","unit":"CTN","qty":4.0,"avg":0.3,"category":"Packaging","safetyStock":0.9},
-  {"sku":"F017","name":"700cc Paper Cup (local)","unit":"Pieces","qty":4.0,"avg":0.8,"category":"Packaging","safetyStock":2.4},
-  {"sku":"F018","name":"500cc PP Cup (1000 pcs) - Local","unit":"Pieces","qty":20.0,"avg":5.0,"category":"Packaging","safetyStock":15.0}
+  {"sku":"A001","name":"Concentrated Passion fruit (Local)","unit":"Boxes","qty":32.0,"avg":20.7,"category":"Frozen Beverages","safetyStock":3},
+  {"sku":"A002","name":"Grape","unit":"Bottles","qty":439.0,"avg":75.9,"category":"Frozen Beverages","safetyStock":3},
+  {"sku":"A003","name":"Grapefruit","unit":"Bottles","qty":761.0,"avg":174.3,"category":"Frozen Beverages","safetyStock":3},
+  {"sku":"A004","name":"Guava","unit":"Bottles","qty":1171.0,"avg":181.6,"category":"Frozen Beverages","safetyStock":3},
+  {"sku":"A005","name":"Kumquat","unit":"Bottles","qty":112.0,"avg":36.5,"category":"Frozen Beverages","safetyStock":3},
+  {"sku":"A006","name":"Lemon","unit":"Bottles","qty":472.0,"avg":91.4,"category":"Frozen Beverages","safetyStock":3},
+  {"sku":"A007","name":"Lychee","unit":"Bottles","qty":1030.0,"avg":182.5,"category":"Frozen Beverages","safetyStock":3},
+  {"sku":"A008","name":"Orange","unit":"Bottles","qty":1597.0,"avg":289.2,"category":"Frozen Beverages","safetyStock":3},
+  {"sku":"A009","name":"Passion fruit","unit":"Bottles","qty":2279.0,"avg":397.7,"category":"Frozen Beverages","safetyStock":3},
+  {"sku":"A010","name":"Mango Puree","unit":"Bottles","qty":575.0,"avg":77.9,"category":"Frozen Beverages","safetyStock":3},
+  {"sku":"A011","name":"Sweet Taro Paste","unit":"Bag","qty":1208.0,"avg":198.0,"category":"Frozen Beverages","safetyStock":3},
+  {"sku":"A012","name":"Frozen Mango Chunks (Costco 2kg)","unit":"Bag","qty":10.0,"avg":19.5,"category":"Frozen Beverages","safetyStock":3},
+  {"sku":"B001","name":"Earl Grey Tea Gelato","unit":"Tub","qty":9.0,"avg":5.9,"category":"Gelato","safetyStock":3},
+  {"sku":"B002","name":"Smoked Oolong Tea Gelato","unit":"Tub","qty":9.0,"avg":5.0,"category":"Gelato","safetyStock":3},
+  {"sku":"B003","name":"Vanilla Gelato","unit":"Tub","qty":15.0,"avg":10.3,"category":"Gelato","safetyStock":3},
+  {"sku":"B004","name":"Bayberry Tea Gelato","unit":"Tub","qty":16.0,"avg":1.4,"category":"Gelato","safetyStock":3},
+  {"sku":"C001","name":"Matcha Powder","unit":"Bag","qty":87.0,"avg":24.9,"category":"Other Beverages/ Ingredients","safetyStock":3},
+  {"sku":"C002","name":"Wintermelon block","unit":"CTN","qty":13.0,"avg":8.7,"category":"Other Beverages/ Ingredients","safetyStock":3},
+  {"sku":"C003","name":"Dry Plum","unit":"Bag","qty":5.0,"avg":2.9,"category":"Other Beverages/ Ingredients","safetyStock":3},
+  {"sku":"C004","name":"HQ Non-dairy Creamer","unit":"CTN","qty":0.0,"avg":32.1,"category":"Other Beverages/ Ingredients","safetyStock":3},
+  {"sku":"C005","name":"Raw Sugar","unit":"Bag","qty":231.0,"avg":353.3,"category":"Other Beverages/ Ingredients","safetyStock":3},
+  {"sku":"C006","name":"Brown Sugar","unit":"CTN","qty":9.0,"avg":10.5,"category":"Other Beverages/ Ingredients","safetyStock":3},
+  {"sku":"C007","name":"Red Sugar","unit":"CTN","qty":10.0,"avg":8.1,"category":"Other Beverages/ Ingredients","safetyStock":3},
+  {"sku":"C008","name":"Sesame powder","unit":"Bag","qty":124.0,"avg":7.1,"category":"Other Beverages/ Ingredients","safetyStock":3},
+  {"sku":"C009","name":"Vanilla Ice powder","unit":"Bag","qty":12.0,"avg":1.8,"category":"Other Beverages/ Ingredients","safetyStock":3},
+  {"sku":"C010","name":"Choolate powder","unit":"Bag","qty":18.0,"avg":2.5,"category":"Other Beverages/ Ingredients","safetyStock":3},
+  {"sku":"C011","name":"Dried Hawthorn Fruit","unit":"Bag","qty":38.0,"avg":54.3,"category":"Other Beverages/ Ingredients","safetyStock":3},
+  {"sku":"D001","name":"Black Tea","unit":"Bag","qty":166.0,"avg":102.3,"category":"Tea","safetyStock":3},
+  {"sku":"D002","name":"Mountain Green Tea","unit":"Bag","qty":26.0,"avg":72.0,"category":"Tea","safetyStock":3},
+  {"sku":"D003","name":"Jasmine Green Tea","unit":"Bag","qty":30.0,"avg":98.9,"category":"Tea","safetyStock":3},
+  {"sku":"D004","name":"Oolong Tea","unit":"Bag","qty":89.0,"avg":42.9,"category":"Tea","safetyStock":3},
+  {"sku":"D005","name":"Buckwheat Tea","unit":"Bag","qty":22.0,"avg":38.3,"category":"Tea","safetyStock":3},
+  {"sku":"D006","name":"Bayberry Tea","unit":"Bag","qty":62.0,"avg":11.8,"category":"Tea","safetyStock":3},
+  {"sku":"E001","name":"Black Tapioca Pearls 2.0","unit":"CTN","qty":81.0,"avg":39.3,"category":"Toppings","safetyStock":3},
+  {"sku":"E002","name":"Black Tapioca Pearls 2.5","unit":"CTN","qty":33.0,"avg":13.7,"category":"Toppings","safetyStock":3},
+  {"sku":"E003","name":"Coconut Jelly","unit":"Can","qty":2.0,"avg":26.9,"category":"Toppings","safetyStock":3},
+  {"sku":"E004","name":"Aloe Vera","unit":"Can","qty":169.0,"avg":99.7,"category":"Toppings","safetyStock":3},
+  {"sku":"E005","name":"Grass (Herbal) Jelly Juice","unit":"Can","qty":25.0,"avg":27.0,"category":"Toppings","safetyStock":3},
+  {"sku":"E006","name":"Red Bean Paste","unit":"Can","qty":60.0,"avg":27.4,"category":"Toppings","safetyStock":3},
+  {"sku":"E007","name":"Sweet Taro Lump","unit":"Can","qty":40.0,"avg":30.6,"category":"Toppings","safetyStock":3},
+  {"sku":"E008","name":"Fig (Aiyu) Jelly Powder","unit":"Bag","qty":73.0,"avg":3.9,"category":"Toppings","safetyStock":3},
+  {"sku":"E009","name":"Konjac Jelly Powder","unit":"Bag","qty":105.0,"avg":24.1,"category":"Toppings","safetyStock":3},
+  {"sku":"E010","name":"Tapioca Starch","unit":"Bag","qty":16.0,"avg":6.6,"category":"Toppings","safetyStock":3},
+  {"sku":"E011","name":"12x Yolk Flavour Pudding","unit":"Bag","qty":35.0,"avg":4.9,"category":"Toppings","safetyStock":3},
+  {"sku":"E012","name":"Chia Seed","unit":"Bottle","qty":17.0,"avg":2.3,"category":"Toppings","safetyStock":3},
+  {"sku":"E013","name":"Oero Crumb","unit":"Bag","qty":49.0,"avg":10.0,"category":"Toppings","safetyStock":3},
+  {"sku":"E014","name":"Osmanthus Jelly","unit":"Bag","qty":62.0,"avg":4.0,"category":"Toppings","safetyStock":3},
+  {"sku":"E015","name":"Coffee Jelly","unit":"Can","qty":12.0,"avg":null,"category":"Toppings","safetyStock":3},
+  {"sku":"F001","name":"Big Paper straw","unit":"CTN","qty":1.0,"avg":0.3,"category":"Packaging","safetyStock":3},
+  {"sku":"F002","name":"Big Straw","unit":"CTN","qty":7.0,"avg":12.5,"category":"Packaging","safetyStock":3},
+  {"sku":"F003","name":"Small Straw","unit":"CTN","qty":5.0,"avg":1.5,"category":"Packaging","safetyStock":3},
+  {"sku":"F004","name":"Cup Sleeve","unit":"CTN","qty":6.0,"avg":0.3,"category":"Packaging","safetyStock":3},
+  {"sku":"F005","name":"500cc Paper Cup","unit":"CTN","qty":42.0,"avg":0.3,"category":"Packaging","safetyStock":3},
+  {"sku":"F006","name":"700cc Paper Cup","unit":"CTN","qty":99.0,"avg":1.5,"category":"Packaging","safetyStock":3},
+  {"sku":"F007","name":"360cc PP Cup","unit":"CTN","qty":0.0,"avg":0.0,"category":"Packaging","safetyStock":3},
+  {"sku":"F008","name":"500cc PP Cup","unit":"CTN","qty":0.0,"avg":5.5,"category":"Packaging","safetyStock":3},
+  {"sku":"F009","name":"700cc PP Cup","unit":"CTN","qty":35.0,"avg":24.7,"category":"Packaging","safetyStock":3},
+  {"sku":"F010","name":"90 Round Cover","unit":"CTN","qty":4.0,"avg":0.5,"category":"Packaging","safetyStock":3},
+  {"sku":"F011","name":"Smart Lid (clear)","unit":"CTN","qty":5.0,"avg":0.0,"category":"Packaging","safetyStock":3},
+  {"sku":"F012","name":"Sealing Film","unit":"Roll","qty":18.0,"avg":8.9,"category":"Packaging","safetyStock":3},
+  {"sku":"F013","name":"Takeaway bag (4-cup)","unit":"Pack","qty":89.0,"avg":8.9,"category":"Packaging","safetyStock":3},
+  {"sku":"F014","name":"Paper Tray","unit":"Pieces","qty":866.0,"avg":161.0,"category":"Packaging","safetyStock":3},
+  {"sku":"F015","name":"Stamp cards","unit":"Stacks","qty":103.0,"avg":9.4,"category":"Packaging","safetyStock":3},
+  {"sku":"F016","name":"Testing cup","unit":"CTN","qty":4.0,"avg":0.3,"category":"Packaging","safetyStock":3},
+  {"sku":"F017","name":"700cc Paper Cup (local)","unit":"Pieces","qty":4.0,"avg":0.8,"category":"Packaging","safetyStock":3},
+  {"sku":"F018","name":"500cc PP Cup (1000 pcs) - Local","unit":"Pieces","qty":20.0,"avg":5.0,"category":"Packaging","safetyStock":3}
 ];
 
 function clearLogFilters(){
@@ -4639,7 +4645,7 @@ const MASTER_COLUMN_ALIASES = {
   qty: ['stock','庫存量','庫存','qty','quantity','currentstock'],
   avg: ['avgmonthlysales','avg','平均使用量','平均出貨量','月均使用量','avgmonthlyusage'],
   category: ['categories','category','分類','類別'],
-  safetyStock: ['safetystock','安全庫存'],
+  safetyStock: ['safetystock','安全庫存','安全庫存(月數)','safetystockmonths','安全庫存月數'],
   note: ['note','notes','備註','remark'],
   parentSku: ['parentsku','mainproductsku','主商品sku','母商品sku','主商品編號','multipackparentsku'],
   childWeight: ['childweight','weight','加權數','庫存量加權數','weightnumber'],
@@ -6950,8 +6956,9 @@ function renderProductEditModalBody(p, opts){
       <input type="number" id="editProdAvg" min="0" step="0.1" value="${p.manualAvg !== null && p.manualAvg !== undefined ? p.manualAvg : ''}" placeholder="月均使用量" style="width:100%;" />
     </div>
     <div class="field-block">
-      <label>${t('colSafety')}</label>
-      <input type="number" id="editProdSafety" min="0" step="0.1" value="${p.safetyStock !== null && p.safetyStock !== undefined ? p.safetyStock : ''}" placeholder="安全庫存" style="width:100%;" />
+      <label>${t('fieldSafetyStockMonths')}</label>
+      <input type="number" id="editProdSafety" min="0" step="0.01" value="${p.safetyStock !== null && p.safetyStock !== undefined ? p.safetyStock : ''}" placeholder="${t('fieldSafetyStockMonthsPlaceholder')}" style="width:100%;" />
+      <div class="field-hint">${t('safetyStockMonthsHint')}</div>
     </div>
     <div class="field-block">
       <label>${t('colNote')}</label>
@@ -8059,13 +8066,19 @@ function renderStockCards(){
       avgLabel = '—';
     }
 
-    const belowSafety = (safetyStockRaw !== null && safetyStockRaw !== undefined && gaugeStock < safetyStockRaw);
-    const safetyDisplayValue = (safetyStockRaw !== null && safetyStockRaw !== undefined)
-      ? (weight === 1 ? safetyStockRaw : safetyStockRaw / weight)
+    const belowSafety = (safetyStockRaw !== null && safetyStockRaw !== undefined && !isNaN(safetyStockRaw) && gaugeStock < safetyStockRaw * avg);
+    const safetyStockQty = (safetyStockRaw !== null && safetyStockRaw !== undefined && !isNaN(safetyStockRaw))
+      ? safetyStockRaw * avg
+      : null;
+    const safetyDisplayValue = (safetyStockQty !== null)
+      ? (weight === 1 ? safetyStockQty : safetyStockQty / weight)
       : null;
     const safetyText = safetyDisplayValue !== null
       ? (weight === 1 ? safetyDisplayValue.toFixed(1) : formatMultipackQty(safetyDisplayValue))
       : '—';
+    const safetyTitle = (safetyStockRaw !== null && safetyStockRaw !== undefined && !isNaN(safetyStockRaw))
+      ? tf('safetyStockMonthsTitle', { months: safetyStockRaw.toFixed(2).replace(/\.?0+$/, '') })
+      : '';
 
     const hasSub = !isSubRow && basisParent && (opts.subCount || 0) > 0;
     const expandArrow = hasSub
@@ -8092,7 +8105,7 @@ function renderStockCards(){
         <td class="row-num row-stock-own"><span class="td-mobile-label">${t('colStock')}</span>${stock}</td>
         <td class="row-num row-stock-total"><span class="td-mobile-label">${t('colTotalStock')}</span><span class="row-value-line">${isSubRow ? '—' : totalStockDisplay}<span class="row-edit-cart">${editCartLinks}</span></span></td>
         <td class="row-num row-avg" ${avgTitle ? `title="${avgTitle}"` : ''}><span class="td-mobile-label">${t('colAvgOut')}</span>${avgLabel}</td>
-        <td class="row-num row-safety ${belowSafety ? 'row-below-safety' : ''}"><span class="td-mobile-label">${t('colSafety')}</span><span class="row-value-line">${safetyText}${belowSafety ? ' ⚠' : ''}<span class="row-remain-inline ${!isSubRow ? `row-${gauge.cls}` : ''}">${isSubRow ? '' : gauge.label}</span></span></td>
+        <td class="row-num row-safety ${belowSafety ? 'row-below-safety' : ''}" ${safetyTitle ? `title="${safetyTitle}"` : ''}><span class="td-mobile-label">${t('colSafety')}</span><span class="row-value-line">${safetyText}${belowSafety ? ' ⚠' : ''}<span class="row-remain-inline ${!isSubRow ? `row-${gauge.cls}` : ''}">${isSubRow ? '' : gauge.label}</span></span></td>
         <td class="row-remain ${!isSubRow ? `row-${gauge.cls}` : ''}"><span class="td-mobile-label">${t('colRemain')}</span>${isSubRow ? '—' : gauge.label}</td>
         <td class="row-action ${switchLink ? '' : 'row-action-switch-empty'}">
           ${hasCapability('cap-edit-overview') ? `
@@ -8236,7 +8249,10 @@ function sortStockItems(items, now){
     if(stockSortField === 'totalStock') return computeTotalStock(p.id);
     const { avg } = getEffectiveAvg(p, now);
     if(stockSortField === 'avg') return avg === null || avg === undefined ? -Infinity : avg;
-    if(stockSortField === 'safety') return (p.safetyStock === null || p.safetyStock === undefined) ? -Infinity : p.safetyStock;
+    if(stockSortField === 'safety'){
+      if(p.safetyStock === null || p.safetyStock === undefined || isNaN(p.safetyStock)) return -Infinity;
+      return p.safetyStock * (avg || 0);
+    }
     if(stockSortField === 'remain'){
       const remain = daysRemaining(stock, avg);
       return remain === null || remain === undefined ? -Infinity : remain;
