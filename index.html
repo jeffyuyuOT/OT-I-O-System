@@ -390,6 +390,12 @@
   }
   .order-qty-input:focus{ border-color:var(--ink); }
   .order-qty-input.qty-invalid{ border-color:var(--crit); background:var(--crit-bg); }
+  .order-item-note-input{
+    width:100%; min-width:100px; font-size:12.5px; border:1px solid var(--line);
+    border-radius:2px; padding:6px 8px; background:#fff; color:var(--ink); outline:none; box-sizing:border-box;
+  }
+  .order-item-note-input:focus{ border-color:var(--ink); }
+  .row-note-cell{ min-width:120px; }
   .order-card{
     background:#fff; border:1px solid var(--line); border-radius:2px; padding:14px 16px; margin-bottom:12px;
   }
@@ -1178,6 +1184,10 @@
           <label data-i18n="fieldNote">備註(選填)</label>
           <input id="newProductNote" type="text" placeholder="例如:易碎/需冷藏" />
         </div>
+        <div class="field">
+          <label data-i18n="fieldOrderPageRemark">訂貨頁面附註(選填)</label>
+          <input id="newProductOrderPageRemark" type="text" placeholder="只會顯示在訂貨頁面" />
+        </div>
         <button class="btn" onclick="addProduct()" data-i18n="btnAddProduct">新增商品</button>
       </div>
       <div id="productMsg" class="msg"></div>
@@ -1682,6 +1692,7 @@ let partyProductBulkSelected = new Set();
 let partyProductSearchTerm = '';
 let partyProductCategoryFilter = '';
 let orderQtyDraft = {};
+let orderItemNoteDraft = {}; // 訂貨頁面每個商品各自的備註草稿,key 是 productId
 let orderExpandedParentIds = new Set();
 let orderCounter = 0;
 let expandedOrderIds = new Set();
@@ -1757,6 +1768,8 @@ const I18N = {
     fieldSku: 'SKU(選填)', fieldName: '商品名稱', fieldUnit: '單位', fieldCategory: '分類',
     fieldAvg: '月均使用量(選填)', fieldSafety: '安全庫存(月數,選填)', fieldNote: '備註(選填)',
     fieldBarcode: '條碼', barcodeInputHint: '可以直接把游標點進這一欄,拿掃碼槍掃一次商品包裝上的條碼,掃到的號碼會自動打進來,不用手動輸入。',
+    fieldOrderPageRemark: '訂貨頁面附註', fieldOrderPageRemarkPlaceholder: '只會顯示在訂貨頁面',
+    orderPageRemarkHint: '跟一般備註不一樣,這個附註是常駐的,只會顯示在「訂貨」頁面商品名稱後面(斜體小字),其他地方(訂貨後台管理、進出貨紀錄…)不會顯示。',
     fieldBoxDimensions: '箱子尺寸(公分)', fieldBoxLength: '長', fieldBoxWidth: '寬', fieldBoxHeight: '高',
     boxDimensionsHint: '單位是公分。填了之後,進貨預估頁面才能算出這個商品的體積。',
     barcodeInputPlaceholder: '掃描或手動輸入條碼',
@@ -1826,6 +1839,7 @@ const I18N = {
     btnOrderMore: '← 繼續訂貨', btnConfirmOrderFinal: '✅ 提交訂單',
     cartEmptyNote: '購物車是空的,請先在訂貨頁面填寫訂貨數量。',
     colWeeklyAvg: '每次訂貨平均用量', colOrderQty: '訂貨數量', oosLabel: '缺貨',
+    colItemNote: '備註', itemNotePlaceholder: '這個商品的備註(選填)',
     avgTitlePartySpecific: '以「{name}」最近三個月的出貨紀錄計算',
     avgTitlePartyFallback: '「{name}」最近三個月沒有這項商品的出貨紀錄,顯示整體最近三個月平均值供參考',
     avgTitleNoParty: '目前沒有選出貨方,顯示整體最近三個月平均值供參考',
@@ -2092,6 +2106,8 @@ const I18N = {
     fieldSku: 'SKU (optional)', fieldName: 'Product Name', fieldUnit: 'Unit', fieldCategory: 'Category',
     fieldAvg: 'Avg Monthly Usage (optional)', fieldSafety: 'Safety Stock (months, optional)', fieldNote: 'Note (optional)',
     fieldBarcode: 'Barcode', barcodeInputHint: 'Click into this field and scan the product\'s barcode with a scanner gun — the code types straight in, no need to enter it by hand.',
+    fieldOrderPageRemark: 'Order Page Remark', fieldOrderPageRemarkPlaceholder: 'Only shown on the Order page',
+    orderPageRemarkHint: 'Unlike the general note, this remark is persistent and only appears next to the product name on the "Order" page (small italic text) — it won\'t show anywhere else (Order Management, Stock Log, etc.).',
     fieldBoxDimensions: 'Box Dimensions (cm)', fieldBoxLength: 'Length', fieldBoxWidth: 'Width', fieldBoxHeight: 'Height',
     boxDimensionsHint: 'Units are in centimeters. Fill these in to enable volume calculation on the Purchase Forecast page.',
     barcodeInputPlaceholder: 'Scan or type the barcode',
@@ -2161,6 +2177,7 @@ const I18N = {
     btnOrderMore: '← Order more', btnConfirmOrderFinal: '✅ Submit Order',
     cartEmptyNote: 'Your cart is empty. Please fill in order quantities on the order page first.',
     colWeeklyAvg: 'Avg per Order', colOrderQty: 'Order Qty', oosLabel: 'Out of Stock',
+    colItemNote: 'Note', itemNotePlaceholder: 'Note for this item (optional)',
     avgTitlePartySpecific: 'Calculated from "{name}"\'s shipments over the last three months',
     avgTitlePartyFallback: '"{name}" has no shipment history for this product in the last three months — showing the overall 3-month average for reference',
     avgTitleNoParty: 'No supplier selected — showing the overall 3-month average for reference',
@@ -3297,6 +3314,7 @@ function switchTab(tabId){
     // 使用者在「幫既有訂單新增商品」流程中途跑去別的分頁,視同放棄這次新增
     addingItemsToOrderId = null;
     orderQtyDraft = {};
+    orderItemNoteDraft = {};
     const partySelect = document.getElementById('orderParty');
     if(partySelect) partySelect.disabled = false;
     const banner = document.getElementById('addToOrderBanner');
@@ -3403,6 +3421,7 @@ function switchOrderSubTab(subtabId){
     // 切回訂購記錄、沒有走完購物車流程),順便收尾,恢復出貨方選單、隱藏提示橫幅。
     addingItemsToOrderId = null;
     orderQtyDraft = {};
+    orderItemNoteDraft = {};
     const partySelect = document.getElementById('orderParty');
     if(partySelect) partySelect.disabled = false;
     const banner = document.getElementById('addToOrderBanner');
@@ -4542,6 +4561,7 @@ async function addProduct(){
   const catEl = document.getElementById('newProductCategory');
   const safetyEl = document.getElementById('newProductSafety');
   const noteEl = document.getElementById('newProductNote');
+  const orderPageRemarkEl = document.getElementById('newProductOrderPageRemark');
   const msg = document.getElementById('productMsg');
   const sku = skuEl.value.trim();
   const name = nameEl.value.trim();
@@ -4550,6 +4570,7 @@ async function addProduct(){
   const avgVal = avgEl.value.trim() === '' ? null : parseFloat(avgEl.value);
   const safetyVal = safetyEl.value.trim() === '' ? null : parseFloat(safetyEl.value);
   const note = noteEl.value.trim();
+  const orderPageRemark = orderPageRemarkEl ? orderPageRemarkEl.value.trim() : '';
 
   if(!name){ msg.className='msg error'; msg.textContent='請輸入商品名稱'; return; }
   if(products.some(p => p.name === name)){ msg.className='msg error'; msg.textContent='這個商品名稱已經存在'; return; }
@@ -4558,10 +4579,11 @@ async function addProduct(){
     id: genId(), sku, name, unit, category,
     manualAvg: (avgVal !== null && !isNaN(avgVal)) ? avgVal : null,
     safetyStock: (safetyVal !== null && !isNaN(safetyVal)) ? safetyVal : null,
-    note, orderable: false, parentId: null, childWeight: null
+    note, orderPageRemark: orderPageRemark || undefined, orderable: false, parentId: null, childWeight: null
   });
   await saveProducts();
   skuEl.value = ''; nameEl.value = ''; unitEl.value = ''; avgEl.value = ''; safetyEl.value = ''; noteEl.value = '';
+  if(orderPageRemarkEl) orderPageRemarkEl.value = '';
   msg.className='msg ok'; msg.textContent = `✓ 已新增「${name}」`;
   renderAll();
 }
@@ -5076,7 +5098,8 @@ async function importStockItems(items, skippedRows){
         boxLengthCm: (item.boxLengthCm !== null && item.boxLengthCm !== undefined && !isNaN(item.boxLengthCm)) ? item.boxLengthCm : undefined,
         boxWidthCm: (item.boxWidthCm !== null && item.boxWidthCm !== undefined && !isNaN(item.boxWidthCm)) ? item.boxWidthCm : undefined,
         boxHeightCm: (item.boxHeightCm !== null && item.boxHeightCm !== undefined && !isNaN(item.boxHeightCm)) ? item.boxHeightCm : undefined,
-        hidden: item.hidden === true
+        hidden: item.hidden === true,
+        orderPageRemark: item.orderPageRemark || undefined
       });
       if(item.qty > 0){
         const tx = {
@@ -5110,6 +5133,7 @@ async function importStockItems(items, skippedRows){
     if(item.boxWidthCm !== null && item.boxWidthCm !== undefined && !isNaN(item.boxWidthCm) && existing.boxWidthCm !== item.boxWidthCm){ changedFields.push(tf('importFieldChangeLine', {field: t('fieldBoxWidth'), from: existing.boxWidthCm, to: item.boxWidthCm})); existing.boxWidthCm = item.boxWidthCm; changed = true; }
     if(item.boxHeightCm !== null && item.boxHeightCm !== undefined && !isNaN(item.boxHeightCm) && existing.boxHeightCm !== item.boxHeightCm){ changedFields.push(tf('importFieldChangeLine', {field: t('fieldBoxHeight'), from: existing.boxHeightCm, to: item.boxHeightCm})); existing.boxHeightCm = item.boxHeightCm; changed = true; }
     if(item.hidden !== null && item.hidden !== undefined && existing.hidden !== item.hidden){ changedFields.push(tf('importFieldChangeLine', {field: t('hideAction'), from: existing.hidden, to: item.hidden})); existing.hidden = item.hidden; changed = true; }
+    if(item.orderPageRemark !== null && item.orderPageRemark !== undefined && existing.orderPageRemark !== item.orderPageRemark){ changedFields.push(tf('importFieldChangeLine', {field: t('fieldOrderPageRemark'), from: existing.orderPageRemark || '(空白)', to: item.orderPageRemark})); existing.orderPageRemark = item.orderPageRemark; changed = true; }
 
     const currentStock = computeStock(existing.id);
     const diff = item.qty - currentStock;
@@ -5225,7 +5249,8 @@ const MASTER_COLUMN_ALIASES = {
   boxLength: ['boxlength','length','長','箱長','長度cm','lengthcm','長(cm)'],
   boxWidth: ['boxwidth','width','寬','箱寬','寬度cm','widthcm','寬(cm)'],
   boxHeight: ['boxheight','height','高','箱高','高度cm','heightcm','高(cm)'],
-  hidden: ['hidden','隱藏','ishidden','是否隱藏']
+  hidden: ['hidden','隱藏','ishidden','是否隱藏'],
+  orderPageRemark: ['orderpageremark','訂貨頁面附註','訂貨附註','orderremark']
 };
 
 // Excel 儲存格裡的「是否隱藏」欄位,可能是真的布林值(true/false)、文字(TRUE/FALSE、Y/N、是/否),
@@ -5365,6 +5390,7 @@ function parseMasterExcelFile(){
         const colBoxWidth = findColumnIndex(headerRow, MASTER_COLUMN_ALIASES.boxWidth);
         const colBoxHeight = findColumnIndex(headerRow, MASTER_COLUMN_ALIASES.boxHeight);
         const colHidden = findColumnIndex(headerRow, MASTER_COLUMN_ALIASES.hidden);
+        const colOrderPageRemark = findColumnIndex(headerRow, MASTER_COLUMN_ALIASES.orderPageRemark);
 
         if(colName === -1 || colQty === -1){
           fileErrors.push(`${file.name}:找不到「Name/品名」或「Stock/庫存量」欄位`);
@@ -5414,6 +5440,7 @@ function parseMasterExcelFile(){
             boxWidthCm: colBoxWidth !== -1 ? parseNumericCell(row[colBoxWidth]) : null,
             boxHeightCm: colBoxHeight !== -1 ? parseNumericCell(row[colBoxHeight]) : null,
             hidden: colHidden !== -1 && row[colHidden] !== null && row[colHidden] !== undefined && row[colHidden] !== '' ? parseBoolLikeCell(row[colHidden]) : null,
+            orderPageRemark: colOrderPageRemark !== -1 && row[colOrderPageRemark] !== null && row[colOrderPageRemark] !== undefined && String(row[colOrderPageRemark]).trim() !== '' ? String(row[colOrderPageRemark]).trim() : null,
             _sourceFile: file.name, _sourceRow: excelRowNo
           });
         }
@@ -5649,7 +5676,12 @@ function renderOrderItemsTable(){
       : '';
     const row = `
       <tr class="${outOfStock ? 'oos-row' : ''}">
-        <td class="row-name" style="${isNested ? 'padding-left:26px;' : ''}">${p.sku ? `<span class="sku-badge">${p.sku}</span>` : ''}${isChildProduct ? '⧉ ' : ''}${p.name}${expandArrow}${outOfStock ? `<span class="oos-badge">${t('oosLabel')}</span>` : ''}</td>
+        <td class="row-name" style="${isNested ? 'padding-left:26px;' : ''}">${p.sku ? `<span class="sku-badge">${p.sku}</span>` : ''}${isChildProduct ? '⧉ ' : ''}${p.name}${p.orderPageRemark ? `<span style="font-style:italic;font-size:11.5px;color:var(--ink-soft);"> ${p.orderPageRemark.replace(/</g,'&lt;')}</span>` : ''}${expandArrow}${outOfStock ? `<span class="oos-badge">${t('oosLabel')}</span>` : ''}</td>
+        <td class="row-note-cell">
+          <span class="td-mobile-label">${t('colItemNote')}</span>
+          <input type="text" class="order-item-note-input" id="orderItemNote_${p.id}" placeholder="${t('itemNotePlaceholder')}"
+            value="${(orderItemNoteDraft[p.id] || '').replace(/"/g,'&quot;')}" oninput="orderItemNoteDraft['${p.id}']=this.value;" />
+        </td>
         <td class="row-num hide-mobile" ${isChildProduct ? '' : `title="${avgTitle}"`}>${isChildProduct ? '—' : `${w.avg.toFixed(1)} ${p.unit}`}</td>
         <td class="row-num row-qty qty-col-data">
           <span class="td-mobile-label">${t('colOrderQty')}</span>
@@ -5675,7 +5707,7 @@ function renderOrderItemsTable(){
   container.innerHTML = `
     <table class="stock-table order-items-table">
       <thead>
-        <tr><th>${t('colProduct')}</th><th class="num hide-mobile">${t('colWeeklyAvg')}</th><th class="qty-col-header">${t('colOrderQty')}</th></tr>
+        <tr><th>${t('colProduct')}</th><th>${t('colItemNote')}</th><th class="num hide-mobile">${t('colWeeklyAvg')}</th><th class="qty-col-header">${t('colOrderQty')}</th></tr>
       </thead>
       <tbody>${rows}</tbody>
     </table>
@@ -5726,10 +5758,13 @@ function collectOrderItems(){
       return;
     }
 
+    const itemNote = (orderItemNoteDraft[p.id] || '').trim();
+
     // 訂貨數量達到 multipack 加權數自動轉換(如果開關有開,而且這個商品有可以用的基準 multipack 商品):
     // 例如加權數是 20,訂了 45 瓶,就轉換成 2 箱(multipack)+ 5 瓶(還是主商品),
     // 轉換出來的 multipack 數量還要另外檢查那個 multipack 商品自己的庫存夠不夠,
-    // 不夠的話能轉多少算多少,剩下的還是留在主商品這邊下單。
+    // 不夠的話能轉多少算多少,剩下的還是留在主商品這邊下單。備註是使用者對這個商品行下的
+    // 說明,不管有沒有被拆成兩筆,兩邊都要帶著同一份備註。
     if(autoConvertMultipackEnabled && !p.parentId){
       const basisChild = getBasisMultipackChild(p);
       if(basisChild){
@@ -5740,9 +5775,9 @@ function collectOrderItems(){
           if(actualMultipackQty > 0){
             const consumedAsParent = actualMultipackQty * basisChild.childWeight;
             const remainder = qty - consumedAsParent;
-            items.push({ productId: basisChild.id, sku: basisChild.sku || '', name: basisChild.name, unit: basisChild.unit, qty: actualMultipackQty });
+            items.push({ productId: basisChild.id, sku: basisChild.sku || '', name: basisChild.name, unit: basisChild.unit, qty: actualMultipackQty, note: itemNote });
             if(remainder > 0){
-              items.push({ productId: p.id, sku: p.sku || '', name: p.name, unit: p.unit, qty: remainder });
+              items.push({ productId: p.id, sku: p.sku || '', name: p.name, unit: p.unit, qty: remainder, note: itemNote });
             }
             return;
           }
@@ -5750,7 +5785,7 @@ function collectOrderItems(){
       }
     }
 
-    items.push({ productId: p.id, sku: p.sku || '', name: p.name, unit: p.unit, qty });
+    items.push({ productId: p.id, sku: p.sku || '', name: p.name, unit: p.unit, qty, note: itemNote });
   });
 
   if(items.length === 0 && errors.length === 0){
@@ -5798,7 +5833,7 @@ function renderCartTable(items){
     const isMultipack = !!(product && product.parentId);
     return `
     <tr>
-      <td class="row-name">${it.sku ? `<span class="sku-badge">${it.sku}</span>` : ''}${isMultipack ? '⧉ ' : ''}${it.name}</td>
+      <td class="row-name">${it.sku ? `<span class="sku-badge">${it.sku}</span>` : ''}${isMultipack ? '⧉ ' : ''}${it.name}${it.note ? `<div style="font-size:11px;color:var(--ink-soft);font-style:italic;font-weight:400;">${t('noteLabelPrefix')}${it.note.replace(/</g,'&lt;')}</div>` : ''}</td>
       <td class="row-num row-qty">
         <span class="td-mobile-label">${t('colOrderQty')}</span>
         <input type="number" class="order-qty-input" id="cartQty_${it.productId}" min="0" step="1"
@@ -5911,6 +5946,7 @@ async function confirmOrderFromCart(){
 
   document.getElementById('orderNote').value = '';
   orderQtyDraft = {};
+  orderItemNoteDraft = {};
   document.getElementById('orderCartSection').style.display = 'none';
   document.getElementById('orderFormSection').style.display = '';
   const formMsg = document.getElementById('orderMsg');
@@ -6027,6 +6063,7 @@ function orderItemRowHtml(o, it, isPending, readOnly, context){
       <div>
         <span style="text-decoration:line-through;color:var(--ink-soft);">${it.name}${it.sku ? ` (${it.sku})` : ''}</span>
         <span style="color:var(--ink-soft);">${it.qty} ${it.unit} · <span style="color:var(--crit);">${label}</span></span>
+        ${it.note ? `<div style="font-size:11px;color:var(--ink-soft);font-style:italic;">${t('noteLabelPrefix')}${it.note.replace(/</g,'&lt;')}</div>` : ''}
       </div>
     `;
   }
@@ -6069,6 +6106,7 @@ function orderItemRowHtml(o, it, isPending, readOnly, context){
         ${canEdit ? `<span class="del-link" style="margin-left:8px;" onclick="startEditOrderItemQty('${context}','${o.id}','${it.productId}')">${t('btnEditQty')}</span>` : ''}
         ${canEdit ? `<span class="del-link" style="margin-left:8px;color:var(--crit);" onclick="${deleteFn}('${o.id}','${it.productId}')">${t('btnDelete')}</span>` : ''}
       </span>
+      ${it.note ? `<div style="font-size:11px;color:var(--ink-soft);font-style:italic;">${t('noteLabelPrefix')}${it.note.replace(/</g,'&lt;')}</div>` : ''}
     </div>
   `;
 }
@@ -7056,6 +7094,7 @@ function goAddProductsToOrder(orderId){
 
   addingItemsToOrderId = orderId;
   orderQtyDraft = {};
+  orderItemNoteDraft = {};
 
   switchTab('tab-order');
   switchOrderSubTab('subtab-order-place');
@@ -7079,6 +7118,7 @@ function goAddProductsToOrder(orderId){
 function cancelAddItemsToOrder(){
   addingItemsToOrderId = null;
   orderQtyDraft = {};
+  orderItemNoteDraft = {};
   const partySelect = document.getElementById('orderParty');
   if(partySelect) partySelect.disabled = false;
   const banner = document.getElementById('addToOrderBanner');
@@ -7649,6 +7689,11 @@ function renderProductEditModalBody(p, opts){
       <input type="text" id="editProdNote" value="${p.note ? p.note.replace(/"/g,'&quot;') : ''}" placeholder="備註" style="width:100%;" />
     </div>
     <div class="field-block">
+      <label>${t('fieldOrderPageRemark')}</label>
+      <input type="text" id="editProdOrderPageRemark" value="${p.orderPageRemark ? p.orderPageRemark.replace(/"/g,'&quot;') : ''}" placeholder="${t('fieldOrderPageRemarkPlaceholder')}" style="width:100%;" />
+      <div class="field-hint">${t('orderPageRemarkHint')}</div>
+    </div>
+    <div class="field-block">
       <label>${t('fieldBarcode')}</label>
       <input type="text" id="editProdBarcode" value="${(p.barcode || '').replace(/"/g,'&quot;')}" placeholder="${t('barcodeInputPlaceholder')}" style="width:100%;" />
       <div class="field-hint">${t('barcodeInputHint')}</div>
@@ -7713,6 +7758,8 @@ async function saveProductEditModal(){
   const avgRaw = document.getElementById('editProdAvg').value.trim();
   const safetyRaw = document.getElementById('editProdSafety').value.trim();
   const note = document.getElementById('editProdNote').value.trim();
+  const orderPageRemarkEl = document.getElementById('editProdOrderPageRemark');
+  const orderPageRemark = orderPageRemarkEl ? orderPageRemarkEl.value.trim() : '';
   const barcodeEl = document.getElementById('editProdBarcode');
   const barcode = barcodeEl ? barcodeEl.value.trim() : '';
   const boxLRaw = document.getElementById('editProdBoxL') ? document.getElementById('editProdBoxL').value.trim() : '';
@@ -7742,6 +7789,7 @@ async function saveProductEditModal(){
       manualAvg: avgRaw === '' ? null : parseFloat(avgRaw),
       safetyStock: safetyRaw === '' ? null : parseFloat(safetyRaw),
       note, orderable: false, parentId: parent.id, childWeight: weightVal,
+      orderPageRemark: orderPageRemark || undefined,
       barcode: barcode || undefined,
       boxLengthCm: boxLengthCm !== null && !isNaN(boxLengthCm) ? boxLengthCm : undefined,
       boxWidthCm: boxWidthCm !== null && !isNaN(boxWidthCm) ? boxWidthCm : undefined,
@@ -7759,6 +7807,7 @@ async function saveProductEditModal(){
     p.manualAvg = avgRaw === '' ? null : parseFloat(avgRaw);
     p.safetyStock = safetyRaw === '' ? null : parseFloat(safetyRaw);
     p.note = note;
+    p.orderPageRemark = orderPageRemark || undefined;
     p.barcode = barcode || undefined;
     p.boxLengthCm = boxLengthCm !== null && !isNaN(boxLengthCm) ? boxLengthCm : undefined;
     p.boxWidthCm = boxWidthCm !== null && !isNaN(boxWidthCm) ? boxWidthCm : undefined;
