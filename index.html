@@ -918,6 +918,10 @@
           </span><br/>
           <b>以 SKU 為比對主鍵</b>:表格裡的 SKU 如果跟現有商品相同,就算表格上的名稱不一樣,也會視為同一項商品並更新其他欄位;<b>商品名稱一律維持庫存總覽現有的名稱,不會被表格覆蓋</b>。SKU 不同或全新的 SKU 會用表格上的名稱新增成一項新商品。<b>沒有填 SKU 的資料列會被略過,不會寫入。</b>
         </p>
+        <div style="display:flex;align-items:center;gap:8px;margin:0 0 12px;">
+          <input type="checkbox" id="clearBlanksOnImport" style="width:16px;height:16px;cursor:pointer;" />
+          <label for="clearBlanksOnImport" style="font-size:12.5px;color:var(--ink);cursor:pointer;" data-i18n="clearBlanksOnImportLabel">表格裡選填欄位如果是空白,就清空現有商品對應的資料(預設不勾選,空白欄位維持現有商品原本的值不變)</label>
+        </div>
         <div class="form-grid" style="grid-template-columns:1fr auto;">
           <div class="field">
             <label data-i18n="fieldSelectFiles">選擇檔案(檔案在不同資料夾可分次加選)</label>
@@ -1875,6 +1879,7 @@ const I18N = {
     importSkippedRowLine: '{file} 第 {row} 列(「{identifier}」):{reason}',
     importLinkSkipIntro: '{n} 項批量商品設定無法套用(商品本身仍照一般商品匯入,只是沒有連結到主商品):',
     importUpdateDetailIntro: '{n} 項商品有異動,詳細內容:',
+    clearBlanksOnImportLabel: '表格裡選填欄位如果是空白,就清空現有商品對應的資料(預設不勾選,空白欄位維持現有商品原本的值不變)',
     importFieldChangeLine: '{field}:{from} → {to}',
     importStockChangeLine: '庫存量:{from} → {to} {unit}(已補一筆進貨/出貨紀錄調整)',
     importLinkSkipReasonSelfRef: 'ParentSKU 填了自己的 SKU,不能指自己當主商品',
@@ -2213,6 +2218,7 @@ const I18N = {
     importSkippedRowLine: '{file} row {row} ("{identifier}"): {reason}',
     importLinkSkipIntro: '{n} multi-pack setting(s) could not be applied (the product itself was still imported normally, just not linked to a main product):',
     importUpdateDetailIntro: '{n} product(s) changed — details:',
+    clearBlanksOnImportLabel: 'If an optional column is blank in the sheet, clear that field on the matching existing product (unchecked by default — blank cells leave existing values untouched)',
     importFieldChangeLine: '{field}: {from} → {to}',
     importStockChangeLine: 'Stock: {from} → {to} {unit} (adjustment record added)',
     importLinkSkipReasonSelfRef: 'ParentSKU is the same as its own SKU — a product can\'t be its own main product',
@@ -5068,8 +5074,9 @@ async function confirmTxImport(){
   renderAll();
 }
 
-async function importStockItems(items, skippedRows){
+async function importStockItems(items, skippedRows, clearBlanksMode){
   skippedRows = skippedRows || [];
+  clearBlanksMode = !!clearBlanksMode;
   const msg = document.getElementById('importMsg');
   const today = todayISO();
   let added = 0, updated = 0, unchanged = 0, skippedNoSku = 0;
@@ -5121,19 +5128,31 @@ async function importStockItems(items, skippedRows){
 
     // 已存在的商品:以 SKU 為準判定是同一項商品。商品名稱一律維持庫存總覽現有的名稱,
     // 不會被匯入的表格覆蓋(即使表格上寫的名稱不一樣)。單位/分類/平均值/安全庫存/備註仍會更新,並依表格數量調整庫存。
+    // clearBlanksMode(使用者有勾選「空白就清空」才會是 true):選填欄位如果表格上是空白,且這個
+    // 商品現在確實有值,就清空回「跟新增商品時同樣的空白預設值」;沒勾選的話維持原本的安全行為,
+    // 空白欄位完全不動現有的值。
     let changed = false;
     const changedFields = []; // 逐項記錄這個商品「哪個欄位」從什麼值變成什麼值,供最後的詳細清單使用
     if(item.unit && existing.unit !== item.unit){ changedFields.push(tf('importFieldChangeLine', {field: t('fieldUnit'), from: existing.unit, to: item.unit})); existing.unit = item.unit; changed = true; }
+    else if(clearBlanksMode && !item.unit && existing.unit !== '個'){ changedFields.push(tf('importFieldChangeLine', {field: t('fieldUnit'), from: existing.unit, to: '個'})); existing.unit = '個'; changed = true; }
     if(item.category && existing.category !== item.category){ changedFields.push(tf('importFieldChangeLine', {field: t('fieldCategory'), from: existing.category, to: item.category})); existing.category = item.category; changed = true; }
+    else if(clearBlanksMode && !item.category && existing.category !== '未分類'){ changedFields.push(tf('importFieldChangeLine', {field: t('fieldCategory'), from: existing.category, to: '未分類'})); existing.category = '未分類'; changed = true; }
     if(item.avg !== null && item.avg !== undefined && existing.manualAvg !== item.avg){ changedFields.push(tf('importFieldChangeLine', {field: t('fieldAvg'), from: existing.manualAvg, to: item.avg})); existing.manualAvg = item.avg; changed = true; }
     else if(typeof existing.manualAvg === 'number' && isNaN(existing.manualAvg)){ changedFields.push(tf('importFieldChangeLine', {field: t('fieldAvg'), from: 'NaN', to: '(空白)'})); existing.manualAvg = null; changed = true; }
+    else if(clearBlanksMode && (item.avg === null || item.avg === undefined) && existing.manualAvg !== null && existing.manualAvg !== undefined){ changedFields.push(tf('importFieldChangeLine', {field: t('fieldAvg'), from: existing.manualAvg, to: '(空白)'})); existing.manualAvg = null; changed = true; }
     if(item.safetyStock !== null && item.safetyStock !== undefined && existing.safetyStock !== item.safetyStock){ changedFields.push(tf('importFieldChangeLine', {field: t('colSafety'), from: existing.safetyStock, to: item.safetyStock})); existing.safetyStock = item.safetyStock; changed = true; }
+    else if(clearBlanksMode && (item.safetyStock === null || item.safetyStock === undefined) && existing.safetyStock !== null && existing.safetyStock !== undefined){ changedFields.push(tf('importFieldChangeLine', {field: t('colSafety'), from: existing.safetyStock, to: '(空白)'})); existing.safetyStock = null; changed = true; }
     if(item.note && existing.note !== item.note){ changedFields.push(tf('importFieldChangeLine', {field: t('colNote'), from: existing.note, to: item.note})); existing.note = item.note; changed = true; }
+    else if(clearBlanksMode && !item.note && existing.note){ changedFields.push(tf('importFieldChangeLine', {field: t('colNote'), from: existing.note, to: '(空白)'})); existing.note = ''; changed = true; }
     if(item.boxLengthCm !== null && item.boxLengthCm !== undefined && !isNaN(item.boxLengthCm) && existing.boxLengthCm !== item.boxLengthCm){ changedFields.push(tf('importFieldChangeLine', {field: t('fieldBoxLength'), from: existing.boxLengthCm, to: item.boxLengthCm})); existing.boxLengthCm = item.boxLengthCm; changed = true; }
+    else if(clearBlanksMode && (item.boxLengthCm === null || item.boxLengthCm === undefined) && existing.boxLengthCm !== null && existing.boxLengthCm !== undefined){ changedFields.push(tf('importFieldChangeLine', {field: t('fieldBoxLength'), from: existing.boxLengthCm, to: '(空白)'})); existing.boxLengthCm = undefined; changed = true; }
     if(item.boxWidthCm !== null && item.boxWidthCm !== undefined && !isNaN(item.boxWidthCm) && existing.boxWidthCm !== item.boxWidthCm){ changedFields.push(tf('importFieldChangeLine', {field: t('fieldBoxWidth'), from: existing.boxWidthCm, to: item.boxWidthCm})); existing.boxWidthCm = item.boxWidthCm; changed = true; }
+    else if(clearBlanksMode && (item.boxWidthCm === null || item.boxWidthCm === undefined) && existing.boxWidthCm !== null && existing.boxWidthCm !== undefined){ changedFields.push(tf('importFieldChangeLine', {field: t('fieldBoxWidth'), from: existing.boxWidthCm, to: '(空白)'})); existing.boxWidthCm = undefined; changed = true; }
     if(item.boxHeightCm !== null && item.boxHeightCm !== undefined && !isNaN(item.boxHeightCm) && existing.boxHeightCm !== item.boxHeightCm){ changedFields.push(tf('importFieldChangeLine', {field: t('fieldBoxHeight'), from: existing.boxHeightCm, to: item.boxHeightCm})); existing.boxHeightCm = item.boxHeightCm; changed = true; }
+    else if(clearBlanksMode && (item.boxHeightCm === null || item.boxHeightCm === undefined) && existing.boxHeightCm !== null && existing.boxHeightCm !== undefined){ changedFields.push(tf('importFieldChangeLine', {field: t('fieldBoxHeight'), from: existing.boxHeightCm, to: '(空白)'})); existing.boxHeightCm = undefined; changed = true; }
     if(item.hidden !== null && item.hidden !== undefined && existing.hidden !== item.hidden){ changedFields.push(tf('importFieldChangeLine', {field: t('hideAction'), from: existing.hidden, to: item.hidden})); existing.hidden = item.hidden; changed = true; }
     if(item.orderPageRemark !== null && item.orderPageRemark !== undefined && existing.orderPageRemark !== item.orderPageRemark){ changedFields.push(tf('importFieldChangeLine', {field: t('fieldOrderPageRemark'), from: existing.orderPageRemark || '(空白)', to: item.orderPageRemark})); existing.orderPageRemark = item.orderPageRemark; changed = true; }
+    else if(clearBlanksMode && (item.orderPageRemark === null || item.orderPageRemark === undefined) && existing.orderPageRemark){ changedFields.push(tf('importFieldChangeLine', {field: t('fieldOrderPageRemark'), from: existing.orderPageRemark, to: '(空白)'})); existing.orderPageRemark = undefined; changed = true; }
 
     const currentStock = computeStock(existing.id);
     const diff = item.qty - currentStock;
@@ -5348,6 +5367,8 @@ function renderTxFileList(){
 function parseMasterExcelFile(){
   const msg = document.getElementById('importMsg');
   const files = pendingMasterFiles;
+  const clearBlanksEl = document.getElementById('clearBlanksOnImport');
+  const clearBlanksMode = !!(clearBlanksEl && clearBlanksEl.checked);
 
   if(files.length === 0){ msg.className='msg error'; msg.textContent='請先選擇至少一個 Excel 檔案'; return; }
   if(typeof XLSX === 'undefined'){ msg.className='msg error'; msg.textContent='Excel 解析套件載入失敗,請重新整理頁面再試一次'; return; }
@@ -5461,7 +5482,7 @@ function parseMasterExcelFile(){
       msg.textContent = `沒有解析到任何商品資料列。${fileErrors.length > 0 ? '錯誤:' + fileErrors.join('; ') : '請確認檔案內容'}${skipDetail}`;
       return;
     }
-    importStockItems(allItems, skippedRows);
+    importStockItems(allItems, skippedRows, clearBlanksMode);
     if(fileErrors.length > 0){
       const prevMsg = document.getElementById('importMsg');
       setTimeout(() => {
