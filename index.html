@@ -1860,6 +1860,9 @@ const I18N = {
     importSkippedRowsHeader: '{n} 列資料被整列略過(未匯入):',
     importSkippedRowLine: '{file} 第 {row} 列(「{identifier}」):{reason}',
     importLinkSkipIntro: '{n} 項批量商品設定無法套用(商品本身仍照一般商品匯入,只是沒有連結到主商品):',
+    importUpdateDetailIntro: '{n} 項商品有異動,詳細內容:',
+    importFieldChangeLine: '{field}:{from} → {to}',
+    importStockChangeLine: '庫存量:{from} → {to} {unit}(已補一筆進貨/出貨紀錄調整)',
     importLinkSkipReasonSelfRef: 'ParentSKU 填了自己的 SKU,不能指自己當主商品',
     importLinkSkipReasonParentNotFound: 'ParentSKU「{parentSku}」在這份表格裡跟系統裡都找不到對應的商品',
     importLinkSkipReasonNestedParent: 'ParentSKU「{parentSku}」指到的商品本身也是別人的批量商品,不支援兩層巢狀',
@@ -2192,6 +2195,9 @@ const I18N = {
     importSkippedRowsHeader: '{n} row(s) were skipped entirely (not imported):',
     importSkippedRowLine: '{file} row {row} ("{identifier}"): {reason}',
     importLinkSkipIntro: '{n} multi-pack setting(s) could not be applied (the product itself was still imported normally, just not linked to a main product):',
+    importUpdateDetailIntro: '{n} product(s) changed — details:',
+    importFieldChangeLine: '{field}: {from} → {to}',
+    importStockChangeLine: 'Stock: {from} → {to} {unit} (adjustment record added)',
     importLinkSkipReasonSelfRef: 'ParentSKU is the same as its own SKU — a product can\'t be its own main product',
     importLinkSkipReasonParentNotFound: 'ParentSKU "{parentSku}" wasn\'t found as a matching product, either in this sheet or in the system',
     importLinkSkipReasonNestedParent: 'The product ParentSKU "{parentSku}" points to is itself another product\'s multi-pack — two-level nesting isn\'t supported',
@@ -5039,6 +5045,7 @@ async function importStockItems(items, skippedRows){
   const msg = document.getElementById('importMsg');
   const today = todayISO();
   let added = 0, updated = 0, unchanged = 0, skippedNoSku = 0;
+  const updateDetails = []; // { sku, name, fields } — 逐項記錄哪個商品被更新、具體改了哪些欄位
   const newTxs = [];
 
   items.forEach(item => {
@@ -5086,19 +5093,21 @@ async function importStockItems(items, skippedRows){
     // 已存在的商品:以 SKU 為準判定是同一項商品。商品名稱一律維持庫存總覽現有的名稱,
     // 不會被匯入的表格覆蓋(即使表格上寫的名稱不一樣)。單位/分類/平均值/安全庫存/備註仍會更新,並依表格數量調整庫存。
     let changed = false;
-    if(item.unit && existing.unit !== item.unit){ existing.unit = item.unit; changed = true; }
-    if(item.category && existing.category !== item.category){ existing.category = item.category; changed = true; }
-    if(item.avg !== null && item.avg !== undefined && existing.manualAvg !== item.avg){ existing.manualAvg = item.avg; changed = true; }
-    if(item.safetyStock !== null && item.safetyStock !== undefined && existing.safetyStock !== item.safetyStock){ existing.safetyStock = item.safetyStock; changed = true; }
-    if(item.note && existing.note !== item.note){ existing.note = item.note; changed = true; }
-    if(item.boxLengthCm !== null && item.boxLengthCm !== undefined && !isNaN(item.boxLengthCm) && existing.boxLengthCm !== item.boxLengthCm){ existing.boxLengthCm = item.boxLengthCm; changed = true; }
-    if(item.boxWidthCm !== null && item.boxWidthCm !== undefined && !isNaN(item.boxWidthCm) && existing.boxWidthCm !== item.boxWidthCm){ existing.boxWidthCm = item.boxWidthCm; changed = true; }
-    if(item.boxHeightCm !== null && item.boxHeightCm !== undefined && !isNaN(item.boxHeightCm) && existing.boxHeightCm !== item.boxHeightCm){ existing.boxHeightCm = item.boxHeightCm; changed = true; }
-    if(item.hidden !== null && item.hidden !== undefined && existing.hidden !== item.hidden){ existing.hidden = item.hidden; changed = true; }
+    const changedFields = []; // 逐項記錄這個商品「哪個欄位」從什麼值變成什麼值,供最後的詳細清單使用
+    if(item.unit && existing.unit !== item.unit){ changedFields.push(tf('importFieldChangeLine', {field: t('fieldUnit'), from: existing.unit, to: item.unit})); existing.unit = item.unit; changed = true; }
+    if(item.category && existing.category !== item.category){ changedFields.push(tf('importFieldChangeLine', {field: t('fieldCategory'), from: existing.category, to: item.category})); existing.category = item.category; changed = true; }
+    if(item.avg !== null && item.avg !== undefined && existing.manualAvg !== item.avg){ changedFields.push(tf('importFieldChangeLine', {field: t('fieldAvg'), from: existing.manualAvg, to: item.avg})); existing.manualAvg = item.avg; changed = true; }
+    if(item.safetyStock !== null && item.safetyStock !== undefined && existing.safetyStock !== item.safetyStock){ changedFields.push(tf('importFieldChangeLine', {field: t('colSafety'), from: existing.safetyStock, to: item.safetyStock})); existing.safetyStock = item.safetyStock; changed = true; }
+    if(item.note && existing.note !== item.note){ changedFields.push(tf('importFieldChangeLine', {field: t('colNote'), from: existing.note, to: item.note})); existing.note = item.note; changed = true; }
+    if(item.boxLengthCm !== null && item.boxLengthCm !== undefined && !isNaN(item.boxLengthCm) && existing.boxLengthCm !== item.boxLengthCm){ changedFields.push(tf('importFieldChangeLine', {field: t('fieldBoxLength'), from: existing.boxLengthCm, to: item.boxLengthCm})); existing.boxLengthCm = item.boxLengthCm; changed = true; }
+    if(item.boxWidthCm !== null && item.boxWidthCm !== undefined && !isNaN(item.boxWidthCm) && existing.boxWidthCm !== item.boxWidthCm){ changedFields.push(tf('importFieldChangeLine', {field: t('fieldBoxWidth'), from: existing.boxWidthCm, to: item.boxWidthCm})); existing.boxWidthCm = item.boxWidthCm; changed = true; }
+    if(item.boxHeightCm !== null && item.boxHeightCm !== undefined && !isNaN(item.boxHeightCm) && existing.boxHeightCm !== item.boxHeightCm){ changedFields.push(tf('importFieldChangeLine', {field: t('fieldBoxHeight'), from: existing.boxHeightCm, to: item.boxHeightCm})); existing.boxHeightCm = item.boxHeightCm; changed = true; }
+    if(item.hidden !== null && item.hidden !== undefined && existing.hidden !== item.hidden){ changedFields.push(tf('importFieldChangeLine', {field: t('hideAction'), from: existing.hidden, to: item.hidden})); existing.hidden = item.hidden; changed = true; }
 
     const currentStock = computeStock(existing.id);
     const diff = item.qty - currentStock;
     if(Math.abs(diff) >= 0.01){
+      changedFields.push(tf('importStockChangeLine', {from: currentStock, to: item.qty, unit: existing.unit}));
       const tx = {
         id: genId(),
         productId: existing.id,
@@ -5113,6 +5122,7 @@ async function importStockItems(items, skippedRows){
       newTxs.push(tx);
       changed = true;
     }
+    if(changed) updateDetails.push({ sku: item.sku, name: existing.name, fields: changedFields });
 
     if(changed) updated++; else unchanged++;
   });
@@ -5158,6 +5168,15 @@ async function importStockItems(items, skippedRows){
   if(linked > 0) parts.push(`設定 ${linked} 項為批量商品(已連結主商品/加權數)`);
   if(skippedNoSku > 0) parts.push(`略過 ${skippedNoSku} 項沒有 SKU 的資料列`);
   let summaryText = '✓ ' + (parts.length > 0 ? parts.join(',') : '沒有可匯入的資料');
+
+  // 詳細列出「哪一項商品」被更新、具體改了哪個欄位——不是只給一個籠統的數字,方便判斷是真的
+  // 表格內容跟系統不一樣,還是庫存在兩次匯入之間被其他操作(下單、登記進出貨…)動過造成的落差。
+  if(updateDetails.length > 0){
+    summaryText += `\n✎ ${tf('importUpdateDetailIntro', {n: updateDetails.length})}`;
+    updateDetails.forEach(d => {
+      summaryText += `\n  · ${d.name}(SKU「${d.sku}」):${d.fields.join('; ')}`;
+    });
+  }
 
   // 詳細列出「哪一項」批量設定套用不了、為什麼——不是只給一個籠統的數字,方便對照 Excel
   // 原始檔案逐項排除問題(例如 ParentSKU 打錯字、或指到的那個商品其實也是別人的批量商品)。
