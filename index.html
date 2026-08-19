@@ -814,6 +814,17 @@
 
         <hr class="divider" />
 
+        <div class="section-title" style="margin-bottom:8px;" data-i18n="secOrderVerifySettings">訂單核對設定</div>
+        <div style="display:flex;align-items:center;gap:8px;margin:0 0 6px;">
+          <input type="checkbox" id="disableDirectVerifyToggle" onchange="toggleDisableDirectVerify(this.checked)" style="width:16px;height:16px;cursor:pointer;" />
+          <label for="disableDirectVerifyToggle" style="font-size:12.5px;color:var(--ink);font-weight:600;cursor:pointer;" data-i18n="disableDirectVerifyLabel">取消直接核對功能</label>
+        </div>
+        <p style="font-size:11.5px;color:var(--ink-soft);margin:0 0 12px;" data-i18n="disableDirectVerifyHint">
+          勾選後,「登記進出貨 → 出貨 → 載入現有待處理訂單」下面的「直接核對」選項會隱藏,只能用「載入訂單核對頁面」的方式核對(需要先比對實際點貨內容才能確認)。
+        </p>
+
+        <hr class="divider" />
+
         <div class="section-title" style="margin-bottom:8px;color:var(--crit);" data-i18n="secRestoreDefault">還原預設</div>
         <p style="font-size:12.5px;color:var(--ink-soft);margin:0 0 12px;" data-i18n="restoreDefaultDesc">
           清空資料回到初始狀態,動作無法復原,執行前建議先於下方「完整資料備份」匯出完整備份。
@@ -1658,6 +1669,7 @@ let lastAutoBackupAt = null;
 let backupDirHandle = null;
 // 系統設置裡的開關:「訂貨數量達到 multipack 加權數時自動轉換」
 let autoConvertMultipackEnabled = false;
+let disableDirectVerifyEnabled = false; // 勾選後,「登記進出貨→出貨→載入現有待處理訂單」下面的「直接核對」選項要隱藏
 let stockSortField = null; // null = 預設順序(分類順序 + 原始建立順序);其他值:'name' | 'stock' | 'avg' | 'safety' | 'remain'
 let stockSortDir = 'asc';
 let lastAutoBackupMode = null; // 'folder' | 'download' | 'unsupported' | null
@@ -2025,6 +2037,9 @@ const I18N = {
     noProductsToShow: '沒有符合條件的商品。',
 
     secMultipackSettings: 'Multipack 商品設定',
+    secOrderVerifySettings: '訂單核對設定',
+    disableDirectVerifyLabel: '取消直接核對功能',
+    disableDirectVerifyHint: '勾選後,「登記進出貨 → 出貨 → 載入現有待處理訂單」下面的「直接核對」選項會隱藏,只能用「載入訂單核對頁面」的方式核對(需要先比對實際點貨內容才能確認)。',
     autoConvertMultipackLabel: '訂貨數量達到 multipack 商品的加權數時,自動轉換成該 multipack 商品',
     autoConvertMultipackHint: '只有主商品「剛好只有一種 multipack 商品」,或已經在編輯商品畫面勾選「顯示於總庫存量」指定某個 multipack 商品時才會生效;數量不足整數倍的部分,仍會用主商品下單。',
     fieldShowInTotalStock: '顯示於庫存總覽',
@@ -2346,6 +2361,9 @@ const I18N = {
     noProductsToShow: 'No products match.',
 
     secMultipackSettings: 'Multi-pack Product Settings',
+    secOrderVerifySettings: 'Order Verification Settings',
+    disableDirectVerifyLabel: 'Disable "Verify Directly"',
+    disableDirectVerifyHint: 'When checked, the "Verify Directly" option under "Register Stock → Shipment → Load Existing Pending Order" is hidden — orders can only be verified via "Load into Order Verify Page", which requires comparing actual picked items first.',
     autoConvertMultipackLabel: 'When an order quantity reaches a multi-pack product\'s weight, auto-convert it into that multi-pack product',
     autoConvertMultipackHint: 'Only applies when a main product has exactly one multi-pack product, or a multi-pack product has been marked "Show in Total Stock" for it in the product edit screen; any amount that isn\'t an exact multiple still gets ordered as the main product.',
     fieldShowInTotalStock: 'Show in Stock Overview',
@@ -3481,6 +3499,10 @@ async function loadData(){
     const acmResult = await dbGet('autoConvertMultipack');
     if(acmResult) autoConvertMultipackEnabled = acmResult.value === 'true';
   } catch(e){ /* no stored preference yet, keep default false */ }
+  try{
+    const ddvResult = await dbGet('disableDirectVerify');
+    if(ddvResult) disableDirectVerifyEnabled = ddvResult.value === 'true';
+  } catch(e){ /* no stored preference yet, keep default false */ }
   await loadCategoryOrder();
   await loadTabOrder();
   syncCategoryOrder();
@@ -3928,12 +3950,24 @@ async function restoreFromBackupFolder(){
 function updateMultipackSettingsUI(){
   const box = document.getElementById('autoConvertMultipackToggle');
   if(box) box.checked = autoConvertMultipackEnabled;
+  const ddvBox = document.getElementById('disableDirectVerifyToggle');
+  if(ddvBox) ddvBox.checked = disableDirectVerifyEnabled;
 }
 
 async function toggleAutoConvertMultipack(checked){
   autoConvertMultipackEnabled = checked;
   try{ await dbSet('autoConvertMultipack', checked ? 'true' : 'false'); }
   catch(e){ console.error('儲存訂貨自動轉換設定失敗', e); }
+}
+
+// 取消直接核對功能:勾選後,「登記進出貨→出貨→載入現有待處理訂單」下面的「直接核對」選項要隱藏,
+// 逼迫使用者一定要走「載入訂單核對頁面」比對實際點貨內容才能核對確認,避免有人為了方便直接核對
+// 而跳過比對這個步驟。
+async function toggleDisableDirectVerify(checked){
+  disableDirectVerifyEnabled = checked;
+  try{ await dbSet('disableDirectVerify', checked ? 'true' : 'false'); }
+  catch(e){ console.error('儲存取消直接核對設定失敗', e); }
+  renderTxSubmitArea();
 }
 
 function updateAutoBackupStatus(){
@@ -4110,7 +4144,7 @@ function renderTxSubmitArea(){
     area.innerHTML = `
       <button class="btn" onclick="submitTxBatch('save-pending')" ${disabled}>${t('btnSave')}</button>
       <button class="btn ghost" onclick="submitTxBatch('load-verify')" ${disabled}>${t('btnLoadIntoVerifyPage')}</button>
-      <button class="btn ghost" onclick="submitTxBatch('direct-verify')" ${disabled}>${t('btnDirectVerify')}</button>
+      ${disableDirectVerifyEnabled ? '' : `<button class="btn ghost" onclick="submitTxBatch('direct-verify')" ${disabled}>${t('btnDirectVerify')}</button>`}
     `;
   } else if(registerOutFlowType === 'load-completed'){
     const disabled = registerLoadedOrderId ? '' : 'disabled';
@@ -4166,16 +4200,20 @@ function renderTxExistingItems(){
 }
 
 // load-completed 模式專用:核對後變更清單(新增/刪除/改數量都算,跟原本核對前的異動分開顯示)。
+// 這份清單存在訂單自己身上(order.postVerifyChanges),不是暫存在網頁記憶體裡的變數——
+// 這樣重新整理頁面、或下次再打開同一張訂單,之前記錄的變更才不會憑空消失。
 function renderTxPostVerifyChanges(){
   const section = document.getElementById('txPostVerifyChangesSection');
   const list = document.getElementById('txPostVerifyChangesList');
   if(!section || !list) return;
-  if(registerOutFlowType !== 'load-completed' || registerPostVerifyChanges.length === 0){
+  const order = registerLoadedOrderId ? orders.find(o => o.id === registerLoadedOrderId) : null;
+  const changes = (order && order.postVerifyChanges) || [];
+  if(registerOutFlowType !== 'load-completed' || changes.length === 0){
     section.style.display = 'none';
     return;
   }
   section.style.display = '';
-  list.innerHTML = registerPostVerifyChanges.map(c => {
+  list.innerHTML = changes.map(c => {
     const label = c.kind === 'added' ? t('postVerifyAdded')
       : c.kind === 'deleted' ? t('postVerifyDeleted')
       : t('postVerifyQtyChanged');
@@ -4210,7 +4248,7 @@ function loadOrderIntoRegisterFlow(orderId){
   if(!order) return;
   registerLoadedOrderId = orderId;
   registerExistingItemEditKey = null;
-  registerPostVerifyChanges = [];
+  if(!order.postVerifyChanges) order.postVerifyChanges = []; // 每張訂單自己的核對後變更記錄,重新載入不會清掉之前存過的
   txBatchItems = [];
 
   const dateInput = document.getElementById('txDate');
@@ -4305,9 +4343,10 @@ async function saveTxExistingItemQty(productId){
   item.qty = newQty;
   if(!item.qtyHistory) item.qtyHistory = [];
   item.qtyHistory.push({ from: oldQty, to: newQty });
+  if(!order.postVerifyChanges) order.postVerifyChanges = [];
+  order.postVerifyChanges.push({ kind: 'qty', productId, name: item.name, sku: item.sku, unit: item.unit, from: oldQty, to: newQty });
   try{ await upsertOrders([order]); } catch(e){ console.error('儲存訂單失敗', e); }
 
-  registerPostVerifyChanges.push({ kind: 'qty', productId, name: item.name, sku: item.sku, unit: item.unit, from: oldQty, to: newQty });
   logInventoryAction('order_edit', `Order ${order.orderNo || order.id} - quantity adjusted after verification: ${item.name} ${oldQty}→${newQty} ${item.unit}`, order.orderNo);
   registerExistingItemEditKey = null;
   renderTxExistingItems();
@@ -4340,7 +4379,8 @@ async function deleteTxExistingItem(productId){
         showInfoModal('⚠ 操作失敗,請重新整理頁面再試一次。');
         return;
       }
-      registerPostVerifyChanges.push({ kind: 'deleted', productId, name: item.name, sku: item.sku, unit: item.unit, qty: item.qty });
+      if(!order.postVerifyChanges) order.postVerifyChanges = [];
+      order.postVerifyChanges.push({ kind: 'deleted', productId, name: item.name, sku: item.sku, unit: item.unit, qty: item.qty });
     }
 
     item.deleted = true;
@@ -4365,7 +4405,6 @@ let txBatchItems = []; // { productId, name, unit, qty }
 let registerOutFlowType = ''; // ''(還沒選) | 'new-order' | 'load-pending' | 'load-completed' | 'adjustment'
 let registerLoadedOrderId = null; // load-pending/load-completed 模式下,目前載入的那張訂單 id
 let registerExistingItemEditKey = null; // 目前正在編輯數量的既有品項 productId(null 表示沒有在編輯)
-let registerPostVerifyChanges = []; // load-completed 模式:核對後變更清單,{ kind:'added'|'deleted'|'qty', productId, name, sku, unit, qty, from, to }
 
 function addToTxBatch(){
   const productSel = document.getElementById('txProduct');
@@ -6276,6 +6315,7 @@ function renderPendingOrders(){
           ${o.deleted ? '' : partyEditHtml}
           <div class="order-card-actions">
             ${o.deleted ? '' : `<button class="btn ghost" onclick="editOrderViaRegister('${o.id}', 'pending')">${t('btnEdit')}</button>`}
+            ${o.deleted ? '' : `<button class="btn ghost" onclick="openOrderInVerifyPage('${o.id}')" ${activeItemCount === 0 ? 'disabled' : ''}>${t('btnLoadIntoVerifyPage')}</button>`}
             ${o.deleted ? '' : `<button class="btn ghost" onclick="cancelPendingOrder('${o.id}')">${t('btnCancelWholeOrder')}</button>`}
             <button class="btn ghost" onclick="exportPendingOrderExcel('${o.id}')">${t('btnExportOrder')}</button>
             <button class="btn ghost" onclick="printPendingOrder('${o.id}')">${t('btnPrintOrder')}</button>
@@ -7995,6 +8035,12 @@ async function mergeItemsIntoCompletedOrderCore(orderId, batchItems, date, party
   }));
   order.items = [...prevItems, ...newOrderItems];
 
+  const prevPostVerifyChanges = order.postVerifyChanges ? [...order.postVerifyChanges] : [];
+  if(!order.postVerifyChanges) order.postVerifyChanges = [];
+  batchItems.forEach(it => {
+    order.postVerifyChanges.push({ kind: 'added', productId: it.productId, name: it.name, sku: it.sku, unit: it.unit, qty: it.qty });
+  });
+
   transactions.push(...newTxs);
   batchItems.forEach(it => {
     productStockMap[it.productId] = (productStockMap[it.productId] || 0) - it.qty;
@@ -8006,6 +8052,7 @@ async function mergeItemsIntoCompletedOrderCore(orderId, batchItems, date, party
   } catch(e){
     newTxs.forEach(tx => { const i = transactions.indexOf(tx); if(i >= 0) transactions.splice(i, 1); });
     order.items = prevItems;
+    order.postVerifyChanges = prevPostVerifyChanges;
     batchItems.forEach(it => {
       productStockMap[it.productId] = (productStockMap[it.productId] || 0) + it.qty;
     });
@@ -8013,9 +8060,6 @@ async function mergeItemsIntoCompletedOrderCore(orderId, batchItems, date, party
     return { ok: false, reason: 'save_failed' };
   }
 
-  batchItems.forEach(it => {
-    registerPostVerifyChanges.push({ kind: 'added', productId: it.productId, name: it.name, sku: it.sku, unit: it.unit, qty: it.qty });
-  });
   logInventoryAction('order_edit', `Order ${order.orderNo || orderId} - added ${batchItems.length} item(s)`, order.orderNo);
   return { ok: true, order };
 }
@@ -8194,6 +8238,7 @@ function finishNewOrderSubmit(kind, orderId, count, orderNo, msg){
 // (導去訂單核對頁面,沿用原本邏輯)、直接核對(不經過比對畫面,直接用訂單自己的品項核對,
 // 也是沿用原本 verifyOrder() 的邏輯)。
 async function submitLoadPendingFlow(action, msg){
+  if(action === 'direct-verify' && disableDirectVerifyEnabled) return; // 系統設置已關閉這個功能,防呆擋下(正常情況下按鈕根本不會顯示)
   if(!registerLoadedOrderId){ msg.className='msg error'; msg.textContent=t('errSelectOrderFirst'); return; }
   const orderId = registerLoadedOrderId;
   const order = orders.find(o => o.id === orderId);
