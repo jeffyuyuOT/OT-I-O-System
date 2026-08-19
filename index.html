@@ -1204,7 +1204,7 @@
           <button class="btn ghost" onclick="exportStockQuantitySheet()" data-i18n="btnExportStockQty">📊 匯出庫存數量</button>
           <button class="btn ghost" onclick="openConvertHistoryWindow()" data-i18n="btnConvertHistory">🕘 切換紀錄</button>
           <label style="display:flex;align-items:center;gap:5px;font-size:12px;color:var(--ink-soft);cursor:pointer;">
-            <input type="checkbox" id="showHiddenProducts" onchange="renderStockCards()" />
+            <input type="checkbox" id="showHiddenProducts" onchange="toggleShowHiddenProducts(this.checked)" />
             <span data-i18n="showHiddenProducts">顯示隱藏商品</span>
           </label>
         </div>
@@ -2439,6 +2439,12 @@ async function setLang(newLang){
 
 function toggleLang(){
   setLang(lang === 'zh' ? 'en' : 'zh');
+}
+
+// 「顯示隱藏商品」勾選狀態存進這台裝置的 localStorage,重新整理頁面後才會記得(見 boot() 裡的還原邏輯)。
+function toggleShowHiddenProducts(checked){
+  try{ localStorage.setItem('showHiddenProductsPref', checked ? 'true' : 'false'); } catch(e){}
+  renderStockCards();
 }
 
 function applyStaticTranslations(){
@@ -5097,6 +5103,7 @@ async function importStockItems(items, skippedRows){
     if(item.unit && existing.unit !== item.unit){ changedFields.push(tf('importFieldChangeLine', {field: t('fieldUnit'), from: existing.unit, to: item.unit})); existing.unit = item.unit; changed = true; }
     if(item.category && existing.category !== item.category){ changedFields.push(tf('importFieldChangeLine', {field: t('fieldCategory'), from: existing.category, to: item.category})); existing.category = item.category; changed = true; }
     if(item.avg !== null && item.avg !== undefined && existing.manualAvg !== item.avg){ changedFields.push(tf('importFieldChangeLine', {field: t('fieldAvg'), from: existing.manualAvg, to: item.avg})); existing.manualAvg = item.avg; changed = true; }
+    else if(typeof existing.manualAvg === 'number' && isNaN(existing.manualAvg)){ changedFields.push(tf('importFieldChangeLine', {field: t('fieldAvg'), from: 'NaN', to: '(空白)'})); existing.manualAvg = null; changed = true; }
     if(item.safetyStock !== null && item.safetyStock !== undefined && existing.safetyStock !== item.safetyStock){ changedFields.push(tf('importFieldChangeLine', {field: t('colSafety'), from: existing.safetyStock, to: item.safetyStock})); existing.safetyStock = item.safetyStock; changed = true; }
     if(item.note && existing.note !== item.note){ changedFields.push(tf('importFieldChangeLine', {field: t('colNote'), from: existing.note, to: item.note})); existing.note = item.note; changed = true; }
     if(item.boxLengthCm !== null && item.boxLengthCm !== undefined && !isNaN(item.boxLengthCm) && existing.boxLengthCm !== item.boxLengthCm){ changedFields.push(tf('importFieldChangeLine', {field: t('fieldBoxLength'), from: existing.boxLengthCm, to: item.boxLengthCm})); existing.boxLengthCm = item.boxLengthCm; changed = true; }
@@ -5230,6 +5237,19 @@ function parseBoolLikeCell(val){
   return s === 'true' || s === 'yes' || s === 'y' || s === '1' || s === '是' || s === '隱藏';
 }
 
+// Excel 儲存格裡數字欄位(平均使用量、安全庫存、加權數、箱子尺寸…)統一走這裡解析,不要各自
+// 直接用 parseFloat。這裡會先把值轉成字串、去除頭尾空白——這樣即使儲存格裡只有一個半形或全形
+// 空格(不是真的空白儲存格,trim 前不等於空字串,原本的「!== ''」判斷會漏接這種情況),也會被
+// 正確視為「沒有值」,回傳 null,而不是讓 parseFloat(' ') 算出 NaN 這種壞掉的數字被存進資料庫。
+// 真的解析不出數字的內容(例如打了文字)也一律回傳 null,不會讓 NaN 混進商品資料。
+function parseNumericCell(val){
+  if(val === null || val === undefined) return null;
+  const s = String(val).trim();
+  if(s === '') return null;
+  const n = parseFloat(s);
+  return isNaN(n) ? null : n;
+}
+
 // 欄名比對前先正規化:轉小寫、去掉空白/底線/連字號/斜線,也去掉括號整段內容(含括號本身,
 // 半形圓括號跟全形圓括號都算)——例如「長(cm)」正規化後會變成「長」,直接對得上別名清單裡的
 // 「長」,不需要每次遇到欄名後面帶單位/補充說明的括號,就得手動把整個帶括號的完整字串另外加進
@@ -5361,20 +5381,20 @@ function parseMasterExcelFile(){
           const excelRowNo = r + 1; // Excel 檔案裡實際的列號(標題佔第 1 列,資料從第 2 列開始,陣列索引 r 對應到 r+1 列)
           const rowNameVal = row[colName];
           const rowSkuVal = row[colSku];
-          const rowIdentifier = (rowSkuVal !== null && rowSkuVal !== undefined && rowSkuVal !== '') ? String(rowSkuVal).trim()
-            : (rowNameVal !== null && rowNameVal !== undefined && rowNameVal !== '') ? String(rowNameVal).trim()
+          const rowIdentifier = (rowSkuVal !== null && rowSkuVal !== undefined && String(rowSkuVal).trim() !== '') ? String(rowSkuVal).trim()
+            : (rowNameVal !== null && rowNameVal !== undefined && String(rowNameVal).trim() !== '') ? String(rowNameVal).trim()
             : null;
-          if(rowNameVal === null || rowNameVal === undefined || rowNameVal === ''){
+          if(rowNameVal === null || rowNameVal === undefined || String(rowNameVal).trim() === ''){
             skippedRows.push({ file: file.name, row: excelRowNo, identifier: rowIdentifier, reason: t('importSkipReasonNoName') });
             continue;
           }
           const qtyVal = row[colQty];
-          if(qtyVal === null || qtyVal === undefined || qtyVal === ''){
+          if(qtyVal === null || qtyVal === undefined || String(qtyVal).trim() === ''){
             skippedRows.push({ file: file.name, row: excelRowNo, identifier: rowIdentifier || String(rowNameVal).trim(), reason: t('importSkipReasonNoStock') });
             continue;
           }
           const skuVal = row[colSku];
-          if(skuVal === null || skuVal === undefined || skuVal === ''){
+          if(skuVal === null || skuVal === undefined || String(skuVal).trim() === ''){
             skippedRows.push({ file: file.name, row: excelRowNo, identifier: String(rowNameVal).trim(), reason: t('importSkipReasonNoSku') });
             continue;
           }
@@ -5383,16 +5403,16 @@ function parseMasterExcelFile(){
             sku: String(skuVal).trim(),
             name: String(row[colName]).trim(),
             unit: colUnit !== -1 && row[colUnit] ? String(row[colUnit]).trim() : null,
-            qty: parseFloat(qtyVal) || 0,
-            avg: colAvg !== -1 && row[colAvg] !== null && row[colAvg] !== '' ? parseFloat(row[colAvg]) : null,
+            qty: parseNumericCell(qtyVal) || 0,
+            avg: colAvg !== -1 ? parseNumericCell(row[colAvg]) : null,
             category: colCategory !== -1 && row[colCategory] ? String(row[colCategory]).trim() : null,
-            safetyStock: colSafety !== -1 && row[colSafety] !== null && row[colSafety] !== '' ? parseFloat(row[colSafety]) : null,
+            safetyStock: colSafety !== -1 ? parseNumericCell(row[colSafety]) : null,
             note: colNote !== -1 && row[colNote] ? String(row[colNote]).trim() : null,
             parentSku: colParentSku !== -1 && row[colParentSku] !== null && row[colParentSku] !== '' ? String(row[colParentSku]).trim() : null,
-            childWeight: colChildWeight !== -1 && row[colChildWeight] !== null && row[colChildWeight] !== '' ? parseFloat(row[colChildWeight]) : null,
-            boxLengthCm: colBoxLength !== -1 && row[colBoxLength] !== null && row[colBoxLength] !== '' ? parseFloat(row[colBoxLength]) : null,
-            boxWidthCm: colBoxWidth !== -1 && row[colBoxWidth] !== null && row[colBoxWidth] !== '' ? parseFloat(row[colBoxWidth]) : null,
-            boxHeightCm: colBoxHeight !== -1 && row[colBoxHeight] !== null && row[colBoxHeight] !== '' ? parseFloat(row[colBoxHeight]) : null,
+            childWeight: colChildWeight !== -1 ? parseNumericCell(row[colChildWeight]) : null,
+            boxLengthCm: colBoxLength !== -1 ? parseNumericCell(row[colBoxLength]) : null,
+            boxWidthCm: colBoxWidth !== -1 ? parseNumericCell(row[colBoxWidth]) : null,
+            boxHeightCm: colBoxHeight !== -1 ? parseNumericCell(row[colBoxHeight]) : null,
             hidden: colHidden !== -1 && row[colHidden] !== null && row[colHidden] !== undefined && row[colHidden] !== '' ? parseBoolLikeCell(row[colHidden]) : null,
             _sourceFile: file.name, _sourceRow: excelRowNo
           });
@@ -9149,12 +9169,18 @@ function renderStockCards(){
       visibleProductIds.add(basis.id);
       bodyHtml += rowHtml(basis, { basisFor: p, subCount: subMembers.length });
 
-      if(subMembers.length > 0 && expandedParentIds.has(p.id)){
+      if(subMembers.length > 0){
+        // 「全選」在語意上是「選取符合目前篩選條件的全部商品」,不是「選取畫面上目前看得到的
+        // 那些列」——所以子商品(multipack 成員)不管這個主商品的下拉列目前有沒有展開,只要
+        // 不是隱藏商品(或有勾選「顯示隱藏商品」),都要能被全選選到。真正的列渲染(bodyHtml)
+        // 還是只有展開的時候才畫出來,只有「可不可以被選取」這件事不受展開狀態影響。
         let visibleSub = showHidden ? subMembers : subMembers.filter(c => !c.hidden);
-        visibleSub.slice().sort((a,b) => a.name.localeCompare(b.name)).forEach(c => {
-          visibleProductIds.add(c.id);
-          bodyHtml += rowHtml(c, { isSubRow: true });
-        });
+        visibleSub.forEach(c => visibleProductIds.add(c.id));
+        if(expandedParentIds.has(p.id)){
+          visibleSub.slice().sort((a,b) => a.name.localeCompare(b.name)).forEach(c => {
+            bodyHtml += rowHtml(c, { isSubRow: true });
+          });
+        }
       }
     });
   });
@@ -10097,6 +10123,15 @@ function showScanToast(text, isError){
       applyStaticTranslations();
     }
   } catch(e){ /* localStorage unavailable, keep default zh */ }
+
+  // 「顯示隱藏商品」是個人瀏覽偏好(不是會影響其他使用者的系統設定),存在這台裝置的
+  // localStorage 就好,不需要存進資料庫跟所有人共用——重新整理頁面後這個勾選狀態才不會
+  // 每次都跳回預設的「不勾選」。
+  try{
+    const savedShowHidden = localStorage.getItem('showHiddenProductsPref');
+    const showHiddenEl = document.getElementById('showHiddenProducts');
+    if(savedShowHidden === 'true' && showHiddenEl) showHiddenEl.checked = true;
+  } catch(e){ /* localStorage unavailable, keep default unchecked */ }
 
   // If this browser already has a valid Supabase session (e.g. reloading
   // the page, or coming back later), log the person straight back in
