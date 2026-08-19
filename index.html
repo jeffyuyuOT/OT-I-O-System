@@ -923,41 +923,61 @@
 
     <div id="subtab-tx-register" class="subtab-content active-subtab">
     <div class="section">
-      <div id="addToOrderViaRegisterBanner" style="display:none;margin-bottom:14px;padding:10px 14px;background:var(--yellow);border-radius:2px;font-size:12.5px;font-weight:600;color:var(--ink);">
-        <span id="addToOrderViaRegisterBannerLabel"></span>
-        <span class="del-link" style="margin-left:10px;font-weight:600;" onclick="cancelAddToExistingOrderViaRegister()" data-i18n="btnCancelAddToOrder">取消,不新增了</span>
-      </div>
       <div class="section-title"><span data-i18n="secRegisterTx">登記進出貨</span></div>
-      <p style="font-size:11.5px;color:var(--ink-soft);margin:0 0 12px;" data-i18n="txBatchDesc">先選好下面共用的類型/日期/對象/備註,再從清單依序把商品加進來;按「登記」時,清單裡的每一項商品都會各自登記一筆紀錄,但共用同一個類型/日期/對象,備註也會套用到全部品項。</p>
-      <div class="form-grid" style="grid-template-columns:1fr 1fr 1fr 1.4fr;">
-        <div class="field">
-          <label data-i18n="lblType">類型</label>
-          <select id="txTypeSelect" onchange="setTxType(this.value)">
-            <option value="in" data-i18n="lblStockIn">進貨 +</option>
-            <option value="out" data-i18n="lblStockOut">出貨 −</option>
-            <option value="restock" data-i18n="lblStockRestock">入庫</option>
-          </select>
+      <p style="font-size:11.5px;color:var(--ink-soft);margin:0 0 12px;" data-i18n="txBatchDesc">先選好下面共用的類型/日期/對象/備註,再從清單依序把商品加進來;按「登記」時,清單裡的每一項商品都會各自登記成一筆獨立的紀錄,但共用同一個類型/日期/對象,備註也會套用到全部品項。</p>
+      <div class="field" style="max-width:200px;margin-bottom:10px;">
+        <label data-i18n="lblType">類型</label>
+        <select id="txTypeSelect" onchange="setTxType(this.value)">
+          <option value="in" data-i18n="lblStockIn">進貨 +</option>
+          <option value="out" data-i18n="lblStockOut">出貨 −</option>
+          <option value="restock" data-i18n="lblStockRestock">入庫</option>
+        </select>
+      </div>
+      <div id="txOutFlowTypeRow" style="display:none;">
+        <div class="form-grid" style="grid-template-columns:1fr 1fr;max-width:520px;">
+          <div class="field">
+            <label data-i18n="lblOutFlowType">出貨類型</label>
+            <select id="txOutFlowType" onchange="setTxOutFlowType(this.value)">
+              <option value="" data-i18n="optSelectOutFlowType">— 請選擇 —</option>
+              <option value="new-order" data-i18n="optFlowNewOrder">新增訂單</option>
+              <option value="load-pending" data-i18n="optFlowLoadPending">載入現有待處理訂單</option>
+              <option value="load-completed" data-i18n="optFlowLoadCompleted">載入現有已完成訂單</option>
+              <option value="adjustment" data-i18n="optFlowAdjustment">庫存調整</option>
+            </select>
+          </div>
+          <div class="field" id="txOutFlowOrderSelectWrap" style="display:none;">
+            <label id="txOutFlowOrderSelectLabel" data-i18n="fieldSelectPendingOrder">選擇待處理訂單</label>
+            <select id="txOutFlowOrderSelect" onchange="loadOrderIntoRegisterFlow(this.value)">
+              <option value="" data-i18n="optSelectPendingOrder">— 請選擇 —</option>
+            </select>
+          </div>
         </div>
+      </div>
+      <div id="txMainFormArea">
+      <div class="form-grid" id="txMainFormGrid" style="grid-template-columns:1fr 1fr 1.4fr;">
         <div class="field">
           <label data-i18n="lblDate">日期</label>
           <input id="txDate" type="date" />
         </div>
-        <div class="field">
+        <div class="field" id="txPartyFieldWrap">
           <label id="txPartyLabel" data-i18n="partyLabelIn">進貨方(供應商)</label>
           <input id="txParty" type="text" placeholder="例如:大盤商 A" />
           <select id="txPartySelect" style="display:none;"></select>
         </div>
         <div class="field">
-          <label data-i18n="txNoteSharedLabel">備註(選填,套用到本次登記的所有商品)</label>
+          <label id="txNoteLabel" data-i18n="txNoteSharedLabel">備註(選填,套用到本次登記的所有商品)</label>
           <input id="txNote" type="text" placeholder="例如:客戶訂單 #123" />
         </div>
       </div>
-      <div id="txAddToCompletedOrderRow" style="display:none;margin-top:10px;">
-        <label style="display:flex;align-items:center;gap:6px;font-size:12.5px;color:var(--ink);cursor:pointer;">
-          <input type="checkbox" id="txAddToCompletedOrder" checked />
-          <span data-i18n="txAddToCompletedOrderLabel">併入已完成訂單(勾選才會賦予訂單編號,並顯示在「訂貨後台管理 → 已完成訂單」;不勾選則只是單純登記一筆出貨紀錄)</span>
-        </label>
+      <div id="txExistingItemsSection" style="display:none;margin-top:14px;">
+        <div class="section-title" style="font-size:13px;" data-i18n="secExistingOrderItems">訂單內原有商品</div>
+        <div id="txExistingItemsList"></div>
       </div>
+      <div id="txPostVerifyChangesSection" style="display:none;margin-top:14px;">
+        <div class="section-title" style="font-size:13px;color:var(--warn-dark);" data-i18n="secPostVerifyChanges">核對後變更</div>
+        <div id="txPostVerifyChangesList"></div>
+      </div>
+      <div class="section-title" style="font-size:13px;margin-top:14px;" data-i18n="secAddProduct">新增商品</div>
       <div class="form-grid" style="grid-template-columns:1fr 1.3fr 1fr auto;margin-top:6px;">
         <div class="field">
           <label data-i18n="fieldFilterByCategory">依分類篩選商品</label>
@@ -969,15 +989,16 @@
         </div>
         <div class="field">
           <label data-i18n="lblQty">數量</label>
-          <input id="txQty" type="number" min="0" step="1" placeholder="0" />
+          <input id="txQty" type="number" step="1" placeholder="0" />
         </div>
         <button class="btn ghost" onclick="addToTxBatch()" data-i18n="btnAddToBatch">+ 加入清單</button>
       </div>
       <div id="txBatchList" style="margin-top:12px;"></div>
-      <div style="margin-top:12px;">
+      <div id="txSubmitArea" style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;">
         <button class="btn" onclick="submitTxBatch()" data-i18n="btnRegister">提交</button>
       </div>
       <div id="txMsg" class="msg"></div>
+      </div>
     </div>
     </div>
 
@@ -1654,8 +1675,6 @@ let orderCounter = 0;
 let expandedOrderIds = new Set();
 let editingOrderItemKey = null; // `${orderId}::${productId}`,已完成訂單裡目前正在編輯數量的那個品項
 let editingOrderRemarkId = null; // 已完成訂單裡目前正在編輯附註的那張訂單 id
-let addToExistingOrderId = null; // 從「新增商品」導去「登記進出貨」頁面時,記住要併回哪一張訂單(待處理或已完成都可能)
-let addToExistingOrderMode = null; // 'pending'(併進待處理訂單草稿,不扣庫存)或 'completed'(併進已完成訂單,會真的扣/加庫存)
 let editingOrderPartyId = null; // 待處理訂單裡目前正在編輯出貨方的那張訂單 id
 let selectedProductIds = new Set();
 let users = [];
@@ -1912,6 +1931,18 @@ const I18N = {
     partyLabelIn: '進貨方(供應商)', partyLabelOut: '出貨方(客戶/門市,選填)', partyLabelRestock: '對象(選填)',
     partyPlaceholderIn: '例如:大盤商 A', partyPlaceholderOut: '例如:三民店 / 客戶王先生', partyPlaceholderRestock: '例如:訂單調整 / 盤點',
     txNoteSharedLabel: '備註(選填,套用到本次登記的所有商品)',
+    txNoteRequiredLabel: '備註(必填,套用到本次登記的所有商品)',
+    lblOutFlowType: '出貨類型', optSelectOutFlowType: '— 請選擇 —',
+    optFlowNewOrder: '新增訂單', optFlowLoadPending: '載入現有待處理訂單',
+    optFlowLoadCompleted: '載入現有已完成訂單', optFlowAdjustment: '庫存調整',
+    secExistingOrderItems: '訂單內原有商品', secPostVerifyChanges: '核對後變更',
+    fieldSelectCompletedOrder: '選擇已完成訂單',
+    errSelectOutFlowTypeFirst: '請先選擇出貨類型', errAddAtLeastOneItem: '請先把至少一項商品加入清單',
+    errNoteRequiredForDirectShip: '直接出貨要填寫備註', errSelectOrderFirst: '請先選擇要載入的訂單',
+    errNoteRequiredForAdjustment: '庫存調整要填寫備註', confirmStockAdjustment: '確定要提交嗎?這會直接扣/加庫存,無法復原。',
+    postVerifyAdded: '新增', postVerifyDeleted: '刪除', postVerifyQtyChanged: '改數量',
+    btnMergeToPending: '併入待處理訂單', btnMergeToCompleted: '併入已完成訂單', btnDirectShip: '直接出貨',
+    btnDirectVerify: '直接核對',
     txBatchDesc: '先選好下面共用的類型/日期/對象/備註,再從清單依序把商品加進來;按「登記」時,清單裡的每一項商品都會各自登記一筆紀錄,但共用同一個類型/日期/對象,備註也會套用到全部品項。',
     txAddToCompletedOrderLabel: '併入已完成訂單(勾選才會賦予訂單編號,並顯示在「訂貨後台管理 → 已完成訂單」;不勾選則只是單純登記一筆出貨紀錄)',
     btnAddToBatch: '+ 加入清單', txBatchEmpty: '清單是空的,請先在上方選好商品跟數量後按「加入清單」。',
@@ -2221,6 +2252,18 @@ const I18N = {
     partyLabelIn: 'Supplier', partyLabelOut: 'Customer/Store (optional)', partyLabelRestock: 'Party (optional)',
     partyPlaceholderIn: 'e.g. Supplier A', partyPlaceholderOut: 'e.g. Store #3 / Customer Wang', partyPlaceholderRestock: 'e.g. Order adjustment / Stocktake',
     txNoteSharedLabel: 'Note (optional, applies to every product logged this time)',
+    txNoteRequiredLabel: 'Note (required, applies to every product logged this time)',
+    lblOutFlowType: 'Shipment Type', optSelectOutFlowType: '— Select —',
+    optFlowNewOrder: 'New Order', optFlowLoadPending: 'Load Existing Pending Order',
+    optFlowLoadCompleted: 'Load Existing Completed Order', optFlowAdjustment: 'Stock Adjustment',
+    secExistingOrderItems: 'Existing Items in Order', secPostVerifyChanges: 'Changes After Verification',
+    fieldSelectCompletedOrder: 'Select Completed Order',
+    errSelectOutFlowTypeFirst: 'Please select a shipment type first', errAddAtLeastOneItem: 'Please add at least one product to the list first',
+    errNoteRequiredForDirectShip: 'A note is required for direct shipment', errSelectOrderFirst: 'Please select an order to load first',
+    errNoteRequiredForAdjustment: 'A note is required for stock adjustment', confirmStockAdjustment: 'Submit this adjustment? Stock will be deducted/added immediately and this can\'t be undone.',
+    postVerifyAdded: 'Added', postVerifyDeleted: 'Deleted', postVerifyQtyChanged: 'Qty Changed',
+    btnMergeToPending: 'Merge into Pending Order', btnMergeToCompleted: 'Merge into Completed Order', btnDirectShip: 'Direct Shipment',
+    btnDirectVerify: 'Verify Directly',
     txBatchDesc: 'Pick the shared type/date/party/note below, then add products to the list one by one. Clicking "Log" creates a separate record for each item in the list, sharing the same type/date/party, with the note applied to every item.',
     txAddToCompletedOrderLabel: 'Add to Completed Orders with order# (if unchecked just logs a plain stock-out record)',
     btnAddToBatch: '+ Add to List', txBatchEmpty: 'The list is empty — pick a product and quantity above, then click "Add to List".',
@@ -3282,6 +3325,12 @@ function switchSystemSubTab(subtabId){
 function switchTxSubTab(subtabId){
   const container = document.getElementById('tab-tx');
   if(!container) return;
+  if(subtabId !== 'subtab-tx-register' && (registerOutFlowType || txBatchItems.length > 0)){
+    // 使用者在「登記進出貨」流程中途(選了出貨類型,或已經加了商品到清單)跑去別的子分頁,
+    // 視同放棄這次操作,把狀態重設乾淨,避免下次回來時殘留鎖住的出貨方欄位或舊的暫存品項。
+    resetRegisterOutFlow();
+    setTxOutFlowType('');
+  }
   document.body.classList.remove('mobile-subtab-menu-active');
   document.body.classList.add('mobile-subtab-content-active');
   container.querySelectorAll('.subtab-content').forEach(el => el.classList.remove('active-subtab'));
@@ -3922,25 +3971,217 @@ function setTxType(type){
   const partyLabel = document.getElementById('txPartyLabel');
   const partyInput = document.getElementById('txParty');
   const partySelect = document.getElementById('txPartySelect');
-  const addToOrderRow = document.getElementById('txAddToCompletedOrderRow');
-  if(addToOrderRow) addToOrderRow.style.display = (type === 'out') ? '' : 'none';
+  const outFlowRow = document.getElementById('txOutFlowTypeRow');
   if(type === 'in'){
     partyLabel.textContent = t('partyLabelIn');
     partyInput.placeholder = t('partyPlaceholderIn');
     partyInput.style.display = '';
     partySelect.style.display = 'none';
+    if(outFlowRow) outFlowRow.style.display = 'none';
+    resetRegisterOutFlow();
+    showTxMainFormArea(true);
   } else if(type === 'out'){
     partyLabel.textContent = t('partyLabelOut');
     populateTxPartySelect();
     partyInput.style.display = 'none';
     partySelect.style.display = '';
+    // 出貨一定要先選「出貨類型」,選了之後(如果是新增訂單/庫存調整就直接展開;如果是載入
+    // 現有訂單,還要再選出是哪一張)下面的主表單區塊才會出現——避免使用者還沒決定清楚要做
+    // 哪一種操作,就先動手填日期/加商品,結果選了類型才發現整個表單邏輯不一樣要重填。
+    if(outFlowRow) outFlowRow.style.display = '';
+    setTxOutFlowType(registerOutFlowType || '');
   } else {
     partyLabel.textContent = t('partyLabelRestock');
     partyInput.placeholder = t('partyPlaceholderRestock');
     if(!partyInput.value.trim()) partyInput.value = 'Opulent Imports';
     partyInput.style.display = '';
     partySelect.style.display = 'none';
+    if(outFlowRow) outFlowRow.style.display = 'none';
+    resetRegisterOutFlow();
+    showTxMainFormArea(true);
   }
+}
+
+function showTxMainFormArea(visible){
+  const area = document.getElementById('txMainFormArea');
+  if(area) area.style.display = visible ? '' : 'none';
+}
+
+function resetRegisterOutFlow(){
+  registerOutFlowType = '';
+  registerLoadedOrderId = null;
+  txBatchItems = [];
+  const flowSel = document.getElementById('txOutFlowType');
+  if(flowSel) flowSel.value = '';
+  const orderWrap = document.getElementById('txOutFlowOrderSelectWrap');
+  if(orderWrap) orderWrap.style.display = 'none';
+  const existingSection = document.getElementById('txExistingItemsSection');
+  if(existingSection) existingSection.style.display = 'none';
+  const postVerifySection = document.getElementById('txPostVerifyChangesSection');
+  if(postVerifySection) postVerifySection.style.display = 'none';
+  const noteLabel = document.getElementById('txNoteLabel');
+  if(noteLabel) noteLabel.textContent = t('txNoteSharedLabel');
+  const partySelect = document.getElementById('txPartySelect');
+  if(partySelect) partySelect.disabled = false;
+  const partyFieldWrap = document.getElementById('txPartyFieldWrap');
+  if(partyFieldWrap) partyFieldWrap.style.display = '';
+  const mainGrid = document.getElementById('txMainFormGrid');
+  if(mainGrid) mainGrid.style.gridTemplateColumns = '1fr 1fr 1.4fr';
+  const dateInput = document.getElementById('txDate');
+  if(dateInput) dateInput.disabled = false;
+}
+
+// 「出貨類型」下拉選單改變時呼叫。四種類型的表單長相差異很大,這個函式負責決定當下要顯示
+// 哪些區塊:'new-order'/'adjustment' 選了就直接展開主表單;'load-pending'/'load-completed'
+// 還要再選出實際是哪一張訂單,選出來之前主表單保持隱藏。
+function setTxOutFlowType(flowType){
+  registerOutFlowType = flowType;
+  registerLoadedOrderId = null;
+  txBatchItems = [];
+  const orderWrap = document.getElementById('txOutFlowOrderSelectWrap');
+  const orderSelectLabel = document.getElementById('txOutFlowOrderSelectLabel');
+  const orderSelect = document.getElementById('txOutFlowOrderSelect');
+  const existingSection = document.getElementById('txExistingItemsSection');
+  const postVerifySection = document.getElementById('txPostVerifyChangesSection');
+  const partySelect = document.getElementById('txPartySelect');
+  const partyFieldWrap = document.getElementById('txPartyFieldWrap');
+  const mainGrid = document.getElementById('txMainFormGrid');
+  const dateInput = document.getElementById('txDate');
+  const noteLabel = document.getElementById('txNoteLabel');
+
+  if(existingSection) existingSection.style.display = 'none';
+  if(postVerifySection) postVerifySection.style.display = 'none';
+  if(partySelect) partySelect.disabled = false;
+  if(dateInput) dateInput.disabled = false;
+  if(noteLabel) noteLabel.textContent = t('txNoteSharedLabel');
+
+  // 庫存調整不需要出貨方(這個異動不是要出給誰,單純是庫存數字校正),把出貨方欄位整個藏起來,
+  // 表單格線也跟著從三欄變兩欄,不會留一塊空白。其他三種流程都要出貨方,照常顯示。
+  if(flowType === 'adjustment'){
+    if(partyFieldWrap) partyFieldWrap.style.display = 'none';
+    if(mainGrid) mainGrid.style.gridTemplateColumns = '1fr 1.4fr';
+  } else {
+    if(partyFieldWrap) partyFieldWrap.style.display = '';
+    if(mainGrid) mainGrid.style.gridTemplateColumns = '1fr 1fr 1.4fr';
+  }
+
+  if(flowType === 'load-pending' || flowType === 'load-completed'){
+    if(orderWrap) orderWrap.style.display = '';
+    if(orderSelectLabel) orderSelectLabel.textContent = flowType === 'load-pending' ? t('fieldSelectPendingOrder') : t('fieldSelectCompletedOrder');
+    if(orderSelect){
+      const eligible = orders.filter(o => !o.deleted && !o.signedAt && orderStatus(o) === (flowType === 'load-pending' ? 'pending' : 'confirmed'));
+      orderSelect.innerHTML = `<option value="">${t('optSelectPendingOrder')}</option>` +
+        eligible.map(o => `<option value="${o.id}">${o.orderNo || ''} · ${o.date}${o.partyName ? ' · ' + o.partyName : ''}</option>`).join('');
+    }
+    showTxMainFormArea(false);
+  } else if(flowType === 'new-order' || flowType === 'adjustment'){
+    if(orderWrap) orderWrap.style.display = 'none';
+    if(flowType === 'adjustment' && noteLabel) noteLabel.textContent = t('txNoteRequiredLabel');
+    showTxMainFormArea(true);
+  } else {
+    if(orderWrap) orderWrap.style.display = 'none';
+    showTxMainFormArea(false);
+  }
+  renderTxSubmitArea();
+  renderTxBatchList();
+}
+
+// 依目前的類型/出貨類型,決定下面要顯示哪些提交按鈕:
+// - 進貨/入庫(非出貨):維持原本單一「提交」按鈕。
+// - 出貨→新增訂單:三個按鈕,各自對應不同的送出行為。
+// - 出貨→載入待處理訂單:儲存/載入訂單核對/直接核對。
+// - 出貨→載入已完成訂單:只有儲存。
+// - 出貨→庫存調整:單一「提交」,送出前會跳警示視窗確認。
+function renderTxSubmitArea(){
+  const area = document.getElementById('txSubmitArea');
+  if(!area) return;
+  if(currentTxType !== 'out'){
+    area.innerHTML = `<button class="btn" onclick="submitTxBatch()">${t('btnRegister')}</button>`;
+    return;
+  }
+  if(registerOutFlowType === 'new-order'){
+    area.innerHTML = `
+      <button class="btn" onclick="submitTxBatch('pending')">${t('btnMergeToPending')}</button>
+      <button class="btn" onclick="submitTxBatch('completed')">${t('btnMergeToCompleted')}</button>
+      <button class="btn ghost" onclick="submitTxBatch('direct')">${t('btnDirectShip')}</button>
+    `;
+  } else if(registerOutFlowType === 'load-pending'){
+    const disabled = registerLoadedOrderId ? '' : 'disabled';
+    area.innerHTML = `
+      <button class="btn" onclick="submitTxBatch('save-pending')" ${disabled}>${t('btnSave')}</button>
+      <button class="btn ghost" onclick="submitTxBatch('load-verify')" ${disabled}>${t('btnLoadIntoVerifyPage')}</button>
+      <button class="btn ghost" onclick="submitTxBatch('direct-verify')" ${disabled}>${t('btnDirectVerify')}</button>
+    `;
+  } else if(registerOutFlowType === 'load-completed'){
+    const disabled = registerLoadedOrderId ? '' : 'disabled';
+    area.innerHTML = `<button class="btn" onclick="submitTxBatch('save-completed')" ${disabled}>${t('btnSave')}</button>`;
+  } else if(registerOutFlowType === 'adjustment'){
+    area.innerHTML = `<button class="btn" onclick="submitTxBatch('adjustment')">${t('btnRegister')}</button>`;
+  } else {
+    area.innerHTML = '';
+  }
+}
+
+// load-pending/load-completed 模式下,顯示這張訂單目前已經有的品項,每項都有「改數量」「刪除」——
+// 跟已完成訂單原本那套 orderItemRowHtml 是不同的簡化版本,因為這裡的異動要等按下「儲存」才會
+// 真的處理(load-completed 模式甚至要另外分流進「核對後變更」清單),不能像原本那樣即時送出。
+function renderTxExistingItems(){
+  const section = document.getElementById('txExistingItemsSection');
+  const list = document.getElementById('txExistingItemsList');
+  if(!section || !list) return;
+  if(!registerLoadedOrderId || (registerOutFlowType !== 'load-pending' && registerOutFlowType !== 'load-completed')){
+    section.style.display = 'none';
+    return;
+  }
+  const order = orders.find(o => o.id === registerLoadedOrderId);
+  if(!order){ section.style.display = 'none'; return; }
+  section.style.display = '';
+  const activeItems = order.items.filter(it => !it.deleted);
+  if(activeItems.length === 0){
+    list.innerHTML = `<div class="empty-note">${t('orderHistoryNoItemsLeft')}</div>`;
+    return;
+  }
+  list.innerHTML = activeItems.map(it => {
+    const isEditing = registerExistingItemEditKey === it.productId;
+    if(isEditing){
+      return `
+        <div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--line);">
+          <span style="flex:1;">${it.name}${it.sku ? ` (${it.sku})` : ''}</span>
+          <input type="number" id="txExistingItemQtyInput_${it.productId}" value="${it.qty}" step="1" style="width:80px;font-family:inherit;font-size:inherit;" />
+          <span class="row-unit">${it.unit}</span>
+          <span class="del-link" onclick="saveTxExistingItemQty('${it.productId}')">${t('btnSave')}</span>
+          <span class="del-link" onclick="registerExistingItemEditKey=null;renderTxExistingItems();">${t('btnCancel')}</span>
+        </div>
+      `;
+    }
+    return `
+      <div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--line);">
+        <span style="flex:1;">${it.name}${it.sku ? ` (${it.sku})` : ''}</span>
+        <span>${it.qty} ${it.unit}${it.qty < 0 ? ` <span style="color:var(--safe);font-weight:600;font-size:11px;">(${t('stockedInLabel')})</span>` : ''}</span>
+        <span class="del-link" onclick="registerExistingItemEditKey='${it.productId}';renderTxExistingItems();">${t('btnEditQty')}</span>
+        <span class="del-link" style="color:var(--crit);" onclick="deleteTxExistingItem('${it.productId}')">${t('btnDelete')}</span>
+      </div>
+    `;
+  }).join('');
+}
+
+// load-completed 模式專用:核對後變更清單(新增/刪除/改數量都算,跟原本核對前的異動分開顯示)。
+function renderTxPostVerifyChanges(){
+  const section = document.getElementById('txPostVerifyChangesSection');
+  const list = document.getElementById('txPostVerifyChangesList');
+  if(!section || !list) return;
+  if(registerOutFlowType !== 'load-completed' || registerPostVerifyChanges.length === 0){
+    section.style.display = 'none';
+    return;
+  }
+  section.style.display = '';
+  list.innerHTML = registerPostVerifyChanges.map(c => {
+    const label = c.kind === 'added' ? t('postVerifyAdded')
+      : c.kind === 'deleted' ? t('postVerifyDeleted')
+      : t('postVerifyQtyChanged');
+    const detail = c.kind === 'qty' ? `${c.from} → ${c.to} ${c.unit}` : `${c.qty} ${c.unit}`;
+    return `<div style="font-size:12px;color:var(--warn-dark);padding:3px 0;">${c.name}${c.sku ? ` (${c.sku})` : ''} — ${label}(${detail})</div>`;
+  }).join('');
 }
 
 // 登記進出貨做「出貨」時,出貨方直接從現有客戶(shippingParties,跟訂貨頁面共用同一份名單)下拉選,
@@ -3954,9 +4195,177 @@ function populateTxPartySelect(){
   if([...partySelect.options].some(o => o.value === prev)) partySelect.value = prev;
 }
 
+// 「出貨類型」選了「載入現有待處理訂單」或「載入現有已完成訂單」之後,再選了實際是哪一張訂單,
+// 呼叫這裡:把日期(可改)/出貨方(鎖住)/備註 帶進表單,顯示這張訂單目前已有的品項,清空這次
+// 要新增的品項清單跟核對後變更紀錄(每次重新選訂單都是新的一輪)。
+function loadOrderIntoRegisterFlow(orderId){
+  if(!orderId){
+    registerLoadedOrderId = null;
+    renderTxExistingItems();
+    renderTxPostVerifyChanges();
+    renderTxSubmitArea();
+    return;
+  }
+  const order = orders.find(o => o.id === orderId);
+  if(!order) return;
+  registerLoadedOrderId = orderId;
+  registerExistingItemEditKey = null;
+  registerPostVerifyChanges = [];
+  txBatchItems = [];
+
+  const dateInput = document.getElementById('txDate');
+  if(dateInput) dateInput.value = order.date || todayISO();
+  const partySelect = document.getElementById('txPartySelect');
+  if(partySelect){
+    populateTxPartySelect();
+    partySelect.value = order.partyId || '';
+    partySelect.disabled = true;
+  }
+  const noteInput = document.getElementById('txNote');
+  if(noteInput) noteInput.value = order.note || '';
+
+  showTxMainFormArea(true);
+  renderTxExistingItems();
+  renderTxPostVerifyChanges();
+  renderTxSubmitArea();
+  renderTxBatchList();
+}
+
+function startTxExistingItemEdit(productId){
+  registerExistingItemEditKey = productId;
+  renderTxExistingItems();
+}
+
+// 儲存既有品項的數量修改——立即套用(不等最後的「儲存」按鈕),邏輯依 load-pending/load-completed
+// 而不同:待處理訂單不影響庫存,只留修改紀錄;已完成訂單要真的調整庫存(用既有的
+// saveOrderItemQty 那套 RPC 機制),而且這筆異動要記錄進「核對後變更」清單。
+async function saveTxExistingItemQty(productId){
+  const order = orders.find(o => o.id === registerLoadedOrderId);
+  if(!order) return;
+  const item = order.items.find(it => it.productId === productId && !it.deleted);
+  if(!item) return;
+  const input = document.getElementById(`txExistingItemQtyInput_${productId}`);
+  if(!input) return;
+  const newQty = parseFloat(input.value);
+  if(isNaN(newQty)){ showInfoModal(t('errEnterValidQty')); return; }
+  if(!Number.isInteger(newQty)){ showInfoModal(t('errQtyMustBeInteger')); return; }
+  if(newQty === item.qty){ registerExistingItemEditKey = null; renderTxExistingItems(); return; }
+
+  if(registerOutFlowType === 'load-pending'){
+    const oldQty = item.qty;
+    if(newQty === 0){
+      item.deleted = true;
+      item.deletedAt = new Date().toISOString();
+    } else {
+      item.qty = newQty;
+      if(!item.qtyHistory) item.qtyHistory = [];
+      item.qtyHistory.push({ from: oldQty, to: newQty });
+    }
+    try{ await upsertOrders([order]); }
+    catch(e){ console.error('儲存數量失敗', e); showInfoModal('⚠ 儲存失敗,請重新整理頁面再試一次。'); return; }
+    logInventoryAction('order_edit', `Pending order ${order.orderNo || order.id} - quantity adjusted: ${item.name} ${oldQty}→${newQty} ${item.unit} (not yet stocked out)`, order.orderNo);
+    registerExistingItemEditKey = null;
+    renderTxExistingItems();
+    return;
+  }
+
+  // load-completed:真的要調整庫存,走跟已完成訂單「改數量」一樣的 RPC 機制。
+  const oldQty = item.qty;
+  const txId = genId();
+  const noteText = tf('orderItemQtyChangedNote', { orderNo: order.orderNo || '', name: item.name, oldQty, newQty, unit: item.unit });
+
+  const { error } = await sb.rpc('adjust_order_item_qty', {
+    p_order_id: order.id,
+    p_product_id: productId,
+    p_new_qty: newQty,
+    p_tx_id: txId,
+    p_date: todayISO(),
+    p_note: noteText
+  });
+
+  if(error){
+    const failures = parseInsufficientStockError(error);
+    if(failures && failures[0]){
+      showInfoModal(tf('errAdjustQtyInsufficientStock', { name: item.name, available: failures[0].available, requested: failures[0].requested }));
+    } else {
+      console.error('adjust_order_item_qty failed', error);
+      showInfoModal(t('errAdjustQtyGeneric'));
+    }
+    return;
+  }
+
+  const qtyDelta = newQty - oldQty;
+  const tx = {
+    id: txId, productId, type: qtyDelta > 0 ? 'out' : 'restock', qty: Math.abs(qtyDelta),
+    date: todayISO(), party: order.partyName || '', note: noteText, system: true, orderId: order.id
+  };
+  transactions.push(tx);
+  productStockMap[productId] = (productStockMap[productId] || 0) - qtyDelta;
+
+  item.qty = newQty;
+  if(!item.qtyHistory) item.qtyHistory = [];
+  item.qtyHistory.push({ from: oldQty, to: newQty });
+  try{ await upsertOrders([order]); } catch(e){ console.error('儲存訂單失敗', e); }
+
+  registerPostVerifyChanges.push({ kind: 'qty', productId, name: item.name, sku: item.sku, unit: item.unit, from: oldQty, to: newQty });
+  logInventoryAction('order_edit', `Order ${order.orderNo || order.id} - quantity adjusted after verification: ${item.name} ${oldQty}→${newQty} ${item.unit}`, order.orderNo);
+  registerExistingItemEditKey = null;
+  renderTxExistingItems();
+  renderTxPostVerifyChanges();
+  renderAll();
+}
+
+// 刪除既有品項——待處理訂單不影響庫存;已完成訂單要真的把這個品項的出貨量退回庫存(補一筆
+// restock 紀錄),並記錄進「核對後變更」清單。
+async function deleteTxExistingItem(productId){
+  const order = orders.find(o => o.id === registerLoadedOrderId);
+  if(!order) return;
+  const item = order.items.find(it => it.productId === productId && !it.deleted);
+  if(!item) return;
+
+  showConfirmModal(tf('confirmDeleteOrderItem', {name: item.name, qty: Math.abs(item.qty), unit: item.unit}), async () => {
+    const now = new Date().toISOString();
+
+    if(registerOutFlowType === 'load-completed'){
+      try{
+        const txId = genId();
+        const isRestockItem = item.qty < 0;
+        const noteText = tf('orderItemDeletedRestockNote', { orderNo: order.orderNo || order.id, name: item.name, qty: Math.abs(item.qty), unit: item.unit });
+        const tx = { id: txId, productId, type: isRestockItem ? 'out' : 'restock', qty: Math.abs(item.qty), date: todayISO(), party: order.partyName || '', note: noteText, system: true, orderId: order.id };
+        transactions.push(tx);
+        productStockMap[productId] = (productStockMap[productId] || 0) + item.qty;
+        await insertTransactions([tx]);
+      } catch(e){
+        console.error('刪除品項失敗', e);
+        showInfoModal('⚠ 操作失敗,請重新整理頁面再試一次。');
+        return;
+      }
+      registerPostVerifyChanges.push({ kind: 'deleted', productId, name: item.name, sku: item.sku, unit: item.unit, qty: item.qty });
+    }
+
+    item.deleted = true;
+    item.deletedAt = now;
+    item.deleteStockStatus = registerOutFlowType === 'load-completed' ? 'stocked_out' : undefined;
+    if(order.items.every(it => it.deleted)){
+      order.deleted = true;
+      order.deletedAt = now;
+    }
+    try{ await upsertOrders([order]); } catch(e){ console.error('儲存訂單失敗', e); }
+
+    logInventoryAction('order_edit', `Order ${order.orderNo || order.id} - removed item: ${item.name} ${item.qty} ${item.unit}`, order.orderNo);
+    renderTxExistingItems();
+    renderTxPostVerifyChanges();
+    renderAll();
+  });
+}
+
 // ===== 登記進出貨:多商品批次加入清單 =====
 // 共用同一組 類型/日期/對象/備註,每個加進清單的商品各自登記成一筆獨立的進出貨紀錄。
 let txBatchItems = []; // { productId, name, unit, qty }
+let registerOutFlowType = ''; // ''(還沒選) | 'new-order' | 'load-pending' | 'load-completed' | 'adjustment'
+let registerLoadedOrderId = null; // load-pending/load-completed 模式下,目前載入的那張訂單 id
+let registerExistingItemEditKey = null; // 目前正在編輯數量的既有品項 productId(null 表示沒有在編輯)
+let registerPostVerifyChanges = []; // load-completed 模式:核對後變更清單,{ kind:'added'|'deleted'|'qty', productId, name, sku, unit, qty, from, to }
 
 function addToTxBatch(){
   const productSel = document.getElementById('txProduct');
@@ -3965,7 +4374,8 @@ function addToTxBatch(){
   const qty = parseFloat(qtyInput.value);
   const msg = document.getElementById('txMsg');
   if(!productId){ msg.className='msg error'; msg.textContent='請先新增並選擇商品'; return; }
-  if(!qty || qty <= 0){ msg.className='msg error'; msg.textContent='請輸入大於 0 的數量'; return; }
+  if(!qty || isNaN(qty)){ msg.className='msg error'; msg.textContent=t('errAddItemQtyNonZero'); return; }
+  if(!Number.isInteger(qty)){ msg.className='msg error'; msg.textContent=t('errQtyMustBeInteger'); return; }
   const p = products.find(x => x.id === productId);
   if(!p) return;
   const existing = txBatchItems.find(it => it.productId === productId);
@@ -3985,7 +4395,7 @@ function updateTxBatchItemQty(productId, value){
   const it = txBatchItems.find(x => x.productId === productId);
   if(!it) return;
   const qty = parseFloat(value);
-  it.qty = (!isNaN(qty) && qty > 0) ? qty : it.qty;
+  it.qty = (!isNaN(qty) && qty !== 0 && Number.isInteger(qty)) ? qty : it.qty;
   renderTxBatchList();
 }
 
@@ -4002,9 +4412,9 @@ function renderTxBatchList(){
       <tbody>
         ${txBatchItems.map(it => `
           <tr>
-            <td class="row-name">${it.name}</td>
+            <td class="row-name">${it.name}${it.qty < 0 ? ` <span style="color:var(--safe);font-weight:600;font-size:11px;">(${t('stockedInLabel')})</span>` : ''}</td>
             <td class="row-num">
-              <input type="number" class="order-qty-input" min="0" step="1" value="${it.qty}"
+              <input type="number" class="order-qty-input" step="1" value="${it.qty}"
                 onchange="updateTxBatchItemQty('${it.productId}', this.value)" /><span class="row-unit">${it.unit}</span>
             </td>
             <td class="row-action">
@@ -5538,7 +5948,7 @@ function renderOrders(){
     // 已完成訂單在還沒簽收前,這裡(訂貨後台管理)還是能改;一旦簽收過(o.signedAt),不管哪一邊
     // 都不能再改了,這裡也要跟著鎖住(readOnly=!!o.signedAt),之前沒有這個檢查,簽收後其實還是
     // 能被改掉,這次一併修正。
-    const itemsHtml = o.items.map(it => orderItemRowHtml(o, it, false, !!o.signedAt, 'completed')).join('');
+    const itemsHtml = o.items.map(it => orderItemRowHtml(o, it, false, true, 'completed')).join('');
     const isEditingRemark = editingOrderRemarkId === o.id;
     const remarkHtml = isEditingRemark ? `
       <div style="margin:8px 0;">
@@ -5554,7 +5964,6 @@ function renderOrders(){
         <span class="del-link" style="margin-left:8px;" onclick="startEditOrderRemark('${o.id}')">${t('btnEditRemark')}</span>
       </div>
     `;
-    const isAddingItem = false; // 舊版內嵌新增商品表單已經改用「登記進出貨」頁面的流程,這裡固定 false,保留變數只是因為下面按鈕的隱藏條件還在用它。
     return `
       <div class="order-card ${o.deleted ? 'order-card-deleted' : ''}">
         <div class="order-card-head" style="cursor:pointer;" onclick="toggleOrderExpand('${o.id}')">
@@ -5569,12 +5978,11 @@ function renderOrders(){
         ${isExpanded ? `
           ${o.note ? `<div style="font-size:12px;color:var(--ink-soft);margin:8px 0 6px;">${t('noteLabelPrefix')}${o.note}</div>` : ''}
           <div class="order-items">${itemsHtml}</div>
-          ${(o.deleted || o.signedAt || isAddingItem) ? '' : `<div style="margin:8px 0;"><span class="del-link" onclick="goAddProductsViaRegister('${o.id}', 'completed')">${t('btnAddItemToOrder')}</span></div>`}
           ${remarkHtml}
           <div class="order-card-actions">
+            ${(o.deleted || o.signedAt) ? '' : `<button class="btn ghost" onclick="editOrderViaRegister('${o.id}', 'completed')">${t('btnEdit')}</button>`}
             <button class="btn ghost" onclick="exportSingleOrderSheet('${o.id}')">${t('btnExportThisOrder')}</button>
             <button class="btn ghost" onclick="printCompletedOrder('${o.id}')">${t('btnPrintOrder')}</button>
-            ${(o.deleted || o.signedAt) ? '' : `<button class="btn ghost" onclick="deleteCompletedOrder('${o.id}')">${t('btnDeleteWholeOrder')}</button>`}
           </div>
         ` : ''}
       </div>
@@ -5814,7 +6222,7 @@ function renderPendingOrders(){
   container.innerHTML = list.map(o => {
     const isExpanded = expandedOrderIds.has(o.id);
     const wasModified = !o.deleted && o.items.some(it => (it.qtyHistory && it.qtyHistory.length > 0) || it.deleted);
-    const itemsHtml = o.items.map(it => orderItemRowHtml(o, it, true, false, 'pending')).join('');
+    const itemsHtml = o.items.map(it => orderItemRowHtml(o, it, true, true, 'pending')).join('');
     const isEditingRemark = editingOrderRemarkId === o.id;
     const remarkHtml = isEditingRemark ? `
       <div style="margin:8px 0;">
@@ -5864,12 +6272,10 @@ function renderPendingOrders(){
         ${isExpanded ? `
           ${o.note ? `<div style="font-size:12px;color:var(--ink-soft);margin:8px 0 6px;">${t('noteLabelPrefix')}${o.note}</div>` : ''}
           <div class="order-items">${itemsHtml}</div>
-          ${o.deleted ? '' : `<div style="margin:8px 0;"><span class="del-link" onclick="goAddProductsViaRegister('${o.id}', 'pending')">${t('btnAddItemToOrder')}</span></div>`}
           ${remarkHtml}
           ${o.deleted ? '' : partyEditHtml}
           <div class="order-card-actions">
-            ${o.deleted ? '' : `<button class="btn" onclick="verifyOrder('${o.id}')" ${activeItemCount === 0 ? 'disabled' : ''}>${t('btnVerifyOrder')}</button>`}
-            ${o.deleted ? '' : `<button class="btn ghost" onclick="openOrderInVerifyPage('${o.id}')" ${activeItemCount === 0 ? 'disabled' : ''}>${t('btnLoadIntoVerifyPage')}</button>`}
+            ${o.deleted ? '' : `<button class="btn ghost" onclick="editOrderViaRegister('${o.id}', 'pending')">${t('btnEdit')}</button>`}
             ${o.deleted ? '' : `<button class="btn ghost" onclick="cancelPendingOrder('${o.id}')">${t('btnCancelWholeOrder')}</button>`}
             <button class="btn ghost" onclick="exportPendingOrderExcel('${o.id}')">${t('btnExportOrder')}</button>
             <button class="btn ghost" onclick="printPendingOrder('${o.id}')">${t('btnPrintOrder')}</button>
@@ -6531,7 +6937,10 @@ function cancelAddItemsToOrder(){
 // mode='pending':併進待處理訂單的草稿,不會扣庫存(等訂單之後核對才會真的扣)。
 // mode='completed':併進已完成訂單,送出當下就會真的扣/加庫存(用登記進出貨原本的「出貨/入庫」
 // 類型選擇決定方向,不需要額外的正負號規則)。已簽收的訂單兩種模式都不能用。
-function goAddProductsViaRegister(orderId, mode){
+// 訂貨後台管理清單上的「編輯」統一走這裡:直接跳去「登記進出貨」,自動選好「出貨」類型跟
+// 對應的出貨類型(待處理訂單→load-pending,已完成訂單→load-completed),並直接把這張訂單
+// 載入進去(不用使用者自己再從下拉選單選一次)。已簽收的訂單不能編輯。
+function editOrderViaRegister(orderId, mode){
   const order = orders.find(o => o.id === orderId);
   if(!order || order.deleted || order.signedAt) return;
   if(mode === 'pending'){
@@ -6543,43 +6952,15 @@ function goAddProductsViaRegister(orderId, mode){
     return;
   }
 
-  addToExistingOrderId = orderId;
-  addToExistingOrderMode = mode;
-  txBatchItems = [];
-
   switchTab('tab-tx');
   switchTxSubTab('subtab-tx-register');
-  setTxType('out'); // 新增商品一律當「出貨」處理,併回訂單的商品概念上都是要出給這個出貨方的
-
-  const partySelect = document.getElementById('txPartySelect');
-  if(partySelect){
-    partySelect.value = order.partyId || '';
-    partySelect.disabled = true;
-  }
-  const banner = document.getElementById('addToOrderViaRegisterBanner');
-  if(banner){
-    banner.style.display = '';
-    const label = document.getElementById('addToOrderViaRegisterBannerLabel');
-    if(label){
-      label.textContent = mode === 'pending'
-        ? tf('addToPendingOrderBannerText', { orderNo: order.orderNo || orderId })
-        : tf('addToCompletedOrderBannerText', { orderNo: order.orderNo || orderId });
-    }
-  }
-  renderTxBatchList();
-}
-
-// 離開「幫既有訂單新增商品」模式(取消,或流程結束後):把出貨對象選單解鎖、隱藏提示橫幅、
-// 清掉暫存的品項清單跟狀態,恢復成一般的登記進出貨頁面。
-function cancelAddToExistingOrderViaRegister(){
-  addToExistingOrderId = null;
-  addToExistingOrderMode = null;
-  txBatchItems = [];
-  const partySelect = document.getElementById('txPartySelect');
-  if(partySelect) partySelect.disabled = false;
-  const banner = document.getElementById('addToOrderViaRegisterBanner');
-  if(banner) banner.style.display = 'none';
-  renderTxBatchList();
+  setTxType('out');
+  const flowSel = document.getElementById('txOutFlowType');
+  if(flowSel) flowSel.value = mode === 'pending' ? 'load-pending' : 'load-completed';
+  setTxOutFlowType(mode === 'pending' ? 'load-pending' : 'load-completed');
+  const orderSel = document.getElementById('txOutFlowOrderSelect');
+  if(orderSel) orderSel.value = orderId;
+  loadOrderIntoRegisterFlow(orderId);
 }
 
 // 簽收:確認貨已經實際收到了。只有已經核對過、真的出貨的訂單(status='confirmed')才能簽收——
@@ -7584,12 +7965,13 @@ async function undoConversion(conversionId){
 }
 
 // 併入「已完成訂單」(會真的扣/加庫存):針對這批品項各自建一筆進出貨紀錄(連結這張訂單的
-// orderId),並把品項併進訂單的 items 清單。txType 決定方向,呼叫前應該已經檢查過出貨數量
-// 沒有超過庫存(見 submitTxBatch 既有的檢查)。item.qty 統一存成「正=出貨、負=入庫」的淨值,
-// 跟已完成訂單「新增商品」/「改數量」用的是同一套慣例,畫面顯示、之後改數量/刪除都能正確運作。
+// orderId),並把品項併進訂單的 items 清單。每一項各自依「自己的數量正負號」決定方向——正數是
+// 出貨(扣庫存),負數是入庫/退貨(加庫存),不是整批共用同一個類型,因為現在同一批裡可以同時有
+// 要出貨的商品跟要入庫的商品。item.qty 統一存成「正=出貨、負=入庫」的淨值,跟已完成訂單
+// 「改數量」用的是同一套慣例。呼叫前應該已經檢查過出貨數量沒有超過庫存。
 // 同一項商品如果已經在這張訂單裡,直接擋下來請使用者從這批清單移除,不嘗試自動合併,避免
 // 複雜的加總邏輯藏著算錯的風險。
-async function mergeItemsIntoCompletedOrderCore(orderId, batchItems, txType, date, party, note){
+async function mergeItemsIntoCompletedOrderCore(orderId, batchItems, date, party, note){
   const order = orders.find(o => o.id === orderId);
   if(!order || order.deleted || orderStatus(order) !== 'confirmed' || order.signedAt){
     return { ok: false, reason: 'not_editable' };
@@ -7600,7 +7982,7 @@ async function mergeItemsIntoCompletedOrderCore(orderId, batchItems, txType, dat
   }
 
   const newTxs = batchItems.map(it => ({
-    id: genId(), productId: it.productId, type: txType, qty: it.qty, date, party,
+    id: genId(), productId: it.productId, type: it.qty > 0 ? 'out' : 'restock', qty: Math.abs(it.qty), date, party,
     note: `${order.orderNo || orderId}${note ? '、' + note : ''}`,
     system: true, orderId
   }));
@@ -7608,15 +7990,14 @@ async function mergeItemsIntoCompletedOrderCore(orderId, batchItems, txType, dat
   const prevItems = order.items;
   const newOrderItems = batchItems.map(it => ({
     productId: it.productId, sku: it.sku || '', name: it.name, unit: it.unit,
-    qty: txType === 'out' ? it.qty : -it.qty,
+    qty: it.qty,
     qtyHistory: [{ added: true }]
   }));
   order.items = [...prevItems, ...newOrderItems];
 
   transactions.push(...newTxs);
   batchItems.forEach(it => {
-    const delta = txType === 'out' ? -it.qty : it.qty;
-    productStockMap[it.productId] = (productStockMap[it.productId] || 0) + delta;
+    productStockMap[it.productId] = (productStockMap[it.productId] || 0) - it.qty;
   });
 
   try{
@@ -7626,72 +8007,265 @@ async function mergeItemsIntoCompletedOrderCore(orderId, batchItems, txType, dat
     newTxs.forEach(tx => { const i = transactions.indexOf(tx); if(i >= 0) transactions.splice(i, 1); });
     order.items = prevItems;
     batchItems.forEach(it => {
-      const delta = txType === 'out' ? -it.qty : it.qty;
-      productStockMap[it.productId] = (productStockMap[it.productId] || 0) - delta;
+      productStockMap[it.productId] = (productStockMap[it.productId] || 0) + it.qty;
     });
     console.error('新增商品到已完成訂單失敗', e);
     return { ok: false, reason: 'save_failed' };
   }
 
-  logInventoryAction('order_edit', `Order ${order.orderNo || orderId} - added ${batchItems.length} item(s) (${txType === 'out' ? 'shipped out' : 'stocked in'})`, order.orderNo);
+  batchItems.forEach(it => {
+    registerPostVerifyChanges.push({ kind: 'added', productId: it.productId, name: it.name, sku: it.sku, unit: it.unit, qty: it.qty });
+  });
+  logInventoryAction('order_edit', `Order ${order.orderNo || orderId} - added ${batchItems.length} item(s)`, order.orderNo);
   return { ok: true, order };
 }
 
-async function submitTxBatch(){
-  const date = document.getElementById('txDate').value;
-  let party = '';
-  let outPartyId = null;
-  if(currentTxType === 'out'){
-    outPartyId = document.getElementById('txPartySelect').value || null;
-    const partyObj = shippingParties.find(sp => sp.id === outPartyId);
-    party = partyObj ? partyObj.name : '';
-  } else {
-    party = document.getElementById('txParty').value.trim();
-  }
-  const note = document.getElementById('txNote').value.trim();
+async function submitTxBatch(action){
   const msg = document.getElementById('txMsg');
+  const date = document.getElementById('txDate').value;
+
+  if(currentTxType !== 'out'){
+    return submitTxBatchSimple(date, msg);
+  }
+
+  if(!registerOutFlowType){
+    msg.className = 'msg error'; msg.textContent = t('errSelectOutFlowTypeFirst');
+    return;
+  }
+  if(!date){ msg.className = 'msg error'; msg.textContent = '請選擇日期'; return; }
+
+  if(registerOutFlowType === 'new-order') return submitNewOrderFlow(action, date, msg);
+  if(registerOutFlowType === 'load-pending') return submitLoadPendingFlow(action, msg);
+  if(registerOutFlowType === 'load-completed') return submitLoadCompletedFlow(date, msg);
+  if(registerOutFlowType === 'adjustment') return submitAdjustmentFlow(date, msg);
+}
+
+// 進貨/入庫維持原本邏輯,不受出貨這次改版影響:一批共用同一個類型/日期/對象/備註,
+// 沒有訂單概念,單純各自登記成一筆進出貨紀錄。
+async function submitTxBatchSimple(date, msg){
+  const party = document.getElementById('txParty').value.trim();
+  const note = document.getElementById('txNote').value.trim();
 
   if(txBatchItems.length === 0){ msg.className='msg error'; msg.textContent='請先把至少一項商品加入清單'; return; }
   if(!date){ msg.className='msg error'; msg.textContent='請選擇日期'; return; }
 
-  // 出貨時,先檢查每項商品的出貨數量是否超過目前總庫存,只要有一項不夠就整批擋下來不能提交,
-  // 並且清楚列出是哪個商品、需要多少、庫存還剩多少。
-  if(currentTxType === 'out'){
+  const newTxs = txBatchItems.map(it => ({ id: genId(), productId: it.productId, type: currentTxType, qty: it.qty, date, party, note }));
+  transactions.push(...newTxs);
+
+  try{
+    await insertTransactions(newTxs);
+  } catch(e){
+    newTxs.forEach(tx => { const i = transactions.indexOf(tx); if(i >= 0) transactions.splice(i, 1); });
+    msg.className='msg error'; msg.textContent = '⚠ 提交失敗,請重新整理頁面再試一次。';
+    return;
+  }
+
+  const count = txBatchItems.length;
+  const logActionType = currentTxType === 'in' ? 'tx_in' : 'tx_restock';
+  // DETAILS 欄位是登記當下就寫死存進資料庫的文字,不會隨語言切換即時翻譯,所以這裡固定用英文組字串,
+  // 不透過 inventoryLogActionLabel()/t() 讀取當前介面語言。
+  const LOG_ACTION_EN_LABEL = { tx_in: 'Stock In', tx_restock: 'Restock' };
+  const logDesc = `Logged ${LOG_ACTION_EN_LABEL[logActionType] || logActionType}: ${count} item(s)${party ? ', party ' + party : ''}`;
+  logInventoryAction(logActionType, logDesc, null);
+  txBatchItems = [];
+  renderTxBatchList();
+  if(currentTxType === 'restock'){ document.getElementById('txParty').value = 'Opulent Imports'; }
+  else { document.getElementById('txParty').value = ''; }
+  document.getElementById('txNote').value = '';
+  msg.className='msg ok';
+  msg.textContent = `✓ 已提交 ${count} 項商品`;
+  renderAll();
+}
+
+// 出貨→新增訂單:三個按鈕分別對應「併入待處理訂單」(action='pending',不扣庫存)、
+// 「併入已完成訂單」(action='completed',直接扣庫存)、「直接出貨」(action='direct',
+// 純粹登記一筆出貨,不建立訂單,但備註必填)。前兩者都要跟資料庫序列拿新的訂單編號。
+async function submitNewOrderFlow(action, date, msg){
+  if(txBatchItems.length === 0){ msg.className='msg error'; msg.textContent=t('errAddAtLeastOneItem'); return; }
+  const outPartyId = document.getElementById('txPartySelect').value || null;
+  const partyObj = shippingParties.find(sp => sp.id === outPartyId);
+  const party = partyObj ? partyObj.name : '';
+  const note = document.getElementById('txNote').value.trim();
+
+  if(action === 'direct' && !note){
+    msg.className = 'msg error'; msg.textContent = t('errNoteRequiredForDirectShip'); return;
+  }
+
+  if(action !== 'pending'){
+    // 併入已完成訂單/直接出貨,都是當下就真的扣庫存,先檢查總庫存量夠不夠(批量商品可以拆箱
+    // 切換成主商品出貨,所以看總量)。併入待處理訂單不扣庫存,不需要檢查。
     const insufficient = txBatchItems
-      .map(it => ({ ...it, available: productStockMap[it.productId] || 0 }))
+      .filter(it => it.qty > 0)
+      .map(it => ({ ...it, available: computeTotalStock(it.productId) - computePendingReserved(it.productId) }))
       .filter(it => it.qty > it.available);
     if(insufficient.length > 0){
       msg.className = 'msg error';
-      msg.textContent = `⚠ 以下商品出貨數量超過目前庫存,無法提交:${insufficient.map(it => `「${it.name}」需要 ${it.qty} ${it.unit},庫存剩 ${it.available} ${it.unit}`).join('; ')}`;
+      msg.textContent = `⚠ ${insufficient.map(it => `「${it.name}」需要 ${it.qty} ${it.unit},庫存剩 ${it.available} ${it.unit}`).join('; ')}`;
       return;
     }
   }
 
-  // ===== 從「訂貨後台管理→待處理訂單/已完成訂單→新增商品」導過來的,不走下面一般登記的流程 =====
-  if(addToExistingOrderMode === 'pending'){
-    const targetOrderId = addToExistingOrderId;
-    const newItems = txBatchItems.map(it => ({ productId: it.productId, sku: it.sku || '', name: it.name, unit: it.unit, qty: it.qty }));
-    const result = await mergeItemsIntoOrderCore(targetOrderId, newItems);
+  if(action === 'pending'){
+    let orderNo;
+    try{ orderNo = await getSafeNextOrderNo(); }
+    catch(e){ msg.className='msg error'; msg.textContent='⚠ 取得訂單編號失敗,請重新整理頁面再試一次。'; return; }
+    const newOrder = {
+      id: genId(), date, note, partyId: outPartyId, partyName: party,
+      items: txBatchItems.map(it => ({ productId: it.productId, sku: it.sku||'', name: it.name, unit: it.unit, qty: it.qty })),
+      status: 'pending', createdAt: new Date().toISOString(), orderNo
+    };
+    orders.push(newOrder);
+    try{ await upsertOrders([newOrder]); await saveOrderCounter(); }
+    catch(e){ orders.pop(); msg.className='msg error'; msg.textContent='⚠ 建立訂單失敗,請重新整理頁面再試一次。'; return; }
+    logInventoryAction('order_place', `Created pending order ${orderNo} (${party || 'No recipient specified'}, ${txBatchItems.length} item(s)), stock not yet deducted`, orderNo);
+    finishNewOrderSubmit('pending', newOrder.id, txBatchItems.length, orderNo, msg);
+    return;
+  }
+
+  if(action === 'completed'){
+    let orderNo;
+    try{ orderNo = await getSafeNextOrderNo(); }
+    catch(e){ msg.className='msg error'; msg.textContent='⚠ 取得訂單編號失敗,請重新整理頁面再試一次。'; return; }
+    const orderId = genId();
+    const newOrder = {
+      id: orderId, date, note, partyId: outPartyId, partyName: party,
+      items: txBatchItems.map(it => ({ productId: it.productId, sku: it.sku||'', name: it.name, unit: it.unit, qty: it.qty })),
+      status: 'confirmed', createdAt: new Date().toISOString(), confirmedAt: new Date().toISOString(), orderNo
+    };
+    const newTxs = txBatchItems.map(it => ({
+      id: genId(), productId: it.productId, type: it.qty > 0 ? 'out' : 'restock', qty: Math.abs(it.qty), date, party,
+      note: `${orderNo}${note ? '、' + note : ''}`, system: true, orderId
+    }));
+    transactions.push(...newTxs);
+    orders.push(newOrder);
+    txBatchItems.forEach(it => { productStockMap[it.productId] = (productStockMap[it.productId]||0) - it.qty; });
+    try{
+      await insertTransactions(newTxs);
+      await upsertOrders([newOrder]);
+      await saveOrderCounter();
+    } catch(e){
+      newTxs.forEach(tx => { const i = transactions.indexOf(tx); if(i>=0) transactions.splice(i,1); });
+      orders.pop();
+      txBatchItems.forEach(it => { productStockMap[it.productId] = (productStockMap[it.productId]||0) + it.qty; });
+      msg.className='msg error'; msg.textContent='⚠ 建立訂單失敗,請重新整理頁面再試一次。'; return;
+    }
+    logInventoryAction('order_place', `Created completed order ${orderNo} (${party || 'No recipient specified'}, ${txBatchItems.length} item(s)), stock deducted`, orderNo);
+    finishNewOrderSubmit('completed', orderId, txBatchItems.length, orderNo, msg);
+    return;
+  }
+
+  if(action === 'direct'){
+    const newTxs = txBatchItems.map(it => ({
+      id: genId(), productId: it.productId, type: it.qty > 0 ? 'out' : 'restock', qty: Math.abs(it.qty), date, party, note
+    }));
+    transactions.push(...newTxs);
+    txBatchItems.forEach(it => { productStockMap[it.productId] = (productStockMap[it.productId]||0) - it.qty; });
+    try{ await insertTransactions(newTxs); }
+    catch(e){
+      newTxs.forEach(tx => { const i = transactions.indexOf(tx); if(i>=0) transactions.splice(i,1); });
+      txBatchItems.forEach(it => { productStockMap[it.productId] = (productStockMap[it.productId]||0) + it.qty; });
+      msg.className='msg error'; msg.textContent='⚠ 提交失敗,請重新整理頁面再試一次。'; return;
+    }
+    logInventoryAction('tx_out', `Logged direct shipment: ${txBatchItems.length} item(s), party ${party || 'unspecified'}`, null);
+    const count = txBatchItems.length;
+    txBatchItems = [];
+    resetRegisterOutFlow();
+    setTxOutFlowType('');
+    document.getElementById('txPartySelect').value = '';
+    document.getElementById('txNote').value = '';
+    msg.className='msg ok'; msg.textContent = `✓ 已直接出貨 ${count} 項商品`;
+    renderAll();
+  }
+}
+
+function finishNewOrderSubmit(kind, orderId, count, orderNo, msg){
+  txBatchItems = [];
+  resetRegisterOutFlow();
+  setTxOutFlowType('');
+  switchTab('tab-order-admin');
+  switchOrderAdminSubTab(kind === 'pending' ? 'subtab-order-pending' : 'subtab-order-completed');
+  expandedOrderIds.add(orderId);
+  renderAll();
+  showInfoModal(tf('addToOrderSuccessMsg', { orderNo: orderNo || orderId, n: count }));
+}
+
+// 出貨→載入現有待處理訂單。備註是訂單本身的欄位,直接更新;新增的品項(如果有)透過既有的
+// mergeItemsIntoOrderCore 併入草稿,不扣庫存。三個按鈕:儲存(存完跳回清單)、載入訂單核對
+// (導去訂單核對頁面,沿用原本邏輯)、直接核對(不經過比對畫面,直接用訂單自己的品項核對,
+// 也是沿用原本 verifyOrder() 的邏輯)。
+async function submitLoadPendingFlow(action, msg){
+  if(!registerLoadedOrderId){ msg.className='msg error'; msg.textContent=t('errSelectOrderFirst'); return; }
+  const orderId = registerLoadedOrderId;
+  const order = orders.find(o => o.id === orderId);
+  if(!order){ msg.className='msg error'; msg.textContent=`⚠ ${t('errOrderNoLongerEditable')}`; return; }
+  const noteInput = document.getElementById('txNote');
+  if(noteInput) order.note = noteInput.value.trim();
+
+  if(txBatchItems.length > 0){
+    const newItems = txBatchItems.map(it => ({ productId: it.productId, sku: it.sku||'', name: it.name, unit: it.unit, qty: it.qty }));
+    const result = await mergeItemsIntoOrderCore(orderId, newItems);
     if(!result.ok){
-      msg.className = 'msg error';
+      msg.className='msg error';
       msg.textContent = result.reason === 'not_editable' ? `⚠ ${t('errOrderNoLongerEditable')}` : '⚠ 新增商品失敗,請重新整理頁面再試一次。';
       return;
     }
-    const count = txBatchItems.length;
-    cancelAddToExistingOrderViaRegister();
-    document.getElementById('txNote').value = '';
+  } else {
+    try{ await upsertOrders([order]); } catch(e){ console.error('儲存備註失敗', e); }
+  }
+
+  if(action === 'save-pending'){
+    resetRegisterOutFlow();
+    setTxOutFlowType('');
     switchTab('tab-order-admin');
     switchOrderAdminSubTab('subtab-order-pending');
-    expandedOrderIds.add(targetOrderId);
+    expandedOrderIds.add(orderId);
     renderAll();
-    showInfoModal(tf('addToOrderSuccessMsg', { orderNo: result.order.orderNo || targetOrderId, n: count }));
+    msg.className='msg ok'; msg.textContent='✓ 已儲存';
     return;
   }
-  if(addToExistingOrderMode === 'completed'){
-    if(currentTxType !== 'out' && currentTxType !== 'in' && currentTxType !== 'restock'){ msg.className='msg error'; msg.textContent='請選擇類型'; return; }
-    const targetOrderId = addToExistingOrderId;
-    const batchItems = txBatchItems.map(it => ({ productId: it.productId, sku: it.sku || '', name: it.name, unit: it.unit, qty: it.qty }));
-    const result = await mergeItemsIntoCompletedOrderCore(targetOrderId, batchItems, currentTxType, date, party, note);
+  if(action === 'load-verify'){
+    resetRegisterOutFlow();
+    setTxOutFlowType('');
+    openOrderInVerifyPage(orderId);
+    return;
+  }
+  if(action === 'direct-verify'){
+    resetRegisterOutFlow();
+    setTxOutFlowType('');
+    switchTab('tab-order-admin');
+    renderAll();
+    await verifyOrder(orderId);
+    return;
+  }
+}
+
+// 出貨→載入現有已完成訂單。備註是訂單本身欄位直接更新;新增的品項(如果有)透過
+// mergeItemsIntoCompletedOrderCore 併入,會真的扣/加庫存,而且每一項都會記進「核對後變更」清單。
+// 只有一個「儲存」按鈕,存完跳回已完成訂單清單。
+async function submitLoadCompletedFlow(date, msg){
+  if(!registerLoadedOrderId){ msg.className='msg error'; msg.textContent=t('errSelectOrderFirst'); return; }
+  const orderId = registerLoadedOrderId;
+  const order = orders.find(o => o.id === orderId);
+  if(!order){ msg.className='msg error'; msg.textContent=`⚠ ${t('errOrderNoLongerEditable')}`; return; }
+  const outPartyId = document.getElementById('txPartySelect').value || null;
+  const partyObj = shippingParties.find(sp => sp.id === outPartyId);
+  const party = partyObj ? partyObj.name : (order.partyName || '');
+  const noteInput = document.getElementById('txNote');
+  const noteVal = noteInput ? noteInput.value.trim() : '';
+  order.note = noteVal;
+
+  if(txBatchItems.length > 0){
+    const insufficient = txBatchItems
+      .filter(it => it.qty > 0)
+      .map(it => ({ ...it, available: computeTotalStock(it.productId) - computePendingReserved(it.productId) }))
+      .filter(it => it.qty > it.available);
+    if(insufficient.length > 0){
+      msg.className = 'msg error';
+      msg.textContent = `⚠ ${insufficient.map(it => `「${it.name}」需要 ${it.qty} ${it.unit},庫存剩 ${it.available} ${it.unit}`).join('; ')}`;
+      return;
+    }
+    const batchItems = txBatchItems.map(it => ({ productId: it.productId, sku: it.sku||'', name: it.name, unit: it.unit, qty: it.qty }));
+    const result = await mergeItemsIntoCompletedOrderCore(orderId, batchItems, date, party, noteVal);
     if(!result.ok){
       msg.className = 'msg error';
       msg.textContent = result.reason === 'not_editable' ? `⚠ ${t('errOrderNoLongerEditable')}`
@@ -7699,84 +8273,47 @@ async function submitTxBatch(){
         : '⚠ 新增商品失敗,請重新整理頁面再試一次。';
       return;
     }
-    const count = txBatchItems.length;
-    cancelAddToExistingOrderViaRegister();
-    document.getElementById('txNote').value = '';
-    switchTab('tab-order-admin');
-    switchOrderAdminSubTab('subtab-order-completed');
-    expandedOrderIds.add(targetOrderId);
-    renderAll();
-    showInfoModal(tf('addToOrderSuccessMsg', { orderNo: result.order.orderNo || targetOrderId, n: count }));
-    return;
+  } else {
+    try{ await upsertOrders([order]); } catch(e){ console.error('儲存備註失敗', e); }
   }
 
-  // 登記進出貨提交「出貨」時,如果有勾選「併入已完成訂單」,才等同於直接完成一張訂單:賦予訂單編號,
-  // 連動出現在「訂貨後台管理→已完成訂單」清單裡,進出貨紀錄的備註就是這個訂單號(跟從購物車送出訂貨的
-  // 行為一致),方便前後對帳。沒有勾選的話,就只是單純登記一筆出貨紀錄,不建立訂單、不佔用訂單編號。
-  const addToOrderCheckbox = document.getElementById('txAddToCompletedOrder');
-  const addToOrder = currentTxType === 'out' && (!addToOrderCheckbox || addToOrderCheckbox.checked);
-  let orderId = null, orderNo = '', newOrder = null;
-  if(addToOrder){
-    orderId = genId();
-    try{
-      orderNo = await getSafeNextOrderNo();
-    } catch(e){
-      msg.className = 'msg error';
-      msg.textContent = '⚠ 取得訂單編號失敗,請重新整理頁面再試一次。';
-      return;
-    }
-    newOrder = {
-      id: orderId,
-      date, note,
-      partyId: outPartyId,
-      partyName: party,
-      items: txBatchItems.map(it => ({ productId: it.productId, sku: it.sku || '', name: it.name, unit: it.unit, qty: it.qty })),
-      status: 'confirmed',
-      createdAt: new Date().toISOString(),
-      confirmedAt: new Date().toISOString(),
-      orderNo
-    };
-  }
-
-  const newTxs = txBatchItems.map(it => {
-    const tx = { id: genId(), productId: it.productId, type: currentTxType, qty: it.qty, date, party, note };
-    if(addToOrder){
-      tx.note = `${orderNo}${note ? '、' + note : ''}`;
-      tx.system = true;
-      tx.orderId = orderId;
-    }
-    return tx;
-  });
-  transactions.push(...newTxs);
-  if(newOrder) orders.push(newOrder);
-
-  try{
-    await insertTransactions(newTxs);
-    if(newOrder){ await upsertOrders([newOrder]); await saveOrderCounter(); }
-  }
-  catch(e){
-    newTxs.forEach(tx => { const i = transactions.indexOf(tx); if(i >= 0) transactions.splice(i, 1); });
-    if(newOrder){ const i = orders.indexOf(newOrder); if(i >= 0) orders.splice(i, 1); }
-    msg.className='msg error'; msg.textContent = '⚠ 提交失敗,請重新整理頁面再試一次。';
-    return;
-  }
-
-  const count = txBatchItems.length;
-  const logActionType = currentTxType === 'in' ? 'tx_in' : (currentTxType === 'restock' ? 'tx_restock' : 'tx_out');
-  // DETAILS 欄位是登記當下就寫死存進資料庫的文字,不會隨語言切換即時翻譯,所以這裡固定用英文組字串,
-  // 不透過 inventoryLogActionLabel()/t() 讀取當前介面語言。
-  const LOG_ACTION_EN_LABEL = { tx_in: 'Stock In', tx_out: 'Stock Out', tx_restock: 'Restock' };
-  const logDesc = `Logged ${LOG_ACTION_EN_LABEL[logActionType] || logActionType}: ${count} item(s)${party ? ', party ' + party : ''}${orderNo ? ' (merged into order ' + orderNo + ')' : ''}`;
-  logInventoryAction(logActionType, logDesc, orderNo || null);
-  txBatchItems = [];
-  renderTxBatchList();
-  if(currentTxType === 'out'){ document.getElementById('txPartySelect').value = ''; }
-  else if(currentTxType === 'restock'){ document.getElementById('txParty').value = 'Opulent Imports'; }
-  else { document.getElementById('txParty').value = ''; }
-  document.getElementById('txNote').value = '';
-  msg.className='msg ok';
-  msg.textContent = orderNo ? `✓ 已提交 ${count} 項商品,已建立訂單 ${orderNo}` : `✓ 已提交 ${count} 項商品`;
+  resetRegisterOutFlow();
+  setTxOutFlowType('');
+  switchTab('tab-order-admin');
+  switchOrderAdminSubTab('subtab-order-completed');
+  expandedOrderIds.add(orderId);
   renderAll();
+  msg.className='msg ok'; msg.textContent='✓ 已儲存';
+}
+
+// 出貨→庫存調整:不建立訂單、不需要出貨方,單純是庫存數字校正。備註必填,送出前跳警示視窗
+// 再次確認(因為會直接扣/加庫存,沒有訂單流程當中間的緩衝)。
+async function submitAdjustmentFlow(date, msg){
+  if(txBatchItems.length === 0){ msg.className='msg error'; msg.textContent=t('errAddAtLeastOneItem'); return; }
+  const note = document.getElementById('txNote').value.trim();
+  if(!note){ msg.className='msg error'; msg.textContent=t('errNoteRequiredForAdjustment'); return; }
+
+  showConfirmModal(t('confirmStockAdjustment'), async () => {
+    const newTxs = txBatchItems.map(it => ({
+      id: genId(), productId: it.productId, type: it.qty > 0 ? 'out' : 'restock', qty: Math.abs(it.qty), date, party: '', note
+    }));
+    transactions.push(...newTxs);
+    txBatchItems.forEach(it => { productStockMap[it.productId] = (productStockMap[it.productId]||0) - it.qty; });
+    try{ await insertTransactions(newTxs); }
+    catch(e){
+      newTxs.forEach(tx => { const i = transactions.indexOf(tx); if(i>=0) transactions.splice(i,1); });
+      txBatchItems.forEach(it => { productStockMap[it.productId] = (productStockMap[it.productId]||0) + it.qty; });
+      msg.className='msg error'; msg.textContent='⚠ 提交失敗,請重新整理頁面再試一次。'; return;
+    }
+    logInventoryAction('tx_out', `Logged stock adjustment: ${txBatchItems.length} item(s) — ${note}`, null);
+    const count = txBatchItems.length;
+    txBatchItems = [];
+    resetRegisterOutFlow();
+    setTxOutFlowType('');
+    document.getElementById('txNote').value = '';
+    msg.className='msg ok'; msg.textContent = `✓ 已提交庫存調整,共 ${count} 項商品`;
+    renderAll();
+  });
 }
 
 // 直接從「進出貨紀錄」刪除一筆紀錄時,如果這筆紀錄是某張已完成訂單的一部分(有 orderId),
@@ -8917,6 +9454,9 @@ async function saveAppendNoteToTx(id){
 function renderAll(){
   renderProductSelect();
   renderTxBatchList();
+  renderTxExistingItems();
+  renderTxPostVerifyChanges();
+  renderTxSubmitArea();
   renderStockCards();
   renderLog();
   renderInventoryLog();
@@ -9238,7 +9778,7 @@ function isUserActivelyEditing(){
   if(anyModalOpen) return true;
   return !!(appendingNoteTxId || editingProductId || editingPartyId || editingOrderItemKey ||
     editingOrderRemarkId || editingUserModalId || editingOrderPartyId ||
-    addingItemsToOrderId || addToExistingOrderMode);
+    addingItemsToOrderId || registerOutFlowType);
 }
 
 async function silentBackgroundRefresh(){
