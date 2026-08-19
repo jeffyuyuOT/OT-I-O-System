@@ -140,7 +140,7 @@
   button.btn.ghost:hover{ background:#fff; }
   button.btn:disabled{ opacity:0.5; cursor:not-allowed; }
 
-  .msg{ font-size:12px; margin-top:10px; font-family:'IBM Plex Mono',monospace; }
+  .msg{ font-size:12px; margin-top:10px; font-family:'IBM Plex Mono',monospace; white-space:pre-wrap; }
   .msg.ok{ color:var(--safe); }
   .msg.error{ color:var(--crit); }
 
@@ -1855,6 +1855,14 @@ const I18N = {
     verifyPageNoItemsAdded: '還沒有加入任何商品。',
     btnRunOrderVerify: '✓ 核對(扣庫存)',
     errSelectProductFirst: '請先選擇商品', errEnterPositiveQty: '請輸入大於 0 的數量',
+    importSkipReasonNoName: '沒有填品名', importSkipReasonNoStock: '沒有填庫存量',
+    importSkipReasonNoSku: '沒有填 SKU', importSkippedRowsIntro: '有資料列被略過:',
+    importSkippedRowsHeader: '{n} 列資料被整列略過(未匯入):',
+    importSkippedRowLine: '{file} 第 {row} 列(「{identifier}」):{reason}',
+    importLinkSkipIntro: '{n} 項批量商品設定無法套用(商品本身仍照一般商品匯入,只是沒有連結到主商品):',
+    importLinkSkipReasonSelfRef: 'ParentSKU 填了自己的 SKU,不能指自己當主商品',
+    importLinkSkipReasonParentNotFound: 'ParentSKU「{parentSku}」在這份表格裡跟系統裡都找不到對應的商品',
+    importLinkSkipReasonNestedParent: 'ParentSKU「{parentSku}」指到的商品本身也是別人的批量商品,不支援兩層巢狀',
     btnAddItemToOrder: '+ 新增商品', fieldProduct: '商品', fieldQty: '數量',
     errAddItemQtyNonZero: '請輸入不是 0 的數量(正數=出貨,負數=入庫)',
     errProductAlreadyInOrder: '這個商品已經在這張訂單裡了,請用「改數量」調整,不要重複新增。',
@@ -2179,6 +2187,14 @@ const I18N = {
     verifyPageNoItemsAdded: 'No products added yet.',
     btnRunOrderVerify: '✓ Verify (Deduct Stock)',
     errSelectProductFirst: 'Please select a product first', errEnterPositiveQty: 'Please enter a quantity greater than 0',
+    importSkipReasonNoName: 'No product name filled in', importSkipReasonNoStock: 'No stock quantity filled in',
+    importSkipReasonNoSku: 'No SKU filled in', importSkippedRowsIntro: 'Some rows were skipped:',
+    importSkippedRowsHeader: '{n} row(s) were skipped entirely (not imported):',
+    importSkippedRowLine: '{file} row {row} ("{identifier}"): {reason}',
+    importLinkSkipIntro: '{n} multi-pack setting(s) could not be applied (the product itself was still imported normally, just not linked to a main product):',
+    importLinkSkipReasonSelfRef: 'ParentSKU is the same as its own SKU — a product can\'t be its own main product',
+    importLinkSkipReasonParentNotFound: 'ParentSKU "{parentSku}" wasn\'t found as a matching product, either in this sheet or in the system',
+    importLinkSkipReasonNestedParent: 'The product ParentSKU "{parentSku}" points to is itself another product\'s multi-pack — two-level nesting isn\'t supported',
     btnAddItemToOrder: '+ Add Item', fieldProduct: 'Product', fieldQty: 'Qty',
     errAddItemQtyNonZero: 'Please enter a non-zero quantity (positive = ship out, negative = stock in)',
     errProductAlreadyInOrder: 'This product is already in this order. Use "Edit Qty" to adjust it instead of adding it again.',
@@ -5018,7 +5034,8 @@ async function confirmTxImport(){
   renderAll();
 }
 
-async function importStockItems(items){
+async function importStockItems(items, skippedRows){
+  skippedRows = skippedRows || [];
   const msg = document.getElementById('importMsg');
   const today = todayISO();
   let added = 0, updated = 0, unchanged = 0, skippedNoSku = 0;
@@ -5045,7 +5062,8 @@ async function importStockItems(items){
         childWeight: null,
         boxLengthCm: (item.boxLengthCm !== null && item.boxLengthCm !== undefined && !isNaN(item.boxLengthCm)) ? item.boxLengthCm : undefined,
         boxWidthCm: (item.boxWidthCm !== null && item.boxWidthCm !== undefined && !isNaN(item.boxWidthCm)) ? item.boxWidthCm : undefined,
-        boxHeightCm: (item.boxHeightCm !== null && item.boxHeightCm !== undefined && !isNaN(item.boxHeightCm)) ? item.boxHeightCm : undefined
+        boxHeightCm: (item.boxHeightCm !== null && item.boxHeightCm !== undefined && !isNaN(item.boxHeightCm)) ? item.boxHeightCm : undefined,
+        hidden: item.hidden === true
       });
       if(item.qty > 0){
         const tx = {
@@ -5076,6 +5094,7 @@ async function importStockItems(items){
     if(item.boxLengthCm !== null && item.boxLengthCm !== undefined && !isNaN(item.boxLengthCm) && existing.boxLengthCm !== item.boxLengthCm){ existing.boxLengthCm = item.boxLengthCm; changed = true; }
     if(item.boxWidthCm !== null && item.boxWidthCm !== undefined && !isNaN(item.boxWidthCm) && existing.boxWidthCm !== item.boxWidthCm){ existing.boxWidthCm = item.boxWidthCm; changed = true; }
     if(item.boxHeightCm !== null && item.boxHeightCm !== undefined && !isNaN(item.boxHeightCm) && existing.boxHeightCm !== item.boxHeightCm){ existing.boxHeightCm = item.boxHeightCm; changed = true; }
+    if(item.hidden !== null && item.hidden !== undefined && existing.hidden !== item.hidden){ existing.hidden = item.hidden; changed = true; }
 
     const currentStock = computeStock(existing.id);
     const diff = item.qty - currentStock;
@@ -5103,14 +5122,15 @@ async function importStockItems(items){
   // 只有表格上有填 ParentSKU 的列才會處理,沒有填就完全不動這個商品原本的批量設定
   // (不會因為重新匯入就把已經設定好的批量關係清掉)。
   let linked = 0, linkSkipped = 0;
+  const linkSkipDetails = []; // { sku, reason } — 逐項記錄哪個 SKU 的批量設定套用不了、為什麼
   items.forEach(item => {
     if(!item.sku || !item.parentSku) return;
     const child = products.find(p => p.sku === item.sku);
     if(!child) return;
-    if(item.parentSku === item.sku){ linkSkipped++; return; } // 自己指自己,略過
+    if(item.parentSku === item.sku){ linkSkipped++; linkSkipDetails.push({ sku: item.sku, reason: t('importLinkSkipReasonSelfRef') }); return; } // 自己指自己,略過
     const parent = products.find(p => p.sku === item.parentSku);
-    if(!parent){ linkSkipped++; return; } // 表格裡跟系統裡都找不到這個 ParentSKU,略過批量設定
-    if(parent.parentId){ linkSkipped++; return; } // 主商品本身也是別人的批量商品,不支援兩層巢狀,略過
+    if(!parent){ linkSkipped++; linkSkipDetails.push({ sku: item.sku, reason: tf('importLinkSkipReasonParentNotFound', {parentSku: item.parentSku}) }); return; } // 表格裡跟系統裡都找不到這個 ParentSKU,略過批量設定
+    if(parent.parentId){ linkSkipped++; linkSkipDetails.push({ sku: item.sku, reason: tf('importLinkSkipReasonNestedParent', {parentSku: item.parentSku}) }); return; } // 主商品本身也是別人的批量商品,不支援兩層巢巢,略過
     child.parentId = parent.id;
     if(item.childWeight !== null && item.childWeight !== undefined && !isNaN(item.childWeight)){
       child.childWeight = item.childWeight;
@@ -5136,9 +5156,28 @@ async function importStockItems(items){
   if(updated > 0) parts.push(`更新 ${updated} 項現有商品(庫存量/分類/平均值/安全庫存/備註,商品名稱維持不變)`);
   if(unchanged > 0) parts.push(`${unchanged} 項沒有變化`);
   if(linked > 0) parts.push(`設定 ${linked} 項為批量商品(已連結主商品/加權數)`);
-  if(linkSkipped > 0) parts.push(`${linkSkipped} 項批量設定無法套用(ParentSKU 找不到對應主商品,或主商品本身也是批量商品),已忽略批量欄位、商品仍照一般商品匯入`);
   if(skippedNoSku > 0) parts.push(`略過 ${skippedNoSku} 項沒有 SKU 的資料列`);
-  msg.textContent = '✓ ' + (parts.length > 0 ? parts.join(',') : '沒有可匯入的資料');
+  let summaryText = '✓ ' + (parts.length > 0 ? parts.join(',') : '沒有可匯入的資料');
+
+  // 詳細列出「哪一項」批量設定套用不了、為什麼——不是只給一個籠統的數字,方便對照 Excel
+  // 原始檔案逐項排除問題(例如 ParentSKU 打錯字、或指到的那個商品其實也是別人的批量商品)。
+  if(linkSkipDetails.length > 0){
+    summaryText += `\n⚠ ${tf('importLinkSkipIntro', {n: linkSkipDetails.length})}`;
+    linkSkipDetails.forEach(d => {
+      summaryText += `\n  · SKU「${d.sku}」:${d.reason}`;
+    });
+  }
+
+  // 詳細列出「哪一列」被整列略過、為什麼——包含解析階段就被排除的(缺品名/庫存量/SKU),
+  // 不用再去猜是不是自己漏填了什麼。
+  if(skippedRows.length > 0){
+    summaryText += `\n⚠ ${tf('importSkippedRowsHeader', {n: skippedRows.length})}`;
+    skippedRows.forEach(s => {
+      summaryText += `\n  · ${tf('importSkippedRowLine', {file: s.file, row: s.row, identifier: s.identifier || '—', reason: s.reason})}`;
+    });
+  }
+
+  msg.textContent = summaryText;
   renderAll();
 }
 
@@ -5159,8 +5198,18 @@ const MASTER_COLUMN_ALIASES = {
   childWeight: ['childweight','weight','加權數','庫存量加權數','weightnumber'],
   boxLength: ['boxlength','length','長','箱長','長度cm','lengthcm'],
   boxWidth: ['boxwidth','width','寬','箱寬','寬度cm','widthcm'],
-  boxHeight: ['boxheight','height','高','箱高','高度cm','heightcm']
+  boxHeight: ['boxheight','height','高','箱高','高度cm','heightcm'],
+  hidden: ['hidden','隱藏','ishidden','是否隱藏']
 };
+
+// Excel 儲存格裡的「是否隱藏」欄位,可能是真的布林值(true/false)、文字(TRUE/FALSE、Y/N、是/否),
+// 或數字(1/0),這裡統一轉換成布林值。無法辨識的內容一律當作「不隱藏」(false),避免打錯字反而
+// 把商品意外隱藏起來。
+function parseBoolLikeCell(val){
+  if(typeof val === 'boolean') return val;
+  const s = String(val).trim().toLowerCase();
+  return s === 'true' || s === 'yes' || s === 'y' || s === '1' || s === '是' || s === '隱藏';
+}
 
 function normalizeHeader(h){
   return String(h).toLowerCase().replace(/[\s_\-/]/g, '');
@@ -5237,6 +5286,7 @@ function parseMasterExcelFile(){
 
   const allItems = [];
   const fileErrors = [];
+  const skippedRows = []; // { file, row, reason } — 逐列記錄哪一列被略過、為什麼,方便使用者對照 Excel 原檔案找出問題
   let filesDone = 0;
 
   files.forEach(file => {
@@ -5269,6 +5319,7 @@ function parseMasterExcelFile(){
         const colBoxLength = findColumnIndex(headerRow, MASTER_COLUMN_ALIASES.boxLength);
         const colBoxWidth = findColumnIndex(headerRow, MASTER_COLUMN_ALIASES.boxWidth);
         const colBoxHeight = findColumnIndex(headerRow, MASTER_COLUMN_ALIASES.boxHeight);
+        const colHidden = findColumnIndex(headerRow, MASTER_COLUMN_ALIASES.hidden);
 
         if(colName === -1 || colQty === -1){
           fileErrors.push(`${file.name}:找不到「Name/品名」或「Stock/庫存量」欄位`);
@@ -5281,11 +5332,27 @@ function parseMasterExcelFile(){
 
         for(let r = 1; r < rows.length; r++){
           const row = rows[r];
-          if(!row || row[colName] === null || row[colName] === undefined || row[colName] === '') continue;
+          if(!row) continue;
+          const excelRowNo = r + 1; // Excel 檔案裡實際的列號(標題佔第 1 列,資料從第 2 列開始,陣列索引 r 對應到 r+1 列)
+          const rowNameVal = row[colName];
+          const rowSkuVal = row[colSku];
+          const rowIdentifier = (rowSkuVal !== null && rowSkuVal !== undefined && rowSkuVal !== '') ? String(rowSkuVal).trim()
+            : (rowNameVal !== null && rowNameVal !== undefined && rowNameVal !== '') ? String(rowNameVal).trim()
+            : null;
+          if(rowNameVal === null || rowNameVal === undefined || rowNameVal === ''){
+            skippedRows.push({ file: file.name, row: excelRowNo, identifier: rowIdentifier, reason: t('importSkipReasonNoName') });
+            continue;
+          }
           const qtyVal = row[colQty];
-          if(qtyVal === null || qtyVal === undefined || qtyVal === '') continue;
+          if(qtyVal === null || qtyVal === undefined || qtyVal === ''){
+            skippedRows.push({ file: file.name, row: excelRowNo, identifier: rowIdentifier || String(rowNameVal).trim(), reason: t('importSkipReasonNoStock') });
+            continue;
+          }
           const skuVal = row[colSku];
-          if(skuVal === null || skuVal === undefined || skuVal === '') continue;
+          if(skuVal === null || skuVal === undefined || skuVal === ''){
+            skippedRows.push({ file: file.name, row: excelRowNo, identifier: String(rowNameVal).trim(), reason: t('importSkipReasonNoSku') });
+            continue;
+          }
 
           allItems.push({
             sku: String(skuVal).trim(),
@@ -5300,7 +5367,9 @@ function parseMasterExcelFile(){
             childWeight: colChildWeight !== -1 && row[colChildWeight] !== null && row[colChildWeight] !== '' ? parseFloat(row[colChildWeight]) : null,
             boxLengthCm: colBoxLength !== -1 && row[colBoxLength] !== null && row[colBoxLength] !== '' ? parseFloat(row[colBoxLength]) : null,
             boxWidthCm: colBoxWidth !== -1 && row[colBoxWidth] !== null && row[colBoxWidth] !== '' ? parseFloat(row[colBoxWidth]) : null,
-            boxHeightCm: colBoxHeight !== -1 && row[colBoxHeight] !== null && row[colBoxHeight] !== '' ? parseFloat(row[colBoxHeight]) : null
+            boxHeightCm: colBoxHeight !== -1 && row[colBoxHeight] !== null && row[colBoxHeight] !== '' ? parseFloat(row[colBoxHeight]) : null,
+            hidden: colHidden !== -1 && row[colHidden] !== null && row[colHidden] !== undefined && row[colHidden] !== '' ? parseBoolLikeCell(row[colHidden]) : null,
+            _sourceFile: file.name, _sourceRow: excelRowNo
           });
         }
       } catch(err){
@@ -5316,10 +5385,11 @@ function parseMasterExcelFile(){
   function finishMasterImport(){
     if(allItems.length === 0){
       msg.className = 'msg error';
-      msg.textContent = `沒有解析到任何商品資料列。${fileErrors.length > 0 ? '錯誤:' + fileErrors.join('; ') : '請確認檔案內容'}`;
+      const skipDetail = skippedRows.length > 0 ? ` ${t('importSkippedRowsIntro')}${skippedRows.map(s => tf('importSkippedRowLine', {file: s.file, row: s.row, identifier: s.identifier || '—', reason: s.reason})).join('; ')}` : '';
+      msg.textContent = `沒有解析到任何商品資料列。${fileErrors.length > 0 ? '錯誤:' + fileErrors.join('; ') : '請確認檔案內容'}${skipDetail}`;
       return;
     }
-    importStockItems(allItems);
+    importStockItems(allItems, skippedRows);
     if(fileErrors.length > 0){
       const prevMsg = document.getElementById('importMsg');
       setTimeout(() => {
