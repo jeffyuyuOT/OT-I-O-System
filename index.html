@@ -10386,10 +10386,11 @@ function showScanToast(text, isError){
     if(el !== related) hideTooltip();
   });
 
-  // 手機:按住商品名稱 1 秒才顯示。顯示之後不去精算「是不是同一根手指放開了」這種細節——
-  // 只要接下來使用者「在畫面上碰一下(不管碰哪裡、做什麼操作)」,提示就會收起來,這樣才能確保
-  // 「做其他操作後小視窗應該要消失」一定成立,不會卡住。延後 300 毫秒才開始監聽下一次碰觸,
-  // 避免長按放開手指的那個瞬間被自己算成「下一次碰觸」,顯示出來馬上又被收掉。
+  // 手機:按住商品名稱 1 秒才顯示。顯示之後,同一根手指放開(touchend)或被系統取消
+  // (touchcancel)都要立刻收起來——這是最自然的「長按看一下、放開手指、提示就消失」的行為,
+  // 之前只顧著防「接下來使用者做別的操作」,卻漏了「單純放開手指」這個最常見的情境,導致
+  // 提示會卡住不消失。另外保留一個防呆:如果因為某些瀏覽器的特殊情況沒抓到放開的時機,
+  // 接下來使用者在畫面上碰一下(不管碰哪裡、做什麼操作),也一樣會收起來。
   function armDismissOnNextTouch(){
     let dismissed = false;
     function dismissOnce(){
@@ -10410,8 +10411,17 @@ function showScanToast(text, isError){
     if(!el) return;
     touchTimer = setTimeout(function(){
       showTooltip(el, el.dataset.sku);
-      armDismissOnNextTouch();
       touchTimer = null;
+      armDismissOnNextTouch();
+      // 同一根手指放開就直接收起來,不用等使用者再碰別的地方。這兩個監聽只用一次就拿掉,
+      // 避免之後每次放開手指都莫名觸發到(這裡跟上面的防呆各自獨立,誰先觸發都收得掉)。
+      function onRelease(){
+        hideTooltip();
+        document.removeEventListener('touchend', onRelease);
+        document.removeEventListener('touchcancel', onRelease);
+      }
+      document.addEventListener('touchend', onRelease);
+      document.addEventListener('touchcancel', onRelease);
     }, 1000);
   }, { passive: true });
   document.addEventListener('touchmove', function(){
