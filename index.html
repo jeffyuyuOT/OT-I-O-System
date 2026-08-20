@@ -10289,7 +10289,6 @@ function showScanToast(text, isError){
   const tooltip = document.getElementById('skuTooltip');
   if(!tooltip) return;
   let touchTimer = null;
-  let touchFired = false;
 
   function showTooltip(target, sku){
     tooltip.textContent = sku;
@@ -10307,26 +10306,44 @@ function showScanToast(text, isError){
     tooltip.style.display = 'none';
   }
 
-  // 桌面:滑鼠移進/移出商品名稱。mouseover/mouseout 本身會冒泡,搭配 closest() 判斷
-  // 才能用「代理」的方式處理,不用逐一綁在每個商品名稱上。
+  // 桌面:滑鼠移進商品名稱顯示,移出才收起——用 relatedTarget 判斷滑鼠實際去了哪裡,避免在
+  // 同一個觸發範圍內小幅移動時誤判成「已經移出」又立刻收起來。
   document.addEventListener('mouseover', function(e){
-    const el = e.target.closest('.sku-tooltip-trigger');
+    const el = e.target.closest && e.target.closest('.sku-tooltip-trigger');
     if(el) showTooltip(el, el.dataset.sku);
   });
   document.addEventListener('mouseout', function(e){
-    const el = e.target.closest('.sku-tooltip-trigger');
-    if(el) hideTooltip();
+    const el = e.target.closest && e.target.closest('.sku-tooltip-trigger');
+    if(!el) return;
+    const related = e.relatedTarget && e.relatedTarget.closest ? e.relatedTarget.closest('.sku-tooltip-trigger') : null;
+    if(el !== related) hideTooltip();
   });
 
-  // 手機:按住商品名稱 1 秒才顯示,單純點一下(小於 1 秒就放開,或手指有移動代表在滑動清單)
-  // 不會跳出來,避免手機瀏覽/點擊操作被這個提示干擾。
+  // 手機:按住商品名稱 1 秒才顯示。顯示之後不去精算「是不是同一根手指放開了」這種細節——
+  // 只要接下來使用者「在畫面上碰一下(不管碰哪裡、做什麼操作)」,提示就會收起來,這樣才能確保
+  // 「做其他操作後小視窗應該要消失」一定成立,不會卡住。延後 300 毫秒才開始監聽下一次碰觸,
+  // 避免長按放開手指的那個瞬間被自己算成「下一次碰觸」,顯示出來馬上又被收掉。
+  function armDismissOnNextTouch(){
+    let dismissed = false;
+    function dismissOnce(){
+      if(dismissed) return;
+      dismissed = true;
+      hideTooltip();
+      document.removeEventListener('touchstart', dismissOnce, true);
+      document.removeEventListener('mousedown', dismissOnce, true);
+    }
+    setTimeout(function(){
+      document.addEventListener('touchstart', dismissOnce, true);
+      document.addEventListener('mousedown', dismissOnce, true);
+    }, 300);
+  }
+
   document.addEventListener('touchstart', function(e){
-    const el = e.target.closest('.sku-tooltip-trigger');
+    const el = e.target.closest && e.target.closest('.sku-tooltip-trigger');
     if(!el) return;
-    touchFired = false;
     touchTimer = setTimeout(function(){
       showTooltip(el, el.dataset.sku);
-      touchFired = true;
+      armDismissOnNextTouch();
       touchTimer = null;
     }, 1000);
   }, { passive: true });
@@ -10335,12 +10352,9 @@ function showScanToast(text, isError){
   }, { passive: true });
   document.addEventListener('touchend', function(){
     if(touchTimer){ clearTimeout(touchTimer); touchTimer = null; }
-    else if(touchFired){ hideTooltip(); touchFired = false; }
   });
   document.addEventListener('touchcancel', function(){
     if(touchTimer){ clearTimeout(touchTimer); touchTimer = null; }
-    hideTooltip();
-    touchFired = false;
   });
 })();
 
