@@ -10185,6 +10185,24 @@ function showScanToast(text, isError){
   showScanToast._timer = setTimeout(() => { toast.style.opacity = '0'; }, 2200);
 }
 
+// ===== 鎖住瀏覽器的「上一頁」動作 =====
+// 這個 App 沒有真的用網址列/瀏覽器紀錄做分頁切換(切分頁都是純 JS 換 CSS 顯示,不會產生新的
+// history 紀錄),所以手機上如果使用者想「回上一層分頁」,習慣性滑了返回手勢或按了返回鍵,
+// 瀏覽器並不知道 App 裡面有分頁層級這回事,只會照瀏覽器自己的紀錄退回「打開這個 App 之前」
+// 的那個網頁,等於直接把整個 App 關掉、跳走了。
+// 做法:一進到 App 就先塞一個假的 history 狀態進去(墊底),之後只要偵測到使用者按了「上一頁」
+// (觸發 popstate),就立刻再塞一次同樣的狀態,把瀏覽器「拉回原地」——使用者會感覺像是按了
+// 「上一頁」沒有反應,而不是整個網頁被關掉、跳出 App。分頁層級的切換還是要用 App 裡面自己的
+// 分頁按鈕操作,這個機制只是防止「不小心用系統返回把 App 弄丟」。
+(function trapBrowserBackButton(){
+  try{
+    history.pushState({ appTrap: true }, '');
+    window.addEventListener('popstate', function(){
+      history.pushState({ appTrap: true }, '');
+    });
+  } catch(e){ /* history API 不可用(極少見)就放棄,不影響其他功能 */ }
+})();
+
 (async function boot(){
   try{
     const savedLang = localStorage.getItem('inventoryAppLang');
