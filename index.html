@@ -1063,6 +1063,12 @@
           </select>
         </div>
         <div>
+          <div id="verifyPageBrowseAllProductsRow" style="margin-bottom:6px;">
+            <label style="display:flex;align-items:center;gap:6px;font-size:12.5px;color:var(--ink);cursor:pointer;">
+              <input type="checkbox" id="verifyPageBrowseAllProducts" onchange="renderVerifyPageProductSelect()" style="width:16px;height:16px;cursor:pointer;" />
+              <span data-i18n="browseAllProductsLabel">瀏覽所有商品(不勾選:只顯示這個出貨方訂貨時看得到的商品;勾選:顯示庫存總覽裡所有商品,隱藏商品除外)</span>
+            </label>
+          </div>
           <div class="form-grid" style="grid-template-columns:1fr 1fr auto;">
             <div class="field">
               <label data-i18n="fieldFilterByCategory">依分類篩選商品</label>
@@ -6952,7 +6958,10 @@ function loadOrderIntoVerifyPage(orderId){
   verifyPageRightItems = [];
   const msg = document.getElementById('verifyPageMsg');
   if(msg){ msg.className = 'msg'; msg.textContent = ''; }
+  const browseAllEl = document.getElementById('verifyPageBrowseAllProducts');
+  if(browseAllEl) browseAllEl.checked = false; // 每次重新選訂單,「瀏覽所有商品」重設回預設(不勾選)
   renderVerifyPage();
+  renderVerifyPageProductSelect();
 }
 
 // 從「訂貨後台管理 → 待處理訂單」點「載入訂單核對頁面」進來的入口:切到庫存管理分頁的
@@ -6960,6 +6969,8 @@ function loadOrderIntoVerifyPage(orderId){
 function openOrderInVerifyPage(orderId){
   verifyPageOrderId = orderId;
   verifyPageRightItems = [];
+  const browseAllEl = document.getElementById('verifyPageBrowseAllProducts');
+  if(browseAllEl) browseAllEl.checked = false;
   switchTab('tab-tx');
   switchTxSubTab('subtab-tx-verify');
 }
@@ -7024,8 +7035,22 @@ function renderVerifyPageProductSelect(){
   const catFilterVal = catSel.value;
 
   const prevProd = sel.value;
-  const filtered = (catFilterVal ? products.filter(p => (p.category || '未分類') === catFilterVal) : products)
-    .slice().sort((a,b) => (a.sku || '').localeCompare(b.sku || '', undefined, { numeric: true, sensitivity: 'base' }));
+  let filtered = catFilterVal ? products.filter(p => (p.category || '未分類') === catFilterVal) : products;
+
+  // 跟登記進出貨的「載入現有訂單」新增商品同一套邏輯:預設只顯示這張訂單的出貨方訂貨時
+  // 實際看得到的商品,勾選「瀏覽所有商品」才放寬成庫存總覽裡的全部商品(全域隱藏的還是不顯示)。
+  const browseAllEl = document.getElementById('verifyPageBrowseAllProducts');
+  const browseAll = !!(browseAllEl && browseAllEl.checked);
+  if(browseAll){
+    filtered = filtered.filter(p => !p.hidden);
+  } else {
+    const order = verifyPageOrderId ? orders.find(o => o.id === verifyPageOrderId) : null;
+    const partyObj = order ? shippingParties.find(sp => sp.id === order.partyId) : null;
+    const hiddenForParty = partyObj && Array.isArray(partyObj.hiddenProductIds) ? partyObj.hiddenProductIds : [];
+    filtered = filtered.filter(p => p.orderable && !p.hidden && !hiddenForParty.includes(p.id));
+  }
+
+  filtered = filtered.slice().sort((a,b) => (a.sku || '').localeCompare(b.sku || '', undefined, { numeric: true, sensitivity: 'base' }));
   sel.innerHTML = filtered.map(p => `<option value="${p.id}">${p.sku ? p.sku + ' — ' : ''}${p.parentId ? '⧉ ' : ''}${p.name}(${p.unit})</option>`).join('');
   if(filtered.some(p => p.id === prevProd)) sel.value = prevProd;
 }
