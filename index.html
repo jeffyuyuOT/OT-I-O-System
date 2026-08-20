@@ -251,6 +251,14 @@
     font-family:'IBM Plex Mono',monospace; font-size:10px; color:var(--ink-soft);
     border:1px solid var(--line); border-radius:3px; padding:1px 5px; margin-right:6px;
   }
+  .sku-tooltip-trigger{
+    border-bottom:1px dotted var(--ink-soft); cursor:help;
+  }
+  #skuTooltip{
+    display:none; position:fixed; z-index:2000; background:var(--ink); color:#fff;
+    font-family:'IBM Plex Mono',monospace; font-size:11px; padding:4px 8px; border-radius:3px;
+    pointer-events:none; white-space:nowrap; box-shadow:0 2px 8px rgba(0,0,0,0.25);
+  }
   .cat-order-panel{
     background:#fff; border:1px solid var(--line); border-radius:2px; padding:14px 16px; margin-bottom:16px;
   }
@@ -5708,7 +5716,7 @@ function renderOrderItemsTable(){
       : '';
     const row = `
       <tr class="${outOfStock ? 'oos-row' : ''}">
-        <td class="row-name" style="${isNested ? 'padding-left:26px;' : ''}">${p.sku ? `<span class="sku-badge">${p.sku}</span>` : ''}${isChildProduct ? '⧉ ' : ''}${p.name}${p.orderPageRemark ? `<span style="font-style:italic;font-size:11.5px;color:var(--ink-soft);"> ${p.orderPageRemark.replace(/</g,'&lt;')}</span>` : ''}${expandArrow}${outOfStock ? `<span class="oos-badge">${t('oosLabel')}</span>` : ''}</td>
+        <td class="row-name" style="${isNested ? 'padding-left:26px;' : ''}">${isChildProduct ? '⧉ ' : ''}${p.sku ? `<span class="sku-tooltip-trigger" data-sku="${p.sku.replace(/"/g,'&quot;')}">${p.name}</span>` : p.name}${p.orderPageRemark ? `<span style="font-style:italic;font-size:11.5px;color:var(--ink-soft);"> ${p.orderPageRemark.replace(/</g,'&lt;')}</span>` : ''}${expandArrow}${outOfStock ? `<span class="oos-badge">${t('oosLabel')}</span>` : ''}</td>
         <td class="row-note-cell">
           <span class="td-mobile-label">${t('colItemNote')}</span>
           <input type="text" class="order-item-note-input" id="orderItemNote_${p.id}" placeholder="${t('itemNotePlaceholder')}"
@@ -10235,6 +10243,72 @@ function showScanToast(text, isError){
   } catch(e){ /* history API 不可用(極少見)就放棄,不影響其他功能 */ }
 })();
 
+// ===== 訂貨頁面商品名稱的 SKU 提示 =====
+// 訂貨頁面不再直接把 SKU 顯示成一個小標籤,改成:滑鼠停留在商品名稱上(桌面版)、或手指按住
+// 商品名稱 1 秒不放(手機版),才從名稱正上方彈出一個小視窗顯示 SKU。
+// 用事件代理(監聽整個 document,而不是每一列各自綁一次)的原因:商品清單是每次 renderAll()
+// 都整段用 innerHTML 重新產生 HTML 字串,如果個別綁在每一列的元素上,重新畫面之後舊的綁定
+// 就跟著消失了,還要記得每次重畫都重新綁一次;用事件代理綁在 document 上只需要绑一次,
+// 不管清單重畫幾次都會繼續生效。
+(function initSkuTooltip(){
+  const tooltip = document.getElementById('skuTooltip');
+  if(!tooltip) return;
+  let touchTimer = null;
+  let touchFired = false;
+
+  function showTooltip(target, sku){
+    tooltip.textContent = sku;
+    tooltip.style.display = 'block';
+    const rect = target.getBoundingClientRect();
+    const tw = tooltip.offsetWidth, th = tooltip.offsetHeight;
+    let left = rect.left + rect.width / 2 - tw / 2;
+    left = Math.max(4, Math.min(left, window.innerWidth - tw - 4));
+    let top = rect.top - th - 6;
+    if(top < 4) top = rect.bottom + 6; // 上方空間不夠(例如頁面最上面那幾列)就改顯示在下方
+    tooltip.style.left = left + 'px';
+    tooltip.style.top = top + 'px';
+  }
+  function hideTooltip(){
+    tooltip.style.display = 'none';
+  }
+
+  // 桌面:滑鼠移進/移出商品名稱。mouseover/mouseout 本身會冒泡,搭配 closest() 判斷
+  // 才能用「代理」的方式處理,不用逐一綁在每個商品名稱上。
+  document.addEventListener('mouseover', function(e){
+    const el = e.target.closest('.sku-tooltip-trigger');
+    if(el) showTooltip(el, el.dataset.sku);
+  });
+  document.addEventListener('mouseout', function(e){
+    const el = e.target.closest('.sku-tooltip-trigger');
+    if(el) hideTooltip();
+  });
+
+  // 手機:按住商品名稱 1 秒才顯示,單純點一下(小於 1 秒就放開,或手指有移動代表在滑動清單)
+  // 不會跳出來,避免手機瀏覽/點擊操作被這個提示干擾。
+  document.addEventListener('touchstart', function(e){
+    const el = e.target.closest('.sku-tooltip-trigger');
+    if(!el) return;
+    touchFired = false;
+    touchTimer = setTimeout(function(){
+      showTooltip(el, el.dataset.sku);
+      touchFired = true;
+      touchTimer = null;
+    }, 1000);
+  }, { passive: true });
+  document.addEventListener('touchmove', function(){
+    if(touchTimer){ clearTimeout(touchTimer); touchTimer = null; }
+  }, { passive: true });
+  document.addEventListener('touchend', function(){
+    if(touchTimer){ clearTimeout(touchTimer); touchTimer = null; }
+    else if(touchFired){ hideTooltip(); touchFired = false; }
+  });
+  document.addEventListener('touchcancel', function(){
+    if(touchTimer){ clearTimeout(touchTimer); touchTimer = null; }
+    hideTooltip();
+    touchFired = false;
+  });
+})();
+
 (async function boot(){
   try{
     const savedLang = localStorage.getItem('inventoryAppLang');
@@ -10275,5 +10349,6 @@ function showScanToast(text, isError){
   document.getElementById('loginUsernameInput').focus();
 })();
 </script>
+<div id="skuTooltip"></div>
 </body>
 </html>
