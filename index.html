@@ -10355,7 +10355,6 @@ function showScanToast(text, isError){
 (function initSkuTooltip(){
   const tooltip = document.getElementById('skuTooltip');
   if(!tooltip) return;
-  let touchTimer = null;
 
   function showTooltip(target, sku){
     tooltip.textContent = sku;
@@ -10386,52 +10385,32 @@ function showScanToast(text, isError){
     if(el !== related) hideTooltip();
   });
 
-  // 手機:按住商品名稱 1 秒才顯示。顯示之後,同一根手指放開(touchend)或被系統取消
-  // (touchcancel)都要立刻收起來——這是最自然的「長按看一下、放開手指、提示就消失」的行為,
-  // 之前只顧著防「接下來使用者做別的操作」,卻漏了「單純放開手指」這個最常見的情境,導致
-  // 提示會卡住不消失。另外保留一個防呆:如果因為某些瀏覽器的特殊情況沒抓到放開的時機,
-  // 接下來使用者在畫面上碰一下(不管碰哪裡、做什麼操作),也一樣會收起來。
-  function armDismissOnNextTouch(){
+  // 手機:單純點一下商品名稱就顯示(不用長按——長按在手機瀏覽器上會跳出系統的「複製」選字選單,
+  // 反而干擾操作)。顯示之後,使用者接下來做任何其他動作(最常見的是滑動去看別的商品,或點畫面
+  // 其他地方)就會收起來。延後 250 毫秒才開始監聽下一次滑動/碰觸,避免顯示當下那個點擊/觸控
+  // 事件本身被誤判成「已經做了其他動作」,顯示出來馬上又被收掉。
+  function armDismiss(){
     let dismissed = false;
     function dismissOnce(){
       if(dismissed) return;
       dismissed = true;
       hideTooltip();
+      window.removeEventListener('scroll', dismissOnce, true);
       document.removeEventListener('touchstart', dismissOnce, true);
       document.removeEventListener('mousedown', dismissOnce, true);
     }
     setTimeout(function(){
+      window.addEventListener('scroll', dismissOnce, true);
       document.addEventListener('touchstart', dismissOnce, true);
       document.addEventListener('mousedown', dismissOnce, true);
-    }, 300);
+    }, 250);
   }
 
-  document.addEventListener('touchstart', function(e){
+  document.addEventListener('click', function(e){
     const el = e.target.closest && e.target.closest('.sku-tooltip-trigger');
     if(!el) return;
-    touchTimer = setTimeout(function(){
-      showTooltip(el, el.dataset.sku);
-      touchTimer = null;
-      armDismissOnNextTouch();
-      // 同一根手指放開就直接收起來,不用等使用者再碰別的地方。這兩個監聽只用一次就拿掉,
-      // 避免之後每次放開手指都莫名觸發到(這裡跟上面的防呆各自獨立,誰先觸發都收得掉)。
-      function onRelease(){
-        hideTooltip();
-        document.removeEventListener('touchend', onRelease);
-        document.removeEventListener('touchcancel', onRelease);
-      }
-      document.addEventListener('touchend', onRelease);
-      document.addEventListener('touchcancel', onRelease);
-    }, 1000);
-  }, { passive: true });
-  document.addEventListener('touchmove', function(){
-    if(touchTimer){ clearTimeout(touchTimer); touchTimer = null; }
-  }, { passive: true });
-  document.addEventListener('touchend', function(){
-    if(touchTimer){ clearTimeout(touchTimer); touchTimer = null; }
-  });
-  document.addEventListener('touchcancel', function(){
-    if(touchTimer){ clearTimeout(touchTimer); touchTimer = null; }
+    showTooltip(el, el.dataset.sku);
+    armDismiss();
   });
 })();
 
