@@ -26,11 +26,11 @@
   }
   *{box-sizing:border-box;}
   @keyframes appLoadingSpin{ to{ transform:rotate(360deg); } }
-  html{ overflow-x:hidden; width:100%; }
+  html{ overflow-x:hidden; width:100%; overscroll-behavior:none; }
   body{
     margin:0; background:var(--bg); color:var(--ink);
     font-family:'Inter',sans-serif; -webkit-font-smoothing:antialiased;
-    overflow-x:hidden; width:100%;
+    overflow-x:hidden; width:100%; overscroll-behavior:none;
   }
   .wrap{ max-width:1080px; margin:0 auto; padding:0 0 60px; }
 
@@ -1008,6 +1008,12 @@
         <div id="txPostVerifyChangesList"></div>
       </div>
       <div class="section-title" style="font-size:13px;margin-top:14px;" data-i18n="secAddProduct">新增商品</div>
+      <div id="txBrowseAllProductsRow" style="display:none;margin:6px 0;">
+        <label style="display:flex;align-items:center;gap:6px;font-size:12.5px;color:var(--ink);cursor:pointer;">
+          <input type="checkbox" id="txBrowseAllProducts" onchange="renderProductSelect()" style="width:16px;height:16px;cursor:pointer;" />
+          <span data-i18n="browseAllProductsLabel">瀏覽所有商品(不勾選:只顯示這個出貨方訂貨時看得到的商品;勾選:顯示庫存總覽裡所有商品,隱藏商品除外)</span>
+        </label>
+      </div>
       <div class="form-grid" style="grid-template-columns:1fr 1.3fr 1fr auto;margin-top:6px;">
         <div class="field">
           <label data-i18n="fieldFilterByCategory">依分類篩選商品</label>
@@ -1778,6 +1784,7 @@ const I18N = {
     logActionOrderEdit: '修改訂單', logActionOrderDelete: '刪除訂單', logActionOrderRemark: '編輯訂單附註',
     secImportTitle: '從 Excel 匯入商品主檔',
     secAddProduct: '新增商品', secRegisterTx: '登記進出貨', secImportTx: '從 Excel 匯入進出貨紀錄',
+    browseAllProductsLabel: '瀏覽所有商品(不勾選:只顯示這個出貨方訂貨時看得到的商品;勾選:顯示庫存總覽裡所有商品,隱藏商品除外)',
     secStockOverview: '庫存總覽', secTxLog: '進出貨紀錄',
     fieldSku: 'SKU(選填)', fieldName: '商品名稱', fieldUnit: '單位', fieldCategory: '分類',
     fieldAvg: '月均使用量(選填)', fieldSafety: '安全庫存(月數,選填)', fieldNote: '備註(選填)',
@@ -2118,6 +2125,7 @@ const I18N = {
     logActionOrderEdit: 'Edit order', logActionOrderDelete: 'Delete order', logActionOrderRemark: 'Edit order remark',
     secImportTitle: 'Import Product Master from Excel',
     secAddProduct: 'Add Product', secRegisterTx: 'Log Stock In/Out', secImportTx: 'Import Stock In/Out from Excel',
+    browseAllProductsLabel: 'Browse all products (unchecked: only products this supplier can see when ordering; checked: all products in stock overview, except hidden ones)',
     secStockOverview: 'Stock Overview', secTxLog: 'Stock In/Out Log',
     fieldSku: 'SKU (optional)', fieldName: 'Product Name', fieldUnit: 'Unit', fieldCategory: 'Category',
     fieldAvg: 'Avg Monthly Usage (optional)', fieldSafety: 'Safety Stock (months, optional)', fieldNote: 'Note (optional)',
@@ -4185,6 +4193,7 @@ function setTxOutFlowType(flowType){
   }
   renderTxSubmitArea();
   renderTxBatchList();
+  renderProductSelect();
 }
 
 // 依目前的類型/出貨類型,決定下面要顯示哪些提交按鈕:
@@ -4315,6 +4324,7 @@ function loadOrderIntoRegisterFlow(orderId){
     renderTxExistingItems();
     renderTxPostVerifyChanges();
     renderTxSubmitArea();
+    renderProductSelect();
     return;
   }
   const order = orders.find(o => o.id === orderId);
@@ -4334,12 +4344,15 @@ function loadOrderIntoRegisterFlow(orderId){
   }
   const noteInput = document.getElementById('txNote');
   if(noteInput) noteInput.value = order.note || '';
+  const browseAllEl = document.getElementById('txBrowseAllProducts');
+  if(browseAllEl) browseAllEl.checked = false; // 每次重新載入訂單,「瀏覽所有商品」重設回預設(不勾選)
 
   showTxMainFormArea(true);
   renderTxExistingItems();
   renderTxPostVerifyChanges();
   renderTxSubmitArea();
   renderTxBatchList();
+  renderProductSelect();
 }
 
 function startTxExistingItemEdit(productId){
@@ -6132,11 +6145,11 @@ function orderItemRowHtml(o, it, isPending, readOnly, context){
       </div>
     `;
   }
-  // 簽收後不再顯示「待處理訂單階段」改數量留下的異動紀錄(例如 "(20→25)" 這種)——這個紀錄本來是
-  // 給核對之前參考用的,簽收後只需要看「現在確實是多少數量」,加上下面獨立的「核對後變更」區塊
-  // (核對之後的異動有另外記錄在那裡),不需要再混著看這個。qtyHistory 陣列本身還是保留原始資料
-  // 沒有刪除,只是簽收後不在這裡顯示出來而已。
-  const qtyHistoryStr = (!o.signedAt && it.qtyHistory && it.qtyHistory.length > 0)
+  // 核對之後(訂單狀態不再是「待處理」)就不再顯示「待處理訂單階段」改數量留下的異動紀錄
+  // (例如 "(20→25)" 這種)——這個紀錄本來是給核對之前參考用的,核對之後只需要看「現在確實是
+  // 多少數量」,加上下面獨立的「核對後變更」區塊(核對之後的異動有另外記錄在那裡),不需要再
+  // 混著看這個。qtyHistory 陣列本身還是保留原始資料沒有刪除,只是核對後不在這裡顯示出來而已。
+  const qtyHistoryStr = (orderStatus(o) === 'pending' && it.qtyHistory && it.qtyHistory.length > 0)
     ? `(${it.qtyHistory.map(h => h.added ? t('newlyAddedLabel') : `${h.from}→${h.to}`).join(',')}) `
     : '';
   const isRestockDisplay = it.qty < 0;
@@ -9134,9 +9147,30 @@ function renderProductSelect(){
 
   const sel = document.getElementById('txProduct');
   const prevVal = sel.value;
-  const filteredProducts = catFilterVal ? products.filter(p => (p.category || '未分類') === catFilterVal) : products;
+  let filteredProducts = catFilterVal ? products.filter(p => (p.category || '未分類') === catFilterVal) : products;
+
+  // load-pending/load-completed 新增商品的下拉選單:預設只顯示這個出貨方訂貨時實際看得到的商品
+  // (跟訂貨頁面同一套篩選邏輯:orderable、沒有全域隱藏、也沒有針對這個出貨方個別隱藏),
+  // 勾選「瀏覽所有商品」才會放寬成庫存總覽裡的全部商品(全域隱藏的還是不顯示)。
+  // 其他模式(進貨/入庫/新增訂單/庫存調整)不受影響,維持原本的行為。
+  if(registerOutFlowType === 'load-pending' || registerOutFlowType === 'load-completed'){
+    const browseAllEl = document.getElementById('txBrowseAllProducts');
+    const browseAll = !!(browseAllEl && browseAllEl.checked);
+    if(browseAll){
+      filteredProducts = filteredProducts.filter(p => !p.hidden);
+    } else {
+      const order = registerLoadedOrderId ? orders.find(o => o.id === registerLoadedOrderId) : null;
+      const partyObj = order ? shippingParties.find(sp => sp.id === order.partyId) : null;
+      const hiddenForParty = partyObj && Array.isArray(partyObj.hiddenProductIds) ? partyObj.hiddenProductIds : [];
+      filteredProducts = filteredProducts.filter(p => p.orderable && !p.hidden && !hiddenForParty.includes(p.id));
+    }
+  }
+
   sel.innerHTML = filteredProducts.map(p => `<option value="${p.id}">${p.parentId ? '⧉ ' : ''}${p.name}(${p.unit})</option>`).join('');
   if(filteredProducts.some(p => p.id === prevVal)) sel.value = prevVal;
+
+  const browseAllRow = document.getElementById('txBrowseAllProductsRow');
+  if(browseAllRow) browseAllRow.style.display = (registerOutFlowType === 'load-pending' || registerOutFlowType === 'load-completed') ? '' : 'none';
 
   populateCategoryDropdowns();
 }
