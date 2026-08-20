@@ -26,11 +26,11 @@
   }
   *{box-sizing:border-box;}
   @keyframes appLoadingSpin{ to{ transform:rotate(360deg); } }
-  html{ overflow-x:hidden; width:100%; overscroll-behavior:none; }
+  html{ overflow-x:hidden; width:100%; }
   body{
     margin:0; background:var(--bg); color:var(--ink);
     font-family:'Inter',sans-serif; -webkit-font-smoothing:antialiased;
-    overflow-x:hidden; width:100%; overscroll-behavior:none;
+    overflow-x:hidden; width:100%;
   }
   .wrap{ max-width:1080px; margin:0 auto; padding:0 0 60px; }
 
@@ -470,6 +470,11 @@
   .preview-actions-top{ margin-top:0; margin-bottom:14px; }
 
   @media (max-width:768px){
+    /* 下拉重新整理/邊緣滑動返回這些手機瀏覽器手勢造成的閃畫面問題,只在手機版寬度下擋掉——
+       桌機版滑鼠滾輪捲動不會用到這個瀏覽器行為,加在桌機版反而會讓有些瀏覽器整個滾動失效,
+       所以侷限在這個 @media 裡面,不要放在外面全域套用。 */
+    html{ overscroll-behavior:none; }
+    body{ overscroll-behavior:none; }
     .wrap{ padding:0 0 40px; }
     .header{ padding:14px 16px 16px; }
     .header h1, .app-title-main{ font-size:24px; }
