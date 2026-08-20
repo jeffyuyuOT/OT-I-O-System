@@ -639,10 +639,17 @@
     #usersTable table.users{ min-width:0; width:100%; }
     #usersTable table.users thead{ display:none; }
     #usersTable table.users, #usersTable table.users tbody{ display:block; width:100%; }
-    #usersTable table.users tr{ display:block; padding:12px 0; border-bottom:1px solid var(--line); }
-    #usersTable table.users td{ display:block; border-bottom:none; padding:2px 0 !important; white-space:normal !important; }
-    #usersTable table.users td:first-child{ font-size:14px; font-weight:600; }
-    #usersTable table.users td:last-child{ margin-top:6px; display:flex; gap:8px; white-space:nowrap !important; }
+    #usersTable table.users tr{
+      display:grid; grid-template-columns:1fr 1fr; column-gap:12px; row-gap:2px;
+      grid-template-areas: "name name" "role tabs" "party party" "actions actions";
+      padding:12px 0; border-bottom:1px solid var(--line);
+    }
+    #usersTable table.users td{ border-bottom:none; padding:2px 0 !important; white-space:normal !important; }
+    #usersTable table.users td.u-name{ grid-area:name; font-size:14px; font-weight:600; }
+    #usersTable table.users td.u-role{ grid-area:role; }
+    #usersTable table.users td.u-tabs{ grid-area:tabs; }
+    #usersTable table.users td.u-party{ grid-area:party; }
+    #usersTable table.users td.u-actions{ grid-area:actions; margin-top:6px; display:flex; gap:8px; white-space:nowrap !important; }
 
     /* 後台紀錄:改成卡片式排版,原因跟管理出貨方一樣——欄位一多,靠左右滑動當退路還是會超出
        螢幕寬度。這是純顯示用的紀錄表(沒有互動元件),直接把每個 td 往下堆疊就好,不用像
@@ -3071,11 +3078,11 @@ function renderUsersTab(){
           const partyIds = Array.isArray(u.assignedPartyIds) ? u.assignedPartyIds : [];
           return `
           <tr>
-            <td>${(u.username||'').replace(/</g,'&lt;')}</td>
-            <td><span class="td-mobile-label">${t('userRole')}</span>${roleDef ? t(roleDef.labelKey) : u.role}</td>
-            <td style="font-size:12px;color:var(--ink-soft);"><span class="td-mobile-label">${t('userTabPermDesc')}</span>${(u.tabPermissions||[]).length} ${t('tabCountSuffix')}</td>
-            <td style="font-size:12px;color:var(--ink-soft);"><span class="td-mobile-label">${t('colRestrictedParty')}</span>${partyIds.length === 0 ? t('partyUnrestricted') : partyIds.map(partyNameById).join('、')}</td>
-            <td style="white-space:nowrap;">
+            <td class="u-name">${(u.username||'').replace(/</g,'&lt;')}</td>
+            <td class="u-role"><span class="td-mobile-label">${t('userRole')}</span>${roleDef ? t(roleDef.labelKey) : u.role}</td>
+            <td class="u-tabs" style="font-size:12px;color:var(--ink-soft);"><span class="td-mobile-label">${t('userTabPermDesc')}</span>${(u.tabPermissions||[]).length} ${t('tabCountSuffix')}</td>
+            <td class="u-party" style="font-size:12px;color:var(--ink-soft);"><span class="td-mobile-label">${t('colRestrictedParty')}</span>${partyIds.length === 0 ? t('partyUnrestricted') : partyIds.map(partyNameById).join('、')}</td>
+            <td class="u-actions" style="white-space:nowrap;">
               <button class="btn ghost" style="padding:6px 10px;font-size:11px;" onclick="openUserEditModal('${u.id}')">${t('btnEdit')}</button>
               <button class="btn ghost" style="padding:6px 10px;font-size:11px;color:var(--crit);" onclick="deleteUserRow('${u.id}')">${t('btnDelete')}</button>
             </td>
