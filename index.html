@@ -633,13 +633,28 @@
     .mobile-select-all-bar input{ width:16px; height:16px; }
     .preview-table{ display:block; overflow-x:auto; -webkit-overflow-scrolling:touch; }
 
-    /* 後台管理相關的表格(使用者管理/後台紀錄):欄位比較少,
-       先用左右滑動當退路,還沒像庫存總覽做成卡片式排版。管理出貨方已經改成卡片式(見上面),
-       不在這裡處理,避免這裡的左右滑動規則把上面的卡片式排版蓋掉。 */
-    #usersTable, #inventoryLogTable{ overflow-x:auto; -webkit-overflow-scrolling:touch; }
-    #usersTable table, #inventoryLogTable table{ min-width:640px; }
-    table.log th, table.log td{ white-space:nowrap; }
-    table.log td:nth-child(4){ white-space:normal; min-width:220px; }
+    /* 使用者管理:改成卡片式排版,原因跟管理出貨方/後台紀錄一樣——欄位一多,靠左右滑動當退路
+       還是會超出螢幕寬度。「操作」那欄(編輯/刪除按鈕)保留橫向排列,其他欄位往下堆疊。 */
+    #usersTable{ overflow-x:visible; }
+    #usersTable table.users{ min-width:0; width:100%; }
+    #usersTable table.users thead{ display:none; }
+    #usersTable table.users, #usersTable table.users tbody{ display:block; width:100%; }
+    #usersTable table.users tr{ display:block; padding:12px 0; border-bottom:1px solid var(--line); }
+    #usersTable table.users td{ display:block; border-bottom:none; padding:2px 0 !important; white-space:normal !important; }
+    #usersTable table.users td:first-child{ font-size:14px; font-weight:600; }
+    #usersTable table.users td:last-child{ margin-top:6px; display:flex; gap:8px; white-space:nowrap !important; }
+
+    /* 後台紀錄:改成卡片式排版,原因跟管理出貨方一樣——欄位一多,靠左右滑動當退路還是會超出
+       螢幕寬度。這是純顯示用的紀錄表(沒有互動元件),直接把每個 td 往下堆疊就好,不用像
+       進出貨紀錄那樣用 grid-area 排版。 */
+    #inventoryLogTable{ overflow-x:visible; }
+    #inventoryLogTable table.log{ min-width:0; width:100%; }
+    #inventoryLogTable table.log thead{ display:none; }
+    #inventoryLogTable table.log, #inventoryLogTable table.log tbody{ display:block; width:100%; }
+    #inventoryLogTable table.log tr{ display:block; padding:10px 0; border-bottom:1px solid var(--line); }
+    #inventoryLogTable table.log td{ display:block; border-bottom:none; padding:2px 0 !important; white-space:normal !important; }
+    #inventoryLogTable table.log td.col-date{ font-size:11px; color:var(--ink-soft); }
+    #inventoryLogTable table.log .tx-time{ display:inline; margin-left:6px; }
 
     /* 進出貨紀錄:改成卡片式排版 —— checkbox、日期、對象(customer)、編輯/刪除(圖示)放最上面
        同一行,編輯/刪除盡量靠右,讓對象多一點空間;商品名稱自己一行;類型跟數量緊靠在一起、
@@ -3057,9 +3072,9 @@ function renderUsersTab(){
           return `
           <tr>
             <td>${(u.username||'').replace(/</g,'&lt;')}</td>
-            <td>${roleDef ? t(roleDef.labelKey) : u.role}</td>
-            <td style="font-size:12px;color:var(--ink-soft);">${(u.tabPermissions||[]).length} ${t('tabCountSuffix')}</td>
-            <td style="font-size:12px;color:var(--ink-soft);">${partyIds.length === 0 ? t('partyUnrestricted') : partyIds.map(partyNameById).join('、')}</td>
+            <td><span class="td-mobile-label">${t('userRole')}</span>${roleDef ? t(roleDef.labelKey) : u.role}</td>
+            <td style="font-size:12px;color:var(--ink-soft);"><span class="td-mobile-label">${t('userTabPermDesc')}</span>${(u.tabPermissions||[]).length} ${t('tabCountSuffix')}</td>
+            <td style="font-size:12px;color:var(--ink-soft);"><span class="td-mobile-label">${t('colRestrictedParty')}</span>${partyIds.length === 0 ? t('partyUnrestricted') : partyIds.map(partyNameById).join('、')}</td>
             <td style="white-space:nowrap;">
               <button class="btn ghost" style="padding:6px 10px;font-size:11px;" onclick="openUserEditModal('${u.id}')">${t('btnEdit')}</button>
               <button class="btn ghost" style="padding:6px 10px;font-size:11px;color:var(--crit);" onclick="deleteUserRow('${u.id}')">${t('btnDelete')}</button>
@@ -9825,9 +9840,9 @@ function renderInventoryLog(){
           return `<tr>
             <td class="col-date">${dateStr}${timeStr ? `<div class="tx-time">${timeStr}</div>` : ''}</td>
             <td><span class="type-pill">${inventoryLogActionLabel(r.action_type)}</span></td>
-            <td>${r.actor || t('unknownUser')}</td>
+            <td><span class="td-mobile-label">${t('colLogUser')}</span>${r.actor || t('unknownUser')}</td>
             <td>${r.description || ''}</td>
-            <td>${r.order_no || '—'}</td>
+            <td>${r.order_no ? `<span class="td-mobile-label">${t('colLogOrderNo')}</span>${r.order_no}` : '—'}</td>
           </tr>`;
         }).join('')}
       </tbody>
