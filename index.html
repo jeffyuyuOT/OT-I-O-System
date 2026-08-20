@@ -398,11 +398,6 @@
   }
   .order-qty-input:focus{ border-color:var(--ink); }
   .order-qty-input.qty-invalid{ border-color:var(--crit); background:var(--crit-bg); }
-  .order-item-note-input{
-    width:100%; min-width:100px; font-size:12.5px; border:1px solid var(--line);
-    border-radius:2px; padding:6px 8px; background:#fff; color:var(--ink); outline:none; box-sizing:border-box;
-  }
-  .order-item-note-input:focus{ border-color:var(--ink); }
   .row-note-cell{ min-width:120px; }
   .order-card{
     background:#fff; border:1px solid var(--line); border-radius:2px; padding:14px 16px; margin-bottom:12px;
@@ -690,7 +685,7 @@
     .order-items-table thead, .cart-items-table thead{ display:none; }
     .order-items-table, .order-items-table tbody,
     .cart-items-table, .cart-items-table tbody{ display:block; width:100%; }
-    .order-items-table tr, .cart-items-table tr{
+    .cart-items-table tr{
       display:grid; grid-template-columns:1fr; row-gap:6px;
       padding:12px 0; border-bottom:1px solid var(--line);
     }
@@ -702,6 +697,17 @@
     .qty-unit-label{ width:auto; }
     .order-qty-input{ text-align:left; }
     .cart-items-table .row-action{ text-align:left; }
+
+    /* 訂貨頁面商品清單(不含購物車):數量搬到跟商品名稱同一行、靠最右邊,備註改成一行小字連結,
+       每個商品格更省空間,一次能看到更多商品,不用一直往下滑。 */
+    .order-items-table tr{
+      display:grid; grid-template-columns:1fr auto; column-gap:8px; row-gap:2px;
+      padding:10px 0; border-bottom:1px solid var(--line); align-items:center;
+    }
+    .order-items-table .row-name{ grid-column:1; grid-row:1; }
+    .order-items-table .row-qty{ grid-column:2; grid-row:1; justify-self:end; }
+    .order-items-table .row-note-cell{ grid-column:1 / -1; grid-row:2; }
+    .order-items-table .row-qty .td-mobile-label{ display:none; } /* 數量搬到名稱旁邊之後,擠在同一行不需要再重複標「訂貨數量」這個小標籤 */
 
     .modal-box{ width:94%; max-width:none; padding:18px; max-height:88vh; overflow-y:auto; overflow-x:hidden; box-sizing:border-box; }
     .modal-box.modal-box-wide{ width:96%; }
@@ -1282,7 +1288,7 @@
       <p style="font-size:11.5px;color:var(--ink-soft);margin:6px 0 12px;" data-i18n="orderPartyHelp">
         沒有想要的出貨方嗎?到「訂貨後台管理 → 管理出貨方」新增即可。選了出貨方之後,下面的「每週平均用量」會用這個出貨方最近三個月的出貨紀錄計算,供訂貨時參考。
       </p>
-      <div class="order-toolbar-row" style="display:flex;align-items:flex-end;gap:12px;">
+      <div class="order-toolbar-row" id="orderToolbarRow" style="display:flex;align-items:flex-end;gap:12px;">
         <div class="field" style="max-width:240px;">
           <label data-i18n="fieldFilterByCategory">依分類篩選商品</label>
           <select id="orderCategoryFilter" onchange="renderOrderItemsTable()">
@@ -1293,6 +1299,9 @@
       </div>
       <div id="orderItemsTable" style="margin-top:14px;">
         <div class="empty-note" data-i18n="noOrderableProducts">目前沒有標記為「可訂貨」的商品。</div>
+      </div>
+      <div style="margin-top:10px;text-align:center;">
+        <span class="del-link" onclick="scrollToOrderToolbar()" data-i18n="btnBackToTop">▲ To the top</span>
       </div>
       <div id="orderMsg" class="msg"></div>
     </div>
@@ -1493,6 +1502,20 @@
     <div class="modal-actions">
       <button id="confirmModalCancelBtn" class="btn ghost" onclick="closeConfirmModal()">取消</button>
       <button id="confirmModalYesBtn" class="btn" style="background:var(--crit);" onclick="confirmModalYes()">確定</button>
+    </div>
+  </div>
+</div>
+
+<div id="orderItemNoteModalOverlay" class="modal-overlay" style="display:none;">
+  <div class="modal-box">
+    <div class="section-title" id="orderItemNoteModalTitle" style="margin-bottom:12px;"></div>
+    <div class="field-block">
+      <label data-i18n="colItemNote">備註</label>
+      <textarea id="orderItemNoteModalInput" rows="3" style="width:100%;box-sizing:border-box;font-family:inherit;font-size:inherit;" placeholder="" data-i18n-placeholder="itemNotePlaceholder"></textarea>
+    </div>
+    <div class="modal-actions">
+      <button class="btn ghost" onclick="closeOrderItemNoteModal()" data-i18n="btnCancel">取消</button>
+      <button class="btn" onclick="saveOrderItemNoteModal()" data-i18n="btnSave">儲存</button>
     </div>
   </div>
 </div>
@@ -1861,6 +1884,8 @@ const I18N = {
     cartEmptyNote: '購物車是空的,請先在訂貨頁面填寫訂貨數量。',
     colWeeklyAvg: '每次訂貨平均用量', colOrderQty: '訂貨數量', oosLabel: '缺貨',
     colItemNote: '備註', itemNotePlaceholder: '這個商品的備註(選填)',
+    btnAddItemNote: '+ 新增備註',
+    btnBackToTop: '▲ To the top',
     avgTitlePartySpecific: '以「{name}」最近三個月的出貨紀錄計算',
     avgTitlePartyFallback: '「{name}」最近三個月沒有這項商品的出貨紀錄,顯示整體最近三個月平均值供參考',
     avgTitleNoParty: '目前沒有選出貨方,顯示整體最近三個月平均值供參考',
@@ -2202,6 +2227,8 @@ const I18N = {
     cartEmptyNote: 'Your cart is empty. Please fill in order quantities on the order page first.',
     colWeeklyAvg: 'Avg per Order', colOrderQty: 'Order Qty', oosLabel: 'Out of Stock',
     colItemNote: 'Note', itemNotePlaceholder: 'Note for this item (optional)',
+    btnAddItemNote: '+ Add Note',
+    btnBackToTop: '▲ To the top',
     avgTitlePartySpecific: 'Calculated from "{name}"\'s shipments over the last three months',
     avgTitlePartyFallback: '"{name}" has no shipment history for this product in the last three months — showing the overall 3-month average for reference',
     avgTitleNoParty: 'No supplier selected — showing the overall 3-month average for reference',
@@ -3480,6 +3507,34 @@ function showInfoModal(message){
 function closeConfirmModal(){
   document.getElementById('confirmModalOverlay').style.display = 'none';
   pendingConfirmCallback = null;
+}
+
+// 訂貨頁面「新增備註」小視窗:開啟時帶入目前這個商品已經填的備註草稿(如果有),按「儲存」
+// 存回 orderItemNoteDraft、關閉視窗、回到原本的訂貨頁面(這裡只是關掉 overlay,底下的頁面
+// 本來就還在,不需要另外導覽)。
+let orderItemNoteModalProductId = null;
+
+function openOrderItemNoteModal(productId){
+  const p = products.find(x => x.id === productId);
+  if(!p) return;
+  orderItemNoteModalProductId = productId;
+  document.getElementById('orderItemNoteModalTitle').textContent = p.name;
+  document.getElementById('orderItemNoteModalInput').value = orderItemNoteDraft[productId] || '';
+  document.getElementById('orderItemNoteModalOverlay').style.display = 'flex';
+}
+
+function closeOrderItemNoteModal(){
+  orderItemNoteModalProductId = null;
+  document.getElementById('orderItemNoteModalOverlay').style.display = 'none';
+}
+
+function saveOrderItemNoteModal(){
+  if(!orderItemNoteModalProductId) return;
+  const val = document.getElementById('orderItemNoteModalInput').value.trim();
+  if(val) orderItemNoteDraft[orderItemNoteModalProductId] = val;
+  else delete orderItemNoteDraft[orderItemNoteModalProductId];
+  closeOrderItemNoteModal();
+  renderOrderItemsTable();
 }
 
 async function confirmModalYes(){
@@ -5671,6 +5726,13 @@ function toggleOrderParentExpand(parentId){
   renderOrderItemsTable();
 }
 
+// 訂貨頁面商品清單最下面的「To the top」:滑到清單最下面選分類或按購物車,不用整頁往上滑,
+// 直接捲回篩選分類/購物車按鈕那一列。用平滑捲動,體感比直接跳過去好一點。
+function scrollToOrderToolbar(){
+  const el = document.getElementById('orderToolbarRow');
+  if(el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
 function renderOrderItemsTable(){
   const container = document.getElementById('orderItemsTable');
   if(!container) return;
@@ -5732,9 +5794,9 @@ function renderOrderItemsTable(){
       <tr class="${outOfStock ? 'oos-row' : ''}">
         <td class="row-name" style="${isNested ? 'padding-left:26px;' : ''}">${isChildProduct ? '⧉ ' : ''}${p.sku ? `<span class="sku-tooltip-trigger" data-sku="${p.sku.replace(/"/g,'&quot;')}">${p.name}</span>` : p.name}${p.orderPageRemark ? `<span style="font-style:italic;font-size:11.5px;color:var(--ink-soft);"> ${p.orderPageRemark.replace(/</g,'&lt;')}</span>` : ''}${expandArrow}${outOfStock ? `<span class="oos-badge">${t('oosLabel')}</span>` : ''}</td>
         <td class="row-note-cell">
-          <span class="td-mobile-label">${t('colItemNote')}</span>
-          <input type="text" class="order-item-note-input" id="orderItemNote_${p.id}" placeholder="${t('itemNotePlaceholder')}"
-            value="${(orderItemNoteDraft[p.id] || '').replace(/"/g,'&quot;')}" oninput="orderItemNoteDraft['${p.id}']=this.value;" />
+          ${orderItemNoteDraft[p.id]
+            ? `<span class="del-link" style="font-style:italic;" onclick="openOrderItemNoteModal('${p.id}')">${t('noteLabelPrefix')}${orderItemNoteDraft[p.id].replace(/</g,'&lt;')}</span>`
+            : `<span class="del-link" onclick="openOrderItemNoteModal('${p.id}')">${t('btnAddItemNote')}</span>`}
         </td>
         <td class="row-num hide-mobile" ${isChildProduct ? '' : `title="${avgTitle}"`}>${isChildProduct ? '—' : `${w.avg.toFixed(1)} ${p.unit}`}</td>
         <td class="row-num row-qty qty-col-data">
