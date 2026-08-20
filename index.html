@@ -475,6 +475,22 @@
        所以侷限在這個 @media 裡面,不要放在外面全域套用。 */
     html{ overscroll-behavior:none; }
     body{ overscroll-behavior:none; }
+
+    /* 管理出貨方:手機版原本只靠左右滑動當退路,欄位一多(尤其「設定可訂購商品」這個連結文字
+       比較長)整張表格還是會超出螢幕寬度。改成跟訂貨頁面商品清單一樣的卡片式排版,每個出貨方
+       獨立一張卡片,名稱/聯絡方式/備註/操作各自一行,不會再有任何內容被切到螢幕外面。 */
+    #partiesTable{ overflow-x:visible; }
+    #partiesTable table{ min-width:0; width:100%; }
+    #partiesTable thead{ display:none; }
+    #partiesTable table, #partiesTable tbody{ display:block; width:100%; }
+    #partiesTable tr{
+      display:block; padding:12px 0; border-bottom:1px solid var(--line);
+    }
+    #partiesTable tr td{ display:block; border-bottom:none; padding:2px 0; white-space:normal !important; }
+    #partiesTable tr td.row-name{ font-size:14px; font-weight:600; }
+    #partiesTable tr td.row-action{ margin-top:6px; display:flex; flex-wrap:wrap; gap:10px; }
+    #partiesTable .mini-label{ display:block; font-size:10px; text-transform:uppercase; letter-spacing:0.2px; color:var(--ink-soft); font-weight:700; margin-bottom:1px; }
+
     .wrap{ padding:0 0 40px; }
     .header{ padding:14px 16px 16px; }
     .header h1, .app-title-main{ font-size:24px; }
@@ -617,11 +633,11 @@
     .mobile-select-all-bar input{ width:16px; height:16px; }
     .preview-table{ display:block; overflow-x:auto; -webkit-overflow-scrolling:touch; }
 
-    /* 後台管理相關的表格(使用者管理/管理出貨方/後台紀錄):欄位比較少,
-       先用左右滑動當退路,還沒像庫存總覽做成卡片式排版。 */
-    #usersTable, #partiesTable, #inventoryLogTable{ overflow-x:auto; -webkit-overflow-scrolling:touch; }
+    /* 後台管理相關的表格(使用者管理/後台紀錄):欄位比較少,
+       先用左右滑動當退路,還沒像庫存總覽做成卡片式排版。管理出貨方已經改成卡片式(見上面),
+       不在這裡處理,避免這裡的左右滑動規則把上面的卡片式排版蓋掉。 */
+    #usersTable, #inventoryLogTable{ overflow-x:auto; -webkit-overflow-scrolling:touch; }
     #usersTable table, #inventoryLogTable table{ min-width:640px; }
-    #partiesTable table{ min-width:520px; }
     table.log th, table.log td{ white-space:nowrap; }
     table.log td:nth-child(4){ white-space:normal; min-width:220px; }
 
