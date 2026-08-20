@@ -1065,8 +1065,9 @@
           <div id="verifyPageRightItems"></div>
         </div>
       </div>
-      <div style="margin-top:16px;">
+      <div style="margin-top:16px;display:flex;gap:8px;flex-wrap:wrap;">
         <button class="btn" onclick="runOrderVerification()" data-i18n="btnRunOrderVerify">✓ 核對(扣庫存)</button>
+        <button class="btn ghost" id="btnDirectVerifyOnVerifyPage" onclick="directVerifyFromVerifyPage()" data-i18n="btnDirectVerify">直接核對</button>
       </div>
       <div id="verifyPageMsg" class="msg"></div>
     </div>
@@ -1892,6 +1893,7 @@ const I18N = {
     orderItemAddedNote: '訂單 {orderNo} 新增商品:{name} {qty} {unit}({direction})',
     directionOut: '出貨', directionIn: '入庫',
     errSelectPendingOrderFirst: '請先選擇要核對的待處理訂單',
+    errDirectVerifyDisabled: '「直接核對」功能目前已被系統設置關閉,請用左右比對的方式核對(核對扣庫存)。',
     verifyMismatchIntro: '兩邊品項對不起來:',
     verifyMismatchMissingOnRight: '「{name}」訂單上有 {qty},但新增商品清單裡沒有',
     verifyMismatchQtyDiffers: '「{name}」訂單上是 {orderQty},新增商品清單填的是 {addedQty}',
@@ -2069,7 +2071,7 @@ const I18N = {
     secMultipackSettings: 'Multipack 商品設定',
     secOrderVerifySettings: '訂單核對設定',
     disableDirectVerifyLabel: '取消直接核對功能',
-    disableDirectVerifyHint: '勾選後,「登記進出貨 → 出貨 → 載入現有待處理訂單」下面的「直接核對」選項會隱藏,只能用「載入訂單核對頁面」的方式核對(需要先比對實際點貨內容才能確認)。',
+    disableDirectVerifyHint: '勾選後,「訂單核對」頁面的「直接核對」按鈕會隱藏,只能用左右比對(核對扣庫存)的方式核對,需要先比對實際點貨內容才能確認。',
     autoConvertMultipackLabel: '訂貨數量達到 multipack 商品的加權數時,自動轉換成該 multipack 商品',
     autoConvertMultipackHint: '只有主商品「剛好只有一種 multipack 商品」,或已經在編輯商品畫面勾選「顯示於總庫存量」指定某個 multipack 商品時才會生效;數量不足整數倍的部分,仍會用主商品下單。',
     fieldShowInTotalStock: '顯示於庫存總覽',
@@ -2231,6 +2233,7 @@ const I18N = {
     orderItemAddedNote: 'Order {orderNo} - added item: {name} {qty} {unit} ({direction})',
     directionOut: 'shipped out', directionIn: 'stocked in',
     errSelectPendingOrderFirst: 'Please select a pending order to verify first',
+    errDirectVerifyDisabled: '"Verify Directly" is currently disabled in system settings — please use the left/right comparison instead ("Verify & Deduct Stock").',
     verifyMismatchIntro: 'Items don\'t match:',
     verifyMismatchMissingOnRight: '"{name}": order has {qty}, but it\'s missing from the added-products list',
     verifyMismatchQtyDiffers: '"{name}": order has {orderQty}, added-products list has {addedQty}',
@@ -2408,7 +2411,7 @@ const I18N = {
     secMultipackSettings: 'Multi-pack Product Settings',
     secOrderVerifySettings: 'Order Verification Settings',
     disableDirectVerifyLabel: 'Disable "Verify Directly"',
-    disableDirectVerifyHint: 'When checked, the "Verify Directly" option under "Register Stock → Shipment → Load Existing Pending Order" is hidden — orders can only be verified via "Load into Order Verify Page", which requires comparing actual picked items first.',
+    disableDirectVerifyHint: 'When checked, the "Verify Directly" button on the "Order Verify" page is hidden — orders can only be verified via the left/right comparison ("Verify & Deduct Stock"), which requires comparing actual picked items first.',
     autoConvertMultipackLabel: 'When an order quantity reaches a multi-pack product\'s weight, auto-convert it into that multi-pack product',
     autoConvertMultipackHint: 'Only applies when a main product has exactly one multi-pack product, or a multi-pack product has been marked "Show in Total Stock" for it in the product edit screen; any amount that isn\'t an exact multiple still gets ordered as the main product.',
     fieldShowInTotalStock: 'Show in Stock Overview',
@@ -4021,6 +4024,8 @@ async function toggleDisableDirectVerify(checked){
   try{ await dbSet('disableDirectVerify', checked ? 'true' : 'false'); }
   catch(e){ console.error('儲存取消直接核對設定失敗', e); }
   renderTxSubmitArea();
+  const directVerifyBtn = document.getElementById('btnDirectVerifyOnVerifyPage');
+  if(directVerifyBtn) directVerifyBtn.style.display = disableDirectVerifyEnabled ? 'none' : '';
 }
 
 function updateAutoBackupStatus(){
@@ -4197,7 +4202,6 @@ function renderTxSubmitArea(){
     area.innerHTML = `
       <button class="btn" onclick="submitTxBatch('save-pending')" ${disabled}>${t('btnSave')}</button>
       <button class="btn ghost" onclick="submitTxBatch('load-verify')" ${disabled}>${t('btnLoadIntoVerifyPage')}</button>
-      ${disableDirectVerifyEnabled ? '' : `<button class="btn ghost" onclick="submitTxBatch('direct-verify')" ${disabled}>${t('btnDirectVerify')}</button>`}
     `;
   } else if(registerOutFlowType === 'load-completed'){
     const disabled = registerLoadedOrderId ? '' : 'disabled';
@@ -4255,6 +4259,19 @@ function renderTxExistingItems(){
 // load-completed 模式專用:核對後變更清單(新增/刪除/改數量都算,跟原本核對前的異動分開顯示)。
 // 這份清單存在訂單自己身上(order.postVerifyChanges),不是暫存在網頁記憶體裡的變數——
 // 這樣重新整理頁面、或下次再打開同一張訂單,之前記錄的變更才不會憑空消失。
+// 「核對後變更」清單的格式化,拆成共用函式——訂單核對後變更不是只有「登記進出貨→載入現有已完成
+// 訂單」那個畫面要顯示,已完成訂單清單裡展開訂單明細時也要顯示同一份內容,兩邊共用同一套格式,
+// 不要各自維護一份容易兜不起來。
+function formatPostVerifyChangesHtml(changes){
+  return changes.map(c => {
+    const label = c.kind === 'added' ? t('postVerifyAdded')
+      : c.kind === 'deleted' ? t('postVerifyDeleted')
+      : t('postVerifyQtyChanged');
+    const detail = c.kind === 'qty' ? `${c.from} → ${c.to} ${c.unit}` : `${c.qty} ${c.unit}`;
+    return `<div style="font-size:12px;color:var(--warn-dark);padding:3px 0;">${c.name}${c.sku ? ` (${c.sku})` : ''} — ${label}(${detail})</div>`;
+  }).join('');
+}
+
 function renderTxPostVerifyChanges(){
   const section = document.getElementById('txPostVerifyChangesSection');
   const list = document.getElementById('txPostVerifyChangesList');
@@ -4266,13 +4283,7 @@ function renderTxPostVerifyChanges(){
     return;
   }
   section.style.display = '';
-  list.innerHTML = changes.map(c => {
-    const label = c.kind === 'added' ? t('postVerifyAdded')
-      : c.kind === 'deleted' ? t('postVerifyDeleted')
-      : t('postVerifyQtyChanged');
-    const detail = c.kind === 'qty' ? `${c.from} → ${c.to} ${c.unit}` : `${c.qty} ${c.unit}`;
-    return `<div style="font-size:12px;color:var(--warn-dark);padding:3px 0;">${c.name}${c.sku ? ` (${c.sku})` : ''} — ${label}(${detail})</div>`;
-  }).join('');
+  list.innerHTML = formatPostVerifyChangesHtml(changes);
 }
 
 // 登記進出貨做「出貨」時,出貨方直接從現有客戶(shippingParties,跟訂貨頁面共用同一份名單)下拉選,
@@ -6112,7 +6123,11 @@ function orderItemRowHtml(o, it, isPending, readOnly, context){
       </div>
     `;
   }
-  const qtyHistoryStr = (it.qtyHistory && it.qtyHistory.length > 0)
+  // 簽收後不再顯示「待處理訂單階段」改數量留下的異動紀錄(例如 "(20→25)" 這種)——這個紀錄本來是
+  // 給核對之前參考用的,簽收後只需要看「現在確實是多少數量」,加上下面獨立的「核對後變更」區塊
+  // (核對之後的異動有另外記錄在那裡),不需要再混著看這個。qtyHistory 陣列本身還是保留原始資料
+  // 沒有刪除,只是簽收後不在這裡顯示出來而已。
+  const qtyHistoryStr = (!o.signedAt && it.qtyHistory && it.qtyHistory.length > 0)
     ? `(${it.qtyHistory.map(h => h.added ? t('newlyAddedLabel') : `${h.from}→${h.to}`).join(',')}) `
     : '';
   const isRestockDisplay = it.qty < 0;
@@ -6191,6 +6206,12 @@ function renderOrders(){
         ${isExpanded ? `
           ${o.note ? `<div style="font-size:12px;color:var(--ink-soft);margin:8px 0 6px;">${t('noteLabelPrefix')}${o.note}</div>` : ''}
           <div class="order-items">${itemsHtml}</div>
+          ${o.postVerifyChanges && o.postVerifyChanges.length > 0 ? `
+            <div style="margin:8px 0;">
+              <div class="section-title" style="font-size:13px;color:var(--warn-dark);">${t('secPostVerifyChanges')}</div>
+              ${formatPostVerifyChangesHtml(o.postVerifyChanges)}
+            </div>
+          ` : ''}
           ${remarkHtml}
           <div class="order-card-actions">
             ${(o.deleted || o.signedAt) ? '' : `<button class="btn ghost" onclick="editOrderViaRegister('${o.id}', 'completed')">${t('btnEdit')}</button>`}
@@ -6856,6 +6877,8 @@ function openOrderInVerifyPage(orderId){
 
 function renderVerifyPage(){
   populateVerifyPageOrderSelect();
+  const directVerifyBtn = document.getElementById('btnDirectVerifyOnVerifyPage');
+  if(directVerifyBtn) directVerifyBtn.style.display = disableDirectVerifyEnabled ? 'none' : '';
   const infoEl = document.getElementById('verifyPageOrderInfo');
   const itemsEl = document.getElementById('verifyPageOrderItems');
   if(!infoEl || !itemsEl) return;
@@ -6943,6 +6966,24 @@ function removeVerifyPageItem(idx){
 // 核對:比對左欄(待處理訂單裡目前還有效的品項)跟右欄(手動登記的實際點貨清單)品項/數量是否
 // 完全一致。一致才會呼叫既有的 verifyOrder()(atomic 扣庫存);不一致的話列出所有對不上的品項,
 // 不會扣庫存,讓使用者回去修正其中一邊再核對一次。
+// 訂單核對頁面的「直接核對」:不用比對左右兩邊的品項,直接用訂單自己現有的品項核對確認扣庫存
+// (沿用 verifyOrder() 既有邏輯)。如果啟用了「取消直接核對功能」這個系統設置,這裡也要擋下來。
+async function directVerifyFromVerifyPage(){
+  const msg = document.getElementById('verifyPageMsg');
+  if(disableDirectVerifyEnabled){
+    msg.className = 'msg error';
+    msg.textContent = t('errDirectVerifyDisabled');
+    return;
+  }
+  const order = verifyPageOrderId ? orders.find(o => o.id === verifyPageOrderId) : null;
+  if(!order || orderStatus(order) !== 'pending' || order.deleted){
+    msg.className = 'msg error';
+    msg.textContent = t('errSelectPendingOrderFirst');
+    return;
+  }
+  await verifyOrder(order.id);
+}
+
 function runOrderVerification(){
   const msg = document.getElementById('verifyPageMsg');
   const order = verifyPageOrderId ? orders.find(o => o.id === verifyPageOrderId) : null;
@@ -8423,7 +8464,6 @@ function finishNewOrderSubmit(kind, orderId, count, orderNo, msg){
 // (導去訂單核對頁面,沿用原本邏輯)、直接核對(不經過比對畫面,直接用訂單自己的品項核對,
 // 也是沿用原本 verifyOrder() 的邏輯)。
 async function submitLoadPendingFlow(action, msg){
-  if(action === 'direct-verify' && disableDirectVerifyEnabled) return; // 系統設置已關閉這個功能,防呆擋下(正常情況下按鈕根本不會顯示)
   if(!registerLoadedOrderId){ msg.className='msg error'; msg.textContent=t('errSelectOrderFirst'); return; }
   const orderId = registerLoadedOrderId;
   const order = orders.find(o => o.id === orderId);
@@ -8457,14 +8497,6 @@ async function submitLoadPendingFlow(action, msg){
     resetRegisterOutFlow();
     setTxOutFlowType('');
     openOrderInVerifyPage(orderId);
-    return;
-  }
-  if(action === 'direct-verify'){
-    resetRegisterOutFlow();
-    setTxOutFlowType('');
-    switchTab('tab-order-admin');
-    renderAll();
-    await verifyOrder(orderId);
     return;
   }
 }
