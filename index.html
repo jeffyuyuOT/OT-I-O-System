@@ -640,8 +640,8 @@
     #usersTable table.users thead{ display:none; }
     #usersTable table.users, #usersTable table.users tbody{ display:block; width:100%; }
     #usersTable table.users tr{
-      display:grid; grid-template-columns:1fr 1fr; column-gap:12px; row-gap:2px;
-      grid-template-areas: "name name" "role tabs" "party party" "actions actions";
+      display:grid; grid-template-columns:1fr 1fr 1fr; column-gap:10px; row-gap:2px;
+      grid-template-areas: "name name name" "role tabs party" "actions actions actions";
       padding:12px 0; border-bottom:1px solid var(--line);
     }
     #usersTable table.users td{ border-bottom:none; padding:2px 0 !important; white-space:normal !important; }
@@ -10401,7 +10401,16 @@ function showScanToast(text, isError){
 // 分頁按鈕操作,這個機制只是防止「不小心用系統返回把 App 弄丟」。
 (function trapBrowserBackButton(){
   try{
-    history.pushState({ appTrap: true }, '');
+    // 一次塞一整疊(50 筆)假的 history 狀態進去,不是只塞一筆——原本只塞一筆的話,如果使用者
+    // 連續、快速地按了好幾次「上一頁」(或手勢很快),有可能在 JS 補塞下一筆之前,瀏覽器已經
+    // 連續彈出好幾層,結果真的彈出到「進入這個 App 之前」的那一頁,造成整個網頁重新載入
+    // (畫面上就會看到 App 自己的載入畫面一閃,然後回到預設的第一個分頁,感覺像是「跳到別的
+    // 分頁」)。塞一大疊之後,實務上不可能連續按這麼多次,等於完全不會真的離開 App、也不會
+    // 重新整理。
+    var TRAP_DEPTH = 50;
+    for(var i = 0; i < TRAP_DEPTH; i++){
+      history.pushState({ appTrap: true }, '');
+    }
     window.addEventListener('popstate', function(){
       history.pushState({ appTrap: true }, '');
     });
