@@ -2230,7 +2230,7 @@ const I18N = {
     productSortName: '依照商品名稱',
     productSortSku: '依照SKU code',
     hideMultipackIconLabel: '訂貨頁面隱藏Multipack圖示',
-    hideMultipackIconHint: '勾選後,訂貨頁面 multipack 商品名稱前面的「⧉」圖示不顯示,商品名稱直接往前對齊,跟其他一般商品的名稱起始位置一致。',
+    hideMultipackIconHint: '勾選後,訂貨頁面跟購物車裡 multipack 商品名稱前面的「⧉」圖示不顯示,商品名稱直接往前對齊,跟其他一般商品的名稱起始位置一致。',
     disableDirectVerifyLabel: '取消直接核對功能',
     disableDirectVerifyHint: '勾選後,「訂單核對」頁面的「直接核對」按鈕會隱藏,只能用左右比對(核對扣庫存)的方式核對,需要先比對實際點貨內容才能確認。',
     autoConvertMultipackLabel: '訂貨數量達到 multipack 商品的加權數時,自動轉換成該 multipack 商品',
@@ -2580,7 +2580,7 @@ const I18N = {
     productSortName: 'Product Name',
     productSortSku: 'SKU Code',
     hideMultipackIconLabel: 'Hide Multipack Icon on Order Page',
-    hideMultipackIconHint: 'When checked, the "⧉" icon before multipack product names on the Order page is hidden, and product names align to the same starting position as regular products.',
+    hideMultipackIconHint: 'When checked, the "⧉" icon before multipack product names on the Order page and in the Cart is hidden, and product names align to the same starting position as regular products.',
     disableDirectVerifyLabel: 'Disable "Verify Directly"',
     disableDirectVerifyHint: 'When checked, the "Verify Directly" button on the "Order Verify" page is hidden — orders can only be verified via the left/right comparison ("Verify & Deduct Stock"), which requires comparing actual picked items first.',
     autoConvertMultipackLabel: 'When an order quantity reaches a multi-pack product\'s weight, auto-convert it into that multi-pack product',
@@ -4224,6 +4224,11 @@ async function toggleHideMultipackIcon(checked){
   try{ await dbSet('hideMultipackIconOnOrderPage', checked ? 'true' : 'false'); }
   catch(e){ console.error('儲存訂貨頁面隱藏Multipack圖示設定失敗', e); }
   if(document.getElementById('orderItemsTable')) renderOrderItemsTable();
+  const cartSection = document.getElementById('orderCartSection');
+  if(cartSection && cartSection.style.display !== 'none'){
+    const { items } = collectOrderItems();
+    renderCartTable(items);
+  }
 }
 
 function updateAutoBackupStatus(){
@@ -6085,7 +6090,7 @@ function renderCartTable(items){
     const isMultipack = !!(product && product.parentId);
     return `
     <tr>
-      <td class="row-name">${it.sku ? `<span class="sku-badge">${it.sku}</span>` : ''}${isMultipack ? '⧉ ' : ''}${it.name}${it.note ? `<div style="font-size:11px;color:var(--ink-soft);font-style:italic;font-weight:400;">${t('noteLabelPrefix')}${it.note.replace(/</g,'&lt;')}</div>` : ''}</td>
+      <td class="row-name">${(isMultipack && !hideMultipackIconOnOrderPage) ? '⧉ ' : ''}${it.sku ? `<span class="sku-tooltip-trigger" data-sku="${it.sku.replace(/"/g,'&quot;')}">${it.name}</span>` : it.name}${it.note ? `<div style="font-size:11px;color:var(--ink-soft);font-style:italic;font-weight:400;">${t('noteLabelPrefix')}${it.note.replace(/</g,'&lt;')}</div>` : ''}</td>
       <td class="row-num row-qty">
         <span class="td-mobile-label">${t('colOrderQty')}</span>
         <input type="number" class="order-qty-input" id="cartQty_${it.productId}" min="0" step="1"
