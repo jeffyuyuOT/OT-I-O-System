@@ -9464,7 +9464,13 @@ function renderStockCards(){
         let visibleSub = showHidden ? subMembers : subMembers.filter(c => !c.hidden);
         visibleSub.forEach(c => visibleProductIds.add(c.id));
         if(expandedParentIds.has(p.id)){
-          visibleSub.slice().sort((a,b) => a.name.localeCompare(b.name)).forEach(c => {
+          visibleSub.slice().sort((a,b) => {
+            const as = a.sku || '', bs = b.sku || '';
+            if(as && bs) return as.localeCompare(bs, undefined, { numeric: true, sensitivity: 'base' });
+            if(as && !bs) return -1;
+            if(!as && bs) return 1;
+            return a.name.localeCompare(b.name);
+          }).forEach(c => {
             bodyHtml += rowHtml(c, { isSubRow: true });
           });
         }
@@ -9547,7 +9553,17 @@ function toggleTxNoteDisplay(el){
 }
 
 function sortStockItems(items, now){
-  if(!stockSortField) return items; // 預設順序:維持原本的建立順序
+  if(!stockSortField){
+    // 沒有手動點欄位排序時,預設照 SKU 排(數字感知、跟訂貨頁面用同一套比較邏輯)——
+    // 這樣庫存總覽的預設順序才會跟訂貨頁面一致,不是誰先建立就排前面這種不固定的順序。
+    return items.slice().sort((a, b) => {
+      const as = a.sku || '', bs = b.sku || '';
+      if(as && bs) return as.localeCompare(bs, undefined, { numeric: true, sensitivity: 'base' });
+      if(as && !bs) return -1;
+      if(!as && bs) return 1;
+      return a.name.localeCompare(b.name);
+    });
+  }
   const dir = stockSortDir === 'desc' ? -1 : 1;
   const valueFor = (p) => {
     if(stockSortField === 'name') return p.name || '';
