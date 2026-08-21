@@ -7449,10 +7449,19 @@ function buildOrderSheetAoa(list, partyLabel, dateLabel){
   aoa.push([]);
   aoa.push(['SKU','Product Name','Qty','Unit','Remarks']);
 
-  catList.forEach(cat => {
+  catList.forEach((cat, catIdx) => {
     const items = byCat[cat];
     if(!items || items.length === 0) return;
     const groupAllHidden = items.every(p => !qtyByProductId[p.id]);
+
+    // 分類跟分類之間的空白隔開列,跟著它後面緊接著的這個分類一起隱藏/一起顯示——這個分類如果
+    // 整組都被隱藏,前面那條分隔空白列也要跟著隱藏,不然即使商品列都正確隱藏了,畫面上還是會看到
+    // 一整排「只剩分隔空白列冒出來」的空行,看起來像是隔了一大段空白。
+    if(catIdx > 0){
+      const sepRowIdx = aoa.length;
+      aoa.push([]);
+      if(groupAllHidden) hiddenRows.add(sepRowIdx);
+    }
 
     const headerRowIdx = aoa.length;
     aoa.push([`-- ${catLabelEN(cat)} --`]);
@@ -7466,7 +7475,6 @@ function buildOrderSheetAoa(list, partyLabel, dateLabel){
         aoa.push([p.sku || '', p.name, g ? g.qty : '', p.unit, '']);
         if(!g) hiddenRows.add(rowIdx);
       });
-    aoa.push([]);
   });
 
   return { aoa, aggregated, hiddenRows };
