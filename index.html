@@ -763,6 +763,10 @@
     .order-items-table .row-qty{ grid-column:2; grid-row:1; justify-self:end; }
     .order-items-table .row-note-cell{ grid-column:1 / -1; grid-row:2; }
     .order-items-table .row-qty .td-mobile-label{ display:none; } /* 數量搬到名稱旁邊之後,擠在同一行不需要再重複標「訂貨數量」這個小標籤 */
+    .order-items-table tr.cat-row{
+      display:block; grid-template-columns:none; padding:12px 0 4px; border-bottom:none;
+    }
+    .order-items-table tr.cat-row td{ display:block; padding:0; }
 
     .modal-box{ width:94%; max-width:none; padding:18px; max-height:88vh; overflow-y:auto; overflow-x:hidden; box-sizing:border-box; }
     .modal-box.modal-box-wide{ width:96%; }
@@ -5849,7 +5853,26 @@ function renderOrderItemsTable(){
   // 顯示,依自己的 SKU 跟其他商品排序、對齊,不縮排、不特別排到後面)。一律照 SKU 排序,
   // 有主商品在清單裡的批量商品會巢狀跟在主商品底下(展開才看得到),不會出現在這份頂層清單裡。
   const topLevel = orderable.filter(p => !p.parentId || !orderableIds.has(p.parentId)).sort(compareBySku);
-  const rows = topLevel.map(p => rowHtml(p, {})).join('');
+
+  // 分類篩選選「全部分類」時,商品清單依照庫存總覽同一套分類順序分組顯示(每個分類一個標題列),
+  // 不是所有商品混在一起單純照 SKU 排;選了特定分類的話,反正只剩那一個分類的商品,維持原本
+  // 單純一份清單就好,不需要再多一層分類標題。
+  let rows;
+  if(!catSel || !catSel.value){
+    const byCat = {};
+    topLevel.forEach(p => {
+      const cat = p.category || '未分類';
+      (byCat[cat] = byCat[cat] || []).push(p);
+    });
+    const orderedCats = categoryOrder.filter(c => byCat[c]);
+    rows = orderedCats.map(cat => {
+      const items = byCat[cat];
+      const header = `<tr class="cat-row"><td colspan="4">${catLabel(cat)}<span class="cat-count">${items.length}</span></td></tr>`;
+      return header + items.map(p => rowHtml(p, {})).join('');
+    }).join('');
+  } else {
+    rows = topLevel.map(p => rowHtml(p, {})).join('');
+  }
   container.innerHTML = `
     <table class="stock-table order-items-table">
       <thead>
