@@ -905,6 +905,20 @@
 
         <hr class="divider" />
 
+        <div class="section-title" style="margin-bottom:8px;" data-i18n="secProductSortSettings">商品排序</div>
+        <p style="font-size:11.5px;color:var(--ink-soft);margin:0 0 8px;" data-i18n="productSortHint">
+          決定庫存總覽(沒有手動點欄位排序時)、訂貨頁面裡,同一個分類底下的商品要怎麼排序。分類本身的先後順序另外在庫存總覽用「調整分類順序」設定。
+        </p>
+        <div class="field" style="max-width:280px;margin-bottom:12px;">
+          <select id="productSortModeSelect" onchange="changeProductSortMode(this.value)">
+            <option value="import" data-i18n="productSortImport">依照匯入商品主檔順序</option>
+            <option value="name" data-i18n="productSortName">依照商品名稱</option>
+            <option value="sku" data-i18n="productSortSku">依照SKU code</option>
+          </select>
+        </div>
+
+        <hr class="divider" />
+
         <div class="section-title" style="margin-bottom:8px;color:var(--crit);" data-i18n="secRestoreDefault">還原預設</div>
         <p style="font-size:12.5px;color:var(--ink-soft);margin:0 0 12px;" data-i18n="restoreDefaultDesc">
           清空資料回到初始狀態,動作無法復原,執行前建議先於下方「完整資料備份」匯出完整備份。
@@ -1788,8 +1802,32 @@ let backupDirHandle = null;
 // 系統設置裡的開關:「訂貨數量達到 multipack 加權數時自動轉換」
 let autoConvertMultipackEnabled = false;
 let disableDirectVerifyEnabled = false; // 勾選後,「登記進出貨→出貨→載入現有待處理訂單」下面的「直接核對」選項要隱藏
-let stockSortField = null; // null = 預設順序(分類順序 + 原始建立順序);其他值:'name' | 'stock' | 'avg' | 'safety' | 'remain'
+let stockSortField = null; // null = 預設順序(分類順序 + 商品排序設置);其他值:'name' | 'stock' | 'avg' | 'safety' | 'remain'
 let stockSortDir = 'asc';
+// 系統設置裡的「商品排序」:決定同一個分類底下的商品要怎麼排——分類本身的順序是另外在
+// 庫存總覽用「調整分類順序」控制的,這個設置只管分類內部的排序。'import'(匯入商品主檔順序)
+// | 'name'(商品名稱) | 'sku'(SKU code,預設)。庫存總覽的預設排序(沒有手動點欄位排序時)、
+// 訂貨頁面的商品清單排序,兩邊都共用這個設置,確保兩邊順序一致。
+let productSortMode = 'sku';
+
+// 依照目前的「商品排序」系統設置,比較兩個商品在同一分類內的先後順序——庫存總覽的預設排序
+// 跟訂貨頁面的商品清單排序都呼叫這個共用函式,不要各自維護一份,避免兩邊排序邏輯兜不起來。
+function compareProductsBySortMode(a, b){
+  if(productSortMode === 'name'){
+    return (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base' });
+  }
+  if(productSortMode === 'import'){
+    return 0; // 不特別排序,維持商品原本在陣列裡的相對順序——JS 的 Array.sort 是穩定排序,
+              // 回傳 0 的項目彼此順序不會被打亂,等於就是「匯入商品主檔」當初建立的順序。
+  }
+  // 預設 'sku':照 SKU 排序(數字感知,例如 A2 會排在 A10 前面),沒有 SKU 的退回用名稱排序。
+  const as = a.sku || '', bs = b.sku || '';
+  if(as && bs) return as.localeCompare(bs, undefined, { numeric: true, sensitivity: 'base' });
+  if(as && !bs) return -1;
+  if(!as && bs) return 1;
+  return (a.name || '').localeCompare(b.name || '');
+}
+
 let lastAutoBackupMode = null; // 'folder' | 'download' | 'unsupported' | null
 let appendingNoteTxId = null; // 進出貨紀錄已經不能整列編輯了,只能疊加新增附註,用這個狀態控制哪一列在顯示新增附註的輸入框。
 let editingProductId = null;
@@ -2176,6 +2214,11 @@ const I18N = {
 
     secMultipackSettings: 'Multipack 商品設定',
     secOrderVerifySettings: '訂單核對設定',
+    secProductSortSettings: '商品排序',
+    productSortHint: '決定庫存總覽(沒有手動點欄位排序時)、訂貨頁面裡,同一個分類底下的商品要怎麼排序。分類本身的先後順序另外在庫存總覽用「調整分類順序」設定。',
+    productSortImport: '依照匯入商品主檔順序',
+    productSortName: '依照商品名稱',
+    productSortSku: '依照SKU code',
     disableDirectVerifyLabel: '取消直接核對功能',
     disableDirectVerifyHint: '勾選後,「訂單核對」頁面的「直接核對」按鈕會隱藏,只能用左右比對(核對扣庫存)的方式核對,需要先比對實際點貨內容才能確認。',
     autoConvertMultipackLabel: '訂貨數量達到 multipack 商品的加權數時,自動轉換成該 multipack 商品',
@@ -2519,6 +2562,11 @@ const I18N = {
 
     secMultipackSettings: 'Multi-pack Product Settings',
     secOrderVerifySettings: 'Order Verification Settings',
+    secProductSortSettings: 'Product Sort Order',
+    productSortHint: 'Controls how products within the same category are ordered in Stock Overview (when no column sort is active) and on the Order page. Category order itself is set separately in Stock Overview via "Adjust Category Order".',
+    productSortImport: 'Master File Import Order',
+    productSortName: 'Product Name',
+    productSortSku: 'SKU Code',
     disableDirectVerifyLabel: 'Disable "Verify Directly"',
     disableDirectVerifyHint: 'When checked, the "Verify Directly" button on the "Order Verify" page is hidden — orders can only be verified via the left/right comparison ("Verify & Deduct Stock"), which requires comparing actual picked items first.',
     autoConvertMultipackLabel: 'When an order quantity reaches a multi-pack product\'s weight, auto-convert it into that multi-pack product',
@@ -3665,6 +3713,10 @@ async function loadData(){
     const ddvResult = await dbGet('disableDirectVerify');
     if(ddvResult) disableDirectVerifyEnabled = ddvResult.value === 'true';
   } catch(e){ /* no stored preference yet, keep default false */ }
+  try{
+    const psmResult = await dbGet('productSortMode');
+    if(psmResult && ['import','name','sku'].includes(psmResult.value)) productSortMode = psmResult.value;
+  } catch(e){ /* no stored preference yet, keep default 'sku' */ }
   await loadCategoryOrder();
   await loadTabOrder();
   syncCategoryOrder();
@@ -4114,6 +4166,8 @@ function updateMultipackSettingsUI(){
   if(box) box.checked = autoConvertMultipackEnabled;
   const ddvBox = document.getElementById('disableDirectVerifyToggle');
   if(ddvBox) ddvBox.checked = disableDirectVerifyEnabled;
+  const psmSelect = document.getElementById('productSortModeSelect');
+  if(psmSelect) psmSelect.value = productSortMode;
 }
 
 async function toggleAutoConvertMultipack(checked){
@@ -4132,6 +4186,17 @@ async function toggleDisableDirectVerify(checked){
   renderTxSubmitArea();
   const directVerifyBtn = document.getElementById('btnDirectVerifyOnVerifyPage');
   if(directVerifyBtn) directVerifyBtn.style.display = disableDirectVerifyEnabled ? 'none' : '';
+}
+
+// 商品排序設置改變:存起來,並且重新畫庫存總覽(如果目前正顯示的話)、訂貨頁面,讓新的排序方式
+// 立刻生效,不用等使用者自己切分頁才看到變化。
+async function changeProductSortMode(mode){
+  if(!['import','name','sku'].includes(mode)) return;
+  productSortMode = mode;
+  try{ await dbSet('productSortMode', mode); }
+  catch(e){ console.error('儲存商品排序設定失敗', e); }
+  if(document.getElementById('stockCards')) renderStockCards();
+  if(document.getElementById('orderItemsTable')) renderOrderItemsTable();
 }
 
 function updateAutoBackupStatus(){
@@ -5793,16 +5858,7 @@ function renderOrderItemsTable(){
   const now = new Date();
   const orderableIds = new Set(orderable.map(p => p.id));
 
-  // SKU 排序:有 SKU 的話用「自然排序」比較(數字部分照大小排,SKU003A 會排在 SKU003 跟 SKU004
-  // 之間,不是照字元逐一比對);沒有 SKU 的商品排到最後,用商品名稱排。
-  function compareBySku(a, b){
-    const as = a.sku || '';
-    const bs = b.sku || '';
-    if(as && bs) return as.localeCompare(bs, undefined, { numeric: true, sensitivity: 'base' });
-    if(as && !bs) return -1;
-    if(!as && bs) return 1;
-    return a.name.localeCompare(b.name);
-  }
+  // 商品排序:依照系統設置的「商品排序」決定,跟庫存總覽用同一套邏輯,確保兩邊順序一致。
 
   // 只有「主商品的批量商品也在這份可訂購清單裡」時,才需要下拉展開;
   // 批量商品被隱藏或沒被加入訂貨的話,主商品就是一般列,不需要下拉。
@@ -5817,7 +5873,7 @@ function renderOrderItemsTable(){
     const avgTitle = partyObj
       ? (w.isPartySpecific ? tf('avgTitlePartySpecific', {name: partyObj.name}) : tf('avgTitlePartyFallback', {name: partyObj.name}))
       : t('avgTitleNoParty');
-    const children = (!isChildProduct ? orderable.filter(c => c.parentId === p.id) : []).sort(compareBySku);
+    const children = (!isChildProduct ? orderable.filter(c => c.parentId === p.id) : []).sort(compareProductsBySortMode);
     const hasChildren = children.length > 0;
     // 下拉箭頭放在名字後面(不是前面),這樣不管這一列有沒有箭頭,SKU/⧉/商品名稱都從同樣的位置
     // 開始,不會因為有沒有下拉箭頭而讓商品名稱對不齊。
@@ -5852,7 +5908,7 @@ function renderOrderItemsTable(){
   // 頂層列:沒有 parentId 的商品,或是批量商品的主商品本身不在這份可訂購清單裡(退回當一般列
   // 顯示,依自己的 SKU 跟其他商品排序、對齊,不縮排、不特別排到後面)。一律照 SKU 排序,
   // 有主商品在清單裡的批量商品會巢狀跟在主商品底下(展開才看得到),不會出現在這份頂層清單裡。
-  const topLevel = orderable.filter(p => !p.parentId || !orderableIds.has(p.parentId)).sort(compareBySku);
+  const topLevel = orderable.filter(p => !p.parentId || !orderableIds.has(p.parentId)).sort(compareProductsBySortMode);
 
   // 分類篩選選「全部分類」時,商品清單依照庫存總覽同一套分類順序分組顯示(每個分類一個標題列),
   // 不是所有商品混在一起單純照 SKU 排;選了特定分類的話,反正只剩那一個分類的商品,維持原本
@@ -7092,7 +7148,7 @@ function renderVerifyPageProductSelect(){
     filtered = filtered.filter(p => p.orderable && !p.hidden && !hiddenForParty.includes(p.id));
   }
 
-  filtered = filtered.slice().sort((a,b) => (a.sku || '').localeCompare(b.sku || '', undefined, { numeric: true, sensitivity: 'base' }));
+  filtered = filtered.slice().sort(compareProductsBySortMode);
   sel.innerHTML = filtered.map(p => `<option value="${p.id}">${p.sku ? p.sku + ' — ' : ''}${p.parentId ? '⧉ ' : ''}${p.name}(${p.unit})</option>`).join('');
   if(filtered.some(p => p.id === prevProd)) sel.value = prevProd;
 }
@@ -7468,7 +7524,7 @@ function buildOrderSheetAoa(list, partyLabel, dateLabel){
     if(groupAllHidden) hiddenRows.add(headerRowIdx);
 
     items
-      .sort((a,b) => (a.sku || '').localeCompare(b.sku || '', undefined, { numeric: true, sensitivity: 'base' }))
+      .sort(compareProductsBySortMode)
       .forEach(p => {
         const g = qtyByProductId[p.id];
         const rowIdx = aoa.length;
@@ -9170,7 +9226,7 @@ function renderForecastTable(){
   // 再依分類篩選(兩個篩選條件是「且」的關係,都有選的話兩個條件都要符合)。
   if(catFilter) items = items.filter(p => (p.category || '未分類') === catFilter);
 
-  items = items.slice().sort((a,b) => (a.sku || '').localeCompare(b.sku || '', undefined, { numeric: true, sensitivity: 'base' }) || a.name.localeCompare(b.name));
+  items = items.slice().sort(compareProductsBySortMode);
 
   // 篩選列右邊的「總箱數」「總體積」:交給共用的 updateForecastSummary() 算,避免這裡重複一份邏輯。
   updateForecastSummary();
@@ -9336,7 +9392,7 @@ function renderProductSelect(){
     }
   }
 
-  sel.innerHTML = filteredProducts.map(p => `<option value="${p.id}">${p.parentId ? '⧉ ' : ''}${p.name}(${p.unit})</option>`).join('');
+  sel.innerHTML = filteredProducts.slice().sort(compareProductsBySortMode).map(p => `<option value="${p.id}">${p.parentId ? '⧉ ' : ''}${p.name}(${p.unit})</option>`).join('');
   if(filteredProducts.some(p => p.id === prevVal)) sel.value = prevVal;
 
   const browseAllRow = document.getElementById('txBrowseAllProductsRow');
@@ -9492,13 +9548,7 @@ function renderStockCards(){
         let visibleSub = showHidden ? subMembers : subMembers.filter(c => !c.hidden);
         visibleSub.forEach(c => visibleProductIds.add(c.id));
         if(expandedParentIds.has(p.id)){
-          visibleSub.slice().sort((a,b) => {
-            const as = a.sku || '', bs = b.sku || '';
-            if(as && bs) return as.localeCompare(bs, undefined, { numeric: true, sensitivity: 'base' });
-            if(as && !bs) return -1;
-            if(!as && bs) return 1;
-            return a.name.localeCompare(b.name);
-          }).forEach(c => {
+          visibleSub.slice().sort(compareProductsBySortMode).forEach(c => {
             bodyHtml += rowHtml(c, { isSubRow: true });
           });
         }
@@ -9582,15 +9632,9 @@ function toggleTxNoteDisplay(el){
 
 function sortStockItems(items, now){
   if(!stockSortField){
-    // 沒有手動點欄位排序時,預設照 SKU 排(數字感知、跟訂貨頁面用同一套比較邏輯)——
-    // 這樣庫存總覽的預設順序才會跟訂貨頁面一致,不是誰先建立就排前面這種不固定的順序。
-    return items.slice().sort((a, b) => {
-      const as = a.sku || '', bs = b.sku || '';
-      if(as && bs) return as.localeCompare(bs, undefined, { numeric: true, sensitivity: 'base' });
-      if(as && !bs) return -1;
-      if(!as && bs) return 1;
-      return a.name.localeCompare(b.name);
-    });
+    // 沒有手動點欄位排序時,依照系統設置的「商品排序」決定順序,跟訂貨頁面用同一套邏輯,
+    // 確保兩邊預設順序一致。
+    return items.slice().sort(compareProductsBySortMode);
   }
   const dir = stockSortDir === 'desc' ? -1 : 1;
   const valueFor = (p) => {
