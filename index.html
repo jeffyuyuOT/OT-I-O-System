@@ -916,6 +916,13 @@
             <option value="sku" data-i18n="productSortSku">依照SKU code</option>
           </select>
         </div>
+        <div style="display:flex;align-items:center;gap:8px;margin:0 0 6px;">
+          <input type="checkbox" id="hideMultipackIconToggle" onchange="toggleHideMultipackIcon(this.checked)" style="width:16px;height:16px;cursor:pointer;" />
+          <label for="hideMultipackIconToggle" style="font-size:12.5px;color:var(--ink);font-weight:600;cursor:pointer;" data-i18n="hideMultipackIconLabel">訂貨頁面隱藏Multipack圖示</label>
+        </div>
+        <p style="font-size:11.5px;color:var(--ink-soft);margin:0 0 12px;" data-i18n="hideMultipackIconHint">
+          勾選後,訂貨頁面 multipack 商品名稱前面的「⧉」圖示不顯示,商品名稱直接往前對齊,跟其他一般商品的名稱起始位置一致。
+        </p>
 
         <hr class="divider" />
 
@@ -1809,6 +1816,9 @@ let stockSortDir = 'asc';
 // | 'name'(商品名稱) | 'sku'(SKU code,預設)。庫存總覽的預設排序(沒有手動點欄位排序時)、
 // 訂貨頁面的商品清單排序,兩邊都共用這個設置,確保兩邊順序一致。
 let productSortMode = 'sku';
+// 系統設置:「訂貨頁面隱藏Multipack圖示」——勾選後,訂貨頁面 multipack 商品名稱前面的「⧉」
+// 圖示不顯示,商品名稱直接往前對齊,跟其他一般商品的名稱起始位置一致。
+let hideMultipackIconOnOrderPage = false;
 
 // 依照目前的「商品排序」系統設置,比較兩個商品在同一分類內的先後順序——庫存總覽的預設排序
 // 跟訂貨頁面的商品清單排序都呼叫這個共用函式,不要各自維護一份,避免兩邊排序邏輯兜不起來。
@@ -2219,6 +2229,8 @@ const I18N = {
     productSortImport: '依照匯入商品主檔順序',
     productSortName: '依照商品名稱',
     productSortSku: '依照SKU code',
+    hideMultipackIconLabel: '訂貨頁面隱藏Multipack圖示',
+    hideMultipackIconHint: '勾選後,訂貨頁面 multipack 商品名稱前面的「⧉」圖示不顯示,商品名稱直接往前對齊,跟其他一般商品的名稱起始位置一致。',
     disableDirectVerifyLabel: '取消直接核對功能',
     disableDirectVerifyHint: '勾選後,「訂單核對」頁面的「直接核對」按鈕會隱藏,只能用左右比對(核對扣庫存)的方式核對,需要先比對實際點貨內容才能確認。',
     autoConvertMultipackLabel: '訂貨數量達到 multipack 商品的加權數時,自動轉換成該 multipack 商品',
@@ -2567,6 +2579,8 @@ const I18N = {
     productSortImport: 'Master File Import Order',
     productSortName: 'Product Name',
     productSortSku: 'SKU Code',
+    hideMultipackIconLabel: 'Hide Multipack Icon on Order Page',
+    hideMultipackIconHint: 'When checked, the "⧉" icon before multipack product names on the Order page is hidden, and product names align to the same starting position as regular products.',
     disableDirectVerifyLabel: 'Disable "Verify Directly"',
     disableDirectVerifyHint: 'When checked, the "Verify Directly" button on the "Order Verify" page is hidden — orders can only be verified via the left/right comparison ("Verify & Deduct Stock"), which requires comparing actual picked items first.',
     autoConvertMultipackLabel: 'When an order quantity reaches a multi-pack product\'s weight, auto-convert it into that multi-pack product',
@@ -3717,6 +3731,10 @@ async function loadData(){
     const psmResult = await dbGet('productSortMode');
     if(psmResult && ['import','name','sku'].includes(psmResult.value)) productSortMode = psmResult.value;
   } catch(e){ /* no stored preference yet, keep default 'sku' */ }
+  try{
+    const hmiResult = await dbGet('hideMultipackIconOnOrderPage');
+    if(hmiResult) hideMultipackIconOnOrderPage = hmiResult.value === 'true';
+  } catch(e){ /* no stored preference yet, keep default false */ }
   await loadCategoryOrder();
   await loadTabOrder();
   syncCategoryOrder();
@@ -4168,6 +4186,8 @@ function updateMultipackSettingsUI(){
   if(ddvBox) ddvBox.checked = disableDirectVerifyEnabled;
   const psmSelect = document.getElementById('productSortModeSelect');
   if(psmSelect) psmSelect.value = productSortMode;
+  const hmiBox = document.getElementById('hideMultipackIconToggle');
+  if(hmiBox) hmiBox.checked = hideMultipackIconOnOrderPage;
 }
 
 async function toggleAutoConvertMultipack(checked){
@@ -4196,6 +4216,13 @@ async function changeProductSortMode(mode){
   try{ await dbSet('productSortMode', mode); }
   catch(e){ console.error('儲存商品排序設定失敗', e); }
   if(document.getElementById('stockCards')) renderStockCards();
+  if(document.getElementById('orderItemsTable')) renderOrderItemsTable();
+}
+
+async function toggleHideMultipackIcon(checked){
+  hideMultipackIconOnOrderPage = checked;
+  try{ await dbSet('hideMultipackIconOnOrderPage', checked ? 'true' : 'false'); }
+  catch(e){ console.error('儲存訂貨頁面隱藏Multipack圖示設定失敗', e); }
   if(document.getElementById('orderItemsTable')) renderOrderItemsTable();
 }
 
@@ -5882,7 +5909,7 @@ function renderOrderItemsTable(){
       : '';
     const row = `
       <tr class="${outOfStock ? 'oos-row' : ''}">
-        <td class="row-name" style="${isNested ? 'padding-left:26px;' : ''}">${isChildProduct ? '⧉ ' : ''}${p.sku ? `<span class="sku-tooltip-trigger" data-sku="${p.sku.replace(/"/g,'&quot;')}">${p.name}</span>` : p.name}${p.orderPageRemark ? `<span style="font-style:italic;font-size:11.5px;color:var(--ink-soft);"> ${p.orderPageRemark.replace(/</g,'&lt;')}</span>` : ''}${expandArrow}${outOfStock ? `<span class="oos-badge">${t('oosLabel')}</span>` : ''}</td>
+        <td class="row-name" style="${isNested ? 'padding-left:26px;' : ''}">${(isChildProduct && !hideMultipackIconOnOrderPage) ? '⧉ ' : ''}${p.sku ? `<span class="sku-tooltip-trigger" data-sku="${p.sku.replace(/"/g,'&quot;')}">${p.name}</span>` : p.name}${p.orderPageRemark ? `<span style="font-style:italic;font-size:11.5px;color:var(--ink-soft);"> ${p.orderPageRemark.replace(/</g,'&lt;')}</span>` : ''}${expandArrow}${outOfStock ? `<span class="oos-badge">${t('oosLabel')}</span>` : ''}</td>
         <td class="row-note-cell">
           ${orderItemNoteDraft[p.id]
             ? `<span class="del-link" style="font-style:italic;" onclick="openOrderItemNoteModal('${p.id}')">${t('noteLabelPrefix')}${orderItemNoteDraft[p.id].replace(/</g,'&lt;')}</span>`
