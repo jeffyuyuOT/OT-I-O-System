@@ -2602,13 +2602,6 @@ function applyStaticTranslations(){
 // 以前會被當成好幾個不同的分類,導致同一個分類被拆成好幾筆、篩選清單看起來不完整,
 // 選其中一筆又只看得到部分商品。現在會自動把這些寫法併回同一個正式分類名稱
 // (以第一次出現的寫法為準),並直接修正商品資料上的分類文字。
-// 從 SKU 開頭的英文字母取出「分類代碼」,例如 "A001" -> "A"。沒有 SKU 或開頭不是英文字母就回傳 null。
-function getSkuPrefix(sku){
-  if(!sku) return null;
-  const m = String(sku).trim().match(/^[A-Za-z]+/);
-  return m ? m[0].toUpperCase() : null;
-}
-
 function syncCategoryOrder(){
   const keyOf = s => s.trim().toLowerCase();
 
@@ -2638,30 +2631,6 @@ function syncCategoryOrder(){
     if(p.category !== canonical){ p.category = canonical; changed = true; }
   });
 
-  // 3) SKU 開頭字母代表分類,同一個字母開頭的 SKU 理論上都該是同一個分類。用「這個字母開頭的商品裡
-  // 最多商品採用的分類」當作這個字母的正式分類,把同一字頭裡分類寫錯/跑掉的商品修正回來,這樣就不會
-  // 因為 Excel 匯入表格上的分類文字打法不一致,讓庫存總覽的分類跟原始商品主檔對不起來。
-  const groupsByPrefix = new Map();
-  products.forEach(p => {
-    const prefix = getSkuPrefix(p.sku);
-    if(!prefix) return;
-    const cat = p.category || '未分類';
-    if(!groupsByPrefix.has(prefix)) groupsByPrefix.set(prefix, new Map());
-    const counts = groupsByPrefix.get(prefix);
-    counts.set(cat, (counts.get(cat) || 0) + 1);
-  });
-  const canonicalByPrefix = new Map();
-  groupsByPrefix.forEach((counts, prefix) => {
-    let bestCat = null, bestCount = -1;
-    counts.forEach((count, cat) => { if(count > bestCount){ bestCount = count; bestCat = cat; } });
-    canonicalByPrefix.set(prefix, bestCat);
-  });
-  products.forEach(p => {
-    const prefix = getSkuPrefix(p.sku);
-    if(!prefix) return;
-    const canonicalCat = canonicalByPrefix.get(prefix);
-    if(canonicalCat && p.category !== canonicalCat){ p.category = canonicalCat; changed = true; }
-  });
   products.forEach(p => present.add(p.category || '未分類'));
 
   order = order.filter(cat => present.has(cat));
