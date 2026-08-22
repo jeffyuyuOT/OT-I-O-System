@@ -2066,6 +2066,9 @@ const I18N = {
     noteLabelPrefix: '備註:',
     deliveryDateLabel: '送貨日期:',
     exportedOrderNosNote: '本檔案包含以下訂單:{nos}',
+    confirmChangeDeliveryDateMsg: '確定要把送貨日期從 {old} 改成 {new} 嗎?',
+    dateWasChangedTitle: '送貨日期已被更改過',
+    originalDateLabel: '原訂 {date}',
     btnExportThisOrder: '📤 匯出這張訂單', btnDeleteWholeOrder: '🗑 刪除整筆訂單(退回庫存)',
     itemDeletedLabel: '已刪除(退回庫存)', itemDeletedLabelStockedOut: '已刪除(已出庫,已入庫退回)',
     btnEditQty: '改數量', btnEditRemark: '編輯附註', orderRemarkPlaceholder: '對這張訂單做點附註⋯⋯',
@@ -2420,6 +2423,9 @@ const I18N = {
     noteLabelPrefix: 'Note:',
     deliveryDateLabel: 'Delivery Date:',
     exportedOrderNosNote: 'This file includes the following orders: {nos}',
+    confirmChangeDeliveryDateMsg: 'Change delivery date from {old} to {new}?',
+    dateWasChangedTitle: 'Delivery date has been changed',
+    originalDateLabel: 'originally {date}',
     btnExportThisOrder: '📤 Export This Order', btnDeleteWholeOrder: '🗑 Delete Order (Restock)',
     itemDeletedLabel: 'Deleted (Restocked)', itemDeletedLabelStockedOut: 'Deleted (was stocked out, restocked back)',
     btnEditQty: 'Edit Qty', btnEditRemark: 'Edit Remark', orderRemarkPlaceholder: 'Add a remark about this order…',
@@ -3589,10 +3595,12 @@ function switchOrderSubTab(subtabId){
 }
 
 let pendingConfirmCallback = null;
+let pendingCancelCallback = null;
 
-function showConfirmModal(message, onConfirm){
+function showConfirmModal(message, onConfirm, onCancel){
   document.getElementById('confirmModalText').textContent = message;
   pendingConfirmCallback = onConfirm;
+  pendingCancelCallback = onCancel || null;
   document.getElementById('confirmModalCancelBtn').style.display = 'inline-block';
   document.getElementById('confirmModalYesBtn').textContent = '確定';
   document.getElementById('confirmModalYesBtn').style.background = 'var(--crit)';
@@ -3602,15 +3610,22 @@ function showConfirmModal(message, onConfirm){
 function showInfoModal(message){
   document.getElementById('confirmModalText').textContent = message;
   pendingConfirmCallback = null;
+  pendingCancelCallback = null;
   document.getElementById('confirmModalCancelBtn').style.display = 'none';
   document.getElementById('confirmModalYesBtn').textContent = 'OK';
   document.getElementById('confirmModalYesBtn').style.background = 'var(--ink)';
   document.getElementById('confirmModalOverlay').style.display = 'flex';
 }
 
+// 按「取消」按鈕才會呼叫這個函式——這時候如果有註冊「取消時」的 callback(例如把日期輸入框
+// 改回原本的值,避免使用者以為改了但其實沒存)就要執行。confirmModalYes()(按「確定」)不會走
+// 這個函式,是直接關閉視窗,不會誤觸這個取消專用的 callback。
 function closeConfirmModal(){
   document.getElementById('confirmModalOverlay').style.display = 'none';
+  const cancelCb = pendingCancelCallback;
   pendingConfirmCallback = null;
+  pendingCancelCallback = null;
+  if(cancelCb) cancelCb();
 }
 
 // 訂貨頁面「新增備註」小視窗:開啟時帶入目前這個商品已經填的備註草稿(如果有),按「儲存」
@@ -3643,7 +3658,9 @@ function saveOrderItemNoteModal(){
 
 async function confirmModalYes(){
   const cb = pendingConfirmCallback;
-  closeConfirmModal();
+  document.getElementById('confirmModalOverlay').style.display = 'none';
+  pendingConfirmCallback = null;
+  pendingCancelCallback = null; // 確定了,取消專用的 callback 不用執行,直接清掉
   if(cb) await cb();
 }
 
@@ -6738,7 +6755,7 @@ function renderPendingOrders(){
         <div class="order-card-head" style="cursor:pointer;" onclick="toggleOrderExpand('${o.id}')">
           <span class="order-card-date">
             <span style="display:inline-block;width:14px;">${isExpanded ? '▾' : '▸'}</span>
-            ${o.orderNo ? `<span style="color:var(--ink-soft);font-weight:400;">${o.orderNo}</span> · ` : ''}${o.date}${o.partyName ? ` <span style="font-weight:400;color:var(--ink-soft);">· ${tf('orderCardPartyLabel', {name: o.partyName})}</span>` : ''}
+            ${o.orderNo ? `<span style="color:var(--ink-soft);font-weight:400;">${o.orderNo}</span> · ` : ''}${o.date}${(o.originalDate && o.originalDate !== o.date) ? ` <span title="${t('dateWasChangedTitle')}" style="font-weight:400;color:var(--warn-dark);">(${tf('originalDateLabel', {date: o.originalDate})})</span>` : ''}${o.partyName ? ` <span style="font-weight:400;color:var(--ink-soft);">· ${tf('orderCardPartyLabel', {name: o.partyName})}</span>` : ''}
             ${o.remark ? `<span title="${t('orderHasRemarkTitle')}" style="margin-left:6px;color:var(--yellow-dark);">📝</span>` : ''}
             ${wasModified ? `<span title="${t('orderWasModifiedTitle')}" style="margin-left:6px;color:var(--warn);">✎</span>` : ''}
             ${!o.deleted && !o.partyId ? `<span title="${t('orderNoPartyLinkedWarning')}" style="margin-left:6px;color:var(--crit);">⚠</span>` : ''}
@@ -7400,7 +7417,7 @@ function renderOrderHistory(){
           <div style="font-size:12px;color:var(--ink-soft);margin:0 0 6px;">
             ${t('deliveryDateLabel')}
             ${editable
-              ? `<input type="date" value="${o.date || ''}" onchange="updateOrderDeliveryDate('${o.id}', this.value)" style="margin-left:6px;" />`
+              ? `<input type="date" value="${o.date || ''}" onchange="confirmUpdateOrderDeliveryDate('${o.id}', this)" style="margin-left:6px;" />`
               : `<span style="color:var(--ink);">${o.date || ''}</span>`}
           </div>
           <div class="order-items">${itemsHtml}</div>
@@ -7417,14 +7434,34 @@ function renderOrderHistory(){
 // 既有的待處理訂單裡(見 confirmOrderFromCart 裡的分流,還有底下 mergeItemsIntoExistingOrder)。
 // 出貨方直接鎖定成這張訂單原本的出貨方,不能在這裡改,避免併回去的時候對象兜不起來。
 // 訂購記錄裡改送貨日期:只有訂單還可以改的時候(editable,見 renderOrderHistory 的判斷條件)
-// 才會顯示這個輸入框,存的時候直接更新 order.date 並存回資料庫,跟改品項數量用同一套即時儲存
-// 邏輯,不用另外按「儲存」。
+// 才會顯示這個輸入框。改了之後先跳出確認視窗,列出原本日期跟新日期,按確定才會真的存;
+// 按取消的話,把輸入框的值改回原本的日期,不留下「畫面上看起來已經改了,但其實沒存」的狀態。
+function confirmUpdateOrderDeliveryDate(orderId, inputEl){
+  const order = orders.find(o => o.id === orderId);
+  if(!order) return;
+  const oldDate = order.date;
+  const newDate = inputEl.value;
+  if(!newDate || newDate === oldDate) return;
+  const msg = tf('confirmChangeDeliveryDateMsg', { old: oldDate, new: newDate });
+  showConfirmModal(
+    msg,
+    () => updateOrderDeliveryDate(orderId, newDate),
+    () => { inputEl.value = oldDate; }
+  );
+}
+
 async function updateOrderDeliveryDate(orderId, newDate){
   if(!newDate) return;
   const order = orders.find(o => o.id === orderId);
   if(!order) return;
   const oldDate = order.date;
   if(oldDate === newDate) return;
+  // 只在「第一次」改日期的時候記下最原始的日期,之後不管再改幾次,originalDate 都維持指向
+  // 最初訂單建立時的那個日期——這樣待處理訂單那邊才能一直清楚顯示「這張單原本訂的是哪一天」,
+  // 不會因為改第二次、第三次就把上一次記錄的原始日期覆蓋掉。
+  if(order.originalDate === undefined || order.originalDate === null){
+    order.originalDate = oldDate;
+  }
   order.date = newDate;
   try{
     await upsertOrders([order]);
@@ -7436,6 +7473,7 @@ async function updateOrderDeliveryDate(orderId, newDate){
     return;
   }
   renderOrderHistory();
+  renderPendingOrders();
 }
 
 function goAddProductsToOrder(orderId){
