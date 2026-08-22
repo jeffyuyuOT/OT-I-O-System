@@ -2072,6 +2072,10 @@ const I18N = {
     changeSummaryDate: '送貨日期:{old} → {new}',
     changeSummaryNote: '備註有異動',
     changeSummaryNewItemsHeader: '新增商品:',
+    changeSummaryQtyChangesHeader: '改數量:',
+    changeSummaryDeletesHeader: '刪除商品:',
+    pendingDeleteLabel: '待確認刪除',
+    btnUndo: '復原',
     confirmSaveOrderChangesMsg: '這次儲存有以下異動,確定要儲存嗎?\n{changes}',
     btnExportThisOrder: '📤 匯出這張訂單', btnDeleteWholeOrder: '🗑 刪除整筆訂單(退回庫存)',
     itemDeletedLabel: '已刪除(退回庫存)', itemDeletedLabelStockedOut: '已刪除(已出庫,已入庫退回)',
@@ -2434,6 +2438,10 @@ const I18N = {
     changeSummaryDate: 'Delivery date: {old} → {new}',
     changeSummaryNote: 'Note changed',
     changeSummaryNewItemsHeader: 'New items:',
+    changeSummaryQtyChangesHeader: 'Quantity changes:',
+    changeSummaryDeletesHeader: 'Removed items:',
+    pendingDeleteLabel: 'Pending deletion',
+    btnUndo: 'Undo',
     confirmSaveOrderChangesMsg: 'This save includes the following changes — confirm?\n{changes}',
     btnExportThisOrder: '📤 Export This Order', btnDeleteWholeOrder: '🗑 Delete Order (Restock)',
     itemDeletedLabel: 'Deleted (Restocked)', itemDeletedLabelStockedOut: 'Deleted (was stocked out, restocked back)',
@@ -4341,6 +4349,7 @@ function resetRegisterOutFlow(){
   registerOutFlowType = '';
   registerLoadedOrderId = null;
   txBatchItems = [];
+  registerPendingItemChanges = {};
   const flowSel = document.getElementById('txOutFlowType');
   if(flowSel) flowSel.value = '';
   const orderWrap = document.getElementById('txOutFlowOrderSelectWrap');
@@ -4473,17 +4482,46 @@ function renderTxExistingItems(){
   }
   list.innerHTML = activeItems.map(it => {
     const isEditing = registerExistingItemEditKey === it.productId;
+    const pending = registerPendingItemChanges[it.productId];
+
     if(isEditing){
       return `
         <div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--line);">
           <span style="flex:1;">${it.name}${it.sku ? ` (${it.sku})` : ''}</span>
-          <input type="number" id="txExistingItemQtyInput_${it.productId}" value="${it.qty}" step="1" style="width:80px;font-family:inherit;font-size:inherit;" />
+          <input type="number" id="txExistingItemQtyInput_${it.productId}" value="${pending && pending.type === 'qty' ? pending.newQty : it.qty}" step="1" style="width:80px;font-family:inherit;font-size:inherit;" />
           <span class="row-unit">${it.unit}</span>
           <span class="del-link" onclick="saveTxExistingItemQty('${it.productId}')">${t('btnSave')}</span>
           <span class="del-link" onclick="registerExistingItemEditKey=null;renderTxExistingItems();">${t('btnCancel')}</span>
         </div>
       `;
     }
+
+    // 標記為「待確認刪除」的品項:整行變灰、數量劃刪除線,還是留在清單裡看得到,不會直接消失——
+    // 要按最後的「儲存」並在確認視窗裡按下確定,才會真的變成軟刪除。這裡提供「復原」可以在存檔
+    // 之前反悔、取消這個暫存的刪除動作。
+    if(pending && pending.type === 'delete'){
+      return `
+        <div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--line);opacity:0.55;">
+          <span style="flex:1;text-decoration:line-through;">${it.name}${it.sku ? ` (${it.sku})` : ''}</span>
+          <span style="text-decoration:line-through;">${it.qty} ${it.unit}</span>
+          <span style="color:var(--crit);font-size:11px;">${t('pendingDeleteLabel')}</span>
+          <span class="del-link" onclick="undoPendingItemChange('${it.productId}')">${t('btnUndo')}</span>
+        </div>
+      `;
+    }
+
+    // 有暫存改數量:舊數量劃刪除線、旁邊顯示新數量,還沒真的存檔,一樣可以「復原」取消。
+    if(pending && pending.type === 'qty'){
+      return `
+        <div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--line);">
+          <span style="flex:1;">${it.name}${it.sku ? ` (${it.sku})` : ''}</span>
+          <span><span style="text-decoration:line-through;color:var(--ink-soft);">${it.qty}</span> → <span style="color:var(--warn-dark);font-weight:600;">${pending.newQty}</span> ${it.unit}</span>
+          <span class="del-link" onclick="registerExistingItemEditKey='${it.productId}';renderTxExistingItems();">${t('btnEditQty')}</span>
+          <span class="del-link" onclick="undoPendingItemChange('${it.productId}')">${t('btnUndo')}</span>
+        </div>
+      `;
+    }
+
     return `
       <div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--line);">
         <span style="flex:1;">${it.name}${it.sku ? ` (${it.sku})` : ''}</span>
@@ -4542,6 +4580,7 @@ function populateTxPartySelect(){
 function loadOrderIntoRegisterFlow(orderId){
   if(!orderId){
     registerLoadedOrderId = null;
+    registerPendingItemChanges = {};
     renderTxExistingItems();
     renderTxPostVerifyChanges();
     renderTxSubmitArea();
@@ -4552,6 +4591,7 @@ function loadOrderIntoRegisterFlow(orderId){
   if(!order) return;
   registerLoadedOrderId = orderId;
   registerExistingItemEditKey = null;
+  registerPendingItemChanges = {}; // 換一張訂單就清空,不要把上一張訂單的暫存改動帶到這一張來
   if(!order.postVerifyChanges) order.postVerifyChanges = []; // 每張訂單自己的核對後變更記錄,重新載入不會清掉之前存過的
   txBatchItems = [];
 
@@ -4584,7 +4624,10 @@ function startTxExistingItemEdit(productId){
 // 儲存既有品項的數量修改——立即套用(不等最後的「儲存」按鈕),邏輯依 load-pending/load-completed
 // 而不同:待處理訂單不影響庫存,只留修改紀錄;已完成訂單要真的調整庫存(用既有的
 // saveOrderItemQty 那套 RPC 機制),而且這筆異動要記錄進「核對後變更」清單。
-async function saveTxExistingItemQty(productId){
+// 改數量現在不會馬上存檔——只是把新數量寫進 registerPendingItemChanges 這個暫存區,畫面上
+// 會用刪除線劃掉舊數量、標出新數量(見 renderTxExistingItems),真正套用要等最後按「儲存」、
+// 在總結確認視窗裡按下確定才會發生。
+function saveTxExistingItemQty(productId){
   const order = orders.find(o => o.id === registerLoadedOrderId);
   if(!order) return;
   const item = order.items.find(it => it.productId === productId && !it.deleted);
@@ -4594,127 +4637,34 @@ async function saveTxExistingItemQty(productId){
   const newQty = parseFloat(input.value);
   if(isNaN(newQty)){ showInfoModal(t('errEnterValidQty')); return; }
   if(!Number.isInteger(newQty)){ showInfoModal(t('errQtyMustBeInteger')); return; }
-  if(newQty === item.qty){ registerExistingItemEditKey = null; renderTxExistingItems(); return; }
 
-  // 改數量會直接影響庫存/訂單資料,先跳確認視窗明確列出是哪個商品、從多少改成多少,按確定才
-  // 真的送出——跟刪除品項(deleteTxExistingItem)已經有的確認視窗是同一個道理。
-  const oldQtyForMsg = item.qty;
-  const confirmMsg = newQty === 0 && registerOutFlowType === 'load-pending'
-    ? tf('confirmDeleteOrderItem', { name: item.name, qty: Math.abs(oldQtyForMsg), unit: item.unit })
-    : tf('confirmChangeItemQtyMsg', { name: item.name, old: oldQtyForMsg, new: newQty, unit: item.unit });
-
-  showConfirmModal(confirmMsg, () => doSaveTxExistingItemQty(order, item, productId, newQty));
-}
-
-async function doSaveTxExistingItemQty(order, item, productId, newQty){
-  if(registerOutFlowType === 'load-pending'){
-    const oldQty = item.qty;
-    if(newQty === 0){
-      item.deleted = true;
-      item.deletedAt = new Date().toISOString();
-    } else {
-      item.qty = newQty;
-      if(!item.qtyHistory) item.qtyHistory = [];
-      item.qtyHistory.push({ from: oldQty, to: newQty });
-    }
-    try{ await upsertOrders([order]); }
-    catch(e){ console.error('儲存數量失敗', e); showInfoModal('⚠ 儲存失敗,請重新整理頁面再試一次。'); return; }
-    logInventoryAction('order_edit', `Pending order ${order.orderNo || order.id} - quantity adjusted: ${item.name} ${oldQty}→${newQty} ${item.unit} (not yet stocked out)`, order.orderNo);
-    registerExistingItemEditKey = null;
-    renderTxExistingItems();
-    return;
+  if(newQty === item.qty){
+    delete registerPendingItemChanges[productId]; // 改回原本的數字,等於取消這個暫存變更
+  } else if(newQty === 0){
+    registerPendingItemChanges[productId] = { type: 'delete' };
+  } else {
+    registerPendingItemChanges[productId] = { type: 'qty', newQty };
   }
-
-  // load-completed:真的要調整庫存,走跟已完成訂單「改數量」一樣的 RPC 機制。
-  const oldQty = item.qty;
-  const txId = genId();
-  const noteText = tf('orderItemQtyChangedNote', { orderNo: order.orderNo || '', name: item.name, oldQty, newQty, unit: item.unit });
-
-  const { error } = await sb.rpc('adjust_order_item_qty', {
-    p_order_id: order.id,
-    p_product_id: productId,
-    p_new_qty: newQty,
-    p_tx_id: txId,
-    p_date: todayISO(),
-    p_note: noteText
-  });
-
-  if(error){
-    const failures = parseInsufficientStockError(error);
-    if(failures && failures[0]){
-      showInfoModal(tf('errAdjustQtyInsufficientStock', { name: item.name, available: failures[0].available, requested: failures[0].requested }));
-    } else {
-      console.error('adjust_order_item_qty failed', error);
-      showInfoModal(t('errAdjustQtyGeneric'));
-    }
-    return;
-  }
-
-  const qtyDelta = newQty - oldQty;
-  const tx = {
-    id: txId, productId, type: qtyDelta > 0 ? 'out' : 'restock', qty: Math.abs(qtyDelta),
-    date: todayISO(), party: order.partyName || '', note: noteText, system: true, orderId: order.id
-  };
-  transactions.push(tx);
-  productStockMap[productId] = (productStockMap[productId] || 0) - qtyDelta;
-
-  item.qty = newQty;
-  if(!item.qtyHistory) item.qtyHistory = [];
-  item.qtyHistory.push({ from: oldQty, to: newQty });
-  if(!order.postVerifyChanges) order.postVerifyChanges = [];
-  order.postVerifyChanges.push({ kind: 'qty', productId, name: item.name, sku: item.sku, unit: item.unit, from: oldQty, to: newQty });
-  try{ await upsertOrders([order]); } catch(e){ console.error('儲存訂單失敗', e); }
-
-  logInventoryAction('order_edit', `Order ${order.orderNo || order.id} - quantity adjusted after verification: ${item.name} ${oldQty}→${newQty} ${item.unit}`, order.orderNo);
   registerExistingItemEditKey = null;
   renderTxExistingItems();
-  renderTxPostVerifyChanges();
-  renderAll();
 }
 
-// 刪除既有品項——待處理訂單不影響庫存;已完成訂單要真的把這個品項的出貨量退回庫存(補一筆
-// restock 紀錄),並記錄進「核對後變更」清單。
-async function deleteTxExistingItem(productId){
+// 刪除既有品項——一樣改成先標記成「待確認刪除」暫存在 registerPendingItemChanges,不會馬上
+// 消失、也不會馬上動庫存,整行會用灰階+刪除線顯示,還留在清單裡看得到,可以按「復原」反悔。
+// 真正的軟刪除(待處理訂單)或退回庫存(已完成訂單)要等最後按「儲存」才會發生。
+function deleteTxExistingItem(productId){
   const order = orders.find(o => o.id === registerLoadedOrderId);
   if(!order) return;
   const item = order.items.find(it => it.productId === productId && !it.deleted);
   if(!item) return;
+  registerPendingItemChanges[productId] = { type: 'delete' };
+  renderTxExistingItems();
+}
 
-  showConfirmModal(tf('confirmDeleteOrderItem', {name: item.name, qty: Math.abs(item.qty), unit: item.unit}), async () => {
-    const now = new Date().toISOString();
-
-    if(registerOutFlowType === 'load-completed'){
-      try{
-        const txId = genId();
-        const isRestockItem = item.qty < 0;
-        const noteText = tf('orderItemDeletedRestockNote', { orderNo: order.orderNo || order.id, name: item.name, qty: Math.abs(item.qty), unit: item.unit });
-        const tx = { id: txId, productId, type: isRestockItem ? 'out' : 'restock', qty: Math.abs(item.qty), date: todayISO(), party: order.partyName || '', note: noteText, system: true, orderId: order.id };
-        transactions.push(tx);
-        productStockMap[productId] = (productStockMap[productId] || 0) + item.qty;
-        await insertTransactions([tx]);
-      } catch(e){
-        console.error('刪除品項失敗', e);
-        showInfoModal('⚠ 操作失敗,請重新整理頁面再試一次。');
-        return;
-      }
-      if(!order.postVerifyChanges) order.postVerifyChanges = [];
-      order.postVerifyChanges.push({ kind: 'deleted', productId, name: item.name, sku: item.sku, unit: item.unit, qty: item.qty });
-    }
-
-    item.deleted = true;
-    item.deletedAt = now;
-    item.deleteStockStatus = registerOutFlowType === 'load-completed' ? 'stocked_out' : undefined;
-    if(order.items.every(it => it.deleted)){
-      order.deleted = true;
-      order.deletedAt = now;
-    }
-    try{ await upsertOrders([order]); } catch(e){ console.error('儲存訂單失敗', e); }
-
-    logInventoryAction('order_edit', `Order ${order.orderNo || order.id} - removed item: ${item.name} ${item.qty} ${item.unit}`, order.orderNo);
-    renderTxExistingItems();
-    renderTxPostVerifyChanges();
-    renderAll();
-  });
+// 取消一個暫存的改數量/待刪除標記,回到原本存檔的狀態。
+function undoPendingItemChange(productId){
+  delete registerPendingItemChanges[productId];
+  renderTxExistingItems();
 }
 
 // ===== 登記進出貨:多商品批次加入清單 =====
@@ -4723,6 +4673,10 @@ let txBatchItems = []; // { productId, name, unit, qty }
 let registerOutFlowType = ''; // ''(還沒選) | 'new-order' | 'load-pending' | 'load-completed' | 'adjustment'
 let registerLoadedOrderId = null; // load-pending/load-completed 模式下,目前載入的那張訂單 id
 let registerExistingItemEditKey = null; // 目前正在編輯數量的既有品項 productId(null 表示沒有在編輯)
+// 既有品項的改數量/刪除,不再按下去就馬上存檔——先暫存在這裡,畫面上照樣看得到那一列(改數量的
+// 用刪除線劃掉舊數量、刪除的整行變灰並標「待確認刪除」),等按最後的「儲存」才會一次套用,並且
+// 在確認視窗的總結裡列出來。key 是 productId,value 是 { type:'qty', newQty } 或 { type:'delete' }。
+let registerPendingItemChanges = {};
 
 function addToTxBatch(){
   const productSel = document.getElementById('txProduct');
@@ -8860,22 +8814,51 @@ function formatNewItemsSummary(items){
   return t('changeSummaryNewItemsHeader') + '\n' + lines.join('\n');
 }
 
+// 確認視窗裡「改數量」的明細:每一項都明確列出商品名稱、從多少改成多少。
+function formatQtyChangesSummary(pendingQtyChanges){
+  const lines = pendingQtyChanges.map(({item, newQty}) => `  ${item.name}: ${item.qty} → ${newQty} ${item.unit}`);
+  return t('changeSummaryQtyChangesHeader') + '\n' + lines.join('\n');
+}
+
+// 確認視窗裡「刪除商品」的明細:每一項都明確列出商品名稱跟數量。
+function formatDeletesSummary(pendingDeletes){
+  const lines = pendingDeletes.map(item => `  ${item.name}: ${item.qty} ${item.unit}`);
+  return t('changeSummaryDeletesHeader') + '\n' + lines.join('\n');
+}
+
+// 把 registerPendingItemChanges 這個暫存區,對照訂單目前的品項,整理成兩份清單:
+// 要改數量的(帶著原本的 item 物件參照跟新數量)、要刪除的(帶著原本的 item 物件參照)。
+// 暫存區裡如果有指向「已經不在訂單裡」的 productId(理論上不該發生,防呆用)會直接忽略。
+function collectPendingItemChanges(order){
+  const pendingQtyChanges = [];
+  const pendingDeletes = [];
+  Object.keys(registerPendingItemChanges).forEach(productId => {
+    const change = registerPendingItemChanges[productId];
+    const item = order.items.find(it => it.productId === productId && !it.deleted);
+    if(!item) return;
+    if(change.type === 'delete') pendingDeletes.push(item);
+    else if(change.type === 'qty') pendingQtyChanges.push({ item, newQty: change.newQty });
+  });
+  return { pendingQtyChanges, pendingDeletes };
+}
+
 async function submitLoadPendingFlow(action, msg){
   if(!registerLoadedOrderId){ msg.className='msg error'; msg.textContent=t('errSelectOrderFirst'); return; }
   const orderId = registerLoadedOrderId;
   const order = orders.find(o => o.id === orderId);
   if(!order){ msg.className='msg error'; msg.textContent=`⚠ ${t('errOrderNoLongerEditable')}`; return; }
 
-  // 之前這裡漏掉了讀取日期輸入框的新值——備註有正確存回去,但日期欄位改了之後從來沒有被讀出來
-  // 存回 order.date,導致日期改了在畫面上看起來有變,實際上存檔後又跳回原本的日期。這次修正。
   const dateInput = document.getElementById('txDate');
   const newDate = dateInput ? dateInput.value : order.date;
   const noteInput = document.getElementById('txNote');
   const newNote = noteInput ? noteInput.value.trim() : (order.note || '');
+  const { pendingQtyChanges, pendingDeletes } = collectPendingItemChanges(order);
 
   const changes = [];
   if(newDate && newDate !== order.date) changes.push(tf('changeSummaryDate', { old: order.date || '', new: newDate }));
   if(newNote !== (order.note || '')) changes.push(t('changeSummaryNote'));
+  if(pendingQtyChanges.length > 0) changes.push(formatQtyChangesSummary(pendingQtyChanges));
+  if(pendingDeletes.length > 0) changes.push(formatDeletesSummary(pendingDeletes));
   if(txBatchItems.length > 0) changes.push(formatNewItemsSummary(txBatchItems));
 
   const doSave = async () => {
@@ -8884,6 +8867,27 @@ async function submitLoadPendingFlow(action, msg){
       order.date = newDate;
     }
     order.note = newNote;
+
+    // 套用暫存的改數量(待處理訂單不影響庫存,單純改 order.items 上的數字跟異動紀錄)。
+    pendingQtyChanges.forEach(({ item, newQty }) => {
+      const oldQty = item.qty;
+      item.qty = newQty;
+      if(!item.qtyHistory) item.qtyHistory = [];
+      item.qtyHistory.push({ from: oldQty, to: newQty });
+      logInventoryAction('order_edit', `Pending order ${order.orderNo || order.id} - quantity adjusted: ${item.name} ${oldQty}→${newQty} ${item.unit} (not yet stocked out)`, order.orderNo);
+    });
+    // 套用暫存的刪除(軟刪除,一樣不影響庫存)。
+    const now = new Date().toISOString();
+    pendingDeletes.forEach(item => {
+      item.deleted = true;
+      item.deletedAt = now;
+      logInventoryAction('order_edit', `Pending order ${order.orderNo || order.id} - removed item: ${item.name} ${item.qty} ${item.unit}`, order.orderNo);
+    });
+    if(order.items.length > 0 && order.items.every(it => it.deleted)){
+      order.deleted = true;
+      order.deletedAt = now;
+    }
+    registerPendingItemChanges = {};
 
     if(txBatchItems.length > 0){
       const newItems = txBatchItems.map(it => ({ productId: it.productId, sku: it.sku||'', name: it.name, unit: it.unit, qty: it.qty }));
@@ -8894,7 +8898,7 @@ async function submitLoadPendingFlow(action, msg){
         return;
       }
     } else {
-      try{ await upsertOrders([order]); } catch(e){ console.error('儲存備註/日期失敗', e); }
+      try{ await upsertOrders([order]); } catch(e){ console.error('儲存備註/日期/品項失敗', e); }
     }
 
     if(action === 'save-pending'){
@@ -8915,10 +8919,10 @@ async function submitLoadPendingFlow(action, msg){
     }
   };
 
-  // 有任何異動(日期/備註/新增商品)才跳確認視窗,列出具體改了哪些地方;完全沒改的話直接照原本
-  // 動作繼續(例如單純按「載入訂單核對頁面」查看,不用為了「沒有異動」還跳一次確認)。
+  // 有任何異動(日期/備註/改數量/刪除/新增商品)才跳確認視窗,列出具體改了哪些地方;完全沒改的話
+  // 直接照原本動作繼續(例如單純按「載入訂單核對頁面」查看,不用為了「沒有異動」還跳一次確認)。
   if(changes.length > 0){
-    showConfirmModal(tf('confirmSaveOrderChangesMsg', { changes: changes.join('\n') }), doSave);
+    showConfirmModal(tf('confirmSaveOrderChangesMsg', { changes: changes.join('\n\n') }), doSave);
   } else {
     await doSave();
   }
@@ -8937,13 +8941,26 @@ async function submitLoadCompletedFlow(date, msg){
   const party = partyObj ? partyObj.name : (order.partyName || '');
   const noteInput = document.getElementById('txNote');
   const noteVal = noteInput ? noteInput.value.trim() : '';
+  const { pendingQtyChanges, pendingDeletes } = collectPendingItemChanges(order);
 
-  // 之前這裡也漏掉了把日期存回 order.date——date 這個參數本身有正確帶到新的值(呼叫端已經從
-  // #txDate 讀出來了),但一路傳到這裡都只拿去給新增品項的異動紀錄用,從來沒有真的存回訂單本身
-  // 的日期欄位,所以改了日期存檔後又跳回原本的日期。這次修正。
+  // 已完成訂單的「改數量」會真的動庫存,送出前先在前端檢查每一筆「增加數量」是否有足夠庫存——
+  // 這樣才不會等到確認視窗按下確定、開始逐筆呼叫 RPC 之後才發現某一筆不夠,變成一半套用成功、
+  // 一半失敗的尷尬狀態。減少數量/刪除不會有庫存不夠的問題,不用檢查。
+  const insufficientQtyChanges = pendingQtyChanges
+    .filter(({ item, newQty }) => newQty > item.qty)
+    .map(({ item, newQty }) => ({ item, newQty, delta: newQty - item.qty, available: computeTotalStock(item.productId) - computePendingReserved(item.productId) }))
+    .filter(x => x.delta > x.available);
+  if(insufficientQtyChanges.length > 0){
+    msg.className = 'msg error';
+    msg.textContent = `⚠ ${insufficientQtyChanges.map(x => `「${x.item.name}」需要再增加 ${x.delta} ${x.item.unit},庫存剩 ${x.available} ${x.item.unit}`).join('; ')}`;
+    return;
+  }
+
   const changes = [];
   if(date && date !== order.date) changes.push(tf('changeSummaryDate', { old: order.date || '', new: date }));
   if(noteVal !== (order.note || '')) changes.push(t('changeSummaryNote'));
+  if(pendingQtyChanges.length > 0) changes.push(formatQtyChangesSummary(pendingQtyChanges));
+  if(pendingDeletes.length > 0) changes.push(formatDeletesSummary(pendingDeletes));
   if(txBatchItems.length > 0) changes.push(formatNewItemsSummary(txBatchItems));
 
   const doSave = async () => {
@@ -8952,6 +8969,77 @@ async function submitLoadCompletedFlow(date, msg){
       order.date = date;
     }
     order.note = noteVal;
+
+    // 依序套用每一筆暫存的改數量,呼叫跟原本「改數量」一樣的 adjust_order_item_qty RPC
+    // (原子化、伺服器端會再驗證一次庫存)。前面已經先做過前端庫存檢查,這裡理論上不太會失敗,
+    // 但還是要處理伺服器端拒絕的情況(例如同時間有其他人也在操作庫存)——一旦有一筆失敗就
+    // 停下來,已經成功套用的部分維持不動(不嘗試整批復原,因為那些已經是真的寫進資料庫的操作)。
+    for(const { item, newQty } of pendingQtyChanges){
+      const oldQty = item.qty;
+      const txId = genId();
+      const noteText = tf('orderItemQtyChangedNote', { orderNo: order.orderNo || '', name: item.name, oldQty, newQty, unit: item.unit });
+      const { error } = await sb.rpc('adjust_order_item_qty', {
+        p_order_id: order.id, p_product_id: item.productId, p_new_qty: newQty,
+        p_tx_id: txId, p_date: todayISO(), p_note: noteText
+      });
+      if(error){
+        const failures = parseInsufficientStockError(error);
+        msg.className = 'msg error';
+        msg.textContent = failures && failures[0]
+          ? tf('errAdjustQtyInsufficientStock', { name: item.name, available: failures[0].available, requested: failures[0].requested })
+          : t('errAdjustQtyGeneric');
+        registerPendingItemChanges = {};
+        renderTxExistingItems();
+        renderAll();
+        return;
+      }
+      const qtyDelta = newQty - oldQty;
+      const tx = { id: txId, productId: item.productId, type: qtyDelta > 0 ? 'out' : 'restock', qty: Math.abs(qtyDelta), date: todayISO(), party: order.partyName || '', note: noteText, system: true, orderId: order.id };
+      transactions.push(tx);
+      productStockMap[item.productId] = (productStockMap[item.productId] || 0) - qtyDelta;
+      item.qty = newQty;
+      if(!item.qtyHistory) item.qtyHistory = [];
+      item.qtyHistory.push({ from: oldQty, to: newQty });
+      if(!order.postVerifyChanges) order.postVerifyChanges = [];
+      order.postVerifyChanges.push({ kind: 'qty', productId: item.productId, name: item.name, sku: item.sku, unit: item.unit, from: oldQty, to: newQty });
+    }
+
+    // 依序套用每一筆暫存的刪除:退回庫存(補一筆 restock 交易紀錄),軟刪除品項。
+    const now = new Date().toISOString();
+    for(const item of pendingDeletes){
+      try{
+        const txId = genId();
+        const isRestockItem = item.qty < 0;
+        const noteText = tf('orderItemDeletedRestockNote', { orderNo: order.orderNo || order.id, name: item.name, qty: Math.abs(item.qty), unit: item.unit });
+        const tx = { id: txId, productId: item.productId, type: isRestockItem ? 'out' : 'restock', qty: Math.abs(item.qty), date: todayISO(), party: order.partyName || '', note: noteText, system: true, orderId: order.id };
+        transactions.push(tx);
+        productStockMap[item.productId] = (productStockMap[item.productId] || 0) + item.qty;
+        await insertTransactions([tx]);
+      } catch(e){
+        console.error('刪除品項失敗', e);
+        // 剛剛的樂觀更新(push transaction、加回 productStockMap)因為實際寫入失敗,要回滾掉,
+        // 不然畫面上的庫存數字會跟資料庫不一致。
+        const idx = transactions.indexOf(tx);
+        if(idx >= 0) transactions.splice(idx, 1);
+        productStockMap[item.productId] = (productStockMap[item.productId] || 0) - item.qty;
+        msg.className = 'msg error';
+        msg.textContent = '⚠ 操作失敗,請重新整理頁面再試一次。';
+        registerPendingItemChanges = {};
+        renderTxExistingItems();
+        renderAll();
+        return;
+      }
+      if(!order.postVerifyChanges) order.postVerifyChanges = [];
+      order.postVerifyChanges.push({ kind: 'deleted', productId: item.productId, name: item.name, sku: item.sku, unit: item.unit, qty: item.qty });
+      item.deleted = true;
+      item.deletedAt = now;
+      item.deleteStockStatus = 'stocked_out';
+    }
+    if(order.items.length > 0 && order.items.every(it => it.deleted)){
+      order.deleted = true;
+      order.deletedAt = now;
+    }
+    registerPendingItemChanges = {};
 
     if(txBatchItems.length > 0){
       const insufficient = txBatchItems
@@ -8973,7 +9061,7 @@ async function submitLoadCompletedFlow(date, msg){
         return;
       }
     } else {
-      try{ await upsertOrders([order]); } catch(e){ console.error('儲存備註/日期失敗', e); }
+      try{ await upsertOrders([order]); } catch(e){ console.error('儲存備註/日期/品項失敗', e); }
     }
 
     resetRegisterOutFlow();
@@ -8985,10 +9073,10 @@ async function submitLoadCompletedFlow(date, msg){
     msg.className='msg ok'; msg.textContent='✓ 已儲存';
   };
 
-  // 有任何異動(日期/備註/新增商品)才跳確認視窗,列出具體改了哪些地方;完全沒改的話直接存檔,
-  // 不用為了「沒有異動」還跳一次確認。
+  // 有任何異動(日期/備註/改數量/刪除/新增商品)才跳確認視窗,列出具體改了哪些地方;完全沒改的話
+  // 直接存檔,不用為了「沒有異動」還跳一次確認。
   if(changes.length > 0){
-    showConfirmModal(tf('confirmSaveOrderChangesMsg', { changes: changes.join('\n') }), doSave);
+    showConfirmModal(tf('confirmSaveOrderChangesMsg', { changes: changes.join('\n\n') }), doSave);
   } else {
     await doSave();
   }
