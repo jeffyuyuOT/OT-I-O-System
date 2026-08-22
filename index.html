@@ -2069,6 +2069,10 @@ const I18N = {
     confirmChangeDeliveryDateMsg: '確定要把送貨日期從 {old} 改成 {new} 嗎?',
     dateWasChangedTitle: '送貨日期已被更改過',
     originalDateLabel: '原訂 {date}',
+    changeSummaryDate: '送貨日期:{old} → {new}',
+    changeSummaryNote: '備註有異動',
+    changeSummaryNewItems: '新增 {count} 項商品',
+    confirmSaveOrderChangesMsg: '這次儲存有以下異動,確定要儲存嗎?\n{changes}',
     btnExportThisOrder: '📤 匯出這張訂單', btnDeleteWholeOrder: '🗑 刪除整筆訂單(退回庫存)',
     itemDeletedLabel: '已刪除(退回庫存)', itemDeletedLabelStockedOut: '已刪除(已出庫,已入庫退回)',
     btnEditQty: '改數量', btnEditRemark: '編輯附註', orderRemarkPlaceholder: '對這張訂單做點附註⋯⋯',
@@ -2426,6 +2430,10 @@ const I18N = {
     confirmChangeDeliveryDateMsg: 'Change delivery date from {old} to {new}?',
     dateWasChangedTitle: 'Delivery date has been changed',
     originalDateLabel: 'originally {date}',
+    changeSummaryDate: 'Delivery date: {old} → {new}',
+    changeSummaryNote: 'Note changed',
+    changeSummaryNewItems: '{count} item(s) added',
+    confirmSaveOrderChangesMsg: 'This save includes the following changes — confirm?\n{changes}',
     btnExportThisOrder: '📤 Export This Order', btnDeleteWholeOrder: '🗑 Delete Order (Restock)',
     itemDeletedLabel: 'Deleted (Restocked)', itemDeletedLabelStockedOut: 'Deleted (was stocked out, restocked back)',
     btnEditQty: 'Edit Qty', btnEditRemark: 'Edit Remark', orderRemarkPlaceholder: 'Add a remark about this order…',
@@ -8837,36 +8845,62 @@ async function submitLoadPendingFlow(action, msg){
   const orderId = registerLoadedOrderId;
   const order = orders.find(o => o.id === orderId);
   if(!order){ msg.className='msg error'; msg.textContent=`⚠ ${t('errOrderNoLongerEditable')}`; return; }
-  const noteInput = document.getElementById('txNote');
-  if(noteInput) order.note = noteInput.value.trim();
 
-  if(txBatchItems.length > 0){
-    const newItems = txBatchItems.map(it => ({ productId: it.productId, sku: it.sku||'', name: it.name, unit: it.unit, qty: it.qty }));
-    const result = await mergeItemsIntoOrderCore(orderId, newItems);
-    if(!result.ok){
-      msg.className='msg error';
-      msg.textContent = result.reason === 'not_editable' ? `⚠ ${t('errOrderNoLongerEditable')}` : '⚠ 新增商品失敗,請重新整理頁面再試一次。';
+  // 之前這裡漏掉了讀取日期輸入框的新值——備註有正確存回去,但日期欄位改了之後從來沒有被讀出來
+  // 存回 order.date,導致日期改了在畫面上看起來有變,實際上存檔後又跳回原本的日期。這次修正。
+  const dateInput = document.getElementById('txDate');
+  const newDate = dateInput ? dateInput.value : order.date;
+  const noteInput = document.getElementById('txNote');
+  const newNote = noteInput ? noteInput.value.trim() : (order.note || '');
+
+  const changes = [];
+  if(newDate && newDate !== order.date) changes.push(tf('changeSummaryDate', { old: order.date || '', new: newDate }));
+  if(newNote !== (order.note || '')) changes.push(t('changeSummaryNote'));
+  if(txBatchItems.length > 0) changes.push(tf('changeSummaryNewItems', { count: txBatchItems.length }));
+
+  const doSave = async () => {
+    if(newDate && newDate !== order.date){
+      if(order.originalDate === undefined || order.originalDate === null) order.originalDate = order.date;
+      order.date = newDate;
+    }
+    order.note = newNote;
+
+    if(txBatchItems.length > 0){
+      const newItems = txBatchItems.map(it => ({ productId: it.productId, sku: it.sku||'', name: it.name, unit: it.unit, qty: it.qty }));
+      const result = await mergeItemsIntoOrderCore(orderId, newItems);
+      if(!result.ok){
+        msg.className='msg error';
+        msg.textContent = result.reason === 'not_editable' ? `⚠ ${t('errOrderNoLongerEditable')}` : '⚠ 新增商品失敗,請重新整理頁面再試一次。';
+        return;
+      }
+    } else {
+      try{ await upsertOrders([order]); } catch(e){ console.error('儲存備註/日期失敗', e); }
+    }
+
+    if(action === 'save-pending'){
+      resetRegisterOutFlow();
+      setTxOutFlowType('');
+      switchTab('tab-order-admin');
+      switchOrderAdminSubTab('subtab-order-pending');
+      expandedOrderIds.add(orderId);
+      renderAll();
+      msg.className='msg ok'; msg.textContent='✓ 已儲存';
       return;
     }
-  } else {
-    try{ await upsertOrders([order]); } catch(e){ console.error('儲存備註失敗', e); }
-  }
+    if(action === 'load-verify'){
+      resetRegisterOutFlow();
+      setTxOutFlowType('');
+      openOrderInVerifyPage(orderId);
+      return;
+    }
+  };
 
-  if(action === 'save-pending'){
-    resetRegisterOutFlow();
-    setTxOutFlowType('');
-    switchTab('tab-order-admin');
-    switchOrderAdminSubTab('subtab-order-pending');
-    expandedOrderIds.add(orderId);
-    renderAll();
-    msg.className='msg ok'; msg.textContent='✓ 已儲存';
-    return;
-  }
-  if(action === 'load-verify'){
-    resetRegisterOutFlow();
-    setTxOutFlowType('');
-    openOrderInVerifyPage(orderId);
-    return;
+  // 有任何異動(日期/備註/新增商品)才跳確認視窗,列出具體改了哪些地方;完全沒改的話直接照原本
+  // 動作繼續(例如單純按「載入訂單核對頁面」查看,不用為了「沒有異動」還跳一次確認)。
+  if(changes.length > 0){
+    showConfirmModal(tf('confirmSaveOrderChangesMsg', { changes: changes.join('\n') }), doSave);
+  } else {
+    await doSave();
   }
 }
 
@@ -8883,38 +8917,61 @@ async function submitLoadCompletedFlow(date, msg){
   const party = partyObj ? partyObj.name : (order.partyName || '');
   const noteInput = document.getElementById('txNote');
   const noteVal = noteInput ? noteInput.value.trim() : '';
-  order.note = noteVal;
 
-  if(txBatchItems.length > 0){
-    const insufficient = txBatchItems
-      .filter(it => it.qty > 0)
-      .map(it => ({ ...it, available: computeTotalStock(it.productId) - computePendingReserved(it.productId) }))
-      .filter(it => it.qty > it.available);
-    if(insufficient.length > 0){
-      msg.className = 'msg error';
-      msg.textContent = `⚠ ${insufficient.map(it => `「${it.name}」需要 ${it.qty} ${it.unit},庫存剩 ${it.available} ${it.unit}`).join('; ')}`;
-      return;
+  // 之前這裡也漏掉了把日期存回 order.date——date 這個參數本身有正確帶到新的值(呼叫端已經從
+  // #txDate 讀出來了),但一路傳到這裡都只拿去給新增品項的異動紀錄用,從來沒有真的存回訂單本身
+  // 的日期欄位,所以改了日期存檔後又跳回原本的日期。這次修正。
+  const changes = [];
+  if(date && date !== order.date) changes.push(tf('changeSummaryDate', { old: order.date || '', new: date }));
+  if(noteVal !== (order.note || '')) changes.push(t('changeSummaryNote'));
+  if(txBatchItems.length > 0) changes.push(tf('changeSummaryNewItems', { count: txBatchItems.length }));
+
+  const doSave = async () => {
+    if(date && date !== order.date){
+      if(order.originalDate === undefined || order.originalDate === null) order.originalDate = order.date;
+      order.date = date;
     }
-    const batchItems = txBatchItems.map(it => ({ productId: it.productId, sku: it.sku||'', name: it.name, unit: it.unit, qty: it.qty }));
-    const result = await mergeItemsIntoCompletedOrderCore(orderId, batchItems, date, party, noteVal);
-    if(!result.ok){
-      msg.className = 'msg error';
-      msg.textContent = result.reason === 'not_editable' ? `⚠ ${t('errOrderNoLongerEditable')}`
-        : result.reason === 'duplicate' ? `⚠ ${t('errProductAlreadyInOrder')}`
-        : '⚠ 新增商品失敗,請重新整理頁面再試一次。';
-      return;
+    order.note = noteVal;
+
+    if(txBatchItems.length > 0){
+      const insufficient = txBatchItems
+        .filter(it => it.qty > 0)
+        .map(it => ({ ...it, available: computeTotalStock(it.productId) - computePendingReserved(it.productId) }))
+        .filter(it => it.qty > it.available);
+      if(insufficient.length > 0){
+        msg.className = 'msg error';
+        msg.textContent = `⚠ ${insufficient.map(it => `「${it.name}」需要 ${it.qty} ${it.unit},庫存剩 ${it.available} ${it.unit}`).join('; ')}`;
+        return;
+      }
+      const batchItems = txBatchItems.map(it => ({ productId: it.productId, sku: it.sku||'', name: it.name, unit: it.unit, qty: it.qty }));
+      const result = await mergeItemsIntoCompletedOrderCore(orderId, batchItems, date, party, noteVal);
+      if(!result.ok){
+        msg.className = 'msg error';
+        msg.textContent = result.reason === 'not_editable' ? `⚠ ${t('errOrderNoLongerEditable')}`
+          : result.reason === 'duplicate' ? `⚠ ${t('errProductAlreadyInOrder')}`
+          : '⚠ 新增商品失敗,請重新整理頁面再試一次。';
+        return;
+      }
+    } else {
+      try{ await upsertOrders([order]); } catch(e){ console.error('儲存備註/日期失敗', e); }
     }
+
+    resetRegisterOutFlow();
+    setTxOutFlowType('');
+    switchTab('tab-order-admin');
+    switchOrderAdminSubTab('subtab-order-completed');
+    expandedOrderIds.add(orderId);
+    renderAll();
+    msg.className='msg ok'; msg.textContent='✓ 已儲存';
+  };
+
+  // 有任何異動(日期/備註/新增商品)才跳確認視窗,列出具體改了哪些地方;完全沒改的話直接存檔,
+  // 不用為了「沒有異動」還跳一次確認。
+  if(changes.length > 0){
+    showConfirmModal(tf('confirmSaveOrderChangesMsg', { changes: changes.join('\n') }), doSave);
   } else {
-    try{ await upsertOrders([order]); } catch(e){ console.error('儲存備註失敗', e); }
+    await doSave();
   }
-
-  resetRegisterOutFlow();
-  setTxOutFlowType('');
-  switchTab('tab-order-admin');
-  switchOrderAdminSubTab('subtab-order-completed');
-  expandedOrderIds.add(orderId);
-  renderAll();
-  msg.className='msg ok'; msg.textContent='✓ 已儲存';
 }
 
 // 出貨→庫存調整:不建立訂單、不需要出貨方,單純是庫存數字校正。備註必填,送出前跳警示視窗
