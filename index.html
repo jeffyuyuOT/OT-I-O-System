@@ -1584,7 +1584,7 @@
 
 <div id="confirmModalOverlay" class="modal-overlay" style="display:none;">
   <div class="modal-box">
-    <p id="confirmModalText"></p>
+    <p id="confirmModalText" style="white-space:pre-line;"></p>
     <div class="modal-actions">
       <button id="confirmModalCancelBtn" class="btn ghost" onclick="closeConfirmModal()">取消</button>
       <button id="confirmModalYesBtn" class="btn" style="background:var(--crit);" onclick="confirmModalYes()">確定</button>
@@ -1994,6 +1994,8 @@ const I18N = {
     btnCart: '🛒 購物車', secCart: '購物車',
     cartDesc: '請確認以下訂貨數量。按「繼續訂貨」可以回到訂貨頁面修改',
     btnOrderMore: '← 繼續訂貨', btnConfirmOrderFinal: '✅ 提交訂單',
+    confirmSubmitOrderMsg: '確定要送出這張訂單嗎?\n送貨日期:{date}\n出貨方:{party}',
+    partyUnspecified: '未指定',
     cartEmptyNote: '購物車是空的,請先在訂貨頁面填寫訂貨數量。',
     colWeeklyAvg: '每次訂貨平均用量', colOrderQty: '訂貨數量', oosLabel: '缺貨',
     colItemNote: '備註', itemNotePlaceholder: '這個商品的備註(選填)',
@@ -2062,6 +2064,8 @@ const I18N = {
     confirmEmptyOrderCancels: '這張訂單裡的商品都被移除了,儲存後這張訂單會直接視為已取消,確定嗎?',
     confirmSignOrder: '確定要簽收訂單 {orderNo} 嗎?請先確認貨已經實際收到,簽收後這張訂單就不能再修改。',
     noteLabelPrefix: '備註:',
+    deliveryDateLabel: '送貨日期:',
+    exportedOrderNosNote: '本檔案包含以下訂單:{nos}',
     btnExportThisOrder: '📤 匯出這張訂單', btnDeleteWholeOrder: '🗑 刪除整筆訂單(退回庫存)',
     itemDeletedLabel: '已刪除(退回庫存)', itemDeletedLabelStockedOut: '已刪除(已出庫,已入庫退回)',
     btnEditQty: '改數量', btnEditRemark: '編輯附註', orderRemarkPlaceholder: '對這張訂單做點附註⋯⋯',
@@ -2344,6 +2348,8 @@ const I18N = {
     btnCart: '🛒 Cart', secCart: 'Cart',
     cartDesc: 'Please review the order quantities below. "Order more" takes you back to the order page to make changes',
     btnOrderMore: '← Order more', btnConfirmOrderFinal: '✅ Submit Order',
+    confirmSubmitOrderMsg: 'Submit this order?\nDelivery date: {date}\nShipping party: {party}',
+    partyUnspecified: 'Unspecified',
     cartEmptyNote: 'Your cart is empty. Please fill in order quantities on the order page first.',
     colWeeklyAvg: 'Avg per Order', colOrderQty: 'Order Qty', oosLabel: 'Out of Stock',
     colItemNote: 'Note', itemNotePlaceholder: 'Note for this item (optional)',
@@ -2412,6 +2418,8 @@ const I18N = {
     confirmEmptyOrderCancels: 'All items in this order have been removed — saving will mark this order as cancelled. Continue?',
     confirmSignOrder: 'Sign for order {orderNo}? Please confirm the goods have actually been received — once signed, this order can no longer be edited.',
     noteLabelPrefix: 'Note:',
+    deliveryDateLabel: 'Delivery Date:',
+    exportedOrderNosNote: 'This file includes the following orders: {nos}',
     btnExportThisOrder: '📤 Export This Order', btnDeleteWholeOrder: '🗑 Delete Order (Restock)',
     itemDeletedLabel: 'Deleted (Restocked)', itemDeletedLabelStockedOut: 'Deleted (was stocked out, restocked back)',
     btnEditQty: 'Edit Qty', btnEditRemark: 'Edit Remark', orderRemarkPlaceholder: 'Add a remark about this order…',
@@ -6163,6 +6171,15 @@ async function confirmOrderFromCart(){
     return;
   }
 
+  // 送出前先跳出確認視窗,把送貨日期跟出貨方明確列出來,避免手滑選錯日期/出貨方沒發現就送出去了。
+  const partyLabel = partyName || t('partyUnspecified');
+  const confirmMsg = tf('confirmSubmitOrderMsg', { date: dateVal, party: partyLabel });
+  showConfirmModal(confirmMsg, () => doConfirmOrderFromCart(dateVal, noteVal, partyId, partyName, items));
+}
+
+async function doConfirmOrderFromCart(dateVal, noteVal, partyId, partyName, items){
+  const msg = document.getElementById('cartMsg');
+
   if(addingItemsToOrderId){
     await mergeItemsIntoExistingOrder(addingItemsToOrderId, items);
     return;
@@ -7380,6 +7397,12 @@ function renderOrderHistory(){
         </div>
         ${isExpanded ? `
           ${o.note ? `<div style="font-size:12px;color:var(--ink-soft);margin:8px 0 6px;">${t('noteLabelPrefix')}${o.note}</div>` : ''}
+          <div style="font-size:12px;color:var(--ink-soft);margin:0 0 6px;">
+            ${t('deliveryDateLabel')}
+            ${editable
+              ? `<input type="date" value="${o.date || ''}" onchange="updateOrderDeliveryDate('${o.id}', this.value)" style="margin-left:6px;" />`
+              : `<span style="color:var(--ink);">${o.date || ''}</span>`}
+          </div>
           <div class="order-items">${itemsHtml}</div>
           ${addProductLinkHtml}
           ${signable ? `<div class="order-card-actions"><button class="btn" onclick="signOrderHistory('${o.id}')">${t('btnSignReceipt')}</button></div>` : ''}
@@ -7393,6 +7416,28 @@ function renderOrderHistory(){
 // 商品、進購物車確認——但按下「提交訂單」時不會另外建一張新訂單,而是把選的品項併進這張
 // 既有的待處理訂單裡(見 confirmOrderFromCart 裡的分流,還有底下 mergeItemsIntoExistingOrder)。
 // 出貨方直接鎖定成這張訂單原本的出貨方,不能在這裡改,避免併回去的時候對象兜不起來。
+// 訂購記錄裡改送貨日期:只有訂單還可以改的時候(editable,見 renderOrderHistory 的判斷條件)
+// 才會顯示這個輸入框,存的時候直接更新 order.date 並存回資料庫,跟改品項數量用同一套即時儲存
+// 邏輯,不用另外按「儲存」。
+async function updateOrderDeliveryDate(orderId, newDate){
+  if(!newDate) return;
+  const order = orders.find(o => o.id === orderId);
+  if(!order) return;
+  const oldDate = order.date;
+  if(oldDate === newDate) return;
+  order.date = newDate;
+  try{
+    await upsertOrders([order]);
+    logInventoryAction('order_edit', `Order ${order.orderNo || order.id} delivery date changed: ${oldDate} → ${newDate}`, order.orderNo);
+  } catch(e){
+    console.error('更新送貨日期失敗', e);
+    order.date = oldDate; // 存失敗就退回原本的日期,不留下跟資料庫不一致的畫面
+    showInfoModal('⚠ 更新送貨日期失敗,請重新整理頁面再試一次。');
+    return;
+  }
+  renderOrderHistory();
+}
+
 function goAddProductsToOrder(orderId){
   const order = orders.find(o => o.id === orderId);
   if(!order || order.deleted || orderStatus(order) !== 'pending' || order.signedAt) return;
@@ -7565,6 +7610,11 @@ function buildOrderSheetAoa(list, partyLabel, dateLabel){
         if(!g) hiddenRows.add(rowIdx);
       });
   });
+
+  // 最下面附註這份檔案實際包含哪幾張訂單的編號,方便日後對照/追查是哪幾張訂單的資料被匯出。
+  aoa.push([]);
+  const orderNos = list.map(o => o.orderNo).filter(Boolean);
+  aoa.push([tf('exportedOrderNosNote', { nos: orderNos.join(', ') })]);
 
   return { aoa, aggregated, hiddenRows };
 }
