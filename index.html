@@ -7513,15 +7513,16 @@ function buildOrderAggregation(list){
 }
 
 // 產生訂貨單的試算表內容:Customer/Period 放最上面,SKU 這次改成要顯示出來(不像出貨單模板那樣
-// 隱藏)。清單改成放「全部」可訂貨、沒被全域隱藏的商品(跟出貨單的做法一致),不是只放這張/這些
-// 訂單裡有的商品——這樣不同訂單匯出的檔案結構、商品順序都會一致。這張訂單沒有的商品(沒有數量)
-// 那一列用 Excel 的隱藏列處理掉,資料還在,只是預設不顯示、也不會被印出來。
+// 隱藏)。清單放庫存總覽裡「全部」的商品(不是只放可訂貨、沒被全域隱藏的),包含沒有標記可訂貨
+// (根本不會出現在訂貨頁面)、被全域隱藏的商品都算進來——這樣不同訂單匯出的檔案結構、商品順序
+// 都會一致。這張訂單沒有數量的商品那一列用 Excel 的隱藏列處理掉,資料還在,只是預設不顯示、
+// 也不會被印出來。
 function buildOrderSheetAoa(list, partyLabel, dateLabel){
   const { aggregated, byCategory: orderByCategory } = buildOrderAggregation(list);
   const qtyByProductId = {};
   aggregated.forEach(g => { qtyByProductId[g.productId] = g; });
 
-  const allMain = products.filter(p => p.orderable && !p.hidden);
+  const allMain = products.slice();
   const byCat = {};
   allMain.forEach(p => {
     const cat = p.category || '未分類';
