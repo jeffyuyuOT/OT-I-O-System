@@ -1606,6 +1606,21 @@
   </div>
 </div>
 
+<div id="orderHistoryModalOverlay" class="modal-overlay" style="display:none;">
+  <div class="modal-box modal-box-wide">
+    <div class="section-title" id="orderHistoryModalTitle" style="margin-bottom:12px;"></div>
+    <div class="section-title" style="font-size:13px;margin-bottom:6px;" data-i18n="secModificationHistory">修改紀錄</div>
+    <div id="orderHistoryModalGeneralList" style="max-height:280px;overflow-y:auto;margin-bottom:16px;"></div>
+    <div id="orderHistoryModalPostVerifySection" style="display:none;">
+      <div class="section-title" style="font-size:13px;color:var(--warn-dark);margin-bottom:6px;" data-i18n="secPostVerifyChanges">核對後變更</div>
+      <div id="orderHistoryModalPostVerifyList" style="max-height:200px;overflow-y:auto;"></div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn ghost" onclick="closeOrderHistoryModal()" data-i18n="btnClose">關閉</button>
+    </div>
+  </div>
+</div>
+
 <div id="userEditModalOverlay" class="modal-overlay" style="display:none;">
   <div class="modal-box modal-box-wide">
     <div class="section-title" id="userEditModalTitle" style="margin-bottom:16px;">編輯使用者</div>
@@ -2076,6 +2091,14 @@ const I18N = {
     changeSummaryDeletesHeader: '刪除商品:',
     pendingDeleteLabel: '待確認刪除',
     sortCycleHint: '點一下遞增,再點一下遞減,第三下還原成預設排序',
+    secModificationHistory: '修改紀錄',
+    btnClose: '關閉',
+    btnViewHistory: '觀看修改紀錄',
+    orderHistoryModalTitle: '訂單 {orderNo} 修改紀錄',
+    noModificationHistory: '這張訂單沒有修改紀錄。',
+    historyItemAdded: '{name}:新增 {qty} {unit}',
+    historyQtyChanged: '{name}:{from} → {to} {unit}',
+    historyItemDeleted: '{name}:刪除({qty} {unit})',
     btnUndo: '復原',
     confirmSaveOrderChangesMsg: '這次儲存有以下異動,確定要儲存嗎?\n{changes}',
     btnExportThisOrder: '📤 匯出這張訂單', btnDeleteWholeOrder: '🗑 刪除整筆訂單(退回庫存)',
@@ -2443,6 +2466,14 @@ const I18N = {
     changeSummaryDeletesHeader: 'Removed items:',
     pendingDeleteLabel: 'Pending deletion',
     sortCycleHint: 'Click to sort ascending, click again for descending, a third click restores the default order',
+    secModificationHistory: 'Modification History',
+    btnClose: 'Close',
+    btnViewHistory: 'View History',
+    orderHistoryModalTitle: 'Order {orderNo} Modification History',
+    noModificationHistory: 'This order has no modification history.',
+    historyItemAdded: '{name}: added {qty} {unit}',
+    historyQtyChanged: '{name}: {from} → {to} {unit}',
+    historyItemDeleted: '{name}: removed ({qty} {unit})',
     btnUndo: 'Undo',
     confirmSaveOrderChangesMsg: 'This save includes the following changes — confirm?\n{changes}',
     btnExportThisOrder: '📤 Export This Order', btnDeleteWholeOrder: '🗑 Delete Order (Restock)',
@@ -4547,7 +4578,8 @@ function formatPostVerifyChangesHtml(changes){
       : c.kind === 'deleted' ? t('postVerifyDeleted')
       : t('postVerifyQtyChanged');
     const detail = c.kind === 'qty' ? `${c.from} → ${c.to} ${c.unit}` : `${c.qty} ${c.unit}`;
-    return `<div style="font-size:12px;color:var(--warn-dark);padding:3px 0;">${c.name}${c.sku ? ` (${c.sku})` : ''} — ${label}(${detail})</div>`;
+    const timePrefix = c.at ? `<span style="color:var(--ink-soft);font-family:'IBM Plex Mono',monospace;">${formatOrderDateTime(c.at)}</span> ` : '';
+    return `<div style="font-size:12px;color:var(--warn-dark);padding:3px 0;">${timePrefix}${c.name}${c.sku ? ` (${c.sku})` : ''} — ${label}(${detail})</div>`;
   }).join('');
 }
 
@@ -6247,9 +6279,9 @@ async function mergeItemsIntoOrderCore(orderId, newItems){
       const oldQty = existing.qty;
       existing.qty += newIt.qty;
       if(!existing.qtyHistory) existing.qtyHistory = [];
-      existing.qtyHistory.push({ from: oldQty, to: existing.qty });
+      existing.qtyHistory.push({ from: oldQty, to: existing.qty, at: new Date().toISOString() });
     } else {
-      mergedItems.push({ ...newIt, qtyHistory: [{ added: true }] });
+      mergedItems.push({ ...newIt, qtyHistory: [{ added: true, at: new Date().toISOString(), qty: newIt.qty }] });
     }
   });
   order.items = mergedItems;
@@ -6413,6 +6445,9 @@ function renderOrders(){
     // 都不能再改了,這裡也要跟著鎖住(readOnly=!!o.signedAt),之前沒有這個檢查,簽收後其實還是
     // 能被改掉,這次一併修正。
     const itemsHtml = o.items.map(it => orderItemRowHtml(o, it, false, true, 'completed')).join('');
+    // 這張訂單有沒有東西可以在「觀看修改紀錄」小視窗裡看——一般修改紀錄(改數量/新增/刪除)
+    // 或核對後變更,只要有一個就顯示這個按鈕,完全沒異動過的訂單就不用顯示了。
+    const hasHistory = wasModified || (o.postVerifyChanges && o.postVerifyChanges.length > 0);
     const isEditingRemark = editingOrderRemarkId === o.id;
     const remarkHtml = isEditingRemark ? `
       <div style="margin:8px 0;">
@@ -6442,15 +6477,10 @@ function renderOrders(){
         ${isExpanded ? `
           ${o.note ? `<div style="font-size:12px;color:var(--ink-soft);margin:8px 0 6px;">${t('noteLabelPrefix')}${o.note}</div>` : ''}
           <div class="order-items">${itemsHtml}</div>
-          ${o.postVerifyChanges && o.postVerifyChanges.length > 0 ? `
-            <div style="margin:8px 0;">
-              <div class="section-title" style="font-size:13px;color:var(--warn-dark);">${t('secPostVerifyChanges')}</div>
-              ${formatPostVerifyChangesHtml(o.postVerifyChanges)}
-            </div>
-          ` : ''}
           ${remarkHtml}
           <div class="order-card-actions">
             ${(o.deleted || o.signedAt) ? '' : `<button class="btn ghost" onclick="editOrderViaRegister('${o.id}', 'completed')">${t('btnEdit')}</button>`}
+            ${hasHistory ? `<button class="btn ghost" onclick="openOrderHistoryModal('${o.id}')">${t('btnViewHistory')}</button>` : ''}
             <button class="btn ghost" onclick="exportSingleOrderSheet('${o.id}')">${t('btnExportThisOrder')}</button>
             <button class="btn ghost" onclick="printCompletedOrder('${o.id}')">${t('btnPrintOrder')}</button>
           </div>
@@ -6458,6 +6488,58 @@ function renderOrders(){
       </div>
     `;
   }).join('');
+}
+
+// 收集一張訂單所有品項的「一般修改紀錄」(核對前的改數量/新增/軟刪除),依時間排序(新到舊)。
+// 「核對後變更」(order.postVerifyChanges)是分開處理的,不算在這份清單裡——在畫面上獨立成
+// 另一個區塊,不要混在一起顯示。
+function collectOrderModificationHistory(order){
+  const entries = [];
+  order.items.forEach(it => {
+    (it.qtyHistory || []).forEach(h => {
+      if(h.added){
+        entries.push({ at: h.at, text: tf('historyItemAdded', { name: it.name, qty: h.qty, unit: it.unit }) });
+      } else {
+        entries.push({ at: h.at, text: tf('historyQtyChanged', { name: it.name, from: h.from, to: h.to, unit: it.unit }) });
+      }
+    });
+    if(it.deleted && it.deletedAt){
+      entries.push({ at: it.deletedAt, text: tf('historyItemDeleted', { name: it.name, qty: it.qty, unit: it.unit }) });
+    }
+  });
+  entries.sort((a, b) => (b.at || '').localeCompare(a.at || ''));
+  return entries;
+}
+
+// 已完成訂單卡片裡「觀看修改紀錄」:跳出獨立小視窗,上面是一般修改紀錄(每一項都帶時間,精確到
+// 分鐘),下面另外獨立一個區塊顯示核對後變更(如果有的話)。關閉視窗就回到原本清單頁面
+// (視窗本身蓋在清單上面,關掉就看得到清單,不需要另外導覽)。
+function openOrderHistoryModal(orderId){
+  const order = orders.find(o => o.id === orderId);
+  if(!order) return;
+  document.getElementById('orderHistoryModalTitle').textContent = tf('orderHistoryModalTitle', { orderNo: order.orderNo || '' });
+
+  const generalHistory = collectOrderModificationHistory(order);
+  const generalList = document.getElementById('orderHistoryModalGeneralList');
+  generalList.innerHTML = generalHistory.length > 0
+    ? generalHistory.map(e => `<div style="font-size:12px;padding:3px 0;"><span style="color:var(--ink-soft);font-family:'IBM Plex Mono',monospace;">${formatOrderDateTime(e.at)}</span> ${e.text}</div>`).join('')
+    : `<div class="empty-note" style="padding:8px 0;">${t('noModificationHistory')}</div>`;
+
+  const postVerifyChanges = order.postVerifyChanges || [];
+  const postVerifySection = document.getElementById('orderHistoryModalPostVerifySection');
+  const postVerifyList = document.getElementById('orderHistoryModalPostVerifyList');
+  if(postVerifyChanges.length > 0){
+    postVerifySection.style.display = '';
+    postVerifyList.innerHTML = formatPostVerifyChangesHtml(postVerifyChanges);
+  } else {
+    postVerifySection.style.display = 'none';
+  }
+
+  document.getElementById('orderHistoryModalOverlay').style.display = 'flex';
+}
+
+function closeOrderHistoryModal(){
+  document.getElementById('orderHistoryModalOverlay').style.display = 'none';
 }
 
 function toggleOrderExpand(orderId){
@@ -6627,7 +6709,7 @@ async function saveOrderItemQty(context, orderId, productId){
 
   item.qty = newQty;
   if(!item.qtyHistory) item.qtyHistory = [];
-  item.qtyHistory.push({ from: oldQty, to: newQty });
+  item.qtyHistory.push({ from: oldQty, to: newQty, at: new Date().toISOString() });
   editingOrderItemKey = null;
   try{ await upsertOrders([order]); }
   catch(e){ console.error('儲存數量調整紀錄失敗', e); }
@@ -6998,7 +7080,7 @@ async function savePendingOrderItemQty(context, orderId, productId){
     const oldQty = item.qty;
     item.qty = newQty;
     if(!item.qtyHistory) item.qtyHistory = [];
-    item.qtyHistory.push({ from: oldQty, to: newQty });
+    item.qtyHistory.push({ from: oldQty, to: newQty, at: new Date().toISOString() });
     editingOrderItemKey = null;
     try{ await upsertOrders([order]); }
     catch(e){
@@ -8603,14 +8685,14 @@ async function mergeItemsIntoCompletedOrderCore(orderId, batchItems, date, party
   const newOrderItems = batchItems.map(it => ({
     productId: it.productId, sku: it.sku || '', name: it.name, unit: it.unit,
     qty: it.qty,
-    qtyHistory: [{ added: true }]
+    qtyHistory: [{ added: true, at: new Date().toISOString(), qty: it.qty }]
   }));
   order.items = [...prevItems, ...newOrderItems];
 
   const prevPostVerifyChanges = order.postVerifyChanges ? [...order.postVerifyChanges] : [];
   if(!order.postVerifyChanges) order.postVerifyChanges = [];
   batchItems.forEach(it => {
-    order.postVerifyChanges.push({ kind: 'added', productId: it.productId, name: it.name, sku: it.sku, unit: it.unit, qty: it.qty });
+    order.postVerifyChanges.push({ kind: 'added', productId: it.productId, name: it.name, sku: it.sku, unit: it.unit, qty: it.qty, at: new Date().toISOString() });
   });
 
   transactions.push(...newTxs);
@@ -8875,7 +8957,7 @@ async function submitLoadPendingFlow(action, msg){
       const oldQty = item.qty;
       item.qty = newQty;
       if(!item.qtyHistory) item.qtyHistory = [];
-      item.qtyHistory.push({ from: oldQty, to: newQty });
+      item.qtyHistory.push({ from: oldQty, to: newQty, at: new Date().toISOString() });
       logInventoryAction('order_edit', `Pending order ${order.orderNo || order.id} - quantity adjusted: ${item.name} ${oldQty}→${newQty} ${item.unit} (not yet stocked out)`, order.orderNo);
     });
     // 套用暫存的刪除(軟刪除,一樣不影響庫存)。
@@ -9001,9 +9083,10 @@ async function submitLoadCompletedFlow(date, msg){
       productStockMap[item.productId] = (productStockMap[item.productId] || 0) - qtyDelta;
       item.qty = newQty;
       if(!item.qtyHistory) item.qtyHistory = [];
-      item.qtyHistory.push({ from: oldQty, to: newQty });
+      const qtyChangeAt = new Date().toISOString();
+      item.qtyHistory.push({ from: oldQty, to: newQty, at: qtyChangeAt });
       if(!order.postVerifyChanges) order.postVerifyChanges = [];
-      order.postVerifyChanges.push({ kind: 'qty', productId: item.productId, name: item.name, sku: item.sku, unit: item.unit, from: oldQty, to: newQty });
+      order.postVerifyChanges.push({ kind: 'qty', productId: item.productId, name: item.name, sku: item.sku, unit: item.unit, from: oldQty, to: newQty, at: qtyChangeAt });
     }
 
     // 依序套用每一筆暫存的刪除:退回庫存(補一筆 restock 交易紀錄),軟刪除品項。
@@ -9032,7 +9115,7 @@ async function submitLoadCompletedFlow(date, msg){
         return;
       }
       if(!order.postVerifyChanges) order.postVerifyChanges = [];
-      order.postVerifyChanges.push({ kind: 'deleted', productId: item.productId, name: item.name, sku: item.sku, unit: item.unit, qty: item.qty });
+      order.postVerifyChanges.push({ kind: 'deleted', productId: item.productId, name: item.name, sku: item.sku, unit: item.unit, qty: item.qty, at: new Date().toISOString() });
       item.deleted = true;
       item.deletedAt = now;
       item.deleteStockStatus = 'stocked_out';
