@@ -2075,6 +2075,7 @@ const I18N = {
     changeSummaryQtyChangesHeader: '改數量:',
     changeSummaryDeletesHeader: '刪除商品:',
     pendingDeleteLabel: '待確認刪除',
+    sortCycleHint: '點一下遞增,再點一下遞減,第三下還原成預設排序',
     btnUndo: '復原',
     confirmSaveOrderChangesMsg: '這次儲存有以下異動,確定要儲存嗎?\n{changes}',
     btnExportThisOrder: '📤 匯出這張訂單', btnDeleteWholeOrder: '🗑 刪除整筆訂單(退回庫存)',
@@ -2441,6 +2442,7 @@ const I18N = {
     changeSummaryQtyChangesHeader: 'Quantity changes:',
     changeSummaryDeletesHeader: 'Removed items:',
     pendingDeleteLabel: 'Pending deletion',
+    sortCycleHint: 'Click to sort ascending, click again for descending, a third click restores the default order',
     btnUndo: 'Undo',
     confirmSaveOrderChangesMsg: 'This save includes the following changes — confirm?\n{changes}',
     btnExportThisOrder: '📤 Export This Order', btnDeleteWholeOrder: '🗑 Delete Order (Restock)',
@@ -9886,15 +9888,15 @@ function renderStockCards(){
           <th><input type="checkbox" ${allSelected ? 'checked' : ''} onchange="toggleSelectAllProducts(this.checked)" /></th>
           <th></th>
           <th class="sortable-th">
-            <span onclick="event.stopPropagation();setStockSort('sku')" style="cursor:pointer;">SKU${sortArrow('sku')}</span>
+            <span onclick="event.stopPropagation();setStockSort('sku')" style="cursor:pointer;" title="${t('sortCycleHint')}">SKU${sortArrow('sku')}</span>
             <span style="color:var(--line);margin:0 3px;">/</span>
-            <span onclick="event.stopPropagation();setStockSort('name')" style="cursor:pointer;">${t('colProduct')}${sortArrow('name')}</span>
+            <span onclick="event.stopPropagation();setStockSort('name')" style="cursor:pointer;" title="${t('sortCycleHint')}">${t('colProduct')}${sortArrow('name')}</span>
           </th>
-          <th class="sortable-th num" onclick="setStockSort('stock')">${t('colStock')}${sortArrow('stock')}</th>
-          <th class="sortable-th num" onclick="setStockSort('totalStock')" title="主商品自己的庫存量 + Σ(批量商品庫存量 × 加權數)">${t('colTotalStock')}${sortArrow('totalStock')}</th>
-          <th class="sortable-th num" onclick="setStockSort('avg')">${t('colAvgOut')}${sortArrow('avg')}</th>
-          <th class="sortable-th num" onclick="setStockSort('safety')">${t('colSafety')}${sortArrow('safety')}</th>
-          <th class="sortable-th num" onclick="setStockSort('remain')">${t('colRemain')}${sortArrow('remain')}</th>
+          <th class="sortable-th num" onclick="setStockSort('stock')" title="${t('sortCycleHint')}">${t('colStock')}${sortArrow('stock')}</th>
+          <th class="sortable-th num" onclick="setStockSort('totalStock')" title="主商品自己的庫存量 + Σ(批量商品庫存量 × 加權數)。${t('sortCycleHint')}">${t('colTotalStock')}${sortArrow('totalStock')}</th>
+          <th class="sortable-th num" onclick="setStockSort('avg')" title="${t('sortCycleHint')}">${t('colAvgOut')}${sortArrow('avg')}</th>
+          <th class="sortable-th num" onclick="setStockSort('safety')" title="${t('sortCycleHint')}">${t('colSafety')}${sortArrow('safety')}</th>
+          <th class="sortable-th num" onclick="setStockSort('remain')" title="${t('sortCycleHint')}">${t('colRemain')}${sortArrow('remain')}</th>
           <th></th>
         </tr>
       </thead>
@@ -9957,7 +9959,14 @@ function sortArrow(field){
 
 function setStockSort(field){
   if(stockSortField === field){
-    stockSortDir = stockSortDir === 'asc' ? 'desc' : 'asc';
+    if(stockSortDir === 'asc'){
+      stockSortDir = 'desc';
+    } else {
+      // 已經是遞減了,再點一次不是繼續切換,而是還原成預設排序(分類順序 + 商品排序設置那個
+      // 原始順序)——不然點過遞增/遞減之後,沒有辦法回到原本的排序,只能在這兩個之間切換。
+      stockSortField = null;
+      stockSortDir = 'asc';
+    }
   } else {
     stockSortField = field;
     stockSortDir = 'asc';
