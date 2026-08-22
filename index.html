@@ -2071,7 +2071,7 @@ const I18N = {
     originalDateLabel: '原訂 {date}',
     changeSummaryDate: '送貨日期:{old} → {new}',
     changeSummaryNote: '備註有異動',
-    changeSummaryNewItems: '新增 {count} 項商品',
+    changeSummaryNewItemsHeader: '新增商品:',
     confirmSaveOrderChangesMsg: '這次儲存有以下異動,確定要儲存嗎?\n{changes}',
     btnExportThisOrder: '📤 匯出這張訂單', btnDeleteWholeOrder: '🗑 刪除整筆訂單(退回庫存)',
     itemDeletedLabel: '已刪除(退回庫存)', itemDeletedLabelStockedOut: '已刪除(已出庫,已入庫退回)',
@@ -2131,6 +2131,7 @@ const I18N = {
     orderCardPartyLabel: '出貨方:{name}',
     confirmDeleteOrder: '確定要刪除這筆訂單紀錄嗎?對應的 {n} 項商品數量會退回庫存總覽。',
     confirmDeleteOrderItem: '確定要刪除這筆訂單裡的「{name}」({qty} {unit})嗎?這個數量會退回庫存總覽,商品紀錄會保留但標註為已刪除。',
+    confirmChangeItemQtyMsg: '確定要把「{name}」的數量從 {old} 改成 {new} {unit} 嗎?',
     orderItemDeletedRestockNote: '訂單 {orderNo} 刪除品項(已出庫,入庫退回):{name} {qty} {unit}',
     orderLinkedTxWarningSingle: '這筆紀錄與已完成訂單 {orderNo} 有關,建議先到「訂貨後台管理 → 已完成訂單」修改或刪除該筆訂單商品,而不是直接在這裡刪除。仍要繼續刪除這筆紀錄嗎?',
     orderLinkedTxWarningMulti: '要刪除的紀錄裡,有 {count} 筆與已完成訂單有關(訂單號:{orderNos}),建議先到「訂貨後台管理 → 已完成訂單」修改,而不是直接在這裡刪除。仍要繼續刪除嗎?',
@@ -2432,7 +2433,7 @@ const I18N = {
     originalDateLabel: 'originally {date}',
     changeSummaryDate: 'Delivery date: {old} → {new}',
     changeSummaryNote: 'Note changed',
-    changeSummaryNewItems: '{count} item(s) added',
+    changeSummaryNewItemsHeader: 'New items:',
     confirmSaveOrderChangesMsg: 'This save includes the following changes — confirm?\n{changes}',
     btnExportThisOrder: '📤 Export This Order', btnDeleteWholeOrder: '🗑 Delete Order (Restock)',
     itemDeletedLabel: 'Deleted (Restocked)', itemDeletedLabelStockedOut: 'Deleted (was stocked out, restocked back)',
@@ -2492,6 +2493,7 @@ const I18N = {
     orderCardPartyLabel: 'Customer: {name}',
     confirmDeleteOrder: 'Delete this order record? {n} product(s) will be restocked to Stock Overview.',
     confirmDeleteOrderItem: 'Delete "{name}" ({qty} {unit}) from this order? This quantity will be restocked; the item stays in the order marked as deleted.',
+    confirmChangeItemQtyMsg: 'Change quantity of "{name}" from {old} to {new} {unit}?',
     orderItemDeletedRestockNote: 'Order {orderNo} item removed (was stocked out, restocked back): {name} {qty} {unit}',
     orderLinkedTxWarningSingle: 'This record is linked to completed order {orderNo}. It is recommended to edit or delete this item from "Order Admin → Completed Orders" instead of deleting it here directly. Continue deleting this record anyway?',
     orderLinkedTxWarningMulti: '{count} of the records you are about to delete are linked to completed order(s) (order #: {orderNos}). It is recommended to make changes from "Order Admin → Completed Orders" instead of deleting here directly. Continue deleting anyway?',
@@ -4594,6 +4596,17 @@ async function saveTxExistingItemQty(productId){
   if(!Number.isInteger(newQty)){ showInfoModal(t('errQtyMustBeInteger')); return; }
   if(newQty === item.qty){ registerExistingItemEditKey = null; renderTxExistingItems(); return; }
 
+  // 改數量會直接影響庫存/訂單資料,先跳確認視窗明確列出是哪個商品、從多少改成多少,按確定才
+  // 真的送出——跟刪除品項(deleteTxExistingItem)已經有的確認視窗是同一個道理。
+  const oldQtyForMsg = item.qty;
+  const confirmMsg = newQty === 0 && registerOutFlowType === 'load-pending'
+    ? tf('confirmDeleteOrderItem', { name: item.name, qty: Math.abs(oldQtyForMsg), unit: item.unit })
+    : tf('confirmChangeItemQtyMsg', { name: item.name, old: oldQtyForMsg, new: newQty, unit: item.unit });
+
+  showConfirmModal(confirmMsg, () => doSaveTxExistingItemQty(order, item, productId, newQty));
+}
+
+async function doSaveTxExistingItemQty(order, item, productId, newQty){
   if(registerOutFlowType === 'load-pending'){
     const oldQty = item.qty;
     if(newQty === 0){
@@ -8840,6 +8853,13 @@ function finishNewOrderSubmit(kind, orderId, count, orderNo, msg){
 // mergeItemsIntoOrderCore 併入草稿,不扣庫存。三個按鈕:儲存(存完跳回清單)、載入訂單核對
 // (導去訂單核對頁面,沿用原本邏輯)、直接核對(不經過比對畫面,直接用訂單自己的品項核對,
 // 也是沿用原本 verifyOrder() 的邏輯)。
+// 確認視窗裡「新增商品」的明細:把每一項要新增的商品名稱、數量都列出來,不是只顯示一個籠統的
+// 項目數(例如「新增 3 項商品」),讓使用者存檔前能明確看到到底加了什麼、加了多少。
+function formatNewItemsSummary(items){
+  const lines = items.map(it => `  ${it.name}: ${it.qty} ${it.unit}`);
+  return t('changeSummaryNewItemsHeader') + '\n' + lines.join('\n');
+}
+
 async function submitLoadPendingFlow(action, msg){
   if(!registerLoadedOrderId){ msg.className='msg error'; msg.textContent=t('errSelectOrderFirst'); return; }
   const orderId = registerLoadedOrderId;
@@ -8856,7 +8876,7 @@ async function submitLoadPendingFlow(action, msg){
   const changes = [];
   if(newDate && newDate !== order.date) changes.push(tf('changeSummaryDate', { old: order.date || '', new: newDate }));
   if(newNote !== (order.note || '')) changes.push(t('changeSummaryNote'));
-  if(txBatchItems.length > 0) changes.push(tf('changeSummaryNewItems', { count: txBatchItems.length }));
+  if(txBatchItems.length > 0) changes.push(formatNewItemsSummary(txBatchItems));
 
   const doSave = async () => {
     if(newDate && newDate !== order.date){
@@ -8924,7 +8944,7 @@ async function submitLoadCompletedFlow(date, msg){
   const changes = [];
   if(date && date !== order.date) changes.push(tf('changeSummaryDate', { old: order.date || '', new: date }));
   if(noteVal !== (order.note || '')) changes.push(t('changeSummaryNote'));
-  if(txBatchItems.length > 0) changes.push(tf('changeSummaryNewItems', { count: txBatchItems.length }));
+  if(txBatchItems.length > 0) changes.push(formatNewItemsSummary(txBatchItems));
 
   const doSave = async () => {
     if(date && date !== order.date){
