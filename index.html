@@ -9121,6 +9121,7 @@ async function submitLoadCompletedFlow(date, msg){
       item.qtyHistory.push({ from: oldQty, to: newQty, at: qtyChangeAt });
       if(!order.postVerifyChanges) order.postVerifyChanges = [];
       order.postVerifyChanges.push({ kind: 'qty', productId: item.productId, name: item.name, sku: item.sku, unit: item.unit, from: oldQty, to: newQty, at: qtyChangeAt });
+      logInventoryAction('order_edit', `Order ${order.orderNo || order.id} - quantity adjusted after verification: ${item.name} ${oldQty}→${newQty} ${item.unit}`, order.orderNo);
     }
 
     // 依序套用每一筆暫存的刪除:退回庫存(補一筆 restock 交易紀錄),軟刪除品項。
@@ -9153,6 +9154,7 @@ async function submitLoadCompletedFlow(date, msg){
       item.deleted = true;
       item.deletedAt = now;
       item.deleteStockStatus = 'stocked_out';
+      logInventoryAction('order_edit', `Order ${order.orderNo || order.id} - removed item after verification: ${item.name} ${item.qty} ${item.unit}`, order.orderNo);
     }
     if(order.items.length > 0 && order.items.every(it => it.deleted)){
       order.deleted = true;
