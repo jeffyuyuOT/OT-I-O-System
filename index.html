@@ -5826,7 +5826,7 @@ function exportStockQuantitySheet(){
     else g.items.push(r);
   });
 
-  const headerRow = ['商品名稱','庫存數量','庫存總量','單位'];
+  const headerRow = ['Product Name','Stock Qty','Total Stock Qty','Unit'];
   const aoa = [];
   aoa.push(['Date:', dateStr]);
   aoa.push([]);
@@ -5846,7 +5846,7 @@ function exportStockQuantitySheet(){
   ws['!pageSetup'] = { orientation: 'portrait', fitToWidth: 1, fitToHeight: 0, paperSize: 9 }; // paperSize 9 = A4
   ws['!margins'] = { left:0.5, right:0.5, top:0.6, bottom:0.6, header:0.3, footer:0.3 };
   const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, '庫存數量');
+  XLSX.utils.book_append_sheet(wb, ws, 'Stock Quantity');
 
   const filename = `stock_quantity_${dateStr}.xlsx`;
   XLSX.writeFile(wb, filename);
@@ -6250,7 +6250,7 @@ async function doConfirmOrderFromCart(dateVal, noteVal, partyId, partyName, item
   orders.push(orderPayload);
   recomputeOrderCounterFromOrders();
   await saveOrderCounter();
-  logInventoryAction('order_place', `Created pending order ${orderNo} (${partyName || 'No recipient specified'}, ${items.length} item(s)), stock not yet deducted`, orderNo);
+  logInventoryAction('order_place', `Created pending order ${orderNo} (${partyName || 'No recipient specified'}, ${items.length} item(s)), stock not yet deducted${noteVal ? `, note: "${noteVal}"` : ''}`, orderNo);
 
   document.getElementById('orderNote').value = '';
   orderQtyDraft = {};
@@ -6302,7 +6302,7 @@ async function mergeItemsIntoOrderCore(orderId, newItems){
     return { ok: false, reason: 'save_failed' };
   }
 
-  logInventoryAction('order_edit', `Order ${order.orderNo || orderId} - added ${newItems.length} item(s)`, order.orderNo);
+  logInventoryAction('order_edit', `Order ${order.orderNo || orderId} - added: ${newItems.map(it => `${it.name} ${it.qty} ${it.unit}`).join(', ')}`, order.orderNo);
   return { ok: true, order };
 }
 
@@ -6742,7 +6742,8 @@ async function saveOrderRemark(orderId){
   if(!order) return;
   const input = document.getElementById(`orderRemarkInput_${orderId}`);
   const value = input ? input.value.trim() : '';
-  const oldNote = order.note;
+  const oldNote = order.note || '';
+  if(value === oldNote){ editingOrderRemarkId = null; refreshOrderLists(); return; } // 沒改就不用存、也不用留紀錄
   order.note = value;
   editingOrderRemarkId = null;
   try{ await upsertOrders([order]); }
@@ -6752,7 +6753,8 @@ async function saveOrderRemark(orderId){
     refreshOrderLists();
     return;
   }
-  logInventoryAction('order_remark', `Order ${order.orderNo || orderId} - note edited`, order.orderNo);
+  // 跟登記進出貨那邊改備註一樣,記錄要看得出「從什麼改成什麼」,不是只寫「備註被改過」。
+  logInventoryAction('order_remark', `Order ${order.orderNo || orderId} - note: "${oldNote}" → "${value}"`, order.orderNo);
   refreshOrderLists();
 }
 
@@ -6864,12 +6866,12 @@ function exportOrderExcel(orderId, headerLabel){
   const aoa = [];
   aoa.push([headerLabel]);
   aoa.push([]);
-  aoa.push([t('colOrderNo'), order.orderNo || orderId]);
-  aoa.push([t('lblDate'), order.date || '']);
-  aoa.push([t('fieldShippingParty'), order.partyName || '']);
-  if(order.note) aoa.push([t('noteLabelPrefix').replace(/[:：]\s*$/,''), order.note]);
+  aoa.push(['Order #', order.orderNo || orderId]);
+  aoa.push(['Date', order.date || '']);
+  aoa.push(['Customer', order.partyName || '']);
+  if(order.note) aoa.push(['Note', order.note]);
   aoa.push([]);
-  aoa.push([t('fieldSku'), t('fieldName'), t('lblQty'), t('fieldUnit')]);
+  aoa.push(['SKU', 'Product Name', 'Qty', 'Unit']);
   items.forEach(it => aoa.push([it.sku, it.name, it.qty, it.unit]));
 
   const ws = XLSX.utils.aoa_to_sheet(aoa);
@@ -6877,7 +6879,7 @@ function exportOrderExcel(orderId, headerLabel){
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Order');
   const safeOrderNo = (order.orderNo || orderId).replace(/[^a-zA-Z0-9#_-]/g, '');
-  XLSX.writeFile(wb, `${t('fileNamePrefixOrder')}${safeOrderNo}.xlsx`);
+  XLSX.writeFile(wb, `Order_${safeOrderNo}.xlsx`);
 }
 
 function exportPendingOrderExcel(orderId){
@@ -6902,8 +6904,8 @@ function printOrderDocument(orderId, opts){
       <td>${escapeHtmlForPrint(it.unit)}</td>
     </tr>
   `).join('');
-  const checkTh = includeCheck ? `<th class="check-col">${escapeHtmlForPrint(t('colCheck'))}</th>` : '';
-  const skuTh = includeSku ? `<th class="sku-col">${escapeHtmlForPrint(t('fieldSku'))}</th>` : '';
+  const checkTh = includeCheck ? `<th class="check-col">${escapeHtmlForPrint('Check')}</th>` : '';
+  const skuTh = includeSku ? `<th class="sku-col">${escapeHtmlForPrint('SKU')}</th>` : '';
 
   const html = `<!DOCTYPE html>
 <html>
@@ -6924,12 +6926,12 @@ function printOrderDocument(orderId, opts){
 </head>
 <body>
   <h2>${escapeHtmlForPrint(opts.headerLabel)}</h2>
-  <h1>${escapeHtmlForPrint(t('colOrderNo'))} ${escapeHtmlForPrint(order.orderNo || orderId)}</h1>
-  <div class="meta">${escapeHtmlForPrint(t('lblDate'))}${order.date || ''}</div>
-  <div class="meta">${escapeHtmlForPrint(t('fieldShippingParty'))}${escapeHtmlForPrint(order.partyName)}</div>
-  ${order.note ? `<div class="meta">${escapeHtmlForPrint(t('noteLabelPrefix'))}${escapeHtmlForPrint(order.note)}</div>` : ''}
+  <h1>${escapeHtmlForPrint('Order #')} ${escapeHtmlForPrint(order.orderNo || orderId)}</h1>
+  <div class="meta">${escapeHtmlForPrint('Date')}: ${order.date || ''}</div>
+  <div class="meta">${escapeHtmlForPrint('Customer')}: ${escapeHtmlForPrint(order.partyName)}</div>
+  ${order.note ? `<div class="meta">${escapeHtmlForPrint('Note')}: ${escapeHtmlForPrint(order.note)}</div>` : ''}
   <table>
-    <thead><tr>${checkTh}${skuTh}<th>${escapeHtmlForPrint(t('fieldName'))}</th><th>${escapeHtmlForPrint(t('lblQty'))}</th><th>${escapeHtmlForPrint(t('fieldUnit'))}</th></tr></thead>
+    <thead><tr>${checkTh}${skuTh}<th>${escapeHtmlForPrint('Product Name')}</th><th>${escapeHtmlForPrint('Qty')}</th><th>${escapeHtmlForPrint('Unit')}</th></tr></thead>
     <tbody>${rowsHtml}</tbody>
   </table>
 </body>
@@ -7717,7 +7719,7 @@ function buildOrderSheetAoa(list, partyLabel, dateLabel){
   // 最下面附註這份檔案實際包含哪幾張訂單的編號,方便日後對照/追查是哪幾張訂單的資料被匯出。
   aoa.push([]);
   const orderNos = list.map(o => o.orderNo).filter(Boolean);
-  aoa.push([tf('exportedOrderNosNote', { nos: orderNos.join(', ') })]);
+  aoa.push([`This file includes the following orders: ${orderNos.join(', ')}`]);
 
   return { aoa, aggregated, hiddenRows };
 }
@@ -8722,7 +8724,7 @@ async function mergeItemsIntoCompletedOrderCore(orderId, batchItems, date, party
     return { ok: false, reason: 'save_failed' };
   }
 
-  logInventoryAction('order_edit', `Order ${order.orderNo || orderId} - added ${batchItems.length} item(s)`, order.orderNo);
+  logInventoryAction('order_edit', `Order ${order.orderNo || orderId} - added after verification: ${batchItems.map(it => `${it.name} ${it.qty} ${it.unit}`).join(', ')}`, order.orderNo);
   return { ok: true, order };
 }
 
@@ -8823,7 +8825,7 @@ async function submitNewOrderFlow(action, date, msg){
     orders.push(newOrder);
     try{ await upsertOrders([newOrder]); await saveOrderCounter(); }
     catch(e){ orders.pop(); msg.className='msg error'; msg.textContent='⚠ 建立訂單失敗,請重新整理頁面再試一次。'; return; }
-    logInventoryAction('order_place', `Created pending order ${orderNo} (${party || 'No recipient specified'}, ${txBatchItems.length} item(s)), stock not yet deducted`, orderNo);
+    logInventoryAction('order_place', `Created pending order ${orderNo} (${party || 'No recipient specified'}, ${txBatchItems.length} item(s)), stock not yet deducted${note ? `, note: "${note}"` : ''}`, orderNo);
     finishNewOrderSubmit('pending', newOrder.id, txBatchItems.length, orderNo, msg);
     return;
   }
@@ -8855,7 +8857,7 @@ async function submitNewOrderFlow(action, date, msg){
       txBatchItems.forEach(it => { productStockMap[it.productId] = (productStockMap[it.productId]||0) + it.qty; });
       msg.className='msg error'; msg.textContent='⚠ 建立訂單失敗,請重新整理頁面再試一次。'; return;
     }
-    logInventoryAction('order_place', `Created completed order ${orderNo} (${party || 'No recipient specified'}, ${txBatchItems.length} item(s)), stock deducted`, orderNo);
+    logInventoryAction('order_place', `Created completed order ${orderNo} (${party || 'No recipient specified'}, ${txBatchItems.length} item(s)), stock deducted${note ? `, note: "${note}"` : ''}`, orderNo);
     finishNewOrderSubmit('completed', orderId, txBatchItems.length, orderNo, msg);
     return;
   }
@@ -8872,7 +8874,7 @@ async function submitNewOrderFlow(action, date, msg){
       txBatchItems.forEach(it => { productStockMap[it.productId] = (productStockMap[it.productId]||0) + it.qty; });
       msg.className='msg error'; msg.textContent='⚠ 提交失敗,請重新整理頁面再試一次。'; return;
     }
-    logInventoryAction('tx_out', `Logged direct shipment: ${txBatchItems.length} item(s), party ${party || 'unspecified'}`, null);
+    logInventoryAction('tx_out', `Logged direct shipment: ${txBatchItems.length} item(s), party ${party || 'unspecified'}, note: "${note}"`, null);
     const count = txBatchItems.length;
     txBatchItems = [];
     resetRegisterOutFlow();
@@ -8954,11 +8956,23 @@ async function submitLoadPendingFlow(action, msg){
   if(txBatchItems.length > 0) changes.push(formatNewItemsSummary(txBatchItems));
 
   const doSave = async () => {
-    if(newDate && newDate !== order.date){
+    const dateChanged = newDate && newDate !== order.date;
+    const noteChanged = newNote !== (order.note || '');
+    const oldDateForLog = order.date;
+    const oldNoteForLog = order.note || '';
+    if(dateChanged){
       if(order.originalDate === undefined || order.originalDate === null) order.originalDate = order.date;
       order.date = newDate;
     }
     order.note = newNote;
+    // 日期/備註的異動之前沒有寫進後台紀錄——改數量、刪除品項都有記,但改日期/備註卻沒有,
+    // 這裡補上,確保訂單只要有異動都查得到。
+    if(dateChanged || noteChanged){
+      const parts = [];
+      if(dateChanged) parts.push(`date ${oldDateForLog || ''}→${newDate}`);
+      if(noteChanged) parts.push(`note: "${oldNoteForLog}" → "${newNote}"`);
+      logInventoryAction('order_edit', `Pending order ${order.orderNo || order.id} - ${parts.join(', ')}`, order.orderNo);
+    }
 
     // 套用暫存的改數量(待處理訂單不影響庫存,單純改 order.items 上的數字跟異動紀錄)。
     pendingQtyChanges.forEach(({ item, newQty }) => {
@@ -9056,11 +9070,23 @@ async function submitLoadCompletedFlow(date, msg){
   if(txBatchItems.length > 0) changes.push(formatNewItemsSummary(txBatchItems));
 
   const doSave = async () => {
-    if(date && date !== order.date){
+    const dateChanged = date && date !== order.date;
+    const noteChanged = noteVal !== (order.note || '');
+    const oldDateForLog = order.date;
+    const oldNoteForLog = order.note || '';
+    if(dateChanged){
       if(order.originalDate === undefined || order.originalDate === null) order.originalDate = order.date;
       order.date = date;
     }
     order.note = noteVal;
+    // 日期/備註的異動之前沒有寫進後台紀錄——改數量、刪除品項都有記,但改日期/備註卻沒有,
+    // 這裡補上,確保訂單只要有異動都查得到。
+    if(dateChanged || noteChanged){
+      const parts = [];
+      if(dateChanged) parts.push(`date ${oldDateForLog || ''}→${date}`);
+      if(noteChanged) parts.push(`note: "${oldNoteForLog}" → "${noteVal}"`);
+      logInventoryAction('order_edit', `Order ${order.orderNo || order.id} - ${parts.join(', ')}`, order.orderNo);
+    }
 
     // 依序套用每一筆暫存的改數量,呼叫跟原本「改數量」一樣的 adjust_order_item_qty RPC
     // (原子化、伺服器端會再驗證一次庫存)。前面已經先做過前端庫存檢查,這裡理論上不太會失敗,
@@ -9095,6 +9121,7 @@ async function submitLoadCompletedFlow(date, msg){
       item.qtyHistory.push({ from: oldQty, to: newQty, at: qtyChangeAt });
       if(!order.postVerifyChanges) order.postVerifyChanges = [];
       order.postVerifyChanges.push({ kind: 'qty', productId: item.productId, name: item.name, sku: item.sku, unit: item.unit, from: oldQty, to: newQty, at: qtyChangeAt });
+      logInventoryAction('order_edit', `Order ${order.orderNo || order.id} - quantity adjusted after verification: ${item.name} ${oldQty}→${newQty} ${item.unit}`, order.orderNo);
     }
 
     // 依序套用每一筆暫存的刪除:退回庫存(補一筆 restock 交易紀錄),軟刪除品項。
@@ -9127,6 +9154,7 @@ async function submitLoadCompletedFlow(date, msg){
       item.deleted = true;
       item.deletedAt = now;
       item.deleteStockStatus = 'stocked_out';
+      logInventoryAction('order_edit', `Order ${order.orderNo || order.id} - removed item after verification: ${item.name} ${item.qty} ${item.unit}`, order.orderNo);
     }
     if(order.items.length > 0 && order.items.every(it => it.deleted)){
       order.deleted = true;
@@ -10532,9 +10560,9 @@ function importFullBackup(){
 
 // 每種類型對應的 i18n 標籤 key、對象欄位標籤 key、匯出檔名前綴跟 Excel 分頁名稱(分頁名稱維持中文,不受語言切換影響)
 const EXPORT_TYPE_META = {
-  out:     { labelKey: 'exportTypeOut', partyLabelKey: 'exportPartyLabelOut', partyCol: 'Customer', filePrefix: 'stock_out',     sheetName: '出貨表' },
-  in:      { labelKey: 'exportTypeIn', partyLabelKey: 'exportPartyLabelIn', partyCol: 'Supplier', filePrefix: 'stock_in',      sheetName: '進貨表' },
-  restock: { labelKey: 'exportTypeRestock', partyLabelKey: 'exportPartyLabelRestock',   partyCol: 'Source',   filePrefix: 'stock_restock', sheetName: '入庫表' }
+  out:     { labelKey: 'exportTypeOut', partyLabelKey: 'exportPartyLabelOut', partyCol: 'Customer', filePrefix: 'stock_out',     sheetName: 'Stock Out' },
+  in:      { labelKey: 'exportTypeIn', partyLabelKey: 'exportPartyLabelIn', partyCol: 'Supplier', filePrefix: 'stock_in',      sheetName: 'Stock In' },
+  restock: { labelKey: 'exportTypeRestock', partyLabelKey: 'exportPartyLabelRestock',   partyCol: 'Source',   filePrefix: 'stock_restock', sheetName: 'Restock' }
 };
 
 function populateExportPartySelect(){
@@ -10589,8 +10617,9 @@ function exportShipmentSheet(){
 
   const dateLabel = dateFrom && dateTo
     ? (dateFrom === dateTo ? dateFrom : `${dateFrom} ~ ${dateTo}`)
-    : (dateFrom ? `${dateFrom} 以後` : (dateTo ? `${dateTo} 以前` : '全部日期'));
-  const shopLabel = party || `全部${t(meta.partyLabelKey)}`;
+    : (dateFrom ? `After ${dateFrom}` : (dateTo ? `Before ${dateTo}` : 'All Dates'));
+  const partyLabelEN = type === 'in' ? 'Supplier/Party' : type === 'restock' ? 'Source/Party' : 'Store/Party';
+  const shopLabel = party || `All ${partyLabelEN}`;
 
   // group aggregated lines by category (following the app's category order), matching the
   // uploaded template's structure of a QTY/Unit sub-header row before each category block
@@ -10626,11 +10655,11 @@ function exportShipmentSheet(){
           p && p.sku ? p.sku : '',
           g.qty,
           p ? p.unit : '',
-          p ? p.name : '(已刪除商品)',
+          p ? p.name : '(deleted product)',
           '',
           g.party,
           dateLabel,
-          catLabel(cat),
+          catLabelEN(cat),
           ''
         ]);
       });
