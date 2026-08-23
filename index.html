@@ -8724,7 +8724,7 @@ async function mergeItemsIntoCompletedOrderCore(orderId, batchItems, date, party
     return { ok: false, reason: 'save_failed' };
   }
 
-  logInventoryAction('order_edit', `Order ${order.orderNo || orderId} - added: ${batchItems.map(it => `${it.name} ${it.qty} ${it.unit}`).join(', ')}`, order.orderNo);
+  logInventoryAction('order_edit', `Order ${order.orderNo || orderId} - added after verification: ${batchItems.map(it => `${it.name} ${it.qty} ${it.unit}`).join(', ')}`, order.orderNo);
   return { ok: true, order };
 }
 
