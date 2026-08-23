@@ -6927,9 +6927,9 @@ function printOrderDocument(orderId, opts){
 <body>
   <h2>${escapeHtmlForPrint(opts.headerLabel)}</h2>
   <h1>${escapeHtmlForPrint('Order #')} ${escapeHtmlForPrint(order.orderNo || orderId)}</h1>
-  <div class="meta">${escapeHtmlForPrint('Date')}${order.date || ''}</div>
-  <div class="meta">${escapeHtmlForPrint('Customer')}${escapeHtmlForPrint(order.partyName)}</div>
-  ${order.note ? `<div class="meta">${escapeHtmlForPrint('Note')}${escapeHtmlForPrint(order.note)}</div>` : ''}
+  <div class="meta">${escapeHtmlForPrint('Date')}: ${order.date || ''}</div>
+  <div class="meta">${escapeHtmlForPrint('Customer')}: ${escapeHtmlForPrint(order.partyName)}</div>
+  ${order.note ? `<div class="meta">${escapeHtmlForPrint('Note')}: ${escapeHtmlForPrint(order.note)}</div>` : ''}
   <table>
     <thead><tr>${checkTh}${skuTh}<th>${escapeHtmlForPrint('Product Name')}</th><th>${escapeHtmlForPrint('Qty')}</th><th>${escapeHtmlForPrint('Unit')}</th></tr></thead>
     <tbody>${rowsHtml}</tbody>
