@@ -1081,7 +1081,7 @@
           <select id="txPartySelect" style="display:none;"></select>
         </div>
         <div class="field">
-          <label id="txNoteLabel" data-i18n="txNoteSharedLabel">備註(選填,套用到本次登記的所有商品)</label>
+          <label id="txNoteLabel" data-i18n="txNoteSharedLabel">備註(選填)</label>
           <input id="txNote" type="text" placeholder="例如:客戶訂單 #123" />
         </div>
       </div>
@@ -1572,6 +1572,10 @@
           <label data-i18n="lblToDate">到日期</label>
           <input type="date" id="invLogDateTo" onchange="renderInventoryLog()" />
         </div>
+        <div class="field">
+          <label data-i18n="lblSearch">搜尋</label>
+          <input type="text" id="invLogSearchFilter" placeholder="使用者、出貨方、訂單號…" oninput="renderInventoryLog()" style="width:180px;" data-i18n-placeholder="invLogSearchPlaceholder" />
+        </div>
         <button class="btn ghost" onclick="clearInventoryLogFilters()" data-i18n="btnClearFilter">清除篩選</button>
         <button class="btn ghost" onclick="refreshInventoryLog()">🔄 重新整理</button>
       </div>
@@ -1602,6 +1606,21 @@
     <div class="modal-actions">
       <button class="btn ghost" onclick="closeOrderItemNoteModal()" data-i18n="btnCancel">取消</button>
       <button class="btn" onclick="saveOrderItemNoteModal()" data-i18n="btnSave">儲存</button>
+    </div>
+  </div>
+</div>
+
+<div id="orderHistoryModalOverlay" class="modal-overlay" style="display:none;">
+  <div class="modal-box modal-box-wide">
+    <div class="section-title" id="orderHistoryModalTitle" style="margin-bottom:12px;"></div>
+    <div class="section-title" style="font-size:13px;margin-bottom:6px;" data-i18n="secModificationHistory">修改紀錄</div>
+    <div id="orderHistoryModalGeneralList" style="max-height:280px;overflow-y:auto;margin-bottom:16px;"></div>
+    <div id="orderHistoryModalPostVerifySection" style="display:none;">
+      <div class="section-title" style="font-size:13px;color:var(--warn-dark);margin-bottom:6px;" data-i18n="secPostVerifyChanges">核對後變更</div>
+      <div id="orderHistoryModalPostVerifyList" style="max-height:200px;overflow-y:auto;"></div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn ghost" onclick="closeOrderHistoryModal()" data-i18n="btnClose">關閉</button>
     </div>
   </div>
 </div>
@@ -2075,11 +2094,20 @@ const I18N = {
     changeSummaryQtyChangesHeader: '改數量:',
     changeSummaryDeletesHeader: '刪除商品:',
     pendingDeleteLabel: '待確認刪除',
+    sortCycleHint: '點一下遞增,再點一下遞減,第三下還原成預設排序',
+    secModificationHistory: '修改紀錄',
+    btnClose: '關閉',
+    btnViewHistory: '觀看修改紀錄',
+    orderHistoryModalTitle: '訂單 {orderNo} 修改紀錄',
+    noModificationHistory: '這張訂單沒有修改紀錄。',
+    historyItemAdded: '{name}:新增 {qty} {unit}',
+    historyQtyChanged: '{name}:{from} → {to} {unit}',
+    historyItemDeleted: '{name}:刪除({qty} {unit})',
     btnUndo: '復原',
     confirmSaveOrderChangesMsg: '這次儲存有以下異動,確定要儲存嗎?\n{changes}',
     btnExportThisOrder: '📤 匯出這張訂單', btnDeleteWholeOrder: '🗑 刪除整筆訂單(退回庫存)',
     itemDeletedLabel: '已刪除(退回庫存)', itemDeletedLabelStockedOut: '已刪除(已出庫,已入庫退回)',
-    btnEditQty: '改數量', btnEditRemark: '編輯附註', orderRemarkPlaceholder: '對這張訂單做點附註⋯⋯',
+    btnEditQty: '改數量', btnEditRemark: '編輯備註', orderRemarkPlaceholder: '對這張訂單做點備註⋯⋯',
     btnEditOrderParty: '指定/修改出貨方',
     orderNoPartyLinkedWarning: '⚠ 這張訂單沒有正式掛上任何出貨方',
     errOrderBeingProcessed: '這張訂單正在「訂單核對」頁面處理中,請等處理完成(或請對方取消載入)後再修改。',
@@ -2103,7 +2131,7 @@ const I18N = {
     colOrderNo: '訂單編號', fileNamePrefixOrder: '訂單_',
     errPrintPopupBlocked: '⚠ 無法開啟列印視窗,請確認瀏覽器沒有封鎖彈出視窗。',
     btnExportOrder: '📄 匯出', btnPrintOrder: '🖨️ 列印', colCheck: '核對',
-    orderRemarkLabelPrefix: '附註:', orderRemarkEmptyLabel: '(尚無附註)', orderHasRemarkTitle: '這張訂單有附註',
+    orderRemarkLabelPrefix: '備註:', orderRemarkEmptyLabel: '(尚無備註)', orderHasRemarkTitle: '這張訂單有備註',
     orderWasModifiedTitle: '這張訂單的品項後來被修改過(改過數量或刪除品項)',
     errEnterNonNegativeQty: '請輸入 0 以上的數量', confirmZeroQtyIsDelete: '把數量改成 0 等於刪除這項商品(退回庫存),要繼續嗎?',
     errEnterValidQty: '請輸入有效的數量',
@@ -2144,7 +2172,7 @@ const I18N = {
     lblStockIn: '進貨 +', lblStockOut: '出貨 −', lblStockRestock: '入庫',
     partyLabelIn: '進貨方(供應商)', partyLabelOut: '出貨方(客戶/門市,選填)', partyLabelRestock: '對象(選填)',
     partyPlaceholderIn: '例如:大盤商 A', partyPlaceholderOut: '例如:三民店 / 客戶王先生', partyPlaceholderRestock: '例如:訂單調整 / 盤點',
-    txNoteSharedLabel: '備註(選填,套用到本次登記的所有商品)',
+    txNoteSharedLabel: '備註(選填)',
     txNoteRequiredLabel: '備註(必填,套用到本次登記的所有商品)',
     lblOutFlowType: '出貨類型', optSelectOutFlowType: '— 請選擇 —',
     optFlowNewOrder: '新增訂單', optFlowLoadPending: '載入現有待處理訂單',
@@ -2154,6 +2182,7 @@ const I18N = {
     errSelectOutFlowTypeFirst: '請先選擇出貨類型', errAddAtLeastOneItem: '請先把至少一項商品加入清單',
     errNoteRequiredForDirectShip: '直接出貨要填寫備註', errSelectOrderFirst: '請先選擇要載入的訂單',
     errNoteRequiredForAdjustment: '庫存調整要填寫備註', confirmStockAdjustment: '確定要提交嗎?這會直接扣/加庫存,無法復原。',
+    adjustmentNotePrefix: '庫存調整 - ',
     postVerifyAdded: '新增', postVerifyDeleted: '刪除', postVerifyQtyChanged: '改數量',
     btnMergeToPending: '併入待處理訂單', btnMergeToCompleted: '併入已完成訂單', btnDirectShip: '直接出貨',
     btnDirectVerify: '直接核對',
@@ -2168,7 +2197,8 @@ const I18N = {
     fieldImportDate: '日期(若表格內有 Date: 會自動帶入,每個檔案各自偵測)',
     fieldImportParty: '進貨方/出貨方(若表格內有 Supplier 會自動帶入,選填)',
 
-    lblFromDate: '從日期', lblToDate: '到日期', lblPartyGeneric: '對象',
+    lblFromDate: '從日期', lblToDate: '到日期', lblPartyGeneric: '對象', lblSearch: '搜尋',
+    invLogSearchPlaceholder: '使用者、出貨方、訂單號…',
     showSystemTxLabel: '在進出貨紀錄裡顯示主檔匯入的系統紀錄',
     batchDeleteDefaultOpt: '整批刪除:選擇批次備註',
     systemTxHint: '商品主檔匯入產生的初始庫存/庫存調整紀錄,預設不會顯示在「進出貨紀錄」分頁裡,但仍會計入庫存量。你手動登記或用「登記進出貨→從 Excel 匯入」的進出貨都會照常顯示。',
@@ -2441,11 +2471,20 @@ const I18N = {
     changeSummaryQtyChangesHeader: 'Quantity changes:',
     changeSummaryDeletesHeader: 'Removed items:',
     pendingDeleteLabel: 'Pending deletion',
+    sortCycleHint: 'Click to sort ascending, click again for descending, a third click restores the default order',
+    secModificationHistory: 'Modification History',
+    btnClose: 'Close',
+    btnViewHistory: 'View History',
+    orderHistoryModalTitle: 'Order {orderNo} Modification History',
+    noModificationHistory: 'This order has no modification history.',
+    historyItemAdded: '{name}: added {qty} {unit}',
+    historyQtyChanged: '{name}: {from} → {to} {unit}',
+    historyItemDeleted: '{name}: removed ({qty} {unit})',
     btnUndo: 'Undo',
     confirmSaveOrderChangesMsg: 'This save includes the following changes — confirm?\n{changes}',
     btnExportThisOrder: '📤 Export This Order', btnDeleteWholeOrder: '🗑 Delete Order (Restock)',
     itemDeletedLabel: 'Deleted (Restocked)', itemDeletedLabelStockedOut: 'Deleted (was stocked out, restocked back)',
-    btnEditQty: 'Edit Qty', btnEditRemark: 'Edit Remark', orderRemarkPlaceholder: 'Add a remark about this order…',
+    btnEditQty: 'Edit Qty', btnEditRemark: 'Edit Note', orderRemarkPlaceholder: 'Add a note about this order…',
     btnEditOrderParty: 'Set/Change Shipping Party',
     orderNoPartyLinkedWarning: '⚠ This order isn\'t linked to any shipping party',
     errOrderBeingProcessed: 'This order is currently being processed on the Order Verify page. Please wait until that finishes (or ask them to unload it) before editing.',
@@ -2469,7 +2508,7 @@ const I18N = {
     colOrderNo: 'Order #', fileNamePrefixOrder: 'Order_',
     errPrintPopupBlocked: '⚠ Could not open the print window — please check your browser isn\'t blocking pop-ups.',
     btnExportOrder: '📄 Export', btnPrintOrder: '🖨️ Print', colCheck: 'Check',
-    orderRemarkLabelPrefix: 'Remark:', orderRemarkEmptyLabel: '(No remark yet)', orderHasRemarkTitle: 'This order has a remark',
+    orderRemarkLabelPrefix: 'Note:', orderRemarkEmptyLabel: '(No note yet)', orderHasRemarkTitle: 'This order has a note',
     orderWasModifiedTitle: 'Items in this order were changed afterward (qty changed or item removed)',
     errEnterNonNegativeQty: 'Please enter a quantity of 0 or more', confirmZeroQtyIsDelete: 'Setting the quantity to 0 will delete this item (and restock it) — continue?',
     errEnterValidQty: 'Please enter a valid quantity',
@@ -2510,7 +2549,7 @@ const I18N = {
     lblStockIn: 'Stock In +', lblStockOut: 'Stock Out −', lblStockRestock: 'Restock',
     partyLabelIn: 'Supplier', partyLabelOut: 'Customer/Store (optional)', partyLabelRestock: 'Party (optional)',
     partyPlaceholderIn: 'e.g. Supplier A', partyPlaceholderOut: 'e.g. Store #3 / Customer Wang', partyPlaceholderRestock: 'e.g. Order adjustment / Stocktake',
-    txNoteSharedLabel: 'Note (optional, applies to every product logged this time)',
+    txNoteSharedLabel: 'Note (optional)',
     txNoteRequiredLabel: 'Note (required, applies to every product logged this time)',
     lblOutFlowType: 'Shipment Type', optSelectOutFlowType: '— Select —',
     optFlowNewOrder: 'New Order', optFlowLoadPending: 'Load Existing Pending Order',
@@ -2520,6 +2559,7 @@ const I18N = {
     errSelectOutFlowTypeFirst: 'Please select a shipment type first', errAddAtLeastOneItem: 'Please add at least one product to the list first',
     errNoteRequiredForDirectShip: 'A note is required for direct shipment', errSelectOrderFirst: 'Please select an order to load first',
     errNoteRequiredForAdjustment: 'A note is required for stock adjustment', confirmStockAdjustment: 'Submit this adjustment? Stock will be deducted/added immediately and this can\'t be undone.',
+    adjustmentNotePrefix: 'Stock Adjustment - ',
     postVerifyAdded: 'Added', postVerifyDeleted: 'Deleted', postVerifyQtyChanged: 'Qty Changed',
     btnMergeToPending: 'Merge into Pending Order', btnMergeToCompleted: 'Merge into Completed Order', btnDirectShip: 'Direct Shipment',
     btnDirectVerify: 'Verify Directly',
@@ -2534,7 +2574,8 @@ const I18N = {
     fieldImportDate: 'Date (auto-filled if the sheet has a Date column; detected per file)',
     fieldImportParty: 'Supplier/Customer (auto-filled if the sheet has a Supplier column, optional)',
 
-    lblFromDate: 'From Date', lblToDate: 'To Date', lblPartyGeneric: 'Party',
+    lblFromDate: 'From Date', lblToDate: 'To Date', lblPartyGeneric: 'Party', lblSearch: 'Search',
+    invLogSearchPlaceholder: 'User, party, order number…',
     showSystemTxLabel: 'Show system records from master import in the transaction log',
     batchDeleteDefaultOpt: 'Delete Batch: Select Batch Note',
     systemTxHint: 'Initial stock / stock adjustment records generated by product master import are hidden in the "Log" tab by default, but still count toward stock levels. Manually logged records and imports from "Log Stock In/Out → Import from Excel" always show.',
@@ -4545,7 +4586,8 @@ function formatPostVerifyChangesHtml(changes){
       : c.kind === 'deleted' ? t('postVerifyDeleted')
       : t('postVerifyQtyChanged');
     const detail = c.kind === 'qty' ? `${c.from} → ${c.to} ${c.unit}` : `${c.qty} ${c.unit}`;
-    return `<div style="font-size:12px;color:var(--warn-dark);padding:3px 0;">${c.name}${c.sku ? ` (${c.sku})` : ''} — ${label}(${detail})</div>`;
+    const timePrefix = c.at ? `<span style="color:var(--ink-soft);font-family:'IBM Plex Mono',monospace;">${formatOrderDateTime(c.at)}</span> ` : '';
+    return `<div style="font-size:12px;color:var(--warn-dark);padding:3px 0;">${timePrefix}${c.name}${c.sku ? ` (${c.sku})` : ''} — ${label}(${detail})</div>`;
   }).join('');
 }
 
@@ -6245,9 +6287,9 @@ async function mergeItemsIntoOrderCore(orderId, newItems){
       const oldQty = existing.qty;
       existing.qty += newIt.qty;
       if(!existing.qtyHistory) existing.qtyHistory = [];
-      existing.qtyHistory.push({ from: oldQty, to: existing.qty });
+      existing.qtyHistory.push({ from: oldQty, to: existing.qty, at: new Date().toISOString() });
     } else {
-      mergedItems.push({ ...newIt, qtyHistory: [{ added: true }] });
+      mergedItems.push({ ...newIt, qtyHistory: [{ added: true, at: new Date().toISOString(), qty: newIt.qty }] });
     }
   });
   order.items = mergedItems;
@@ -6410,11 +6452,14 @@ function renderOrders(){
     // 已完成訂單在還沒簽收前,這裡(訂貨後台管理)還是能改;一旦簽收過(o.signedAt),不管哪一邊
     // 都不能再改了,這裡也要跟著鎖住(readOnly=!!o.signedAt),之前沒有這個檢查,簽收後其實還是
     // 能被改掉,這次一併修正。
-    const itemsHtml = o.items.map(it => orderItemRowHtml(o, it, false, true, 'completed')).join('');
+    const itemsHtml = o.items.filter(it => !it.deleted).map(it => orderItemRowHtml(o, it, false, true, 'completed')).join('');
+    // 這張訂單有沒有東西可以在「觀看修改紀錄」小視窗裡看——一般修改紀錄(改數量/新增/刪除)
+    // 或核對後變更,只要有一個就顯示這個按鈕,完全沒異動過的訂單就不用顯示了。
+    const hasHistory = wasModified || (o.postVerifyChanges && o.postVerifyChanges.length > 0);
     const isEditingRemark = editingOrderRemarkId === o.id;
     const remarkHtml = isEditingRemark ? `
       <div style="margin:8px 0;">
-        <textarea id="orderRemarkInput_${o.id}" rows="2" style="width:100%;box-sizing:border-box;font-family:inherit;font-size:12px;" placeholder="${t('orderRemarkPlaceholder')}">${(o.remark || '').replace(/</g,'&lt;')}</textarea>
+        <textarea id="orderRemarkInput_${o.id}" rows="2" style="width:100%;box-sizing:border-box;font-family:inherit;font-size:12px;" placeholder="${t('orderRemarkPlaceholder')}">${(o.note || '').replace(/</g,'&lt;')}</textarea>
         <div style="margin-top:4px;display:flex;gap:8px;">
           <button class="btn" onclick="saveOrderRemark('${o.id}')">${t('btnSave')}</button>
           <button class="btn ghost" onclick="cancelEditOrderRemark()">${t('btnCancel')}</button>
@@ -6422,7 +6467,7 @@ function renderOrders(){
       </div>
     ` : `
       <div style="margin:8px 0;font-size:12px;color:var(--ink-soft);">
-        ${o.remark ? `${t('orderRemarkLabelPrefix')}${o.remark.replace(/</g,'&lt;')}` : `<span style="font-style:italic;">${t('orderRemarkEmptyLabel')}</span>`}
+        ${o.note ? `${t('orderRemarkLabelPrefix')}${o.note.replace(/</g,'&lt;')}` : `<span style="font-style:italic;">${t('orderRemarkEmptyLabel')}</span>`}
         <span class="del-link" style="margin-left:8px;" onclick="startEditOrderRemark('${o.id}')">${t('btnEditRemark')}</span>
       </div>
     `;
@@ -6438,17 +6483,11 @@ function renderOrders(){
           <span class="order-status-pill ${o.deleted ? 'deleted' : 'confirmed'}">${o.deleted ? t('statusOrderDeleted') : t('statusCompleted')}</span>${o.signedAt ? `<span title="${tf('orderSignedAtTitle', {datetime: formatOrderDateTime(o.signedAt)})}" style="margin-left:6px;color:var(--safe);">✔ ${t('statusSigned')}</span>` : ''}
         </div>
         ${isExpanded ? `
-          ${o.note ? `<div style="font-size:12px;color:var(--ink-soft);margin:8px 0 6px;">${t('noteLabelPrefix')}${o.note}</div>` : ''}
           <div class="order-items">${itemsHtml}</div>
-          ${o.postVerifyChanges && o.postVerifyChanges.length > 0 ? `
-            <div style="margin:8px 0;">
-              <div class="section-title" style="font-size:13px;color:var(--warn-dark);">${t('secPostVerifyChanges')}</div>
-              ${formatPostVerifyChangesHtml(o.postVerifyChanges)}
-            </div>
-          ` : ''}
           ${remarkHtml}
           <div class="order-card-actions">
             ${(o.deleted || o.signedAt) ? '' : `<button class="btn ghost" onclick="editOrderViaRegister('${o.id}', 'completed')">${t('btnEdit')}</button>`}
+            ${hasHistory ? `<button class="btn ghost" onclick="openOrderHistoryModal('${o.id}')">${t('btnViewHistory')}</button>` : ''}
             <button class="btn ghost" onclick="exportSingleOrderSheet('${o.id}')">${t('btnExportThisOrder')}</button>
             <button class="btn ghost" onclick="printCompletedOrder('${o.id}')">${t('btnPrintOrder')}</button>
           </div>
@@ -6456,6 +6495,58 @@ function renderOrders(){
       </div>
     `;
   }).join('');
+}
+
+// 收集一張訂單所有品項的「一般修改紀錄」(核對前的改數量/新增/軟刪除),依時間排序(新到舊)。
+// 「核對後變更」(order.postVerifyChanges)是分開處理的,不算在這份清單裡——在畫面上獨立成
+// 另一個區塊,不要混在一起顯示。
+function collectOrderModificationHistory(order){
+  const entries = [];
+  order.items.forEach(it => {
+    (it.qtyHistory || []).forEach(h => {
+      if(h.added){
+        entries.push({ at: h.at, text: tf('historyItemAdded', { name: it.name, qty: h.qty, unit: it.unit }) });
+      } else {
+        entries.push({ at: h.at, text: tf('historyQtyChanged', { name: it.name, from: h.from, to: h.to, unit: it.unit }) });
+      }
+    });
+    if(it.deleted && it.deletedAt){
+      entries.push({ at: it.deletedAt, text: tf('historyItemDeleted', { name: it.name, qty: it.qty, unit: it.unit }) });
+    }
+  });
+  entries.sort((a, b) => (b.at || '').localeCompare(a.at || ''));
+  return entries;
+}
+
+// 已完成訂單卡片裡「觀看修改紀錄」:跳出獨立小視窗,上面是一般修改紀錄(每一項都帶時間,精確到
+// 分鐘),下面另外獨立一個區塊顯示核對後變更(如果有的話)。關閉視窗就回到原本清單頁面
+// (視窗本身蓋在清單上面,關掉就看得到清單,不需要另外導覽)。
+function openOrderHistoryModal(orderId){
+  const order = orders.find(o => o.id === orderId);
+  if(!order) return;
+  document.getElementById('orderHistoryModalTitle').textContent = tf('orderHistoryModalTitle', { orderNo: order.orderNo || '' });
+
+  const generalHistory = collectOrderModificationHistory(order);
+  const generalList = document.getElementById('orderHistoryModalGeneralList');
+  generalList.innerHTML = generalHistory.length > 0
+    ? generalHistory.map(e => `<div style="font-size:12px;padding:3px 0;"><span style="color:var(--ink-soft);font-family:'IBM Plex Mono',monospace;">${formatOrderDateTime(e.at)}</span> ${e.text}</div>`).join('')
+    : `<div class="empty-note" style="padding:8px 0;">${t('noModificationHistory')}</div>`;
+
+  const postVerifyChanges = order.postVerifyChanges || [];
+  const postVerifySection = document.getElementById('orderHistoryModalPostVerifySection');
+  const postVerifyList = document.getElementById('orderHistoryModalPostVerifyList');
+  if(postVerifyChanges.length > 0){
+    postVerifySection.style.display = '';
+    postVerifyList.innerHTML = formatPostVerifyChangesHtml(postVerifyChanges);
+  } else {
+    postVerifySection.style.display = 'none';
+  }
+
+  document.getElementById('orderHistoryModalOverlay').style.display = 'flex';
+}
+
+function closeOrderHistoryModal(){
+  document.getElementById('orderHistoryModalOverlay').style.display = 'none';
 }
 
 function toggleOrderExpand(orderId){
@@ -6625,7 +6716,7 @@ async function saveOrderItemQty(context, orderId, productId){
 
   item.qty = newQty;
   if(!item.qtyHistory) item.qtyHistory = [];
-  item.qtyHistory.push({ from: oldQty, to: newQty });
+  item.qtyHistory.push({ from: oldQty, to: newQty, at: new Date().toISOString() });
   editingOrderItemKey = null;
   try{ await upsertOrders([order]); }
   catch(e){ console.error('儲存數量調整紀錄失敗', e); }
@@ -6651,12 +6742,12 @@ async function saveOrderRemark(orderId){
   if(!order) return;
   const input = document.getElementById(`orderRemarkInput_${orderId}`);
   const value = input ? input.value.trim() : '';
-  const oldRemark = order.remark;
-  order.remark = value;
+  const oldNote = order.note;
+  order.note = value;
   editingOrderRemarkId = null;
   try{ await upsertOrders([order]); }
   catch(e){
-    order.remark = oldRemark;
+    order.note = oldNote;
     showInfoModal(t('errSaveRemarkGeneric'));
     refreshOrderLists();
     return;
@@ -6694,7 +6785,7 @@ function renderPendingOrders(){
     const isEditingRemark = editingOrderRemarkId === o.id;
     const remarkHtml = isEditingRemark ? `
       <div style="margin:8px 0;">
-        <textarea id="orderRemarkInput_${o.id}" rows="2" style="width:100%;box-sizing:border-box;font-family:inherit;font-size:12px;" placeholder="${t('orderRemarkPlaceholder')}">${(o.remark || '').replace(/</g,'&lt;')}</textarea>
+        <textarea id="orderRemarkInput_${o.id}" rows="2" style="width:100%;box-sizing:border-box;font-family:inherit;font-size:12px;" placeholder="${t('orderRemarkPlaceholder')}">${(o.note || '').replace(/</g,'&lt;')}</textarea>
         <div style="margin-top:4px;display:flex;gap:8px;">
           <button class="btn" onclick="saveOrderRemark('${o.id}')">${t('btnSave')}</button>
           <button class="btn ghost" onclick="cancelEditOrderRemark()">${t('btnCancel')}</button>
@@ -6702,7 +6793,7 @@ function renderPendingOrders(){
       </div>
     ` : `
       <div style="margin:8px 0;font-size:12px;color:var(--ink-soft);">
-        ${o.remark ? `${t('orderRemarkLabelPrefix')}${o.remark.replace(/</g,'&lt;')}` : `<span style="font-style:italic;">${t('orderRemarkEmptyLabel')}</span>`}
+        ${o.note ? `${t('orderRemarkLabelPrefix')}${o.note.replace(/</g,'&lt;')}` : `<span style="font-style:italic;">${t('orderRemarkEmptyLabel')}</span>`}
         <span class="del-link" style="margin-left:8px;" onclick="startEditOrderRemark('${o.id}')">${t('btnEditRemark')}</span>
       </div>
     `;
@@ -6738,7 +6829,6 @@ function renderPendingOrders(){
           <span class="order-status-pill ${o.deleted ? 'deleted' : 'pending'}">${o.deleted ? t('statusOrderCancelled') : t('statusPending')}</span>
         </div>
         ${isExpanded ? `
-          ${o.note ? `<div style="font-size:12px;color:var(--ink-soft);margin:8px 0 6px;">${t('noteLabelPrefix')}${o.note}</div>` : ''}
           <div class="order-items">${itemsHtml}</div>
           ${remarkHtml}
           ${o.deleted ? '' : partyEditHtml}
@@ -6996,7 +7086,7 @@ async function savePendingOrderItemQty(context, orderId, productId){
     const oldQty = item.qty;
     item.qty = newQty;
     if(!item.qtyHistory) item.qtyHistory = [];
-    item.qtyHistory.push({ from: oldQty, to: newQty });
+    item.qtyHistory.push({ from: oldQty, to: newQty, at: new Date().toISOString() });
     editingOrderItemKey = null;
     try{ await upsertOrders([order]); }
     catch(e){
@@ -8581,7 +8671,7 @@ async function undoConversion(conversionId){
 // 「改數量」用的是同一套慣例。呼叫前應該已經檢查過出貨數量沒有超過庫存。
 // 同一項商品如果已經在這張訂單裡,直接擋下來請使用者從這批清單移除,不嘗試自動合併,避免
 // 複雜的加總邏輯藏著算錯的風險。
-async function mergeItemsIntoCompletedOrderCore(orderId, batchItems, date, party, note){
+async function mergeItemsIntoCompletedOrderCore(orderId, batchItems, date, party){
   const order = orders.find(o => o.id === orderId);
   if(!order || order.deleted || orderStatus(order) !== 'confirmed' || order.signedAt){
     return { ok: false, reason: 'not_editable' };
@@ -8593,7 +8683,9 @@ async function mergeItemsIntoCompletedOrderCore(orderId, batchItems, date, party
 
   const newTxs = batchItems.map(it => ({
     id: genId(), productId: it.productId, type: it.qty > 0 ? 'out' : 'restock', qty: Math.abs(it.qty), date, party,
-    note: `${order.orderNo || orderId}${note ? '、' + note : ''}`,
+    // 這張訂單本身有訂單號,交易記錄的備註只要放訂單號就能追溯回這張訂單、看到 order.note 裡的
+    // 完整備註內容,不需要把使用者打的備註也重複塞進每一筆交易記錄裡。
+    note: order.orderNo || orderId,
     system: true, orderId
   }));
 
@@ -8601,14 +8693,14 @@ async function mergeItemsIntoCompletedOrderCore(orderId, batchItems, date, party
   const newOrderItems = batchItems.map(it => ({
     productId: it.productId, sku: it.sku || '', name: it.name, unit: it.unit,
     qty: it.qty,
-    qtyHistory: [{ added: true }]
+    qtyHistory: [{ added: true, at: new Date().toISOString(), qty: it.qty }]
   }));
   order.items = [...prevItems, ...newOrderItems];
 
   const prevPostVerifyChanges = order.postVerifyChanges ? [...order.postVerifyChanges] : [];
   if(!order.postVerifyChanges) order.postVerifyChanges = [];
   batchItems.forEach(it => {
-    order.postVerifyChanges.push({ kind: 'added', productId: it.productId, name: it.name, sku: it.sku, unit: it.unit, qty: it.qty });
+    order.postVerifyChanges.push({ kind: 'added', productId: it.productId, name: it.name, sku: it.sku, unit: it.unit, qty: it.qty, at: new Date().toISOString() });
   });
 
   transactions.push(...newTxs);
@@ -8702,7 +8794,7 @@ async function submitNewOrderFlow(action, date, msg){
   const note = document.getElementById('txNote').value.trim();
 
   if(action === 'direct' && !note){
-    msg.className = 'msg error'; msg.textContent = t('errNoteRequiredForDirectShip'); return;
+    showInfoModal(t('errNoteRequiredForDirectShip')); return;
   }
 
   if(action !== 'pending'){
@@ -8748,7 +8840,7 @@ async function submitNewOrderFlow(action, date, msg){
     };
     const newTxs = txBatchItems.map(it => ({
       id: genId(), productId: it.productId, type: it.qty > 0 ? 'out' : 'restock', qty: Math.abs(it.qty), date, party,
-      note: `${orderNo}${note ? '、' + note : ''}`, system: true, orderId
+      note: orderNo, system: true, orderId
     }));
     transactions.push(...newTxs);
     orders.push(newOrder);
@@ -8873,7 +8965,7 @@ async function submitLoadPendingFlow(action, msg){
       const oldQty = item.qty;
       item.qty = newQty;
       if(!item.qtyHistory) item.qtyHistory = [];
-      item.qtyHistory.push({ from: oldQty, to: newQty });
+      item.qtyHistory.push({ from: oldQty, to: newQty, at: new Date().toISOString() });
       logInventoryAction('order_edit', `Pending order ${order.orderNo || order.id} - quantity adjusted: ${item.name} ${oldQty}→${newQty} ${item.unit} (not yet stocked out)`, order.orderNo);
     });
     // 套用暫存的刪除(軟刪除,一樣不影響庫存)。
@@ -8999,9 +9091,10 @@ async function submitLoadCompletedFlow(date, msg){
       productStockMap[item.productId] = (productStockMap[item.productId] || 0) - qtyDelta;
       item.qty = newQty;
       if(!item.qtyHistory) item.qtyHistory = [];
-      item.qtyHistory.push({ from: oldQty, to: newQty });
+      const qtyChangeAt = new Date().toISOString();
+      item.qtyHistory.push({ from: oldQty, to: newQty, at: qtyChangeAt });
       if(!order.postVerifyChanges) order.postVerifyChanges = [];
-      order.postVerifyChanges.push({ kind: 'qty', productId: item.productId, name: item.name, sku: item.sku, unit: item.unit, from: oldQty, to: newQty });
+      order.postVerifyChanges.push({ kind: 'qty', productId: item.productId, name: item.name, sku: item.sku, unit: item.unit, from: oldQty, to: newQty, at: qtyChangeAt });
     }
 
     // 依序套用每一筆暫存的刪除:退回庫存(補一筆 restock 交易紀錄),軟刪除品項。
@@ -9030,7 +9123,7 @@ async function submitLoadCompletedFlow(date, msg){
         return;
       }
       if(!order.postVerifyChanges) order.postVerifyChanges = [];
-      order.postVerifyChanges.push({ kind: 'deleted', productId: item.productId, name: item.name, sku: item.sku, unit: item.unit, qty: item.qty });
+      order.postVerifyChanges.push({ kind: 'deleted', productId: item.productId, name: item.name, sku: item.sku, unit: item.unit, qty: item.qty, at: new Date().toISOString() });
       item.deleted = true;
       item.deletedAt = now;
       item.deleteStockStatus = 'stocked_out';
@@ -9052,7 +9145,7 @@ async function submitLoadCompletedFlow(date, msg){
         return;
       }
       const batchItems = txBatchItems.map(it => ({ productId: it.productId, sku: it.sku||'', name: it.name, unit: it.unit, qty: it.qty }));
-      const result = await mergeItemsIntoCompletedOrderCore(orderId, batchItems, date, party, noteVal);
+      const result = await mergeItemsIntoCompletedOrderCore(orderId, batchItems, date, party);
       if(!result.ok){
         msg.className = 'msg error';
         msg.textContent = result.reason === 'not_editable' ? `⚠ ${t('errOrderNoLongerEditable')}`
@@ -9091,7 +9184,7 @@ async function submitAdjustmentFlow(date, msg){
 
   showConfirmModal(t('confirmStockAdjustment'), async () => {
     const newTxs = txBatchItems.map(it => ({
-      id: genId(), productId: it.productId, type: it.qty > 0 ? 'out' : 'restock', qty: Math.abs(it.qty), date, party: '', note
+      id: genId(), productId: it.productId, type: it.qty > 0 ? 'out' : 'restock', qty: Math.abs(it.qty), date, party: '', note: `${t('adjustmentNotePrefix')}${note}`
     }));
     transactions.push(...newTxs);
     txBatchItems.forEach(it => { productStockMap[it.productId] = (productStockMap[it.productId]||0) - it.qty; });
@@ -9886,15 +9979,15 @@ function renderStockCards(){
           <th><input type="checkbox" ${allSelected ? 'checked' : ''} onchange="toggleSelectAllProducts(this.checked)" /></th>
           <th></th>
           <th class="sortable-th">
-            <span onclick="event.stopPropagation();setStockSort('sku')" style="cursor:pointer;">SKU${sortArrow('sku')}</span>
+            <span onclick="event.stopPropagation();setStockSort('sku')" style="cursor:pointer;" title="${t('sortCycleHint')}">SKU${sortArrow('sku')}</span>
             <span style="color:var(--line);margin:0 3px;">/</span>
-            <span onclick="event.stopPropagation();setStockSort('name')" style="cursor:pointer;">${t('colProduct')}${sortArrow('name')}</span>
+            <span onclick="event.stopPropagation();setStockSort('name')" style="cursor:pointer;" title="${t('sortCycleHint')}">${t('colProduct')}${sortArrow('name')}</span>
           </th>
-          <th class="sortable-th num" onclick="setStockSort('stock')">${t('colStock')}${sortArrow('stock')}</th>
-          <th class="sortable-th num" onclick="setStockSort('totalStock')" title="主商品自己的庫存量 + Σ(批量商品庫存量 × 加權數)">${t('colTotalStock')}${sortArrow('totalStock')}</th>
-          <th class="sortable-th num" onclick="setStockSort('avg')">${t('colAvgOut')}${sortArrow('avg')}</th>
-          <th class="sortable-th num" onclick="setStockSort('safety')">${t('colSafety')}${sortArrow('safety')}</th>
-          <th class="sortable-th num" onclick="setStockSort('remain')">${t('colRemain')}${sortArrow('remain')}</th>
+          <th class="sortable-th num" onclick="setStockSort('stock')" title="${t('sortCycleHint')}">${t('colStock')}${sortArrow('stock')}</th>
+          <th class="sortable-th num" onclick="setStockSort('totalStock')" title="主商品自己的庫存量 + Σ(批量商品庫存量 × 加權數)。${t('sortCycleHint')}">${t('colTotalStock')}${sortArrow('totalStock')}</th>
+          <th class="sortable-th num" onclick="setStockSort('avg')" title="${t('sortCycleHint')}">${t('colAvgOut')}${sortArrow('avg')}</th>
+          <th class="sortable-th num" onclick="setStockSort('safety')" title="${t('sortCycleHint')}">${t('colSafety')}${sortArrow('safety')}</th>
+          <th class="sortable-th num" onclick="setStockSort('remain')" title="${t('sortCycleHint')}">${t('colRemain')}${sortArrow('remain')}</th>
           <th></th>
         </tr>
       </thead>
@@ -9957,7 +10050,14 @@ function sortArrow(field){
 
 function setStockSort(field){
   if(stockSortField === field){
-    stockSortDir = stockSortDir === 'asc' ? 'desc' : 'asc';
+    if(stockSortDir === 'asc'){
+      stockSortDir = 'desc';
+    } else {
+      // 已經是遞減了,再點一次不是繼續切換,而是還原成預設排序(分類順序 + 商品排序設置那個
+      // 原始順序)——不然點過遞增/遞減之後,沒有辦法回到原本的排序,只能在這兩個之間切換。
+      stockSortField = null;
+      stockSortDir = 'asc';
+    }
   } else {
     stockSortField = field;
     stockSortDir = 'asc';
@@ -10190,6 +10290,7 @@ function inventoryLogActionLabel(actionType){
 function clearInventoryLogFilters(){
   document.getElementById('invLogDateFrom').value = '';
   document.getElementById('invLogDateTo').value = '';
+  document.getElementById('invLogSearchFilter').value = '';
   renderInventoryLog();
 }
 
@@ -10202,12 +10303,27 @@ function renderInventoryLog(){
   const container = document.getElementById('inventoryLogTable');
   const dateFrom = document.getElementById('invLogDateFrom').value;
   const dateTo = document.getElementById('invLogDateTo').value;
+  const searchFilter = (document.getElementById('invLogSearchFilter').value || '').trim().toLowerCase();
 
-  // created_at 存的是完整時間戳(ISO,含時分),篩選日期時用「日期」部分比對即可;
-  // 到日期那天整天(直到 23:59:59)都算在範圍內。
+  // created_at 存的是 UTC 時間戳,但畫面上顯示的日期(toLocaleDateString)是轉成瀏覽器本地時區
+  // 之後的日期——這兩個如果不一致就會出現「篩選 8/22,畫面卻跑出 8/23」的狀況(對本地時區比
+  // UTC 早的地區來說,本地時間已經是隔天,但 UTC 日期字串還停在前一天,反過來也會有同樣的錯位)。
+  // 篩選比對一定要用轉換過的本地日期,不能直接切 ISO 字串前 10 碼(那是 UTC 日期)。
+  function toLocalDateStr(iso){
+    const d = new Date(iso);
+    if(isNaN(d.getTime())) return '';
+    const pad = n => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  }
+
   let rows = inventoryLogs.slice();
-  if(dateFrom) rows = rows.filter(r => r.created_at && r.created_at.slice(0,10) >= dateFrom);
-  if(dateTo) rows = rows.filter(r => r.created_at && r.created_at.slice(0,10) <= dateTo);
+  if(dateFrom) rows = rows.filter(r => r.created_at && toLocalDateStr(r.created_at) >= dateFrom);
+  if(dateTo) rows = rows.filter(r => r.created_at && toLocalDateStr(r.created_at) <= dateTo);
+  if(searchFilter) rows = rows.filter(r =>
+    (r.actor || '').toLowerCase().includes(searchFilter) ||
+    (r.description || '').toLowerCase().includes(searchFilter) ||
+    (r.order_no || '').toLowerCase().includes(searchFilter)
+  );
   // 已經照 created_at 由資料庫端 desc 排序載入,這裡再排一次以防篩選/重新整理後順序跑掉。
   rows = rows.slice().sort((a,b) => (b.created_at || '').localeCompare(a.created_at || ''));
 
