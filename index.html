@@ -6250,7 +6250,7 @@ async function doConfirmOrderFromCart(dateVal, noteVal, partyId, partyName, item
   orders.push(orderPayload);
   recomputeOrderCounterFromOrders();
   await saveOrderCounter();
-  logInventoryAction('order_place', `Created pending order ${orderNo} (${partyName || 'No recipient specified'}, ${items.length} item(s)), stock not yet deducted`, orderNo);
+  logInventoryAction('order_place', `Created pending order ${orderNo} (${partyName || 'No recipient specified'}, ${items.length} item(s)), stock not yet deducted${noteVal ? `, note: "${noteVal}"` : ''}`, orderNo);
 
   document.getElementById('orderNote').value = '';
   orderQtyDraft = {};
@@ -6742,7 +6742,8 @@ async function saveOrderRemark(orderId){
   if(!order) return;
   const input = document.getElementById(`orderRemarkInput_${orderId}`);
   const value = input ? input.value.trim() : '';
-  const oldNote = order.note;
+  const oldNote = order.note || '';
+  if(value === oldNote){ editingOrderRemarkId = null; refreshOrderLists(); return; } // 沒改就不用存、也不用留紀錄
   order.note = value;
   editingOrderRemarkId = null;
   try{ await upsertOrders([order]); }
@@ -6752,7 +6753,8 @@ async function saveOrderRemark(orderId){
     refreshOrderLists();
     return;
   }
-  logInventoryAction('order_remark', `Order ${order.orderNo || orderId} - note edited`, order.orderNo);
+  // 跟登記進出貨那邊改備註一樣,記錄要看得出「從什麼改成什麼」,不是只寫「備註被改過」。
+  logInventoryAction('order_remark', `Order ${order.orderNo || orderId} - note: "${oldNote}" → "${value}"`, order.orderNo);
   refreshOrderLists();
 }
 
@@ -8823,7 +8825,7 @@ async function submitNewOrderFlow(action, date, msg){
     orders.push(newOrder);
     try{ await upsertOrders([newOrder]); await saveOrderCounter(); }
     catch(e){ orders.pop(); msg.className='msg error'; msg.textContent='⚠ 建立訂單失敗,請重新整理頁面再試一次。'; return; }
-    logInventoryAction('order_place', `Created pending order ${orderNo} (${party || 'No recipient specified'}, ${txBatchItems.length} item(s)), stock not yet deducted`, orderNo);
+    logInventoryAction('order_place', `Created pending order ${orderNo} (${party || 'No recipient specified'}, ${txBatchItems.length} item(s)), stock not yet deducted${note ? `, note: "${note}"` : ''}`, orderNo);
     finishNewOrderSubmit('pending', newOrder.id, txBatchItems.length, orderNo, msg);
     return;
   }
@@ -8855,7 +8857,7 @@ async function submitNewOrderFlow(action, date, msg){
       txBatchItems.forEach(it => { productStockMap[it.productId] = (productStockMap[it.productId]||0) + it.qty; });
       msg.className='msg error'; msg.textContent='⚠ 建立訂單失敗,請重新整理頁面再試一次。'; return;
     }
-    logInventoryAction('order_place', `Created completed order ${orderNo} (${party || 'No recipient specified'}, ${txBatchItems.length} item(s)), stock deducted`, orderNo);
+    logInventoryAction('order_place', `Created completed order ${orderNo} (${party || 'No recipient specified'}, ${txBatchItems.length} item(s)), stock deducted${note ? `, note: "${note}"` : ''}`, orderNo);
     finishNewOrderSubmit('completed', orderId, txBatchItems.length, orderNo, msg);
     return;
   }
@@ -8872,7 +8874,7 @@ async function submitNewOrderFlow(action, date, msg){
       txBatchItems.forEach(it => { productStockMap[it.productId] = (productStockMap[it.productId]||0) + it.qty; });
       msg.className='msg error'; msg.textContent='⚠ 提交失敗,請重新整理頁面再試一次。'; return;
     }
-    logInventoryAction('tx_out', `Logged direct shipment: ${txBatchItems.length} item(s), party ${party || 'unspecified'}`, null);
+    logInventoryAction('tx_out', `Logged direct shipment: ${txBatchItems.length} item(s), party ${party || 'unspecified'}, note: "${note}"`, null);
     const count = txBatchItems.length;
     txBatchItems = [];
     resetRegisterOutFlow();
@@ -8954,11 +8956,23 @@ async function submitLoadPendingFlow(action, msg){
   if(txBatchItems.length > 0) changes.push(formatNewItemsSummary(txBatchItems));
 
   const doSave = async () => {
-    if(newDate && newDate !== order.date){
+    const dateChanged = newDate && newDate !== order.date;
+    const noteChanged = newNote !== (order.note || '');
+    const oldDateForLog = order.date;
+    const oldNoteForLog = order.note || '';
+    if(dateChanged){
       if(order.originalDate === undefined || order.originalDate === null) order.originalDate = order.date;
       order.date = newDate;
     }
     order.note = newNote;
+    // 日期/備註的異動之前沒有寫進後台紀錄——改數量、刪除品項都有記,但改日期/備註卻沒有,
+    // 這裡補上,確保訂單只要有異動都查得到。
+    if(dateChanged || noteChanged){
+      const parts = [];
+      if(dateChanged) parts.push(`date ${oldDateForLog || ''}→${newDate}`);
+      if(noteChanged) parts.push(`note: "${oldNoteForLog}" → "${newNote}"`);
+      logInventoryAction('order_edit', `Pending order ${order.orderNo || order.id} - ${parts.join(', ')}`, order.orderNo);
+    }
 
     // 套用暫存的改數量(待處理訂單不影響庫存,單純改 order.items 上的數字跟異動紀錄)。
     pendingQtyChanges.forEach(({ item, newQty }) => {
@@ -9056,11 +9070,23 @@ async function submitLoadCompletedFlow(date, msg){
   if(txBatchItems.length > 0) changes.push(formatNewItemsSummary(txBatchItems));
 
   const doSave = async () => {
-    if(date && date !== order.date){
+    const dateChanged = date && date !== order.date;
+    const noteChanged = noteVal !== (order.note || '');
+    const oldDateForLog = order.date;
+    const oldNoteForLog = order.note || '';
+    if(dateChanged){
       if(order.originalDate === undefined || order.originalDate === null) order.originalDate = order.date;
       order.date = date;
     }
     order.note = noteVal;
+    // 日期/備註的異動之前沒有寫進後台紀錄——改數量、刪除品項都有記,但改日期/備註卻沒有,
+    // 這裡補上,確保訂單只要有異動都查得到。
+    if(dateChanged || noteChanged){
+      const parts = [];
+      if(dateChanged) parts.push(`date ${oldDateForLog || ''}→${date}`);
+      if(noteChanged) parts.push(`note: "${oldNoteForLog}" → "${noteVal}"`);
+      logInventoryAction('order_edit', `Order ${order.orderNo || order.id} - ${parts.join(', ')}`, order.orderNo);
+    }
 
     // 依序套用每一筆暫存的改數量,呼叫跟原本「改數量」一樣的 adjust_order_item_qty RPC
     // (原子化、伺服器端會再驗證一次庫存)。前面已經先做過前端庫存檢查,這裡理論上不太會失敗,
