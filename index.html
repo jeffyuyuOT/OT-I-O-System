@@ -5843,18 +5843,21 @@ function exportStockQuantitySheet(){
   const msg = document.getElementById('stockExportMsg');
   if(typeof XLSX === 'undefined'){ msg.className = 'msg error'; msg.textContent = 'Excel 套件載入失敗,請重新整理頁面再試一次'; return; }
 
-  const visible = products.filter(p => !p.hidden);
-  if(visible.length === 0){
+  if(products.length === 0){
     msg.className = 'msg error';
-    msg.textContent = '目前沒有可以匯出的商品(可能全部都被隱藏了)';
+    msg.textContent = '目前沒有可以匯出的商品';
     return;
   }
 
   const dateStr = todayISO();
 
+  // 匯出「全部」商品(不是只匯出沒被隱藏的)——包含庫存總覽裡被全域隱藏的商品,只是隱藏的商品
+  // 那一列用 Excel 隱藏列處理掉,資料還在,只是預設不顯示、也不會被印出來。排序改用跟庫存總覽/
+  // 訂貨頁面共用的同一套邏輯(compareProductsBySortMode),跟著系統設置的「商品排序」走,
+  // 不是寫死照商品名稱排。
   // 只排「主商品」(沒有 parentId 的商品),批量商品(子商品)緊接著排在自己的主商品下面,
   // 不獨立參與分類排序,這樣匯出的順序才會跟庫存總覽畫面上的主/批量商品階層一致。
-  const mainRows = visible
+  const mainRows = products
     .filter(p => !p.parentId)
     .map(p => ({ p, cat: p.category || '未分類', stock: computeStock(p.id), totalStock: computeTotalStock(p.id) }))
     .sort((a,b) => {
@@ -5863,7 +5866,7 @@ function exportStockQuantitySheet(){
       const aoN = ao === -1 ? 999 : ao;
       const boN = bo === -1 ? 999 : bo;
       if(aoN !== boN) return aoN - boN;
-      return a.p.name.localeCompare(b.p.name);
+      return compareProductsBySortMode(a.p, b.p);
     });
 
   let totalItemCount = 0;
@@ -5871,10 +5874,10 @@ function exportStockQuantitySheet(){
   mainRows.forEach(r => {
     rows.push({ ...r, isChild: false });
     totalItemCount++;
-    const children = visible
+    const children = products
       .filter(c => c.parentId === r.p.id)
       .map(c => ({ p: c, cat: r.cat, stock: computeStock(c.id) }))
-      .sort((a,b) => a.p.name.localeCompare(b.p.name));
+      .sort((a,b) => compareProductsBySortMode(a.p, b.p));
     children.forEach(c => {
       rows.push({ ...c, isChild: true });
       totalItemCount++;
@@ -5891,16 +5894,28 @@ function exportStockQuantitySheet(){
 
   const headerRow = ['Product Name','Stock Qty','Total Stock Qty','Unit'];
   const aoa = [];
+  const hiddenRows = new Set(); // 0-based row indices into aoa that should be hidden in the final sheet
   aoa.push(['Date:', dateStr]);
   aoa.push([]);
   groups.forEach((g, gi) => {
-    if(gi > 0) aoa.push([]); // 分類之間的空白間隔列
+    const groupAllHidden = g.items.every(r => r.p.hidden);
+    if(gi > 0){
+      const sepRowIdx = aoa.length;
+      aoa.push([]); // 分類之間的空白間隔列
+      if(groupAllHidden) hiddenRows.add(sepRowIdx);
+    }
+    const catRowIdx = aoa.length;
     aoa.push([catLabelEN(g.cat)]); // 分類標題列(保留)
+    if(groupAllHidden) hiddenRows.add(catRowIdx);
+    const headerRowIdx = aoa.length;
     aoa.push(headerRow.slice());
+    if(groupAllHidden) hiddenRows.add(headerRowIdx);
     g.items.forEach(r => {
       const name = r.isChild ? `⧉ ${r.p.name}` : r.p.name;
       const totalStockCell = r.isChild ? '—' : r.totalStock;
+      const rowIdx = aoa.length;
       aoa.push([name, r.stock, totalStockCell, r.p.unit]); // 不含分類欄
+      if(r.p.hidden) hiddenRows.add(rowIdx);
     });
   });
 
@@ -5908,6 +5923,11 @@ function exportStockQuantitySheet(){
   ws['!cols'] = [{wch:30},{wch:10},{wch:10},{wch:8}];
   ws['!pageSetup'] = { orientation: 'portrait', fitToWidth: 1, fitToHeight: 0, paperSize: 9 }; // paperSize 9 = A4
   ws['!margins'] = { left:0.5, right:0.5, top:0.6, bottom:0.6, header:0.3, footer:0.3 };
+  if(hiddenRows.size > 0){
+    const rowMeta = [];
+    aoa.forEach((_, i) => { rowMeta[i] = hiddenRows.has(i) ? { hidden: true } : {}; });
+    ws['!rows'] = rowMeta;
+  }
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Stock Quantity');
 
