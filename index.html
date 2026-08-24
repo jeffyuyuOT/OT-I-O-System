@@ -2051,6 +2051,10 @@ const I18N = {
     errSelectProductFirst: '請先選擇商品', errEnterPositiveQty: '請輸入大於 0 的數量',
     importSkipReasonNoName: '沒有填品名', importSkipReasonNoStock: '沒有填庫存量',
     importSkipReasonNoSku: '沒有填 SKU', importSkippedRowsIntro: '有資料列被略過:',
+    importNegativeStockIntro: '⚠ 匯入失敗:以下項目會讓庫存變成負數,請修正 Excel 檔案後再重新匯入。',
+    importNegativeStockLine: '  · {file} 第 {row} 列 — {name}(SKU「{sku}」):庫存量 {qty}',
+    importInitialSeedSource: 'stock.xlsx(初始匯入)',
+    importTxNegativeStockLine: '  · {name}:目前庫存 {current},這批匯入完會變成 {result}',
     importSkippedRowsHeader: '{n} 列資料被整列略過(未匯入):',
     importSkippedRowLine: '{file} 第 {row} 列(「{identifier}」):{reason}',
     importLinkSkipIntro: '{n} 項批量商品設定無法套用(商品本身仍照一般商品匯入,只是沒有連結到主商品):',
@@ -2428,6 +2432,10 @@ const I18N = {
     errSelectProductFirst: 'Please select a product first', errEnterPositiveQty: 'Please enter a quantity greater than 0',
     importSkipReasonNoName: 'No product name filled in', importSkipReasonNoStock: 'No stock quantity filled in',
     importSkipReasonNoSku: 'No SKU filled in', importSkippedRowsIntro: 'Some rows were skipped:',
+    importNegativeStockIntro: '⚠ Import failed: the following items would make stock negative. Please fix the Excel file and re-import.',
+    importNegativeStockLine: '  · {file} row {row} — {name} (SKU "{sku}"): stock {qty}',
+    importInitialSeedSource: 'stock.xlsx (initial import)',
+    importTxNegativeStockLine: '  · {name}: current stock {current}, would become {result} after this import',
     importSkippedRowsHeader: '{n} row(s) were skipped entirely (not imported):',
     importSkippedRowLine: '{file} row {row} ("{identifier}"): {reason}',
     importLinkSkipIntro: '{n} multi-pack setting(s) could not be applied (the product itself was still imported normally, just not linked to a main product):',
@@ -5268,6 +5276,35 @@ async function confirmTxImport(){
   // 這些訂單先以「待處理」狀態建立,要等「訂貨後台管理 → 待處理訂單」或「庫存管理 → 訂單核對」
   // 核對過才會真的扣庫存、寫入出貨紀錄(邏輯跟購物車送出訂貨一致)。沒有被併進訂單的出貨(勾選
   // 「併入已完成訂單」被取消,或本來就不是出貨)則維持原樣,照登記當下直接寫入紀錄、立即異動庫存。
+
+  // 這些「沒有併入訂單」的異動會直接動庫存,送出前先算出每個商品的累計異動量(同一個商品可能
+  // 同時有好幾筆進貨/出貨/入庫紀錄要一起匯入),檢查最終結果會不會變成負數——不能只看單筆,
+  // 要看這一批全部套用完之後的最終庫存。有任何一個商品會變負數,整批都不匯入,清楚列出是
+  // 哪個商品、現在庫存多少、這批套用完會變成多少,讓使用者能對照 Excel 原始檔案修正。
+  const stockImpact = {}; // productId -> 這批匯入對這個商品的累計異動量(正值加庫存,負值扣庫存)
+  pendingTxMatches.forEach(m => {
+    if(!(m.qty > 0)) return;
+    if(m.type === 'out'){
+      const key = `${m.party || fallbackParty}||${m.date || fallbackDate}`;
+      if(orderGroups.has(key)) return; // 併入待處理訂單的,核對時才會扣庫存,不算在這裡
+      stockImpact[m.productId] = (stockImpact[m.productId] || 0) - m.qty;
+    } else {
+      stockImpact[m.productId] = (stockImpact[m.productId] || 0) + m.qty;
+    }
+  });
+  const negativeResults = Object.keys(stockImpact)
+    .map(productId => ({ productId, delta: stockImpact[productId], currentStock: computeStock(productId) }))
+    .filter(r => r.currentStock + r.delta < 0);
+  if(negativeResults.length > 0){
+    const lines = negativeResults.map(r => {
+      const p = products.find(pp => pp.id === r.productId);
+      return tf('importTxNegativeStockLine', { name: p ? p.name : r.productId, current: r.currentStock, result: r.currentStock + r.delta });
+    });
+    msg.className = 'msg error';
+    showInfoModal(`${t('importNegativeStockIntro')}\n${lines.join('\n')}`);
+    return;
+  }
+
   let inCount = 0, outCount = 0, restockCount = 0, pendingOutCount = 0;
   const newTxs = [];
   pendingTxMatches.forEach(m => {
@@ -5318,6 +5355,13 @@ async function confirmTxImport(){
       logInventoryAction('order_place', `Created pending order ${o.orderNo} via Excel import (${o.partyName || 'No recipient specified'}, ${o.items.length} item(s)), stock not yet deducted`, o.orderNo);
     });
   }
+  // 直接寫入的異動紀錄(沒有併入待處理訂單的進貨/出貨/入庫)之前完全沒有記錄進後台紀錄——
+  // 只有併入訂單的那部分有記(上面那段)。這裡補上,列出匯入了哪個/哪些檔案。
+  if(newTxs.length > 0){
+    const sourceFiles = [...new Set(pendingTxMatches.map(m => m.sourceFile).filter(Boolean))];
+    const fileListForLog = sourceFiles.length > 0 ? sourceFiles.join(', ') : 'unknown source';
+    logInventoryAction('import', `Imported transactions from: ${fileListForLog} — in ${inCount}, out ${outCount}${restockCount > 0 ? `, restock ${restockCount}` : ''}`, null);
+  }
   msg.className = 'msg ok';
   const unlinkedOrders = newOrders.filter(o => !o.partyId);
   let orderNote = '';
@@ -5339,6 +5383,19 @@ async function importStockItems(items, skippedRows, clearBlanksMode){
   skippedRows = skippedRows || [];
   clearBlanksMode = !!clearBlanksMode;
   const msg = document.getElementById('importMsg');
+
+  // 匯入前先檢查有沒有任何一列的庫存量是負的——這種資料一套用進去,商品的庫存就會直接變成
+  // 負數,通常是打錯字或表格抓錯欄位造成的。只要有一項不符合,整批都不匯入,清楚列出是哪個
+  // 檔案、哪一列、哪個商品造成的,讓使用者能對照 Excel 原始檔案修正後再重新匯入。
+  const negativeStockItems = items.filter(item => item.qty !== null && item.qty !== undefined && item.qty < 0);
+  if(negativeStockItems.length > 0){
+    const lines = negativeStockItems.map(item =>
+      tf('importNegativeStockLine', { file: item._sourceFile || t('importInitialSeedSource'), row: item._sourceRow || '—', name: item.name, sku: item.sku, qty: item.qty })
+    );
+    showInfoModal(`${t('importNegativeStockIntro')}\n${lines.join('\n')}`);
+    return;
+  }
+
   const today = todayISO();
   let added = 0, updated = 0, unchanged = 0, skippedNoSku = 0;
   const updateDetails = []; // { sku, name, fields } — 逐項記錄哪個商品被更新、具體改了哪些欄位
@@ -5470,6 +5527,12 @@ async function importStockItems(items, skippedRows, clearBlanksMode){
     renderAll();
     return;
   }
+
+  // 匯入這個動作之前完全沒有寫進後台紀錄——只有畫面上一段暫時性的結果訊息,離開頁面就看不到
+  // 了。這裡補上,列出匯入了哪個/哪些檔案,以及新增/更新/略過的統計數字。
+  const sourceFiles = [...new Set(items.map(it => it._sourceFile).filter(Boolean))];
+  const fileListForLog = sourceFiles.length > 0 ? sourceFiles.join(', ') : t('importInitialSeedSource');
+  logInventoryAction('import', `Imported master data from: ${fileListForLog} — added ${added}, updated ${updated}, unchanged ${unchanged}${skippedNoSku > 0 ? `, skipped ${skippedNoSku}` : ''}`, null);
 
   msg.className = 'msg ok';
   const parts = [];
