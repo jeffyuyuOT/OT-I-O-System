@@ -1048,7 +1048,26 @@
           <option value="in" data-i18n="lblStockIn">進貨 +</option>
           <option value="out" data-i18n="lblStockOut">出貨 −</option>
           <option value="restock" data-i18n="lblStockRestock">入庫</option>
+          <option value="delivery" data-i18n="lblDeliveryNote">Delivery Note</option>
         </select>
+      </div>
+      <div id="txDeliveryFlowTypeRow" style="display:none;">
+        <div class="form-grid" style="grid-template-columns:1fr 1fr;max-width:520px;">
+          <div class="field">
+            <label data-i18n="lblDeliveryFlowType">操作</label>
+            <select id="txDeliveryFlowType" onchange="setTxDeliveryFlowType(this.value)">
+              <option value="" data-i18n="optSelectOutFlowType">— 請選擇 —</option>
+              <option value="new" data-i18n="optDeliveryNew">新增</option>
+              <option value="load" data-i18n="optDeliveryLoad">載入</option>
+            </select>
+          </div>
+          <div class="field" id="txDeliveryNoteSelectWrap" style="display:none;">
+            <label data-i18n="fieldSelectDeliveryNote">選擇 Delivery Note</label>
+            <select id="txDeliveryNoteSelect" onchange="loadDeliveryNoteIntoRegisterFlow(this.value)">
+              <option value="" data-i18n="optSelectDeliveryNote">— 請選擇 —</option>
+            </select>
+          </div>
+        </div>
       </div>
       <div id="txOutFlowTypeRow" style="display:none;">
         <div class="form-grid" style="grid-template-columns:1fr 1fr;max-width:520px;">
@@ -1819,6 +1838,7 @@ async function loadProductStock(){
 let products = [];
 let transactions = [];
 let orders = [];
+let deliveryNotes = []; // Delivery Note 清單——純文件記錄,結構比照 orders(id/date/partyId/partyName/note/items),但完全不影響庫存,也沒有 status/orderNo 這些欄位
 let shippingParties = [];
 let currentTxType = 'in';
 let storageReady = false;
@@ -2174,7 +2194,11 @@ const I18N = {
     orderLinkedTxWarningMulti: '要刪除的紀錄裡,有 {count} 筆與已完成訂單有關(訂單號:{orderNos}),建議先到「訂貨後台管理 → 已完成訂單」修改,而不是直接在這裡刪除。仍要繼續刪除嗎?',
 
     lblProduct: '商品', lblType: '類型', lblQty: '數量', lblDate: '日期',
-    lblStockIn: '進貨 +', lblStockOut: '出貨 −', lblStockRestock: '入庫',
+    lblStockIn: '進貨 +', lblStockOut: '出貨 −', lblStockRestock: '入庫', lblDeliveryNote: 'Delivery Note',
+    lblDeliveryFlowType: '操作', optDeliveryNew: '新增', optDeliveryLoad: '載入',
+    fieldSelectDeliveryNote: '選擇 Delivery Note', optSelectDeliveryNote: '— 請選擇 —',
+    txNoteRequiredDeliveryLabel: '備註(必填,請填相關已完成訂單號)',
+    errDeliveryNoteRequired: '請填寫備註(相關已完成訂單號)', btnPrint: '🖨️ 列印',
     partyLabelIn: '進貨方(供應商)', partyLabelOut: '出貨方(客戶/門市,選填)', partyLabelRestock: '對象(選填)',
     partyPlaceholderIn: '例如:大盤商 A', partyPlaceholderOut: '例如:三民店 / 客戶王先生', partyPlaceholderRestock: '例如:訂單調整 / 盤點',
     txNoteSharedLabel: '備註(選填)',
@@ -2560,7 +2584,11 @@ const I18N = {
     orderLinkedTxWarningMulti: '{count} of the records you are about to delete are linked to completed order(s) (order #: {orderNos}). It is recommended to make changes from "Order Admin → Completed Orders" instead of deleting here directly. Continue deleting anyway?',
 
     lblProduct: 'Product', lblType: 'Type', lblQty: 'Qty', lblDate: 'Date',
-    lblStockIn: 'Stock In +', lblStockOut: 'Stock Out −', lblStockRestock: 'Restock',
+    lblStockIn: 'Stock In +', lblStockOut: 'Stock Out −', lblStockRestock: 'Restock', lblDeliveryNote: 'Delivery Note',
+    lblDeliveryFlowType: 'Action', optDeliveryNew: 'New', optDeliveryLoad: 'Load',
+    fieldSelectDeliveryNote: 'Select Delivery Note', optSelectDeliveryNote: '— Select —',
+    txNoteRequiredDeliveryLabel: 'Note (required, enter the related completed order number)',
+    errDeliveryNoteRequired: 'Please enter a note (related completed order number)', btnPrint: '🖨️ Print',
     partyLabelIn: 'Supplier', partyLabelOut: 'Customer/Store (optional)', partyLabelRestock: 'Party (optional)',
     partyPlaceholderIn: 'e.g. Supplier A', partyPlaceholderOut: 'e.g. Store #3 / Customer Wang', partyPlaceholderRestock: 'e.g. Order adjustment / Stocktake',
     txNoteSharedLabel: 'Note (optional)',
@@ -3797,6 +3825,7 @@ async function loadData(){
   await loadTransactions();
   await loadProductStock();
   await loadOrders();
+  await loadDeliveryNotes();
   try{
     const counterResult = await dbGet('orderCounter');
     orderCounter = counterResult ? (parseInt(counterResult.value, 10) || 0) : 0;
@@ -3884,6 +3913,33 @@ async function upsertOrders(orderList){
   }));
   const { error } = await sb.from('orders').upsert(rows);
   if(error){ console.error('儲存訂單失敗', error); throw error; }
+  scheduleAutoBackup();
+}
+
+async function loadDeliveryNotes(){
+  try{
+    const { data, error } = await sb.from('delivery_notes').select('payload');
+    if(error) throw error;
+    deliveryNotes = (data || []).map(r => r.payload);
+  } catch(e){ console.error('讀取 Delivery Note 失敗', e); deliveryNotes = []; }
+}
+
+async function upsertDeliveryNotes(noteList){
+  if(!noteList || noteList.length === 0) return;
+  const rows = noteList.map(n => ({
+    id: n.id,
+    party_id: n.partyId || null,
+    payload: n,
+    updated_at: new Date().toISOString()
+  }));
+  const { error } = await sb.from('delivery_notes').upsert(rows);
+  if(error){ console.error('儲存 Delivery Note 失敗', error); throw error; }
+  scheduleAutoBackup();
+}
+
+async function deleteDeliveryNoteRow(id){
+  const { error } = await sb.from('delivery_notes').delete().eq('id', id);
+  if(error){ console.error('刪除 Delivery Note 失敗', error); throw error; }
   scheduleAutoBackup();
 }
 
@@ -4370,12 +4426,14 @@ function setTxType(type){
   const partyInput = document.getElementById('txParty');
   const partySelect = document.getElementById('txPartySelect');
   const outFlowRow = document.getElementById('txOutFlowTypeRow');
+  const deliveryFlowRow = document.getElementById('txDeliveryFlowTypeRow');
   if(type === 'in'){
     partyLabel.textContent = t('partyLabelIn');
     partyInput.placeholder = t('partyPlaceholderIn');
     partyInput.style.display = '';
     partySelect.style.display = 'none';
     if(outFlowRow) outFlowRow.style.display = 'none';
+    if(deliveryFlowRow) deliveryFlowRow.style.display = 'none';
     resetRegisterOutFlow();
     showTxMainFormArea(true);
   } else if(type === 'out'){
@@ -4383,11 +4441,31 @@ function setTxType(type){
     populateTxPartySelect();
     partyInput.style.display = 'none';
     partySelect.style.display = '';
+    if(deliveryFlowRow) deliveryFlowRow.style.display = 'none';
+    // 如果是從 Delivery Note 切過來的,要把 Delivery Note 那邊的暫存狀態清掉,不然待會切回
+    // Delivery Note 時,會看到上一次的殘留狀態(例如還停在「載入」某一張舊 Note 的畫面)。
+    registerDeliveryFlowType = '';
+    registerLoadedDeliveryNoteId = null;
+    txBatchItems = [];
     // 出貨一定要先選「出貨類型」,選了之後(如果是新增訂單/庫存調整就直接展開;如果是載入
     // 現有訂單,還要再選出是哪一張)下面的主表單區塊才會出現——避免使用者還沒決定清楚要做
     // 哪一種操作,就先動手填日期/加商品,結果選了類型才發現整個表單邏輯不一樣要重填。
     if(outFlowRow) outFlowRow.style.display = '';
     setTxOutFlowType(registerOutFlowType || '');
+  } else if(type === 'delivery'){
+    partyLabel.textContent = t('partyLabelOut');
+    populateTxPartySelect();
+    partyInput.style.display = 'none';
+    partySelect.style.display = '';
+    if(outFlowRow) outFlowRow.style.display = 'none';
+    // 反過來,如果是從「出貨」切過來的,也要把出貨那邊的暫存狀態清掉,同樣的道理。
+    registerOutFlowType = '';
+    registerLoadedOrderId = null;
+    registerPendingItemChanges = {};
+    txBatchItems = [];
+    // Delivery Note 也要先選「新增」還是「載入」,邏輯跟出貨類型一樣——選了才展開下面的表單。
+    if(deliveryFlowRow) deliveryFlowRow.style.display = '';
+    setTxDeliveryFlowType(registerDeliveryFlowType || '');
   } else {
     partyLabel.textContent = t('partyLabelRestock');
     partyInput.placeholder = t('partyPlaceholderRestock');
@@ -4395,6 +4473,7 @@ function setTxType(type){
     partyInput.style.display = '';
     partySelect.style.display = 'none';
     if(outFlowRow) outFlowRow.style.display = 'none';
+    if(deliveryFlowRow) deliveryFlowRow.style.display = 'none';
     resetRegisterOutFlow();
     showTxMainFormArea(true);
   }
@@ -4410,6 +4489,10 @@ function resetRegisterOutFlow(){
   registerLoadedOrderId = null;
   txBatchItems = [];
   registerPendingItemChanges = {};
+  registerDeliveryFlowType = '';
+  registerLoadedDeliveryNoteId = null;
+  const deliveryFlowSel = document.getElementById('txDeliveryFlowType');
+  if(deliveryFlowSel) deliveryFlowSel.value = '';
   const flowSel = document.getElementById('txOutFlowType');
   if(flowSel) flowSel.value = '';
   const orderWrap = document.getElementById('txOutFlowOrderSelectWrap');
@@ -4486,6 +4569,45 @@ function setTxOutFlowType(flowType){
   renderProductSelect();
 }
 
+// Delivery Note 的「新增」/「載入」切換,邏輯比照 setTxOutFlowType:「新增」直接展開空白表單;
+// 「載入」要先選出是哪一張 Delivery Note,選出來之前主表單保持隱藏。備註在這裡是必填
+// (相關已完成訂單號要寫在這裡),所以標籤文字改用「必填」版本。
+function setTxDeliveryFlowType(flowType){
+  registerDeliveryFlowType = flowType;
+  registerLoadedDeliveryNoteId = null;
+  txBatchItems = [];
+  const noteSelectWrap = document.getElementById('txDeliveryNoteSelectWrap');
+  const noteSelect = document.getElementById('txDeliveryNoteSelect');
+  const existingSection = document.getElementById('txExistingItemsSection');
+  const partySelect = document.getElementById('txPartySelect');
+  const dateInput = document.getElementById('txDate');
+  const noteLabel = document.getElementById('txNoteLabel');
+
+  if(existingSection) existingSection.style.display = 'none';
+  if(partySelect) partySelect.disabled = false;
+  if(dateInput) dateInput.disabled = false;
+  if(noteLabel) noteLabel.textContent = t('txNoteRequiredDeliveryLabel');
+
+  if(flowType === 'load'){
+    if(noteSelectWrap) noteSelectWrap.style.display = '';
+    if(noteSelect){
+      const sorted = deliveryNotes.slice().sort((a,b) => (b.date || '').localeCompare(a.date || ''));
+      noteSelect.innerHTML = `<option value="">${t('optSelectDeliveryNote')}</option>` +
+        sorted.map(n => `<option value="${n.id}">${n.date || ''}${n.note ? ` (${n.note.replace(/"/g,'&quot;')})` : ''}</option>`).join('');
+    }
+    showTxMainFormArea(false);
+  } else if(flowType === 'new'){
+    if(noteSelectWrap) noteSelectWrap.style.display = 'none';
+    showTxMainFormArea(true);
+  } else {
+    if(noteSelectWrap) noteSelectWrap.style.display = 'none';
+    showTxMainFormArea(false);
+  }
+  renderTxSubmitArea();
+  renderTxBatchList();
+  renderProductSelect();
+}
+
 // 依目前的類型/出貨類型,決定下面要顯示哪些提交按鈕:
 // - 進貨/入庫(非出貨):維持原本單一「提交」按鈕。
 // - 出貨→新增訂單:三個按鈕,各自對應不同的送出行為。
@@ -4495,6 +4617,20 @@ function setTxOutFlowType(flowType){
 function renderTxSubmitArea(){
   const area = document.getElementById('txSubmitArea');
   if(!area) return;
+  if(currentTxType === 'delivery'){
+    // Delivery Note 不管是「新增」還是「載入」,下面都是同一組「儲存」/「列印」——載入模式下
+    // txBatchItems 裡通常已經有品項(從原本的 Note 帶過來的),但兩種模式共用同一套送出邏輯,
+    // 不需要另外分流。
+    if(registerDeliveryFlowType === 'new' || registerDeliveryFlowType === 'load'){
+      area.innerHTML = `
+        <button class="btn" onclick="saveDeliveryNote()">${t('btnSave')}</button>
+        <button class="btn ghost" onclick="printDeliveryNote()">${t('btnPrint')}</button>
+      `;
+    } else {
+      area.innerHTML = '';
+    }
+    return;
+  }
   if(currentTxType !== 'out'){
     area.innerHTML = `<button class="btn" onclick="submitTxBatch()">${t('btnRegister')}</button>`;
     return;
@@ -4638,6 +4774,40 @@ function populateTxPartySelect(){
 // 「出貨類型」選了「載入現有待處理訂單」或「載入現有已完成訂單」之後,再選了實際是哪一張訂單,
 // 呼叫這裡:把日期(可改)/出貨方(鎖住)/備註 帶進表單,顯示這張訂單目前已有的品項,清空這次
 // 要新增的品項清單跟核對後變更紀錄(每次重新選訂單都是新的一輪)。
+// Delivery Note「載入」:直接把這張 Note 原本的品項放進 txBatchItems(跟「新增商品」共用同一個
+// 清單),因為 txBatchItems 本來就支援改數量、刪除(見 updateTxBatchItemQty/removeTxBatchItem),
+// 不需要另外做一套「既有品項」的編輯介面——載入之後可以直接在同一個清單上加新商品、改數量、
+// 刪除,存檔時整份 txBatchItems 就是這張 Note 最新的完整品項清單。
+function loadDeliveryNoteIntoRegisterFlow(noteId){
+  if(!noteId){
+    registerLoadedDeliveryNoteId = null;
+    txBatchItems = [];
+    renderTxBatchList();
+    renderTxSubmitArea();
+    renderProductSelect();
+    return;
+  }
+  const note = deliveryNotes.find(n => n.id === noteId);
+  if(!note) return;
+  registerLoadedDeliveryNoteId = noteId;
+  txBatchItems = note.items.map(it => ({ ...it }));
+
+  const dateInput = document.getElementById('txDate');
+  if(dateInput) dateInput.value = note.date || todayISO();
+  const partySelect = document.getElementById('txPartySelect');
+  if(partySelect){
+    populateTxPartySelect();
+    partySelect.value = note.partyId || '';
+  }
+  const noteInput = document.getElementById('txNote');
+  if(noteInput) noteInput.value = note.note || '';
+
+  showTxMainFormArea(true);
+  renderTxSubmitArea();
+  renderTxBatchList();
+  renderProductSelect();
+}
+
 function loadOrderIntoRegisterFlow(orderId){
   if(!orderId){
     registerLoadedOrderId = null;
@@ -4732,6 +4902,8 @@ function undoPendingItemChange(productId){
 // 共用同一組 類型/日期/對象/備註,每個加進清單的商品各自登記成一筆獨立的進出貨紀錄。
 let txBatchItems = []; // { productId, name, unit, qty }
 let registerOutFlowType = ''; // ''(還沒選) | 'new-order' | 'load-pending' | 'load-completed' | 'adjustment'
+let registerDeliveryFlowType = ''; // ''(還沒選) | 'new' | 'load'
+let registerLoadedDeliveryNoteId = null; // 「載入」模式下,目前載入的是哪一張 Delivery Note
 let registerLoadedOrderId = null; // load-pending/load-completed 模式下,目前載入的那張訂單 id
 let registerExistingItemEditKey = null; // 目前正在編輯數量的既有品項 productId(null 表示沒有在編輯)
 // 既有品項的改數量/刪除,不再按下去就馬上存檔——先暫存在這裡,畫面上照樣看得到那一列(改數量的
@@ -8960,6 +9132,115 @@ async function submitTxBatch(action){
 
 // 進貨/入庫維持原本邏輯,不受出貨這次改版影響:一批共用同一個類型/日期/對象/備註,
 // 沒有訂單概念,單純各自登記成一筆進出貨紀錄。
+// Delivery Note 共用的表單讀取/驗證:日期、備註(相關已完成訂單號寫在這裡)都必填,商品清單
+// 至少要有一項——「儲存」「列印」都要先通過這個驗證才能繼續。回傳 { ok:true, data } 或
+// { ok:false, error }。
+function buildDeliveryNoteDraftFromForm(){
+  const date = document.getElementById('txDate').value;
+  const partyId = document.getElementById('txPartySelect').value || null;
+  const partyObj = partyId ? shippingParties.find(sp => sp.id === partyId) : null;
+  const note = document.getElementById('txNote').value.trim();
+
+  if(!date) return { ok: false, error: '請選擇 Delivery 日期' };
+  if(!note) return { ok: false, error: t('errDeliveryNoteRequired') };
+  if(txBatchItems.length === 0) return { ok: false, error: '請先把至少一項商品加入清單' };
+
+  return {
+    ok: true,
+    data: {
+      date, partyId, partyName: partyObj ? partyObj.name : '', note,
+      items: txBatchItems.map(it => ({ productId: it.productId, sku: it.sku || '', name: it.name, unit: it.unit, qty: it.qty }))
+    }
+  };
+}
+
+// Delivery Note「儲存」:存進 delivery_notes 資料庫,供之後用「載入」找回來繼續編輯。完全不會
+// 建立任何 transactions 紀錄、也不會動到任何商品的庫存數字——這只是單純的文件記錄。
+async function saveDeliveryNote(){
+  const msg = document.getElementById('txMsg');
+  const draft = buildDeliveryNoteDraftFromForm();
+  if(!draft.ok){ msg.className = 'msg error'; msg.textContent = `⚠ ${draft.error}`; return; }
+
+  const isUpdate = !!registerLoadedDeliveryNoteId;
+  const note = isUpdate
+    ? Object.assign(deliveryNotes.find(n => n.id === registerLoadedDeliveryNoteId), draft.data)
+    : { id: genId(), createdAt: new Date().toISOString(), ...draft.data };
+
+  try{
+    await upsertDeliveryNotes([note]);
+  } catch(e){
+    msg.className = 'msg error'; msg.textContent = '⚠ 儲存失敗,請重新整理頁面再試一次。';
+    return;
+  }
+
+  if(!isUpdate) deliveryNotes.push(note);
+  logInventoryAction('delivery_note', `${isUpdate ? 'Updated' : 'Created'} Delivery Note (${note.date}, ${note.note}) - ${note.items.length} item(s), no stock impact`, null);
+
+  registerDeliveryFlowType = '';
+  registerLoadedDeliveryNoteId = null;
+  txBatchItems = [];
+  const flowSel = document.getElementById('txDeliveryFlowType');
+  if(flowSel) flowSel.value = '';
+  setTxDeliveryFlowType('');
+  msg.className = 'msg ok';
+  msg.textContent = `✓ Delivery Note 已儲存(${note.date})`;
+}
+
+// Delivery Note「列印」:直接開列印視窗,不會存進資料庫——跟「儲存」是兩條分開的路徑,列印過
+// 不代表這張 Note 就被記錄下來了,兩者互不影響。
+function printDeliveryNote(){
+  const msg = document.getElementById('txMsg');
+  const draft = buildDeliveryNoteDraftFromForm();
+  if(!draft.ok){ msg.className = 'msg error'; msg.textContent = `⚠ ${draft.error}`; return; }
+  const data = draft.data;
+
+  const rowsHtml = data.items.map(it => `
+    <tr>
+      <td>${escapeHtmlForPrint(it.name)}</td>
+      <td style="text-align:right;">${it.qty}</td>
+      <td>${escapeHtmlForPrint(it.unit)}</td>
+    </tr>
+  `).join('');
+
+  const html = `<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>Delivery Note</title>
+<style>
+  body{ font-family:'Microsoft JhengHei', Arial, sans-serif; padding:24px; color:#111; }
+  h1{ font-size:18px; margin:0 0 4px; }
+  h2{ font-size:12.5px; font-weight:700; letter-spacing:1.5px; text-transform:uppercase; color:#B23B2E; margin:0 0 14px; }
+  .meta{ font-size:13px; color:#333; margin-bottom:3px; }
+  table{ border-collapse:collapse; width:100%; margin-top:14px; }
+  th, td{ padding:7px 10px; border:1px solid #999; font-size:13px; text-align:left; }
+  th{ background:#eee; }
+</style>
+</head>
+<body>
+  <h2>Delivery Note</h2>
+  <h1>${escapeHtmlForPrint(data.partyName || 'Unspecified')}</h1>
+  <div class="meta">${escapeHtmlForPrint('Date')}: ${data.date}</div>
+  <div class="meta">${escapeHtmlForPrint('Note')}: ${escapeHtmlForPrint(data.note)}</div>
+  <table>
+    <thead><tr><th>${escapeHtmlForPrint('Product Name')}</th><th>${escapeHtmlForPrint('Qty')}</th><th>${escapeHtmlForPrint('Unit')}</th></tr></thead>
+    <tbody>${rowsHtml}</tbody>
+  </table>
+</body>
+</html>`;
+  const printWindow = window.open('', '_blank');
+  if(!printWindow){
+    showInfoModal(t('errPrintPopupBlocked'));
+    return;
+  }
+  printWindow.document.write(html);
+  printWindow.document.close();
+  printWindow.onload = () => {
+    printWindow.focus();
+    printWindow.print();
+  };
+}
+
 async function submitTxBatchSimple(date, msg){
   const party = document.getElementById('txParty').value.trim();
   const note = document.getElementById('txNote').value.trim();
