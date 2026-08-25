@@ -11352,7 +11352,7 @@ function handleGlobalScanKeydown(e){
     if(code.length >= SCAN_MIN_LENGTH) processBarcodeScan(code);
     return;
   }
-  if(e.key.length === 1){
+  if(e.key && e.key.length === 1){
     if(gap > SCAN_KEY_INTERVAL_MS) scanBuffer = '';
     scanBuffer += e.key;
   }
