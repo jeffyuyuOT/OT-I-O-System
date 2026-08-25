@@ -2110,7 +2110,7 @@ const I18N = {
     historyItemDeleted: '{name}:刪除({qty} {unit})',
     btnUndo: '復原',
     confirmSaveOrderChangesMsg: '這次儲存有以下異動,確定要儲存嗎?\n{changes}',
-    btnExportThisOrder: '📤 匯出這張訂單', btnDeleteWholeOrder: '🗑 刪除整筆訂單(退回庫存)',
+    btnExportThisOrder: '📤 匯出', btnDeleteWholeOrder: '🗑 刪除整筆訂單(退回庫存)',
     itemDeletedLabel: '已刪除(退回庫存)', itemDeletedLabelStockedOut: '已刪除(已出庫,已入庫退回)',
     btnEditQty: '改數量', btnEditRemark: '編輯備註', orderRemarkPlaceholder: '對這張訂單做點備註⋯⋯',
     btnEditOrderParty: '指定/修改出貨方',
@@ -2287,6 +2287,11 @@ const I18N = {
     autoConvertMultipackLabel: '訂貨數量達到 multipack 商品的加權數時,自動轉換成該 multipack 商品',
     autoConvertMultipackHint: '只有主商品「剛好只有一種 multipack 商品」,或已經在編輯商品畫面勾選「顯示於總庫存量」指定某個 multipack 商品時才會生效;數量不足整數倍的部分,仍會用主商品下單。',
     fieldShowInTotalStock: '顯示於庫存總覽',
+    fieldAutoConvertStockIn: '自動切換',
+    fieldAutoConvertStockInHint: '— 勾選後,登記進出貨的「進貨」如果是這個批量商品,會直接依加權數換算成主商品的數量、加進主商品的庫存,不會加進這個批量商品自己的庫存。',
+    fieldHideFromCompletedExport: '已完成訂單匯出不顯示',
+    fieldHideFromCompletedExportHint: '— 勾選後,已完成訂單匯出時不會列出這個主商品;如果在訂單核對頁面把批量商品切換成這個主商品,切換用的批量商品跟數量會顯示在匯出檔案裡。',
+    autoConvertStockInNote: '自動切換自「{name}」× {qty} {unit}',
     fieldShowInTotalStockHint: '— 勾選後,庫存總覽的清單會用這個商品(而不是主商品)代表整個商品家族,總庫存量/平均出貨/安全庫存都會依它的加權數換算顯示。同一個商品家族(主商品+底下所有 multipack 商品)只能勾選一個,勾了別的,這裡會自動取消。',
     fieldShowInTotalStockHiddenHint: '— 這個商品目前是隱藏狀態,不能設定為顯示於庫存總覽的代表商品,請先取消隱藏。',
     errHiddenCannotShowInTotal: '隱藏中的商品不能設定為「顯示於庫存總覽」的代表商品,請先取消隱藏。',
@@ -2491,7 +2496,7 @@ const I18N = {
     historyItemDeleted: '{name}: removed ({qty} {unit})',
     btnUndo: 'Undo',
     confirmSaveOrderChangesMsg: 'This save includes the following changes — confirm?\n{changes}',
-    btnExportThisOrder: '📤 Export This Order', btnDeleteWholeOrder: '🗑 Delete Order (Restock)',
+    btnExportThisOrder: '📤 Export', btnDeleteWholeOrder: '🗑 Delete Order (Restock)',
     itemDeletedLabel: 'Deleted (Restocked)', itemDeletedLabelStockedOut: 'Deleted (was stocked out, restocked back)',
     btnEditQty: 'Edit Qty', btnEditRemark: 'Edit Note', orderRemarkPlaceholder: 'Add a note about this order…',
     btnEditOrderParty: 'Set/Change Shipping Party',
@@ -2668,6 +2673,11 @@ const I18N = {
     autoConvertMultipackLabel: 'When an order quantity reaches a multi-pack product\'s weight, auto-convert it into that multi-pack product',
     autoConvertMultipackHint: 'Only applies when a main product has exactly one multi-pack product, or a multi-pack product has been marked "Show in Total Stock" for it in the product edit screen; any amount that isn\'t an exact multiple still gets ordered as the main product.',
     fieldShowInTotalStock: 'Show in Stock Overview',
+    fieldAutoConvertStockIn: 'Auto-Convert',
+    fieldAutoConvertStockInHint: '— When checked, logging a "Stock In" for this multipack product will automatically convert it (using the weight) directly into the main product\'s stock, instead of adding to this multipack product\'s own stock.',
+    fieldHideFromCompletedExport: 'Hide from Completed Order Export',
+    fieldHideFromCompletedExportHint: '— When checked, this main product won\'t be listed when exporting completed orders; if a multipack product is switched to this main product on the Order Verification page, the multipack product and quantity used will appear in the export instead.',
+    autoConvertStockInNote: 'Auto-converted from "{name}" × {qty} {unit}',
     fieldShowInTotalStockHint: '— when checked, the Stock Overview list represents this whole product family using this product (instead of the main product), converting Total Stock/Avg Usage/Safety Stock by its weight. Only one member of a product family (main product + all its multi-packs) can be checked at a time; checking another one here automatically unchecks this.',
     fieldShowInTotalStockHiddenHint: '— this product is currently hidden and can\'t be set as the family\'s Stock Overview representative. Unhide it first.',
     errHiddenCannotShowInTotal: 'A hidden product can\'t be set as the "show in Stock Overview" representative. Please unhide it first.',
@@ -5470,6 +5480,7 @@ async function importStockItems(items, skippedRows, clearBlanksMode){
     if(item.boxHeightCm !== null && item.boxHeightCm !== undefined && !isNaN(item.boxHeightCm) && existing.boxHeightCm !== item.boxHeightCm){ changedFields.push(tf('importFieldChangeLine', {field: t('fieldBoxHeight'), from: existing.boxHeightCm, to: item.boxHeightCm})); existing.boxHeightCm = item.boxHeightCm; changed = true; }
     else if(clearBlanksMode && (item.boxHeightCm === null || item.boxHeightCm === undefined) && existing.boxHeightCm !== null && existing.boxHeightCm !== undefined){ changedFields.push(tf('importFieldChangeLine', {field: t('fieldBoxHeight'), from: existing.boxHeightCm, to: '(空白)'})); existing.boxHeightCm = undefined; changed = true; }
     if(item.hidden !== null && item.hidden !== undefined && existing.hidden !== item.hidden){ changedFields.push(tf('importFieldChangeLine', {field: t('hideAction'), from: existing.hidden, to: item.hidden})); existing.hidden = item.hidden; changed = true; }
+    if(item.autoConvertOnStockIn !== null && item.autoConvertOnStockIn !== undefined && existing.autoConvertOnStockIn !== item.autoConvertOnStockIn){ changedFields.push(tf('importFieldChangeLine', {field: t('fieldAutoConvertStockIn'), from: existing.autoConvertOnStockIn, to: item.autoConvertOnStockIn})); existing.autoConvertOnStockIn = item.autoConvertOnStockIn; changed = true; }
     if(item.orderPageRemark !== null && item.orderPageRemark !== undefined && existing.orderPageRemark !== item.orderPageRemark){ changedFields.push(tf('importFieldChangeLine', {field: t('fieldOrderPageRemark'), from: existing.orderPageRemark || '(空白)', to: item.orderPageRemark})); existing.orderPageRemark = item.orderPageRemark; changed = true; }
     else if(clearBlanksMode && (item.orderPageRemark === null || item.orderPageRemark === undefined) && existing.orderPageRemark){ changedFields.push(tf('importFieldChangeLine', {field: t('fieldOrderPageRemark'), from: existing.orderPageRemark, to: '(空白)'})); existing.orderPageRemark = undefined; changed = true; }
 
@@ -5515,6 +5526,9 @@ async function importStockItems(items, skippedRows, clearBlanksMode){
       child.childWeight = item.childWeight;
     } else if(child.childWeight === null || child.childWeight === undefined){
       child.childWeight = 1; // 沒填加權數,又還沒設定過,先預設 1(等於直接用庫存量加總)
+    }
+    if(item.autoConvertOnStockIn !== null && item.autoConvertOnStockIn !== undefined){
+      child.autoConvertOnStockIn = item.autoConvertOnStockIn;
     }
     child.orderable = false; // 批量商品不能單獨被訂貨(比照「新增批量商品」介面的預設)
     linked++;
@@ -5594,6 +5608,7 @@ const MASTER_COLUMN_ALIASES = {
   boxWidth: ['boxwidth','width','寬','箱寬','寬度cm','widthcm','寬(cm)'],
   boxHeight: ['boxheight','height','高','箱高','高度cm','heightcm','高(cm)'],
   hidden: ['hidden','隱藏','ishidden','是否隱藏'],
+  autoConvertOnStockIn: ['autoconvert','autoconvertonstockin','自動切換','進貨自動切換'],
   orderPageRemark: ['orderpageremark','訂貨頁面附註','訂貨附註','orderremark']
 };
 
@@ -5736,6 +5751,7 @@ function parseMasterExcelFile(){
         const colBoxWidth = findColumnIndex(headerRow, MASTER_COLUMN_ALIASES.boxWidth);
         const colBoxHeight = findColumnIndex(headerRow, MASTER_COLUMN_ALIASES.boxHeight);
         const colHidden = findColumnIndex(headerRow, MASTER_COLUMN_ALIASES.hidden);
+        const colAutoConvert = findColumnIndex(headerRow, MASTER_COLUMN_ALIASES.autoConvertOnStockIn);
         const colOrderPageRemark = findColumnIndex(headerRow, MASTER_COLUMN_ALIASES.orderPageRemark);
 
         if(colName === -1 || colQty === -1){
@@ -5786,6 +5802,7 @@ function parseMasterExcelFile(){
             boxWidthCm: colBoxWidth !== -1 ? parseNumericCell(row[colBoxWidth]) : null,
             boxHeightCm: colBoxHeight !== -1 ? parseNumericCell(row[colBoxHeight]) : null,
             hidden: colHidden !== -1 && row[colHidden] !== null && row[colHidden] !== undefined && row[colHidden] !== '' ? parseBoolLikeCell(row[colHidden]) : null,
+            autoConvertOnStockIn: colAutoConvert !== -1 && row[colAutoConvert] !== null && row[colAutoConvert] !== undefined && row[colAutoConvert] !== '' ? parseBoolLikeCell(row[colAutoConvert]) : null,
             orderPageRemark: colOrderPageRemark !== -1 && row[colOrderPageRemark] !== null && row[colOrderPageRemark] !== undefined && String(row[colOrderPageRemark]).trim() !== '' ? String(row[colOrderPageRemark]).trim() : null,
             _sourceFile: file.name, _sourceRow: excelRowNo
           });
@@ -7778,12 +7795,25 @@ function signOrderHistory(orderId){
 function buildOrderAggregation(list){
   const productMap = Object.fromEntries(products.map(p => [p.id, p]));
   const groups = {};
+  function addToGroup(productId, qty, unit, name){
+    if(!groups[productId]) groups[productId] = { productId, qty: 0, unit, name };
+    groups[productId].qty += qty;
+  }
   list.forEach(o => {
     o.items.filter(it => !it.deleted).forEach(it => {
-      if(!groups[it.productId]){
-        groups[it.productId] = { productId: it.productId, qty: 0, unit: it.unit, name: it.name };
+      const p = productMap[it.productId];
+      // 這個商品如果設定了「已完成訂單匯出不顯示」,主商品本身完全不會出現在匯出裡——但如果
+      // 在訂單核對時有把批量商品切換成這個主商品(fulfilledViaSwitch),切換用掉的那些批量商品
+      // 數量,改成算在批量商品自己的行裡顯示,不會整個消失看不到到底是怎麼出貨的。切換之外、
+      // 這個品項本身沒被切換掉的剩餘數量,則完全不顯示(既不算在主商品身上、也沒有對應的批量
+      // 商品可以歸類)。
+      if(p && p.hideFromCompletedOrderExport){
+        (it.fulfilledViaSwitch || []).forEach(sw => {
+          addToGroup(sw.childId, sw.childQty, sw.childUnit, sw.childName);
+        });
+        return;
       }
-      groups[it.productId].qty += it.qty;
+      addToGroup(it.productId, it.qty, it.unit, it.name);
     });
   });
   const aggregated = Object.values(groups);
@@ -8282,6 +8312,10 @@ function renderProductEditModalBody(p, opts){
   const familyParent = isChild ? parent : p;
   const showBasisToggle = !opts.isNew && !!familyParent && (isChild || getChildProducts(p.id).length > 0);
   const currentBasisId = familyParent ? (familyParent.totalStockBasisId || familyParent.id) : null;
+  // 「已完成訂單匯出不顯示」勾選框:只有「主商品自己」而且底下確實有 multipack 子商品的情況下
+  // 才顯示——子商品本身不需要這個設定(匯出的時候本來就是看主商品要不要顯示,子商品的顯示與否
+  // 是切換紀錄決定的,不是這裡設的)。
+  const showHideFromExportToggle = !opts.isNew && !isChild && getChildProducts(p.id).length > 0;
   return `
     ${isChild && parent ? `
     <div class="field-block">
@@ -8306,6 +8340,14 @@ function renderProductEditModalBody(p, opts){
       <label>庫存量加權數<span style="color:var(--ink-soft);font-weight:400;"> — 計算主商品庫存總量時,批量商品數量會先乘以這個數字</span></label>
       <input type="number" id="editProdWeight" min="0" step="0.01" value="${p.childWeight !== null && p.childWeight !== undefined ? p.childWeight : ''}" placeholder="例如:20" style="width:100%;" />
     </div>
+    ${!opts.isNew ? `
+    <div class="field-block">
+      <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-weight:400;">
+        <input type="checkbox" id="editProdAutoConvertStockIn" ${p.autoConvertOnStockIn ? 'checked' : ''} />
+        <span>${t('fieldAutoConvertStockIn')}<span style="color:var(--ink-soft);font-weight:400;"> ${t('fieldAutoConvertStockInHint')}</span></span>
+      </label>
+    </div>
+    ` : ''}
     ` : `
     <div class="field-block">
       <label>${t('fieldCategory')}</label>
@@ -8358,6 +8400,14 @@ function renderProductEditModalBody(p, opts){
         <input type="checkbox" id="editProdShowInTotal" ${currentBasisId === p.id ? 'checked' : ''} ${p.hidden ? 'disabled' : ''}
           onchange="handleShowInTotalToggle(this, '${p.id}')" />
         <span>${t('fieldShowInTotalStock')}<span style="color:var(--ink-soft);font-weight:400;"> ${p.hidden ? t('fieldShowInTotalStockHiddenHint') : t('fieldShowInTotalStockHint')}</span></span>
+      </label>
+    </div>
+    ` : ''}
+    ${showHideFromExportToggle ? `
+    <div class="field-block">
+      <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-weight:400;">
+        <input type="checkbox" id="editProdHideFromExport" ${p.hideFromCompletedOrderExport ? 'checked' : ''} />
+        <span>${t('fieldHideFromCompletedExport')}<span style="color:var(--ink-soft);font-weight:400;"> ${t('fieldHideFromCompletedExportHint')}</span></span>
       </label>
     </div>
     ` : ''}
@@ -8440,6 +8490,8 @@ async function saveProductEditModal(){
       p.category = document.getElementById('editProdCategory').value;
     } else {
       p.childWeight = weightVal;
+      const autoConvertEl = document.getElementById('editProdAutoConvertStockIn');
+      if(autoConvertEl) p.autoConvertOnStockIn = autoConvertEl.checked;
     }
     p.manualAvg = avgRaw === '' ? null : parseFloat(avgRaw);
     p.safetyStock = safetyRaw === '' ? null : parseFloat(safetyRaw);
@@ -8453,6 +8505,8 @@ async function saveProductEditModal(){
     if(hiddenEl) p.hidden = hiddenEl.checked;
     const showInTotalEl = document.getElementById('editProdShowInTotal');
     if(showInTotalEl) applyTotalStockBasisChoice(p, showInTotalEl.checked);
+    const hideFromExportEl = document.getElementById('editProdHideFromExport');
+    if(hideFromExportEl) p.hideFromCompletedOrderExport = hideFromExportEl.checked;
   }
 
   await saveProducts();
@@ -8669,6 +8723,23 @@ async function confirmConversion(){
   }
   const batchProductId = conversionSourceBatchProductId;
   const verifyProductId = conversionSourceVerifyProductId;
+  // 如果這次切換是從「訂單核對」開的(verifyProductId 有值),把這次切換記在這張訂單、這個主商品
+  // 品項上——這樣「已完成訂單匯出不顯示」的主商品,匯出時才能改顯示這裡記錄的批量商品/數量,
+  // 而不是完全消失看不到到底是怎麼出貨的。訂單如果因為某些原因找不到(理論上不該發生),
+  // 就只是沒記到這筆,不影響切換本身已經成功完成。
+  if(verifyProductId && verifyPageOrderId){
+    const verifyOrder = orders.find(o => o.id === verifyPageOrderId);
+    const orderItem = verifyOrder ? verifyOrder.items.find(it => it.productId === parent.id && !it.deleted) : null;
+    if(orderItem){
+      if(!orderItem.fulfilledViaSwitch) orderItem.fulfilledViaSwitch = [];
+      orderItem.fulfilledViaSwitch.push({
+        childId: child.id, childSku: child.sku || '', childName: child.name, childUnit: child.unit,
+        childQty: qty, convertedQty, at: nowIso
+      });
+      try{ await upsertOrders([verifyOrder]); }
+      catch(e){ console.error('記錄訂單切換資訊失敗', e); }
+    }
+  }
   closeConversionModal();
   if(batchProductId) txBatchItems = txBatchItems.filter(it => it.productId !== batchProductId);
   if(verifyProductId) verifyPageRightItems = verifyPageRightItems.filter(it => it.productId !== verifyProductId);
@@ -8896,7 +8967,35 @@ async function submitTxBatchSimple(date, msg){
   if(txBatchItems.length === 0){ msg.className='msg error'; msg.textContent='請先把至少一項商品加入清單'; return; }
   if(!date){ msg.className='msg error'; msg.textContent='請選擇日期'; return; }
 
-  const newTxs = txBatchItems.map(it => ({ id: genId(), productId: it.productId, type: currentTxType, qty: it.qty, date, party, note }));
+  // 進貨(type='in')的時候,如果這個品項是批量商品、而且開了「自動切換」,不直接加進這個批量
+  // 商品自己的庫存,而是依加權數換算成主商品的數量,直接加進主商品的庫存——省掉「先進貨到批量
+  // 商品、之後再手動切換」這個中間步驟。換算結果如果不是整數就整批擋下來,不送出任何一筆,
+  // 避免主商品庫存出現小數。
+  if(currentTxType === 'in'){
+    const nonIntegerConversions = txBatchItems
+      .map(it => ({ it, p: products.find(pp => pp.id === it.productId) }))
+      .filter(({ p }) => p && p.parentId && p.autoConvertOnStockIn)
+      .map(({ it, p }) => ({ it, p, parent: products.find(pp => pp.id === p.parentId), weight: p.childWeight || 1, convertedQty: it.qty * (p.childWeight || 1) }))
+      .filter(x => !Number.isInteger(x.convertedQty));
+    if(nonIntegerConversions.length > 0){
+      msg.className = 'msg error';
+      msg.textContent = `⚠ ${nonIntegerConversions.map(x => `${x.p.name}: ${tf('errConversionResultNotInteger', { result: x.convertedQty.toLocaleString(undefined, {maximumFractionDigits: 4}), unit: x.parent ? x.parent.unit : '' })}`).join('; ')}`;
+      return;
+    }
+  }
+
+  const newTxs = txBatchItems.map(it => {
+    const p = products.find(pp => pp.id === it.productId);
+    if(currentTxType === 'in' && p && p.parentId && p.autoConvertOnStockIn){
+      const parent = products.find(pp => pp.id === p.parentId);
+      const weight = p.childWeight || 1;
+      return {
+        id: genId(), productId: p.parentId, type: 'in', qty: it.qty * weight, date, party,
+        note: note ? `${tf('autoConvertStockInNote', { name: p.name, qty: it.qty, unit: p.unit })}${note ? '、' + note : ''}` : tf('autoConvertStockInNote', { name: p.name, qty: it.qty, unit: p.unit })
+      };
+    }
+    return { id: genId(), productId: it.productId, type: currentTxType, qty: it.qty, date, party, note };
+  });
   transactions.push(...newTxs);
 
   try{
