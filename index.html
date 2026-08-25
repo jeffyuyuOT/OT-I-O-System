@@ -420,6 +420,7 @@
     font-family:'Inter',sans-serif; font-size:10.5px; font-weight:700; padding:2px 9px; border-radius:20px;
   }
   .order-status-pill.pending{ background:var(--warn-bg); color:var(--yellow-dark); }
+  .order-status-pill.processing{ background:var(--warn-bg); color:var(--warn); }
   .order-status-pill.confirmed{ background:var(--safe-bg); color:var(--safe); }
   .order-status-pill.cancelled{ background:var(--crit-bg); color:var(--crit); }
   .order-status-pill.deleted{ background:var(--crit-bg); color:var(--crit); }
@@ -2029,7 +2030,7 @@ const I18N = {
     fieldFrom: '從', fieldTo: '到', optAllParties: '全部出貨方',
     btnExportOrderSheet: '📤 匯出訂貨單',
     noCompletedOrders: '還沒有符合條件的已完成訂單。', statusCompleted: '已完成', statusOrderDeleted: '已刪除',
-    noPendingOrders: '還沒有符合條件的待處理訂單。', statusPending: '待處理', statusOrderCancelled: '已取消',
+    noPendingOrders: '還沒有符合條件的待處理訂單。', statusPending: '待處理', statusProcessing: '處理中', statusOrderCancelled: '已取消',
     pendingOrdersDesc: '這裡是還沒「核對」的訂單,還沒真的扣庫存,只會先佔用「可訂數量」的額度。核對通過後會自動移到「已完成訂單」並正式扣庫存。',
     btnVerifyOrder: '✓ 直接核對(扣庫存)', btnCancelWholeOrder: '🗑 取消整筆訂單', btnLoadIntoVerifyPage: '📋 載入訂單核對頁面',
     confirmCancelPendingOrder: '確定要取消訂單 {orderNo} 嗎?這張訂單還沒扣庫存,取消後裡面的 {n} 項商品都會標註為已取消。',
@@ -2134,7 +2135,7 @@ const I18N = {
     stockedInLabel: '入庫',
     colOrderNo: '訂單編號', fileNamePrefixOrder: '訂單_',
     errPrintPopupBlocked: '⚠ 無法開啟列印視窗,請確認瀏覽器沒有封鎖彈出視窗。',
-    btnExportOrder: '📄 匯出', btnPrintOrder: '🖨️ 列印', colCheck: '核對',
+    btnExportOrder: '📄 匯出', btnPrintOrder: '🖨️ 列印', btnPrintPickingSlip: '🖨️ 列印 Picking Slip', colCheck: '核對',
     orderRemarkLabelPrefix: '備註:', orderRemarkEmptyLabel: '(尚無備註)', orderHasRemarkTitle: '這張訂單有備註',
     orderWasModifiedTitle: '這張訂單的品項後來被修改過(改過數量或刪除品項)',
     errEnterNonNegativeQty: '請輸入 0 以上的數量', confirmZeroQtyIsDelete: '把數量改成 0 等於刪除這項商品(退回庫存),要繼續嗎?',
@@ -2410,7 +2411,7 @@ const I18N = {
     fieldFrom: 'From', fieldTo: 'To', optAllParties: 'All Customers',
     btnExportOrderSheet: '📤 Export Order Sheet',
     noCompletedOrders: 'No completed orders match the filters yet.', statusCompleted: 'Completed', statusOrderDeleted: 'Deleted',
-    noPendingOrders: 'No pending orders match the filters yet.', statusPending: 'Pending', statusOrderCancelled: 'Cancelled',
+    noPendingOrders: 'No pending orders match the filters yet.', statusPending: 'Pending', statusProcessing: 'Processing', statusOrderCancelled: 'Cancelled',
     pendingOrdersDesc: 'Orders here have not been "verified" yet, so stock has not actually been deducted — they only count against the "available to order" quantity. Once verified, an order moves to Completed Orders and stock is deducted for real.',
     btnVerifyOrder: '✓ Verify Directly (Deduct Stock)', btnCancelWholeOrder: '🗑 Cancel Whole Order', btnLoadIntoVerifyPage: '📋 Load into Order Verify Page',
     confirmCancelPendingOrder: 'Cancel order {orderNo}? No stock has been deducted for this order yet — cancelling will mark all {n} item(s) as cancelled.',
@@ -2515,7 +2516,7 @@ const I18N = {
     stockedInLabel: 'Stocked In',
     colOrderNo: 'Order #', fileNamePrefixOrder: 'Order_',
     errPrintPopupBlocked: '⚠ Could not open the print window — please check your browser isn\'t blocking pop-ups.',
-    btnExportOrder: '📄 Export', btnPrintOrder: '🖨️ Print', colCheck: 'Check',
+    btnExportOrder: '📄 Export', btnPrintOrder: '🖨️ Print', btnPrintPickingSlip: '🖨️ Print Picking Slip', colCheck: 'Check',
     orderRemarkLabelPrefix: 'Note:', orderRemarkEmptyLabel: '(No note yet)', orderHasRemarkTitle: 'This order has a note',
     orderWasModifiedTitle: 'Items in this order were changed afterward (qty changed or item removed)',
     errEnterNonNegativeQty: 'Please enter a quantity of 0 or more', confirmZeroQtyIsDelete: 'Setting the quantity to 0 will delete this item (and restock it) — continue?',
@@ -6355,7 +6356,7 @@ async function doConfirmOrderFromCart(dateVal, noteVal, partyId, partyName, item
 // 跟「登記進出貨」分頁的新增商品(併入待處理訂單草稿)都共用這個核心。
 async function mergeItemsIntoOrderCore(orderId, newItems){
   const order = orders.find(o => o.id === orderId);
-  if(!order || order.deleted || orderStatus(order) !== 'pending' || order.signedAt){
+  if(!order || order.deleted || !isPreVerificationStatus(order) || order.signedAt){
     return { ok: false, reason: 'not_editable' };
   }
   if(verifyPageOrderId === orderId){
@@ -6364,23 +6365,34 @@ async function mergeItemsIntoOrderCore(orderId, newItems){
 
   const prevItems = order.items;
   const mergedItems = prevItems.map(it => ({ ...it }));
+  const isProcessing = orderStatus(order) === 'processing';
+  const postVerifyAdditions = [];
   newItems.forEach(newIt => {
     const existing = mergedItems.find(it => it.productId === newIt.productId && !it.deleted);
     if(existing){
       const oldQty = existing.qty;
       existing.qty += newIt.qty;
       if(!existing.qtyHistory) existing.qtyHistory = [];
-      existing.qtyHistory.push({ from: oldQty, to: existing.qty, at: new Date().toISOString() });
+      const changeAt = new Date().toISOString();
+      existing.qtyHistory.push({ from: oldQty, to: existing.qty, at: changeAt });
+      if(isProcessing) postVerifyAdditions.push({ kind: 'qty', productId: existing.productId, name: existing.name, sku: existing.sku, unit: existing.unit, from: oldQty, to: existing.qty, at: changeAt });
     } else {
-      mergedItems.push({ ...newIt, qtyHistory: [{ added: true, at: new Date().toISOString(), qty: newIt.qty }] });
+      const addedAt = new Date().toISOString();
+      mergedItems.push({ ...newIt, qtyHistory: [{ added: true, at: addedAt, qty: newIt.qty }] });
+      if(isProcessing) postVerifyAdditions.push({ kind: 'added', productId: newIt.productId, name: newIt.name, sku: newIt.sku, unit: newIt.unit, qty: newIt.qty, at: addedAt });
     }
   });
   order.items = mergedItems;
+  if(postVerifyAdditions.length > 0){
+    if(!order.postVerifyChanges) order.postVerifyChanges = [];
+    order.postVerifyChanges.push(...postVerifyAdditions);
+  }
 
   try{
     await upsertOrders([order]);
   } catch(e){
     order.items = prevItems;
+    if(postVerifyAdditions.length > 0) order.postVerifyChanges.splice(order.postVerifyChanges.length - postVerifyAdditions.length, postVerifyAdditions.length);
     console.error('新增商品到既有訂單失敗', e);
     return { ok: false, reason: 'save_failed' };
   }
@@ -6414,6 +6426,14 @@ async function mergeItemsIntoExistingOrder(orderId, newItems){
 // 登記進出貨併入已完成訂單這些既有流程的既有行為一致;只有新的「送出訂貨」流程會建立 'pending'
 // (待處理,尚未核對、尚未扣庫存)的訂單。
 function orderStatus(o){ return o.status || 'confirmed'; }
+// 訂單還沒核對過(不管是單純待處理,還是倉庫已經列印過 picking slip、進入「處理中」)都算「還在
+// 核對前」的階段——倉庫端(登記進出貨、訂單核對)在這整個階段都可以編輯/核對這張訂單。只有
+// 訂購記錄(顧客自助修改)不一樣,一旦變成 'processing' 就不能再改了,見 renderOrderHistory
+// 的 editable 判斷(那裡刻意只比對 === 'pending',不用這個函式,才能正確排除 'processing')。
+function isPreVerificationStatus(order){
+  const s = orderStatus(order);
+  return s === 'pending' || s === 'processing';
+}
 
 function populateCompletedOrderPartyFilter(){
   const sel = document.getElementById('completedOrderPartyFilter');
@@ -6486,7 +6506,7 @@ function orderItemRowHtml(o, it, isPending, readOnly, context){
   // (例如 "(20→25)" 這種)——這個紀錄本來是給核對之前參考用的,核對之後只需要看「現在確實是
   // 多少數量」,加上下面獨立的「核對後變更」區塊(核對之後的異動有另外記錄在那裡),不需要再
   // 混著看這個。qtyHistory 陣列本身還是保留原始資料沒有刪除,只是核對後不在這裡顯示出來而已。
-  const qtyHistoryStr = (orderStatus(o) === 'pending' && it.qtyHistory && it.qtyHistory.length > 0)
+  const qtyHistoryStr = (isPreVerificationStatus(o) && it.qtyHistory && it.qtyHistory.length > 0)
     ? `(${it.qtyHistory.map(h => h.added ? t('newlyAddedLabel') : `${h.from}→${h.to}`).join(',')}) `
     : '';
   const isRestockDisplay = it.qty < 0;
@@ -6852,7 +6872,7 @@ function renderPendingOrders(){
   const dateFrom = document.getElementById('pendingOrderDateFrom') ? document.getElementById('pendingOrderDateFrom').value : '';
   const dateTo = document.getElementById('pendingOrderDateTo') ? document.getElementById('pendingOrderDateTo').value : '';
 
-  let list = orders.filter(o => orderStatus(o) === 'pending');
+  let list = orders.filter(o => isPreVerificationStatus(o));
   if(partyFilter) list = list.filter(o => o.partyId === partyFilter);
   if(dateFrom) list = list.filter(o => o.date >= dateFrom);
   if(dateTo) list = list.filter(o => o.date <= dateTo);
@@ -6866,6 +6886,9 @@ function renderPendingOrders(){
   container.innerHTML = list.map(o => {
     const isExpanded = expandedOrderIds.has(o.id);
     const wasModified = !o.deleted && o.items.some(it => (it.qtyHistory && it.qtyHistory.length > 0) || it.deleted);
+    // 「處理中」狀態下倉庫方的異動會記進 postVerifyChanges(見 savePendingOrderItemQty 等),這裡
+    // 一併判斷要不要顯示「觀看修改紀錄」按鈕,跟已完成訂單那邊是同一顆按鈕、同一個小視窗。
+    const hasHistory = wasModified || (o.postVerifyChanges && o.postVerifyChanges.length > 0);
     const itemsHtml = o.items.map(it => orderItemRowHtml(o, it, true, true, 'pending')).join('');
     const isEditingRemark = editingOrderRemarkId === o.id;
     const remarkHtml = isEditingRemark ? `
@@ -6911,7 +6934,7 @@ function renderPendingOrders(){
             ${wasModified ? `<span title="${t('orderWasModifiedTitle')}" style="margin-left:6px;color:var(--warn);">✎</span>` : ''}
             ${!o.deleted && !o.partyId ? `<span title="${t('orderNoPartyLinkedWarning')}" style="margin-left:6px;color:var(--crit);">⚠</span>` : ''}
           </span>
-          <span class="order-status-pill ${o.deleted ? 'deleted' : 'pending'}">${o.deleted ? t('statusOrderCancelled') : t('statusPending')}</span>
+          <span class="order-status-pill ${o.deleted ? 'deleted' : (o.status === 'processing' ? 'processing' : 'pending')}">${o.deleted ? t('statusOrderCancelled') : (o.status === 'processing' ? t('statusProcessing') : t('statusPending'))}</span>
         </div>
         ${isExpanded ? `
           <div class="order-items">${itemsHtml}</div>
@@ -6921,8 +6944,9 @@ function renderPendingOrders(){
             ${o.deleted ? '' : `<button class="btn ghost" onclick="editOrderViaRegister('${o.id}', 'pending')">${t('btnEdit')}</button>`}
             ${o.deleted ? '' : `<button class="btn ghost" onclick="openOrderInVerifyPage('${o.id}')" ${activeItemCount === 0 ? 'disabled' : ''}>${t('btnLoadIntoVerifyPage')}</button>`}
             ${o.deleted ? '' : `<button class="btn ghost" onclick="cancelPendingOrder('${o.id}')">${t('btnCancelWholeOrder')}</button>`}
+            ${hasHistory ? `<button class="btn ghost" onclick="openOrderHistoryModal('${o.id}')">${t('btnViewHistory')}</button>` : ''}
             <button class="btn ghost" onclick="exportPendingOrderExcel('${o.id}')">${t('btnExportOrder')}</button>
-            <button class="btn ghost" onclick="printPendingOrder('${o.id}')">${t('btnPrintOrder')}</button>
+            <button class="btn ghost" onclick="printPendingOrder('${o.id}')">${t('btnPrintPickingSlip')}</button>
           </div>
         ` : ''}
       </div>
@@ -7032,8 +7056,27 @@ function printOrderDocument(orderId, opts){
   };
 }
 
-function printPendingOrder(orderId){
-  printOrderDocument(orderId, { includeCheckColumn: true, headerLabel: 'Pending Order' });
+// 待處理訂單列印 picking slip:第一次列印(訂單還是「待處理」)會把狀態改成「處理中」並存檔、
+// 記錄進後台紀錄——這個狀態轉換讓訂購記錄那邊知道要收回顧客自己改訂單的權限(editable 判斷
+// 只比對 === 'pending',變成 'processing' 之後自然就不能改了)。已經是「處理中」的訂單再列印
+// 一次不會重複轉換、也不會重複記錄。
+async function printPendingOrder(orderId){
+  const order = orders.find(o => o.id === orderId);
+  if(order && orderStatus(order) === 'pending'){
+    const oldStatus = order.status;
+    order.status = 'processing';
+    try{
+      await upsertOrders([order]);
+    } catch(e){
+      console.error('更新訂單狀態失敗', e);
+      order.status = oldStatus;
+      showInfoModal('⚠ 更新訂單狀態失敗,請重新整理頁面再試一次。');
+      return;
+    }
+    logInventoryAction('order_edit', `Order ${order.orderNo || orderId} - status changed to Processing (picking slip printed)`, order.orderNo);
+    renderAll();
+  }
+  printOrderDocument(orderId, { includeCheckColumn: true, headerLabel: 'Picking Slip' });
 }
 
 function printCompletedOrder(orderId){
@@ -7051,6 +7094,13 @@ function deletePendingOrderItem(orderId, productId){
     const now = new Date().toISOString();
     item.deleted = true;
     item.deletedAt = now;
+    // 列印過 picking slip(狀態 'processing')之後倉庫方才做的改動,一樣算進「核對後變更」——
+    // 即使還沒真的核對,只要 picking slip 已經印出去了,對倉庫來說訂單內容就已經算是「進行中」,
+    // 之後的異動都要留痕跡讓核對的人看得到。
+    if(orderStatus(order) === 'processing'){
+      if(!order.postVerifyChanges) order.postVerifyChanges = [];
+      order.postVerifyChanges.push({ kind: 'deleted', productId: item.productId, name: item.name, sku: item.sku, unit: item.unit, qty: item.qty, at: now });
+    }
     if(order.items.every(it => it.deleted)){
       order.deleted = true;
       order.deletedAt = now;
@@ -7171,12 +7221,18 @@ async function savePendingOrderItemQty(context, orderId, productId){
     const oldQty = item.qty;
     item.qty = newQty;
     if(!item.qtyHistory) item.qtyHistory = [];
-    item.qtyHistory.push({ from: oldQty, to: newQty, at: new Date().toISOString() });
+    const changeAt = new Date().toISOString();
+    item.qtyHistory.push({ from: oldQty, to: newQty, at: changeAt });
+    if(orderStatus(order) === 'processing'){
+      if(!order.postVerifyChanges) order.postVerifyChanges = [];
+      order.postVerifyChanges.push({ kind: 'qty', productId: item.productId, name: item.name, sku: item.sku, unit: item.unit, from: oldQty, to: newQty, at: changeAt });
+    }
     editingOrderItemKey = null;
     try{ await upsertOrders([order]); }
     catch(e){
       item.qty = oldQty;
       item.qtyHistory.pop();
+      if(orderStatus(order) === 'processing' && order.postVerifyChanges) order.postVerifyChanges.pop();
       console.error('儲存待處理訂單數量失敗', e);
       showInfoModal('⚠ 操作失敗,請重新整理頁面再試一次。');
       refreshOrderLists();
@@ -7195,7 +7251,7 @@ async function savePendingOrderItemQty(context, orderId, productId){
 // 核對要檢查/比對什麼(例如跟店家確認實際還有沒有貨)這類更細的業務邏輯,之後可以再擴充。
 async function verifyOrder(orderId){
   const order = orders.find(o => o.id === orderId);
-  if(!order || orderStatus(order) !== 'pending' || order.deleted) return;
+  if(!order || !isPreVerificationStatus(order) || order.deleted) return;
   const activeItems = order.items.filter(it => !it.deleted);
   if(activeItems.length === 0){
     showInfoModal(t('errVerifyNoActiveItems'));
@@ -7258,7 +7314,7 @@ let verifyPageRightItems = []; // [{ productId, sku, name, unit, qty }]
 function populateVerifyPageOrderSelect(){
   const sel = document.getElementById('verifyPageOrderSelect');
   if(!sel) return;
-  const pending = orders.filter(o => orderStatus(o) === 'pending' && !o.deleted)
+  const pending = orders.filter(o => isPreVerificationStatus(o) && !o.deleted)
     .sort((a,b) => (b.createdAt || b.date || '').localeCompare(a.createdAt || a.date || ''));
   sel.innerHTML = `<option value="">${t('optSelectPendingOrder')}</option>` +
     pending.map(o => `<option value="${o.id}">${(o.orderNo || o.id).replace(/"/g,'&quot;')}${o.partyName ? ' · ' + o.partyName.replace(/"/g,'&quot;') : ''}</option>`).join('');
@@ -7300,7 +7356,7 @@ function renderVerifyPage(){
   // 載入的訂單如果已經不是「待處理」了(例如核對成功、變成已完成訂單),表示這頁的任務已經結束,
   // 自動清空狀態、回到「請選擇訂單」的畫面,不繼續顯示一張已經核對過的舊訂單。
   const order = verifyPageOrderId ? orders.find(o => o.id === verifyPageOrderId) : null;
-  if(order && (orderStatus(order) !== 'pending' || order.deleted)){
+  if(order && (!isPreVerificationStatus(order) || order.deleted)){
     verifyPageOrderId = null;
     verifyPageRightItems = [];
   }
@@ -7404,7 +7460,7 @@ async function directVerifyFromVerifyPage(){
     return;
   }
   const order = verifyPageOrderId ? orders.find(o => o.id === verifyPageOrderId) : null;
-  if(!order || orderStatus(order) !== 'pending' || order.deleted){
+  if(!order || !isPreVerificationStatus(order) || order.deleted){
     msg.className = 'msg error';
     msg.textContent = t('errSelectPendingOrderFirst');
     return;
@@ -7415,7 +7471,7 @@ async function directVerifyFromVerifyPage(){
 function runOrderVerification(){
   const msg = document.getElementById('verifyPageMsg');
   const order = verifyPageOrderId ? orders.find(o => o.id === verifyPageOrderId) : null;
-  if(!order || orderStatus(order) !== 'pending' || order.deleted){
+  if(!order || !isPreVerificationStatus(order) || order.deleted){
     msg.className = 'msg error';
     msg.textContent = t('errSelectPendingOrderFirst');
     return;
@@ -7628,7 +7684,7 @@ async function updateOrderDeliveryDate(orderId, newDate){
 
 function goAddProductsToOrder(orderId){
   const order = orders.find(o => o.id === orderId);
-  if(!order || order.deleted || orderStatus(order) !== 'pending' || order.signedAt) return;
+  if(!order || order.deleted || !isPreVerificationStatus(order) || order.signedAt) return;
   if(warnIfOrderBeingProcessed(orderId)) return;
 
   addingItemsToOrderId = orderId;
@@ -7678,7 +7734,7 @@ function editOrderViaRegister(orderId, mode){
   const order = orders.find(o => o.id === orderId);
   if(!order || order.deleted || order.signedAt) return;
   if(mode === 'pending'){
-    if(orderStatus(order) !== 'pending') return;
+    if(!isPreVerificationStatus(order)) return;
     if(warnIfOrderBeingProcessed(orderId)) return;
   } else if(mode === 'completed'){
     if(orderStatus(order) !== 'confirmed') return;
@@ -9058,11 +9114,19 @@ async function submitLoadPendingFlow(action, msg){
     }
 
     // 套用暫存的改數量(待處理訂單不影響庫存,單純改 order.items 上的數字跟異動紀錄)。
+    // 訂單如果已經是「處理中」(picking slip 印過了),這些異動也要記進「核對後變更」,
+    // 跟直接在待處理訂單清單上改是同一套邏輯(見 savePendingOrderItemQty)。
+    const isProcessing = orderStatus(order) === 'processing';
     pendingQtyChanges.forEach(({ item, newQty }) => {
       const oldQty = item.qty;
       item.qty = newQty;
       if(!item.qtyHistory) item.qtyHistory = [];
-      item.qtyHistory.push({ from: oldQty, to: newQty, at: new Date().toISOString() });
+      const changeAt = new Date().toISOString();
+      item.qtyHistory.push({ from: oldQty, to: newQty, at: changeAt });
+      if(isProcessing){
+        if(!order.postVerifyChanges) order.postVerifyChanges = [];
+        order.postVerifyChanges.push({ kind: 'qty', productId: item.productId, name: item.name, sku: item.sku, unit: item.unit, from: oldQty, to: newQty, at: changeAt });
+      }
       logInventoryAction('order_edit', `Pending order ${order.orderNo || order.id} - quantity adjusted: ${item.name} ${oldQty}→${newQty} ${item.unit} (not yet stocked out)`, order.orderNo);
     });
     // 套用暫存的刪除(軟刪除,一樣不影響庫存)。
@@ -9070,6 +9134,10 @@ async function submitLoadPendingFlow(action, msg){
     pendingDeletes.forEach(item => {
       item.deleted = true;
       item.deletedAt = now;
+      if(isProcessing){
+        if(!order.postVerifyChanges) order.postVerifyChanges = [];
+        order.postVerifyChanges.push({ kind: 'deleted', productId: item.productId, name: item.name, sku: item.sku, unit: item.unit, qty: item.qty, at: now });
+      }
       logInventoryAction('order_edit', `Pending order ${order.orderNo || order.id} - removed item: ${item.name} ${item.qty} ${item.unit}`, order.orderNo);
     });
     if(order.items.length > 0 && order.items.every(it => it.deleted)){
