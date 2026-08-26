@@ -79,9 +79,10 @@
      class 雖然已經定義好樣式,但目前沒有任何地方真的在用(是行內樣式,不是這種浮在角落的
      圓形數字),而且定義在這個規則後面,如果沿用同名會被那個規則蓋掉,樣式就不對了。 */
   .mobile-notify-badge{
-    position:absolute; top:-6px; right:-6px; min-width:17px; height:17px; padding:0 4px;
-    background:var(--crit); color:#fff; font-family:'IBM Plex Mono',monospace; font-size:10px; font-weight:700;
-    line-height:17px; text-align:center; border-radius:9px; box-shadow:0 0 0 2px #fff; pointer-events:none;
+    position:absolute; top:50%; right:4px; transform:translateY(-50%);
+    min-width:20px; height:20px; padding:0 6px;
+    background:var(--crit); color:#fff; font-family:'IBM Plex Mono',monospace; font-size:12px; font-weight:700;
+    line-height:20px; text-align:center; border-radius:10px; box-shadow:0 1px 3px rgba(0,0,0,0.3); pointer-events:none;
   }
   .filter-row{
     display:flex; gap:12px; flex-wrap:wrap; align-items:end; margin-bottom:14px;
