@@ -927,6 +927,19 @@
 
         <hr class="divider" />
 
+        <div class="section-title" style="margin-bottom:8px;" data-i18n="secCompletedExportFormat">已完成訂單匯出格式</div>
+        <p style="font-size:11.5px;color:var(--ink-soft);margin:0 0 8px;" data-i18n="completedExportFormatHint">
+          決定已完成訂單匯出 Excel 時,商品清單要怎麼列。
+        </p>
+        <div class="field" style="max-width:280px;margin-bottom:12px;">
+          <select id="completedExportFormatSelect" onchange="changeCompletedExportFormat(this.value)">
+            <option value="recordsOnly" data-i18n="exportFormatRecordsOnly">僅匯出有紀錄的商品</option>
+            <option value="fullCatalog" data-i18n="exportFormatFullCatalog">匯出庫存總覽所有商品</option>
+          </select>
+        </div>
+
+        <hr class="divider" />
+
         <div class="section-title" style="margin-bottom:8px;color:var(--crit);" data-i18n="secRestoreDefault">還原預設</div>
         <p style="font-size:12.5px;color:var(--ink-soft);margin:0 0 12px;" data-i18n="restoreDefaultDesc">
           清空資料回到初始狀態,動作無法復原,執行前建議先於下方「完整資料備份」匯出完整備份。
@@ -1856,6 +1869,10 @@ let stockSortDir = 'asc';
 // | 'name'(商品名稱) | 'sku'(SKU code,預設)。庫存總覽的預設排序(沒有手動點欄位排序時)、
 // 訂貨頁面的商品清單排序,兩邊都共用這個設置,確保兩邊順序一致。
 let productSortMode = 'sku';
+// 已完成訂單匯出格式:'fullCatalog'(預設,匯出庫存總覽所有可訂貨商品,沒紀錄的用隱藏列處理——
+// 這是原本就有的行為)| 'recordsOnly'(只列出真的有出貨紀錄的商品,沒有紀錄的商品完全不出現,
+// 連隱藏列都沒有)。
+let completedExportFormat = 'fullCatalog';
 // 系統設置:「訂貨頁面隱藏Multipack圖示」——勾選後,訂貨頁面 multipack 商品名稱前面的「⧉」
 // 圖示不顯示,商品名稱直接往前對齊,跟其他一般商品的名稱起始位置一致。
 let hideMultipackIconOnOrderPage = false;
@@ -2199,6 +2216,7 @@ const I18N = {
     fieldSelectDeliveryNote: '選擇 Delivery Note', optSelectDeliveryNote: '— 請選擇 —',
     txNoteRequiredDeliveryLabel: '備註(必填,請填相關已完成訂單號)',
     errDeliveryNoteRequired: '請填寫備註(相關已完成訂單號)', btnPrint: '🖨️ 列印',
+    errDeliveryNotePrintedButNotRemoved: '⚠ 已送出列印,但從資料庫移除這張 Delivery Note 時失敗,請重新整理頁面確認清單。',
     partyLabelIn: '進貨方(供應商)', partyLabelOut: '出貨方(客戶/門市,選填)', partyLabelRestock: '對象(選填)',
     partyPlaceholderIn: '例如:大盤商 A', partyPlaceholderOut: '例如:三民店 / 客戶王先生', partyPlaceholderRestock: '例如:訂單調整 / 盤點',
     txNoteSharedLabel: '備註(選填)',
@@ -2300,6 +2318,10 @@ const I18N = {
     secMultipackSettings: 'Multipack 商品設定',
     secOrderVerifySettings: '訂單核對設定',
     secProductSortSettings: '商品排序',
+    secCompletedExportFormat: '已完成訂單匯出格式',
+    completedExportFormatHint: '決定已完成訂單匯出 Excel 時,商品清單要怎麼列。',
+    exportFormatRecordsOnly: '僅匯出有紀錄的商品',
+    exportFormatFullCatalog: '匯出庫存總覽所有商品',
     productSortHint: '決定庫存總覽(沒有手動點欄位排序時)、訂貨頁面裡,同一個分類底下的商品要怎麼排序。分類本身的先後順序另外在庫存總覽用「調整分類順序」設定。',
     productSortImport: '依照匯入商品主檔順序',
     productSortName: '依照商品名稱',
@@ -2589,6 +2611,7 @@ const I18N = {
     fieldSelectDeliveryNote: 'Select Delivery Note', optSelectDeliveryNote: '— Select —',
     txNoteRequiredDeliveryLabel: 'Note (required, enter the related completed order number)',
     errDeliveryNoteRequired: 'Please enter a note (related completed order number)', btnPrint: '🖨️ Print',
+    errDeliveryNotePrintedButNotRemoved: '⚠ Print was sent, but removing this Delivery Note from the database failed. Please refresh and check the list.',
     partyLabelIn: 'Supplier', partyLabelOut: 'Customer/Store (optional)', partyLabelRestock: 'Party (optional)',
     partyPlaceholderIn: 'e.g. Supplier A', partyPlaceholderOut: 'e.g. Store #3 / Customer Wang', partyPlaceholderRestock: 'e.g. Order adjustment / Stocktake',
     txNoteSharedLabel: 'Note (optional)',
@@ -2690,6 +2713,10 @@ const I18N = {
     secMultipackSettings: 'Multi-pack Product Settings',
     secOrderVerifySettings: 'Order Verification Settings',
     secProductSortSettings: 'Product Sort Order',
+    secCompletedExportFormat: 'Completed Order Export Format',
+    completedExportFormatHint: 'Controls how the product list is shown when exporting completed orders to Excel.',
+    exportFormatRecordsOnly: 'Only Export Products With Records',
+    exportFormatFullCatalog: 'Export All Stock Overview Products',
     productSortHint: 'Controls how products within the same category are ordered in Stock Overview (when no column sort is active) and on the Order page. Category order itself is set separately in Stock Overview via "Adjust Category Order".',
     productSortImport: 'Master File Import Order',
     productSortName: 'Product Name',
@@ -3864,6 +3891,10 @@ async function loadData(){
     if(psmResult && ['import','name','sku'].includes(psmResult.value)) productSortMode = psmResult.value;
   } catch(e){ /* no stored preference yet, keep default 'sku' */ }
   try{
+    const cefResult = await dbGet('completedExportFormat');
+    if(cefResult && ['recordsOnly','fullCatalog'].includes(cefResult.value)) completedExportFormat = cefResult.value;
+  } catch(e){ /* no stored preference yet, keep default 'fullCatalog' */ }
+  try{
     const hmiResult = await dbGet('hideMultipackIconOnOrderPage');
     if(hmiResult) hideMultipackIconOnOrderPage = hmiResult.value === 'true';
   } catch(e){ /* no stored preference yet, keep default false */ }
@@ -4345,6 +4376,8 @@ function updateMultipackSettingsUI(){
   if(ddvBox) ddvBox.checked = disableDirectVerifyEnabled;
   const psmSelect = document.getElementById('productSortModeSelect');
   if(psmSelect) psmSelect.value = productSortMode;
+  const cefSelect = document.getElementById('completedExportFormatSelect');
+  if(cefSelect) cefSelect.value = completedExportFormat;
   const hmiBox = document.getElementById('hideMultipackIconToggle');
   if(hmiBox) hmiBox.checked = hideMultipackIconOnOrderPage;
 }
@@ -4376,6 +4409,13 @@ async function changeProductSortMode(mode){
   catch(e){ console.error('儲存商品排序設定失敗', e); }
   if(document.getElementById('stockCards')) renderStockCards();
   if(document.getElementById('orderItemsTable')) renderOrderItemsTable();
+}
+
+async function changeCompletedExportFormat(mode){
+  if(!['recordsOnly','fullCatalog'].includes(mode)) return;
+  completedExportFormat = mode;
+  try{ await dbSet('completedExportFormat', mode); }
+  catch(e){ console.error('儲存已完成訂單匯出格式設定失敗', e); }
 }
 
 async function toggleHideMultipackIcon(checked){
@@ -7134,7 +7174,6 @@ function renderPendingOrders(){
             ${o.deleted ? '' : `<button class="btn ghost" onclick="openOrderInVerifyPage('${o.id}')" ${activeItemCount === 0 ? 'disabled' : ''}>${t('btnLoadIntoVerifyPage')}</button>`}
             ${o.deleted ? '' : `<button class="btn ghost" onclick="cancelPendingOrder('${o.id}')">${t('btnCancelWholeOrder')}</button>`}
             ${hasHistory ? `<button class="btn ghost" onclick="openOrderHistoryModal('${o.id}')">${t('btnViewHistory')}</button>` : ''}
-            <button class="btn ghost" onclick="exportPendingOrderExcel('${o.id}')">${t('btnExportOrder')}</button>
             <button class="btn ghost" onclick="printPendingOrder('${o.id}')">${t('btnPrintPickingSlip')}</button>
           </div>
         ` : ''}
@@ -7153,33 +7192,6 @@ function escapeHtmlForPrint(str){
 // 不顯示 qtyHistory 那些異動紀錄(那是給管理畫面自己看的,匯出/列印給外部用的單子只要看結果就好)。
 function buildOrderExportRows(order){
   return order.items.filter(it => !it.deleted).map(it => ({ sku: it.sku || '', name: it.name, qty: it.qty, unit: it.unit }));
-}
-
-function exportOrderExcel(orderId, headerLabel){
-  const order = orders.find(o => o.id === orderId);
-  if(!order) return;
-  const items = buildOrderExportRows(order);
-  const aoa = [];
-  aoa.push([headerLabel]);
-  aoa.push([]);
-  aoa.push(['Order #', order.orderNo || orderId]);
-  aoa.push(['Date', order.date || '']);
-  aoa.push(['Customer', order.partyName || '']);
-  if(order.note) aoa.push(['Note', order.note]);
-  aoa.push([]);
-  aoa.push(['SKU', 'Product Name', 'Qty', 'Unit']);
-  items.forEach(it => aoa.push([it.sku, it.name, it.qty, it.unit]));
-
-  const ws = XLSX.utils.aoa_to_sheet(aoa);
-  ws['!cols'] = [{wch:9},{wch:28},{wch:10},{wch:10}]; // SKU 欄只要夠放代碼就好,不用跟商品名稱一樣寬
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, 'Order');
-  const safeOrderNo = (order.orderNo || orderId).replace(/[^a-zA-Z0-9#_-]/g, '');
-  XLSX.writeFile(wb, `Order_${safeOrderNo}.xlsx`);
-}
-
-function exportPendingOrderExcel(orderId){
-  exportOrderExcel(orderId, 'Pending Order');
 }
 
 // 列印(待處理訂單、已完成訂單共用):opts.includeCheckColumn 待處理訂單才會有(給撿貨的人拿筆
@@ -7792,8 +7804,8 @@ function renderOrderHistory(){
 
     const statusLabel = o.deleted
       ? t('statusOrderCancelled')
-      : (status === 'confirmed' ? t('statusCompleted') : t('statusPending'));
-    const statusClass = o.deleted ? 'deleted' : (status === 'confirmed' ? 'confirmed' : 'pending');
+      : (status === 'confirmed' ? t('statusCompleted') : (status === 'processing' ? t('statusProcessing') : t('statusPending')));
+    const statusClass = o.deleted ? 'deleted' : (status === 'confirmed' ? 'confirmed' : (status === 'processing' ? 'processing' : 'pending'));
     const signedBadge = o.signedAt ? `<span title="${tf('orderSignedAtTitle', {datetime: formatOrderDateTime(o.signedAt)})}" style="margin-left:6px;color:var(--safe);">✔ ${t('statusSigned')}</span>` : '';
 
     return `
@@ -8013,7 +8025,14 @@ function buildOrderSheetAoa(list, partyLabel, dateLabel){
   const qtyByProductId = {};
   aggregated.forEach(g => { qtyByProductId[g.productId] = g; });
 
-  const allMain = products.slice();
+  const recordsOnly = completedExportFormat === 'recordsOnly';
+  // recordsOnly:只放「真的有出貨紀錄」的商品,沒紀錄的完全不放進 aoa(連隱藏列都沒有)。
+  // fullCatalog(預設,原本就有的行為):放庫存總覽全部可訂貨商品,沒紀錄的用隱藏列處理,
+  // 順序照庫存總覽/商品排序設置排列。
+  const allMain = recordsOnly
+    ? products.filter(p => qtyByProductId[p.id])
+    : products.slice();
+
   const byCat = {};
   allMain.forEach(p => {
     const cat = p.category || '未分類';
@@ -8029,19 +8048,23 @@ function buildOrderSheetAoa(list, partyLabel, dateLabel){
   aoa.push([]);
   aoa.push(['SKU','Product Name','Qty','Unit','Remarks']);
 
-  catList.forEach((cat, catIdx) => {
+  let isFirstGroup = true;
+  catList.forEach((cat) => {
     const items = byCat[cat];
     if(!items || items.length === 0) return;
     const groupAllHidden = items.every(p => !qtyByProductId[p.id]);
 
     // 分類跟分類之間的空白隔開列,跟著它後面緊接著的這個分類一起隱藏/一起顯示——這個分類如果
     // 整組都被隱藏,前面那條分隔空白列也要跟著隱藏,不然即使商品列都正確隱藏了,畫面上還是會看到
-    // 一整排「只剩分隔空白列冒出來」的空行,看起來像是隔了一大段空白。
-    if(catIdx > 0){
+    // 一整排「只剩分隔空白列冒出來」的空行,看起來像是隔了一大段空白。用 isFirstGroup(不是
+    // catList 的 index)判斷是不是第一組,因為 recordsOnly 模式下有些分類可能整組都被篩掉,
+    // 用 index 會誤判「這不是第一個出現的分類」。
+    if(!isFirstGroup){
       const sepRowIdx = aoa.length;
       aoa.push([]);
       if(groupAllHidden) hiddenRows.add(sepRowIdx);
     }
+    isFirstGroup = false;
 
     const headerRowIdx = aoa.length;
     aoa.push([`-- ${catLabelEN(cat)} --`]);
@@ -9188,7 +9211,7 @@ async function saveDeliveryNote(){
 
 // Delivery Note「列印」:直接開列印視窗,不會存進資料庫——跟「儲存」是兩條分開的路徑,列印過
 // 不代表這張 Note 就被記錄下來了,兩者互不影響。
-function printDeliveryNote(){
+async function printDeliveryNote(){
   const msg = document.getElementById('txMsg');
   const draft = buildDeliveryNoteDraftFromForm();
   if(!draft.ok){ msg.className = 'msg error'; msg.textContent = `⚠ ${draft.error}`; return; }
@@ -9239,6 +9262,28 @@ function printDeliveryNote(){
     printWindow.focus();
     printWindow.print();
   };
+
+  // 「載入」模式下列印,代表這張 Delivery Note 已經真的送出去、完成任務了,不需要再留著讓人
+  // 之後又載入一次——直接從資料庫移除。「新增」模式下列印本來就沒有存進資料庫過,沒有東西
+  // 需要刪除,這裡的判斷式(registerLoadedDeliveryNoteId 有值)天然就只會在「載入」模式下觸發。
+  if(registerLoadedDeliveryNoteId){
+    const noteIdToRemove = registerLoadedDeliveryNoteId;
+    try{
+      await deleteDeliveryNoteRow(noteIdToRemove);
+      const idx = deliveryNotes.findIndex(n => n.id === noteIdToRemove);
+      if(idx >= 0) deliveryNotes.splice(idx, 1);
+      logInventoryAction('delivery_note', `Printed and removed Delivery Note (${data.date}, ${data.note}) - considered fulfilled`, null);
+    } catch(e){
+      console.error('列印後移除 Delivery Note 失敗', e);
+      showInfoModal(t('errDeliveryNotePrintedButNotRemoved'));
+    }
+    registerDeliveryFlowType = '';
+    registerLoadedDeliveryNoteId = null;
+    txBatchItems = [];
+    const flowSel = document.getElementById('txDeliveryFlowType');
+    if(flowSel) flowSel.value = '';
+    setTxDeliveryFlowType('');
+  }
 }
 
 async function submitTxBatchSimple(date, msg){
