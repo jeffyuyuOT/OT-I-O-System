@@ -71,6 +71,18 @@
   .subtab-btn.active{ background:var(--ink); color:#fff; }
   .subtab-content{ display:none; }
   .subtab-content.active-subtab{ display:block; }
+  /* 手機 App 桌面圖示右上角那種紅色圓形數字提示——用在待處理訂單分頁按鈕上,表示目前有幾筆
+     待處理訂單。position:absolute 是相對於外層那個 position:relative 的包裝 span 定位,
+     不是相對於按鈕本身(按鈕的 data-i18n 每次切換語言都會整個蓋掉 textContent,如果數字
+     直接放在按鈕裡面會被連著清掉,所以特意放在按鈕外面、當成按鈕的手足元素)。 */
+  /* class 特意取名 mobile-notify-badge 而不是沿用檔案裡已經有的 .tab-count-badge——那個
+     class 雖然已經定義好樣式,但目前沒有任何地方真的在用(是行內樣式,不是這種浮在角落的
+     圓形數字),而且定義在這個規則後面,如果沿用同名會被那個規則蓋掉,樣式就不對了。 */
+  .mobile-notify-badge{
+    position:absolute; top:-6px; right:-6px; min-width:17px; height:17px; padding:0 4px;
+    background:var(--crit); color:#fff; font-family:'IBM Plex Mono',monospace; font-size:10px; font-weight:700;
+    line-height:17px; text-align:center; border-radius:9px; box-shadow:0 0 0 2px #fff; pointer-events:none;
+  }
   .filter-row{
     display:flex; gap:12px; flex-wrap:wrap; align-items:end; margin-bottom:14px;
     padding:14px; background:#fff; border:1px solid var(--line); border-radius:2px;
@@ -1455,7 +1467,10 @@
     <div class="section">
       <div class="section-title" style="margin-bottom:12px;" data-i18n="secOrderAdmin">訂貨後台管理</div>
       <div class="subtab-bar">
-        <button class="subtab-btn active" onclick="switchOrderAdminSubTab('subtab-order-pending')" id="btn-subtab-order-pending" data-i18n="subtabPendingOrders">待處理訂單</button>
+        <span style="position:relative;flex:1;display:inline-flex;">
+          <button class="subtab-btn active" style="width:100%;" onclick="switchOrderAdminSubTab('subtab-order-pending')" id="btn-subtab-order-pending" data-i18n="subtabPendingOrders">待處理訂單</button>
+          <span id="pendingOrderCountBadge" class="mobile-notify-badge" style="display:none;"></span>
+        </span>
         <button class="subtab-btn" onclick="switchOrderAdminSubTab('subtab-order-completed')" id="btn-subtab-order-completed" data-i18n="subtabCompletedOrders">已完成訂單</button>
         <button class="subtab-btn" onclick="switchOrderAdminSubTab('subtab-order-parties')" id="btn-subtab-order-parties" data-i18n="subtabManageParties">管理出貨方</button>
       </div>
@@ -7093,6 +7108,22 @@ async function saveOrderRemark(orderId){
 // 待處理訂單清單:狀態是 'pending' 的訂單,也就是已經送出但還沒被「核對」過的訂單 —— 這些訂單
 // 完全不會影響庫存總覽的數字(還沒扣庫存),只會在計算「可訂數量」(computeAvailableForOrder)時
 // 被扣掉,避免別人也訂到同一批貨。核對通過之後訂單會變成 'confirmed',移到「已完成訂單」清單。
+// 待處理訂單分頁按鈕右上角的數字提示——樣式參照手機 App 桌面圖示的未讀數字提示。算的是
+// 全部符合條件的筆數(不管使用者在待處理訂單清單裡有沒有另外套用出貨方/日期篩選,這個數字
+// 都是總數,概念上比較接近「有幾筆事情等你處理」,不是「目前篩選結果有幾筆」)。已取消的訂單
+// 不算,因為不需要再處理。
+function updatePendingOrderCountBadge(){
+  const badge = document.getElementById('pendingOrderCountBadge');
+  if(!badge) return;
+  const count = orders.filter(o => isPreVerificationStatus(o) && !o.deleted).length;
+  if(count > 0){
+    badge.textContent = count > 99 ? '99+' : String(count);
+    badge.style.display = '';
+  } else {
+    badge.style.display = 'none';
+  }
+}
+
 function renderPendingOrders(){
   const container = document.getElementById('pendingOrdersList');
   if(!container) return;
@@ -11011,6 +11042,7 @@ function renderAll(){
   renderOrderItemsTable();
   renderOrders();
   renderPendingOrders();
+  updatePendingOrderCountBadge();
   renderOrderHistory();
   renderVerifyPage();
   renderPartiesTable();
