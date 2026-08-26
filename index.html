@@ -420,6 +420,7 @@
     font-family:'Inter',sans-serif; font-size:10.5px; font-weight:700; padding:2px 9px; border-radius:20px;
   }
   .order-status-pill.pending{ background:var(--warn-bg); color:var(--yellow-dark); }
+  .order-status-pill.processing{ background:var(--warn-bg); color:var(--warn); }
   .order-status-pill.confirmed{ background:var(--safe-bg); color:var(--safe); }
   .order-status-pill.cancelled{ background:var(--crit-bg); color:var(--crit); }
   .order-status-pill.deleted{ background:var(--crit-bg); color:var(--crit); }
@@ -926,6 +927,19 @@
 
         <hr class="divider" />
 
+        <div class="section-title" style="margin-bottom:8px;" data-i18n="secCompletedExportFormat">已完成訂單匯出格式</div>
+        <p style="font-size:11.5px;color:var(--ink-soft);margin:0 0 8px;" data-i18n="completedExportFormatHint">
+          決定已完成訂單匯出 Excel 時,商品清單要怎麼列。
+        </p>
+        <div class="field" style="max-width:280px;margin-bottom:12px;">
+          <select id="completedExportFormatSelect" onchange="changeCompletedExportFormat(this.value)">
+            <option value="recordsOnly" data-i18n="exportFormatRecordsOnly">僅匯出有紀錄的商品</option>
+            <option value="fullCatalog" data-i18n="exportFormatFullCatalog">匯出庫存總覽所有商品</option>
+          </select>
+        </div>
+
+        <hr class="divider" />
+
         <div class="section-title" style="margin-bottom:8px;color:var(--crit);" data-i18n="secRestoreDefault">還原預設</div>
         <p style="font-size:12.5px;color:var(--ink-soft);margin:0 0 12px;" data-i18n="restoreDefaultDesc">
           清空資料回到初始狀態,動作無法復原,執行前建議先於下方「完整資料備份」匯出完整備份。
@@ -1047,7 +1061,26 @@
           <option value="in" data-i18n="lblStockIn">進貨 +</option>
           <option value="out" data-i18n="lblStockOut">出貨 −</option>
           <option value="restock" data-i18n="lblStockRestock">入庫</option>
+          <option value="delivery" data-i18n="lblDeliveryNote">Delivery Note</option>
         </select>
+      </div>
+      <div id="txDeliveryFlowTypeRow" style="display:none;">
+        <div class="form-grid" style="grid-template-columns:1fr 1fr;max-width:520px;">
+          <div class="field">
+            <label data-i18n="lblDeliveryFlowType">操作</label>
+            <select id="txDeliveryFlowType" onchange="setTxDeliveryFlowType(this.value)">
+              <option value="" data-i18n="optSelectOutFlowType">— 請選擇 —</option>
+              <option value="new" data-i18n="optDeliveryNew">新增</option>
+              <option value="load" data-i18n="optDeliveryLoad">載入</option>
+            </select>
+          </div>
+          <div class="field" id="txDeliveryNoteSelectWrap" style="display:none;">
+            <label data-i18n="fieldSelectDeliveryNote">選擇 Delivery Note</label>
+            <select id="txDeliveryNoteSelect" onchange="loadDeliveryNoteIntoRegisterFlow(this.value)">
+              <option value="" data-i18n="optSelectDeliveryNote">— 請選擇 —</option>
+            </select>
+          </div>
+        </div>
       </div>
       <div id="txOutFlowTypeRow" style="display:none;">
         <div class="form-grid" style="grid-template-columns:1fr 1fr;max-width:520px;">
@@ -1818,6 +1851,7 @@ async function loadProductStock(){
 let products = [];
 let transactions = [];
 let orders = [];
+let deliveryNotes = []; // Delivery Note 清單——純文件記錄,結構比照 orders(id/date/partyId/partyName/note/items),但完全不影響庫存,也沒有 status/orderNo 這些欄位
 let shippingParties = [];
 let currentTxType = 'in';
 let storageReady = false;
@@ -1835,6 +1869,10 @@ let stockSortDir = 'asc';
 // | 'name'(商品名稱) | 'sku'(SKU code,預設)。庫存總覽的預設排序(沒有手動點欄位排序時)、
 // 訂貨頁面的商品清單排序,兩邊都共用這個設置,確保兩邊順序一致。
 let productSortMode = 'sku';
+// 已完成訂單匯出格式:'fullCatalog'(預設,匯出庫存總覽所有可訂貨商品,沒紀錄的用隱藏列處理——
+// 這是原本就有的行為)| 'recordsOnly'(只列出真的有出貨紀錄的商品,沒有紀錄的商品完全不出現,
+// 連隱藏列都沒有)。
+let completedExportFormat = 'fullCatalog';
 // 系統設置:「訂貨頁面隱藏Multipack圖示」——勾選後,訂貨頁面 multipack 商品名稱前面的「⧉」
 // 圖示不顯示,商品名稱直接往前對齊,跟其他一般商品的名稱起始位置一致。
 let hideMultipackIconOnOrderPage = false;
@@ -2029,7 +2067,7 @@ const I18N = {
     fieldFrom: '從', fieldTo: '到', optAllParties: '全部出貨方',
     btnExportOrderSheet: '📤 匯出訂貨單',
     noCompletedOrders: '還沒有符合條件的已完成訂單。', statusCompleted: '已完成', statusOrderDeleted: '已刪除',
-    noPendingOrders: '還沒有符合條件的待處理訂單。', statusPending: '待處理', statusOrderCancelled: '已取消',
+    noPendingOrders: '還沒有符合條件的待處理訂單。', statusPending: '待處理', statusProcessing: '處理中', statusOrderCancelled: '已取消',
     pendingOrdersDesc: '這裡是還沒「核對」的訂單,還沒真的扣庫存,只會先佔用「可訂數量」的額度。核對通過後會自動移到「已完成訂單」並正式扣庫存。',
     btnVerifyOrder: '✓ 直接核對(扣庫存)', btnCancelWholeOrder: '🗑 取消整筆訂單', btnLoadIntoVerifyPage: '📋 載入訂單核對頁面',
     confirmCancelPendingOrder: '確定要取消訂單 {orderNo} 嗎?這張訂單還沒扣庫存,取消後裡面的 {n} 項商品都會標註為已取消。',
@@ -2051,6 +2089,10 @@ const I18N = {
     errSelectProductFirst: '請先選擇商品', errEnterPositiveQty: '請輸入大於 0 的數量',
     importSkipReasonNoName: '沒有填品名', importSkipReasonNoStock: '沒有填庫存量',
     importSkipReasonNoSku: '沒有填 SKU', importSkippedRowsIntro: '有資料列被略過:',
+    importNegativeStockIntro: '⚠ 匯入失敗:以下項目會讓庫存變成負數,請修正 Excel 檔案後再重新匯入。',
+    importNegativeStockLine: '  · {file} 第 {row} 列 — {name}(SKU「{sku}」):庫存量 {qty}',
+    importInitialSeedSource: 'stock.xlsx(初始匯入)',
+    importTxNegativeStockLine: '  · {name}:目前庫存 {current},這批匯入完會變成 {result}',
     importSkippedRowsHeader: '{n} 列資料被整列略過(未匯入):',
     importSkippedRowLine: '{file} 第 {row} 列(「{identifier}」):{reason}',
     importLinkSkipIntro: '{n} 項批量商品設定無法套用(商品本身仍照一般商品匯入,只是沒有連結到主商品):',
@@ -2105,7 +2147,7 @@ const I18N = {
     historyItemDeleted: '{name}:刪除({qty} {unit})',
     btnUndo: '復原',
     confirmSaveOrderChangesMsg: '這次儲存有以下異動,確定要儲存嗎?\n{changes}',
-    btnExportThisOrder: '📤 匯出這張訂單', btnDeleteWholeOrder: '🗑 刪除整筆訂單(退回庫存)',
+    btnExportThisOrder: '📤 匯出', btnDeleteWholeOrder: '🗑 刪除整筆訂單(退回庫存)',
     itemDeletedLabel: '已刪除(退回庫存)', itemDeletedLabelStockedOut: '已刪除(已出庫,已入庫退回)',
     btnEditQty: '改數量', btnEditRemark: '編輯備註', orderRemarkPlaceholder: '對這張訂單做點備註⋯⋯',
     btnEditOrderParty: '指定/修改出貨方',
@@ -2130,7 +2172,7 @@ const I18N = {
     stockedInLabel: '入庫',
     colOrderNo: '訂單編號', fileNamePrefixOrder: '訂單_',
     errPrintPopupBlocked: '⚠ 無法開啟列印視窗,請確認瀏覽器沒有封鎖彈出視窗。',
-    btnExportOrder: '📄 匯出', btnPrintOrder: '🖨️ 列印', colCheck: '核對',
+    btnExportOrder: '📄 匯出', btnPrintOrder: '🖨️ 列印', btnPrintPickingSlip: '🖨️ 列印 Picking Slip', colCheck: '核對',
     orderRemarkLabelPrefix: '備註:', orderRemarkEmptyLabel: '(尚無備註)', orderHasRemarkTitle: '這張訂單有備註',
     orderWasModifiedTitle: '這張訂單的品項後來被修改過(改過數量或刪除品項)',
     errEnterNonNegativeQty: '請輸入 0 以上的數量', confirmZeroQtyIsDelete: '把數量改成 0 等於刪除這項商品(退回庫存),要繼續嗎?',
@@ -2169,7 +2211,12 @@ const I18N = {
     orderLinkedTxWarningMulti: '要刪除的紀錄裡,有 {count} 筆與已完成訂單有關(訂單號:{orderNos}),建議先到「訂貨後台管理 → 已完成訂單」修改,而不是直接在這裡刪除。仍要繼續刪除嗎?',
 
     lblProduct: '商品', lblType: '類型', lblQty: '數量', lblDate: '日期',
-    lblStockIn: '進貨 +', lblStockOut: '出貨 −', lblStockRestock: '入庫',
+    lblStockIn: '進貨 +', lblStockOut: '出貨 −', lblStockRestock: '入庫', lblDeliveryNote: 'Delivery Note',
+    lblDeliveryFlowType: '操作', optDeliveryNew: '新增', optDeliveryLoad: '載入',
+    fieldSelectDeliveryNote: '選擇 Delivery Note', optSelectDeliveryNote: '— 請選擇 —',
+    txNoteRequiredDeliveryLabel: '備註(必填,請填相關已完成訂單號)',
+    errDeliveryNoteRequired: '請填寫備註(相關已完成訂單號)', btnPrint: '🖨️ 列印',
+    errDeliveryNotePrintedButNotRemoved: '⚠ 已送出列印,但從資料庫移除這張 Delivery Note 時失敗,請重新整理頁面確認清單。',
     partyLabelIn: '進貨方(供應商)', partyLabelOut: '出貨方(客戶/門市,選填)', partyLabelRestock: '對象(選填)',
     partyPlaceholderIn: '例如:大盤商 A', partyPlaceholderOut: '例如:三民店 / 客戶王先生', partyPlaceholderRestock: '例如:訂單調整 / 盤點',
     txNoteSharedLabel: '備註(選填)',
@@ -2271,6 +2318,10 @@ const I18N = {
     secMultipackSettings: 'Multipack 商品設定',
     secOrderVerifySettings: '訂單核對設定',
     secProductSortSettings: '商品排序',
+    secCompletedExportFormat: '已完成訂單匯出格式',
+    completedExportFormatHint: '決定已完成訂單匯出 Excel 時,商品清單要怎麼列。',
+    exportFormatRecordsOnly: '僅匯出有紀錄的商品',
+    exportFormatFullCatalog: '匯出庫存總覽所有商品',
     productSortHint: '決定庫存總覽(沒有手動點欄位排序時)、訂貨頁面裡,同一個分類底下的商品要怎麼排序。分類本身的先後順序另外在庫存總覽用「調整分類順序」設定。',
     productSortImport: '依照匯入商品主檔順序',
     productSortName: '依照商品名稱',
@@ -2282,6 +2333,11 @@ const I18N = {
     autoConvertMultipackLabel: '訂貨數量達到 multipack 商品的加權數時,自動轉換成該 multipack 商品',
     autoConvertMultipackHint: '只有主商品「剛好只有一種 multipack 商品」,或已經在編輯商品畫面勾選「顯示於總庫存量」指定某個 multipack 商品時才會生效;數量不足整數倍的部分,仍會用主商品下單。',
     fieldShowInTotalStock: '顯示於庫存總覽',
+    fieldAutoConvertStockIn: '自動切換',
+    fieldAutoConvertStockInHint: '— 勾選後,登記進出貨的「進貨」如果是這個批量商品,會直接依加權數換算成主商品的數量、加進主商品的庫存,不會加進這個批量商品自己的庫存。',
+    fieldHideFromCompletedExport: '已完成訂單匯出不顯示',
+    fieldHideFromCompletedExportHint: '— 勾選後,已完成訂單匯出時不會列出這個主商品;如果在訂單核對頁面把批量商品切換成這個主商品,切換用的批量商品跟數量會顯示在匯出檔案裡。',
+    autoConvertStockInNote: '自動切換自「{name}」× {qty} {unit}',
     fieldShowInTotalStockHint: '— 勾選後,庫存總覽的清單會用這個商品(而不是主商品)代表整個商品家族,總庫存量/平均出貨/安全庫存都會依它的加權數換算顯示。同一個商品家族(主商品+底下所有 multipack 商品)只能勾選一個,勾了別的,這裡會自動取消。',
     fieldShowInTotalStockHiddenHint: '— 這個商品目前是隱藏狀態,不能設定為顯示於庫存總覽的代表商品,請先取消隱藏。',
     errHiddenCannotShowInTotal: '隱藏中的商品不能設定為「顯示於庫存總覽」的代表商品,請先取消隱藏。',
@@ -2406,7 +2462,7 @@ const I18N = {
     fieldFrom: 'From', fieldTo: 'To', optAllParties: 'All Customers',
     btnExportOrderSheet: '📤 Export Order Sheet',
     noCompletedOrders: 'No completed orders match the filters yet.', statusCompleted: 'Completed', statusOrderDeleted: 'Deleted',
-    noPendingOrders: 'No pending orders match the filters yet.', statusPending: 'Pending', statusOrderCancelled: 'Cancelled',
+    noPendingOrders: 'No pending orders match the filters yet.', statusPending: 'Pending', statusProcessing: 'Processing', statusOrderCancelled: 'Cancelled',
     pendingOrdersDesc: 'Orders here have not been "verified" yet, so stock has not actually been deducted — they only count against the "available to order" quantity. Once verified, an order moves to Completed Orders and stock is deducted for real.',
     btnVerifyOrder: '✓ Verify Directly (Deduct Stock)', btnCancelWholeOrder: '🗑 Cancel Whole Order', btnLoadIntoVerifyPage: '📋 Load into Order Verify Page',
     confirmCancelPendingOrder: 'Cancel order {orderNo}? No stock has been deducted for this order yet — cancelling will mark all {n} item(s) as cancelled.',
@@ -2428,6 +2484,10 @@ const I18N = {
     errSelectProductFirst: 'Please select a product first', errEnterPositiveQty: 'Please enter a quantity greater than 0',
     importSkipReasonNoName: 'No product name filled in', importSkipReasonNoStock: 'No stock quantity filled in',
     importSkipReasonNoSku: 'No SKU filled in', importSkippedRowsIntro: 'Some rows were skipped:',
+    importNegativeStockIntro: '⚠ Import failed: the following items would make stock negative. Please fix the Excel file and re-import.',
+    importNegativeStockLine: '  · {file} row {row} — {name} (SKU "{sku}"): stock {qty}',
+    importInitialSeedSource: 'stock.xlsx (initial import)',
+    importTxNegativeStockLine: '  · {name}: current stock {current}, would become {result} after this import',
     importSkippedRowsHeader: '{n} row(s) were skipped entirely (not imported):',
     importSkippedRowLine: '{file} row {row} ("{identifier}"): {reason}',
     importLinkSkipIntro: '{n} multi-pack setting(s) could not be applied (the product itself was still imported normally, just not linked to a main product):',
@@ -2482,7 +2542,7 @@ const I18N = {
     historyItemDeleted: '{name}: removed ({qty} {unit})',
     btnUndo: 'Undo',
     confirmSaveOrderChangesMsg: 'This save includes the following changes — confirm?\n{changes}',
-    btnExportThisOrder: '📤 Export This Order', btnDeleteWholeOrder: '🗑 Delete Order (Restock)',
+    btnExportThisOrder: '📤 Export', btnDeleteWholeOrder: '🗑 Delete Order (Restock)',
     itemDeletedLabel: 'Deleted (Restocked)', itemDeletedLabelStockedOut: 'Deleted (was stocked out, restocked back)',
     btnEditQty: 'Edit Qty', btnEditRemark: 'Edit Note', orderRemarkPlaceholder: 'Add a note about this order…',
     btnEditOrderParty: 'Set/Change Shipping Party',
@@ -2507,7 +2567,7 @@ const I18N = {
     stockedInLabel: 'Stocked In',
     colOrderNo: 'Order #', fileNamePrefixOrder: 'Order_',
     errPrintPopupBlocked: '⚠ Could not open the print window — please check your browser isn\'t blocking pop-ups.',
-    btnExportOrder: '📄 Export', btnPrintOrder: '🖨️ Print', colCheck: 'Check',
+    btnExportOrder: '📄 Export', btnPrintOrder: '🖨️ Print', btnPrintPickingSlip: '🖨️ Print Picking Slip', colCheck: 'Check',
     orderRemarkLabelPrefix: 'Note:', orderRemarkEmptyLabel: '(No note yet)', orderHasRemarkTitle: 'This order has a note',
     orderWasModifiedTitle: 'Items in this order were changed afterward (qty changed or item removed)',
     errEnterNonNegativeQty: 'Please enter a quantity of 0 or more', confirmZeroQtyIsDelete: 'Setting the quantity to 0 will delete this item (and restock it) — continue?',
@@ -2546,7 +2606,12 @@ const I18N = {
     orderLinkedTxWarningMulti: '{count} of the records you are about to delete are linked to completed order(s) (order #: {orderNos}). It is recommended to make changes from "Order Admin → Completed Orders" instead of deleting here directly. Continue deleting anyway?',
 
     lblProduct: 'Product', lblType: 'Type', lblQty: 'Qty', lblDate: 'Date',
-    lblStockIn: 'Stock In +', lblStockOut: 'Stock Out −', lblStockRestock: 'Restock',
+    lblStockIn: 'Stock In +', lblStockOut: 'Stock Out −', lblStockRestock: 'Restock', lblDeliveryNote: 'Delivery Note',
+    lblDeliveryFlowType: 'Action', optDeliveryNew: 'New', optDeliveryLoad: 'Load',
+    fieldSelectDeliveryNote: 'Select Delivery Note', optSelectDeliveryNote: '— Select —',
+    txNoteRequiredDeliveryLabel: 'Note (required, enter the related completed order number)',
+    errDeliveryNoteRequired: 'Please enter a note (related completed order number)', btnPrint: '🖨️ Print',
+    errDeliveryNotePrintedButNotRemoved: '⚠ Print was sent, but removing this Delivery Note from the database failed. Please refresh and check the list.',
     partyLabelIn: 'Supplier', partyLabelOut: 'Customer/Store (optional)', partyLabelRestock: 'Party (optional)',
     partyPlaceholderIn: 'e.g. Supplier A', partyPlaceholderOut: 'e.g. Store #3 / Customer Wang', partyPlaceholderRestock: 'e.g. Order adjustment / Stocktake',
     txNoteSharedLabel: 'Note (optional)',
@@ -2648,6 +2713,10 @@ const I18N = {
     secMultipackSettings: 'Multi-pack Product Settings',
     secOrderVerifySettings: 'Order Verification Settings',
     secProductSortSettings: 'Product Sort Order',
+    secCompletedExportFormat: 'Completed Order Export Format',
+    completedExportFormatHint: 'Controls how the product list is shown when exporting completed orders to Excel.',
+    exportFormatRecordsOnly: 'Only Export Products With Records',
+    exportFormatFullCatalog: 'Export All Stock Overview Products',
     productSortHint: 'Controls how products within the same category are ordered in Stock Overview (when no column sort is active) and on the Order page. Category order itself is set separately in Stock Overview via "Adjust Category Order".',
     productSortImport: 'Master File Import Order',
     productSortName: 'Product Name',
@@ -2659,6 +2728,11 @@ const I18N = {
     autoConvertMultipackLabel: 'When an order quantity reaches a multi-pack product\'s weight, auto-convert it into that multi-pack product',
     autoConvertMultipackHint: 'Only applies when a main product has exactly one multi-pack product, or a multi-pack product has been marked "Show in Total Stock" for it in the product edit screen; any amount that isn\'t an exact multiple still gets ordered as the main product.',
     fieldShowInTotalStock: 'Show in Stock Overview',
+    fieldAutoConvertStockIn: 'Auto-Convert',
+    fieldAutoConvertStockInHint: '— When checked, logging a "Stock In" for this multipack product will automatically convert it (using the weight) directly into the main product\'s stock, instead of adding to this multipack product\'s own stock.',
+    fieldHideFromCompletedExport: 'Hide from Completed Order Export',
+    fieldHideFromCompletedExportHint: '— When checked, this main product won\'t be listed when exporting completed orders; if a multipack product is switched to this main product on the Order Verification page, the multipack product and quantity used will appear in the export instead.',
+    autoConvertStockInNote: 'Auto-converted from "{name}" × {qty} {unit}',
     fieldShowInTotalStockHint: '— when checked, the Stock Overview list represents this whole product family using this product (instead of the main product), converting Total Stock/Avg Usage/Safety Stock by its weight. Only one member of a product family (main product + all its multi-packs) can be checked at a time; checking another one here automatically unchecks this.',
     fieldShowInTotalStockHiddenHint: '— this product is currently hidden and can\'t be set as the family\'s Stock Overview representative. Unhide it first.',
     errHiddenCannotShowInTotal: 'A hidden product can\'t be set as the "show in Stock Overview" representative. Please unhide it first.',
@@ -3778,6 +3852,7 @@ async function loadData(){
   await loadTransactions();
   await loadProductStock();
   await loadOrders();
+  await loadDeliveryNotes();
   try{
     const counterResult = await dbGet('orderCounter');
     orderCounter = counterResult ? (parseInt(counterResult.value, 10) || 0) : 0;
@@ -3815,6 +3890,10 @@ async function loadData(){
     const psmResult = await dbGet('productSortMode');
     if(psmResult && ['import','name','sku'].includes(psmResult.value)) productSortMode = psmResult.value;
   } catch(e){ /* no stored preference yet, keep default 'sku' */ }
+  try{
+    const cefResult = await dbGet('completedExportFormat');
+    if(cefResult && ['recordsOnly','fullCatalog'].includes(cefResult.value)) completedExportFormat = cefResult.value;
+  } catch(e){ /* no stored preference yet, keep default 'fullCatalog' */ }
   try{
     const hmiResult = await dbGet('hideMultipackIconOnOrderPage');
     if(hmiResult) hideMultipackIconOnOrderPage = hmiResult.value === 'true';
@@ -3865,6 +3944,33 @@ async function upsertOrders(orderList){
   }));
   const { error } = await sb.from('orders').upsert(rows);
   if(error){ console.error('儲存訂單失敗', error); throw error; }
+  scheduleAutoBackup();
+}
+
+async function loadDeliveryNotes(){
+  try{
+    const { data, error } = await sb.from('delivery_notes').select('payload');
+    if(error) throw error;
+    deliveryNotes = (data || []).map(r => r.payload);
+  } catch(e){ console.error('讀取 Delivery Note 失敗', e); deliveryNotes = []; }
+}
+
+async function upsertDeliveryNotes(noteList){
+  if(!noteList || noteList.length === 0) return;
+  const rows = noteList.map(n => ({
+    id: n.id,
+    party_id: n.partyId || null,
+    payload: n,
+    updated_at: new Date().toISOString()
+  }));
+  const { error } = await sb.from('delivery_notes').upsert(rows);
+  if(error){ console.error('儲存 Delivery Note 失敗', error); throw error; }
+  scheduleAutoBackup();
+}
+
+async function deleteDeliveryNoteRow(id){
+  const { error } = await sb.from('delivery_notes').delete().eq('id', id);
+  if(error){ console.error('刪除 Delivery Note 失敗', error); throw error; }
   scheduleAutoBackup();
 }
 
@@ -4270,6 +4376,8 @@ function updateMultipackSettingsUI(){
   if(ddvBox) ddvBox.checked = disableDirectVerifyEnabled;
   const psmSelect = document.getElementById('productSortModeSelect');
   if(psmSelect) psmSelect.value = productSortMode;
+  const cefSelect = document.getElementById('completedExportFormatSelect');
+  if(cefSelect) cefSelect.value = completedExportFormat;
   const hmiBox = document.getElementById('hideMultipackIconToggle');
   if(hmiBox) hmiBox.checked = hideMultipackIconOnOrderPage;
 }
@@ -4301,6 +4409,13 @@ async function changeProductSortMode(mode){
   catch(e){ console.error('儲存商品排序設定失敗', e); }
   if(document.getElementById('stockCards')) renderStockCards();
   if(document.getElementById('orderItemsTable')) renderOrderItemsTable();
+}
+
+async function changeCompletedExportFormat(mode){
+  if(!['recordsOnly','fullCatalog'].includes(mode)) return;
+  completedExportFormat = mode;
+  try{ await dbSet('completedExportFormat', mode); }
+  catch(e){ console.error('儲存已完成訂單匯出格式設定失敗', e); }
 }
 
 async function toggleHideMultipackIcon(checked){
@@ -4351,12 +4466,14 @@ function setTxType(type){
   const partyInput = document.getElementById('txParty');
   const partySelect = document.getElementById('txPartySelect');
   const outFlowRow = document.getElementById('txOutFlowTypeRow');
+  const deliveryFlowRow = document.getElementById('txDeliveryFlowTypeRow');
   if(type === 'in'){
     partyLabel.textContent = t('partyLabelIn');
     partyInput.placeholder = t('partyPlaceholderIn');
     partyInput.style.display = '';
     partySelect.style.display = 'none';
     if(outFlowRow) outFlowRow.style.display = 'none';
+    if(deliveryFlowRow) deliveryFlowRow.style.display = 'none';
     resetRegisterOutFlow();
     showTxMainFormArea(true);
   } else if(type === 'out'){
@@ -4364,11 +4481,31 @@ function setTxType(type){
     populateTxPartySelect();
     partyInput.style.display = 'none';
     partySelect.style.display = '';
+    if(deliveryFlowRow) deliveryFlowRow.style.display = 'none';
+    // 如果是從 Delivery Note 切過來的,要把 Delivery Note 那邊的暫存狀態清掉,不然待會切回
+    // Delivery Note 時,會看到上一次的殘留狀態(例如還停在「載入」某一張舊 Note 的畫面)。
+    registerDeliveryFlowType = '';
+    registerLoadedDeliveryNoteId = null;
+    txBatchItems = [];
     // 出貨一定要先選「出貨類型」,選了之後(如果是新增訂單/庫存調整就直接展開;如果是載入
     // 現有訂單,還要再選出是哪一張)下面的主表單區塊才會出現——避免使用者還沒決定清楚要做
     // 哪一種操作,就先動手填日期/加商品,結果選了類型才發現整個表單邏輯不一樣要重填。
     if(outFlowRow) outFlowRow.style.display = '';
     setTxOutFlowType(registerOutFlowType || '');
+  } else if(type === 'delivery'){
+    partyLabel.textContent = t('partyLabelOut');
+    populateTxPartySelect();
+    partyInput.style.display = 'none';
+    partySelect.style.display = '';
+    if(outFlowRow) outFlowRow.style.display = 'none';
+    // 反過來,如果是從「出貨」切過來的,也要把出貨那邊的暫存狀態清掉,同樣的道理。
+    registerOutFlowType = '';
+    registerLoadedOrderId = null;
+    registerPendingItemChanges = {};
+    txBatchItems = [];
+    // Delivery Note 也要先選「新增」還是「載入」,邏輯跟出貨類型一樣——選了才展開下面的表單。
+    if(deliveryFlowRow) deliveryFlowRow.style.display = '';
+    setTxDeliveryFlowType(registerDeliveryFlowType || '');
   } else {
     partyLabel.textContent = t('partyLabelRestock');
     partyInput.placeholder = t('partyPlaceholderRestock');
@@ -4376,6 +4513,7 @@ function setTxType(type){
     partyInput.style.display = '';
     partySelect.style.display = 'none';
     if(outFlowRow) outFlowRow.style.display = 'none';
+    if(deliveryFlowRow) deliveryFlowRow.style.display = 'none';
     resetRegisterOutFlow();
     showTxMainFormArea(true);
   }
@@ -4391,6 +4529,10 @@ function resetRegisterOutFlow(){
   registerLoadedOrderId = null;
   txBatchItems = [];
   registerPendingItemChanges = {};
+  registerDeliveryFlowType = '';
+  registerLoadedDeliveryNoteId = null;
+  const deliveryFlowSel = document.getElementById('txDeliveryFlowType');
+  if(deliveryFlowSel) deliveryFlowSel.value = '';
   const flowSel = document.getElementById('txOutFlowType');
   if(flowSel) flowSel.value = '';
   const orderWrap = document.getElementById('txOutFlowOrderSelectWrap');
@@ -4467,6 +4609,45 @@ function setTxOutFlowType(flowType){
   renderProductSelect();
 }
 
+// Delivery Note 的「新增」/「載入」切換,邏輯比照 setTxOutFlowType:「新增」直接展開空白表單;
+// 「載入」要先選出是哪一張 Delivery Note,選出來之前主表單保持隱藏。備註在這裡是必填
+// (相關已完成訂單號要寫在這裡),所以標籤文字改用「必填」版本。
+function setTxDeliveryFlowType(flowType){
+  registerDeliveryFlowType = flowType;
+  registerLoadedDeliveryNoteId = null;
+  txBatchItems = [];
+  const noteSelectWrap = document.getElementById('txDeliveryNoteSelectWrap');
+  const noteSelect = document.getElementById('txDeliveryNoteSelect');
+  const existingSection = document.getElementById('txExistingItemsSection');
+  const partySelect = document.getElementById('txPartySelect');
+  const dateInput = document.getElementById('txDate');
+  const noteLabel = document.getElementById('txNoteLabel');
+
+  if(existingSection) existingSection.style.display = 'none';
+  if(partySelect) partySelect.disabled = false;
+  if(dateInput) dateInput.disabled = false;
+  if(noteLabel) noteLabel.textContent = t('txNoteRequiredDeliveryLabel');
+
+  if(flowType === 'load'){
+    if(noteSelectWrap) noteSelectWrap.style.display = '';
+    if(noteSelect){
+      const sorted = deliveryNotes.slice().sort((a,b) => (b.date || '').localeCompare(a.date || ''));
+      noteSelect.innerHTML = `<option value="">${t('optSelectDeliveryNote')}</option>` +
+        sorted.map(n => `<option value="${n.id}">${n.date || ''}${n.note ? ` (${n.note.replace(/"/g,'&quot;')})` : ''}</option>`).join('');
+    }
+    showTxMainFormArea(false);
+  } else if(flowType === 'new'){
+    if(noteSelectWrap) noteSelectWrap.style.display = 'none';
+    showTxMainFormArea(true);
+  } else {
+    if(noteSelectWrap) noteSelectWrap.style.display = 'none';
+    showTxMainFormArea(false);
+  }
+  renderTxSubmitArea();
+  renderTxBatchList();
+  renderProductSelect();
+}
+
 // 依目前的類型/出貨類型,決定下面要顯示哪些提交按鈕:
 // - 進貨/入庫(非出貨):維持原本單一「提交」按鈕。
 // - 出貨→新增訂單:三個按鈕,各自對應不同的送出行為。
@@ -4476,6 +4657,20 @@ function setTxOutFlowType(flowType){
 function renderTxSubmitArea(){
   const area = document.getElementById('txSubmitArea');
   if(!area) return;
+  if(currentTxType === 'delivery'){
+    // Delivery Note 不管是「新增」還是「載入」,下面都是同一組「儲存」/「列印」——載入模式下
+    // txBatchItems 裡通常已經有品項(從原本的 Note 帶過來的),但兩種模式共用同一套送出邏輯,
+    // 不需要另外分流。
+    if(registerDeliveryFlowType === 'new' || registerDeliveryFlowType === 'load'){
+      area.innerHTML = `
+        <button class="btn" onclick="saveDeliveryNote()">${t('btnSave')}</button>
+        <button class="btn ghost" onclick="printDeliveryNote()">${t('btnPrint')}</button>
+      `;
+    } else {
+      area.innerHTML = '';
+    }
+    return;
+  }
   if(currentTxType !== 'out'){
     area.innerHTML = `<button class="btn" onclick="submitTxBatch()">${t('btnRegister')}</button>`;
     return;
@@ -4619,6 +4814,40 @@ function populateTxPartySelect(){
 // 「出貨類型」選了「載入現有待處理訂單」或「載入現有已完成訂單」之後,再選了實際是哪一張訂單,
 // 呼叫這裡:把日期(可改)/出貨方(鎖住)/備註 帶進表單,顯示這張訂單目前已有的品項,清空這次
 // 要新增的品項清單跟核對後變更紀錄(每次重新選訂單都是新的一輪)。
+// Delivery Note「載入」:直接把這張 Note 原本的品項放進 txBatchItems(跟「新增商品」共用同一個
+// 清單),因為 txBatchItems 本來就支援改數量、刪除(見 updateTxBatchItemQty/removeTxBatchItem),
+// 不需要另外做一套「既有品項」的編輯介面——載入之後可以直接在同一個清單上加新商品、改數量、
+// 刪除,存檔時整份 txBatchItems 就是這張 Note 最新的完整品項清單。
+function loadDeliveryNoteIntoRegisterFlow(noteId){
+  if(!noteId){
+    registerLoadedDeliveryNoteId = null;
+    txBatchItems = [];
+    renderTxBatchList();
+    renderTxSubmitArea();
+    renderProductSelect();
+    return;
+  }
+  const note = deliveryNotes.find(n => n.id === noteId);
+  if(!note) return;
+  registerLoadedDeliveryNoteId = noteId;
+  txBatchItems = note.items.map(it => ({ ...it }));
+
+  const dateInput = document.getElementById('txDate');
+  if(dateInput) dateInput.value = note.date || todayISO();
+  const partySelect = document.getElementById('txPartySelect');
+  if(partySelect){
+    populateTxPartySelect();
+    partySelect.value = note.partyId || '';
+  }
+  const noteInput = document.getElementById('txNote');
+  if(noteInput) noteInput.value = note.note || '';
+
+  showTxMainFormArea(true);
+  renderTxSubmitArea();
+  renderTxBatchList();
+  renderProductSelect();
+}
+
 function loadOrderIntoRegisterFlow(orderId){
   if(!orderId){
     registerLoadedOrderId = null;
@@ -4713,6 +4942,8 @@ function undoPendingItemChange(productId){
 // 共用同一組 類型/日期/對象/備註,每個加進清單的商品各自登記成一筆獨立的進出貨紀錄。
 let txBatchItems = []; // { productId, name, unit, qty }
 let registerOutFlowType = ''; // ''(還沒選) | 'new-order' | 'load-pending' | 'load-completed' | 'adjustment'
+let registerDeliveryFlowType = ''; // ''(還沒選) | 'new' | 'load'
+let registerLoadedDeliveryNoteId = null; // 「載入」模式下,目前載入的是哪一張 Delivery Note
 let registerLoadedOrderId = null; // load-pending/load-completed 模式下,目前載入的那張訂單 id
 let registerExistingItemEditKey = null; // 目前正在編輯數量的既有品項 productId(null 表示沒有在編輯)
 // 既有品項的改數量/刪除,不再按下去就馬上存檔——先暫存在這裡,畫面上照樣看得到那一列(改數量的
@@ -5268,6 +5499,35 @@ async function confirmTxImport(){
   // 這些訂單先以「待處理」狀態建立,要等「訂貨後台管理 → 待處理訂單」或「庫存管理 → 訂單核對」
   // 核對過才會真的扣庫存、寫入出貨紀錄(邏輯跟購物車送出訂貨一致)。沒有被併進訂單的出貨(勾選
   // 「併入已完成訂單」被取消,或本來就不是出貨)則維持原樣,照登記當下直接寫入紀錄、立即異動庫存。
+
+  // 這些「沒有併入訂單」的異動會直接動庫存,送出前先算出每個商品的累計異動量(同一個商品可能
+  // 同時有好幾筆進貨/出貨/入庫紀錄要一起匯入),檢查最終結果會不會變成負數——不能只看單筆,
+  // 要看這一批全部套用完之後的最終庫存。有任何一個商品會變負數,整批都不匯入,清楚列出是
+  // 哪個商品、現在庫存多少、這批套用完會變成多少,讓使用者能對照 Excel 原始檔案修正。
+  const stockImpact = {}; // productId -> 這批匯入對這個商品的累計異動量(正值加庫存,負值扣庫存)
+  pendingTxMatches.forEach(m => {
+    if(!(m.qty > 0)) return;
+    if(m.type === 'out'){
+      const key = `${m.party || fallbackParty}||${m.date || fallbackDate}`;
+      if(orderGroups.has(key)) return; // 併入待處理訂單的,核對時才會扣庫存,不算在這裡
+      stockImpact[m.productId] = (stockImpact[m.productId] || 0) - m.qty;
+    } else {
+      stockImpact[m.productId] = (stockImpact[m.productId] || 0) + m.qty;
+    }
+  });
+  const negativeResults = Object.keys(stockImpact)
+    .map(productId => ({ productId, delta: stockImpact[productId], currentStock: computeStock(productId) }))
+    .filter(r => r.currentStock + r.delta < 0);
+  if(negativeResults.length > 0){
+    const lines = negativeResults.map(r => {
+      const p = products.find(pp => pp.id === r.productId);
+      return tf('importTxNegativeStockLine', { name: p ? p.name : r.productId, current: r.currentStock, result: r.currentStock + r.delta });
+    });
+    msg.className = 'msg error';
+    showInfoModal(`${t('importNegativeStockIntro')}\n${lines.join('\n')}`);
+    return;
+  }
+
   let inCount = 0, outCount = 0, restockCount = 0, pendingOutCount = 0;
   const newTxs = [];
   pendingTxMatches.forEach(m => {
@@ -5318,6 +5578,13 @@ async function confirmTxImport(){
       logInventoryAction('order_place', `Created pending order ${o.orderNo} via Excel import (${o.partyName || 'No recipient specified'}, ${o.items.length} item(s)), stock not yet deducted`, o.orderNo);
     });
   }
+  // 直接寫入的異動紀錄(沒有併入待處理訂單的進貨/出貨/入庫)之前完全沒有記錄進後台紀錄——
+  // 只有併入訂單的那部分有記(上面那段)。這裡補上,列出匯入了哪個/哪些檔案。
+  if(newTxs.length > 0){
+    const sourceFiles = [...new Set(pendingTxMatches.map(m => m.sourceFile).filter(Boolean))];
+    const fileListForLog = sourceFiles.length > 0 ? sourceFiles.join(', ') : 'unknown source';
+    logInventoryAction('import', `Imported transactions from: ${fileListForLog} — in ${inCount}, out ${outCount}${restockCount > 0 ? `, restock ${restockCount}` : ''}`, null);
+  }
   msg.className = 'msg ok';
   const unlinkedOrders = newOrders.filter(o => !o.partyId);
   let orderNote = '';
@@ -5339,6 +5606,19 @@ async function importStockItems(items, skippedRows, clearBlanksMode){
   skippedRows = skippedRows || [];
   clearBlanksMode = !!clearBlanksMode;
   const msg = document.getElementById('importMsg');
+
+  // 匯入前先檢查有沒有任何一列的庫存量是負的——這種資料一套用進去,商品的庫存就會直接變成
+  // 負數,通常是打錯字或表格抓錯欄位造成的。只要有一項不符合,整批都不匯入,清楚列出是哪個
+  // 檔案、哪一列、哪個商品造成的,讓使用者能對照 Excel 原始檔案修正後再重新匯入。
+  const negativeStockItems = items.filter(item => item.qty !== null && item.qty !== undefined && item.qty < 0);
+  if(negativeStockItems.length > 0){
+    const lines = negativeStockItems.map(item =>
+      tf('importNegativeStockLine', { file: item._sourceFile || t('importInitialSeedSource'), row: item._sourceRow || '—', name: item.name, sku: item.sku, qty: item.qty })
+    );
+    showInfoModal(`${t('importNegativeStockIntro')}\n${lines.join('\n')}`);
+    return;
+  }
+
   const today = todayISO();
   let added = 0, updated = 0, unchanged = 0, skippedNoSku = 0;
   const updateDetails = []; // { sku, name, fields } — 逐項記錄哪個商品被更新、具體改了哪些欄位
@@ -5412,6 +5692,7 @@ async function importStockItems(items, skippedRows, clearBlanksMode){
     if(item.boxHeightCm !== null && item.boxHeightCm !== undefined && !isNaN(item.boxHeightCm) && existing.boxHeightCm !== item.boxHeightCm){ changedFields.push(tf('importFieldChangeLine', {field: t('fieldBoxHeight'), from: existing.boxHeightCm, to: item.boxHeightCm})); existing.boxHeightCm = item.boxHeightCm; changed = true; }
     else if(clearBlanksMode && (item.boxHeightCm === null || item.boxHeightCm === undefined) && existing.boxHeightCm !== null && existing.boxHeightCm !== undefined){ changedFields.push(tf('importFieldChangeLine', {field: t('fieldBoxHeight'), from: existing.boxHeightCm, to: '(空白)'})); existing.boxHeightCm = undefined; changed = true; }
     if(item.hidden !== null && item.hidden !== undefined && existing.hidden !== item.hidden){ changedFields.push(tf('importFieldChangeLine', {field: t('hideAction'), from: existing.hidden, to: item.hidden})); existing.hidden = item.hidden; changed = true; }
+    if(item.autoConvertOnStockIn !== null && item.autoConvertOnStockIn !== undefined && existing.autoConvertOnStockIn !== item.autoConvertOnStockIn){ changedFields.push(tf('importFieldChangeLine', {field: t('fieldAutoConvertStockIn'), from: existing.autoConvertOnStockIn, to: item.autoConvertOnStockIn})); existing.autoConvertOnStockIn = item.autoConvertOnStockIn; changed = true; }
     if(item.orderPageRemark !== null && item.orderPageRemark !== undefined && existing.orderPageRemark !== item.orderPageRemark){ changedFields.push(tf('importFieldChangeLine', {field: t('fieldOrderPageRemark'), from: existing.orderPageRemark || '(空白)', to: item.orderPageRemark})); existing.orderPageRemark = item.orderPageRemark; changed = true; }
     else if(clearBlanksMode && (item.orderPageRemark === null || item.orderPageRemark === undefined) && existing.orderPageRemark){ changedFields.push(tf('importFieldChangeLine', {field: t('fieldOrderPageRemark'), from: existing.orderPageRemark, to: '(空白)'})); existing.orderPageRemark = undefined; changed = true; }
 
@@ -5458,6 +5739,9 @@ async function importStockItems(items, skippedRows, clearBlanksMode){
     } else if(child.childWeight === null || child.childWeight === undefined){
       child.childWeight = 1; // 沒填加權數,又還沒設定過,先預設 1(等於直接用庫存量加總)
     }
+    if(item.autoConvertOnStockIn !== null && item.autoConvertOnStockIn !== undefined){
+      child.autoConvertOnStockIn = item.autoConvertOnStockIn;
+    }
     child.orderable = false; // 批量商品不能單獨被訂貨(比照「新增批量商品」介面的預設)
     linked++;
   });
@@ -5470,6 +5754,12 @@ async function importStockItems(items, skippedRows, clearBlanksMode){
     renderAll();
     return;
   }
+
+  // 匯入這個動作之前完全沒有寫進後台紀錄——只有畫面上一段暫時性的結果訊息,離開頁面就看不到
+  // 了。這裡補上,列出匯入了哪個/哪些檔案,以及新增/更新/略過的統計數字。
+  const sourceFiles = [...new Set(items.map(it => it._sourceFile).filter(Boolean))];
+  const fileListForLog = sourceFiles.length > 0 ? sourceFiles.join(', ') : t('importInitialSeedSource');
+  logInventoryAction('import', `Imported master data from: ${fileListForLog} — added ${added}, updated ${updated}, unchanged ${unchanged}${skippedNoSku > 0 ? `, skipped ${skippedNoSku}` : ''}`, null);
 
   msg.className = 'msg ok';
   const parts = [];
@@ -5530,6 +5820,7 @@ const MASTER_COLUMN_ALIASES = {
   boxWidth: ['boxwidth','width','寬','箱寬','寬度cm','widthcm','寬(cm)'],
   boxHeight: ['boxheight','height','高','箱高','高度cm','heightcm','高(cm)'],
   hidden: ['hidden','隱藏','ishidden','是否隱藏'],
+  autoConvertOnStockIn: ['autoconvert','autoconvertonstockin','自動切換','進貨自動切換'],
   orderPageRemark: ['orderpageremark','訂貨頁面附註','訂貨附註','orderremark']
 };
 
@@ -5672,6 +5963,7 @@ function parseMasterExcelFile(){
         const colBoxWidth = findColumnIndex(headerRow, MASTER_COLUMN_ALIASES.boxWidth);
         const colBoxHeight = findColumnIndex(headerRow, MASTER_COLUMN_ALIASES.boxHeight);
         const colHidden = findColumnIndex(headerRow, MASTER_COLUMN_ALIASES.hidden);
+        const colAutoConvert = findColumnIndex(headerRow, MASTER_COLUMN_ALIASES.autoConvertOnStockIn);
         const colOrderPageRemark = findColumnIndex(headerRow, MASTER_COLUMN_ALIASES.orderPageRemark);
 
         if(colName === -1 || colQty === -1){
@@ -5722,6 +6014,7 @@ function parseMasterExcelFile(){
             boxWidthCm: colBoxWidth !== -1 ? parseNumericCell(row[colBoxWidth]) : null,
             boxHeightCm: colBoxHeight !== -1 ? parseNumericCell(row[colBoxHeight]) : null,
             hidden: colHidden !== -1 && row[colHidden] !== null && row[colHidden] !== undefined && row[colHidden] !== '' ? parseBoolLikeCell(row[colHidden]) : null,
+            autoConvertOnStockIn: colAutoConvert !== -1 && row[colAutoConvert] !== null && row[colAutoConvert] !== undefined && row[colAutoConvert] !== '' ? parseBoolLikeCell(row[colAutoConvert]) : null,
             orderPageRemark: colOrderPageRemark !== -1 && row[colOrderPageRemark] !== null && row[colOrderPageRemark] !== undefined && String(row[colOrderPageRemark]).trim() !== '' ? String(row[colOrderPageRemark]).trim() : null,
             _sourceFile: file.name, _sourceRow: excelRowNo
           });
@@ -5780,18 +6073,21 @@ function exportStockQuantitySheet(){
   const msg = document.getElementById('stockExportMsg');
   if(typeof XLSX === 'undefined'){ msg.className = 'msg error'; msg.textContent = 'Excel 套件載入失敗,請重新整理頁面再試一次'; return; }
 
-  const visible = products.filter(p => !p.hidden);
-  if(visible.length === 0){
+  if(products.length === 0){
     msg.className = 'msg error';
-    msg.textContent = '目前沒有可以匯出的商品(可能全部都被隱藏了)';
+    msg.textContent = '目前沒有可以匯出的商品';
     return;
   }
 
   const dateStr = todayISO();
 
+  // 匯出「全部」商品(不是只匯出沒被隱藏的)——包含庫存總覽裡被全域隱藏的商品,只是隱藏的商品
+  // 那一列用 Excel 隱藏列處理掉,資料還在,只是預設不顯示、也不會被印出來。排序改用跟庫存總覽/
+  // 訂貨頁面共用的同一套邏輯(compareProductsBySortMode),跟著系統設置的「商品排序」走,
+  // 不是寫死照商品名稱排。
   // 只排「主商品」(沒有 parentId 的商品),批量商品(子商品)緊接著排在自己的主商品下面,
   // 不獨立參與分類排序,這樣匯出的順序才會跟庫存總覽畫面上的主/批量商品階層一致。
-  const mainRows = visible
+  const mainRows = products
     .filter(p => !p.parentId)
     .map(p => ({ p, cat: p.category || '未分類', stock: computeStock(p.id), totalStock: computeTotalStock(p.id) }))
     .sort((a,b) => {
@@ -5800,7 +6096,7 @@ function exportStockQuantitySheet(){
       const aoN = ao === -1 ? 999 : ao;
       const boN = bo === -1 ? 999 : bo;
       if(aoN !== boN) return aoN - boN;
-      return a.p.name.localeCompare(b.p.name);
+      return compareProductsBySortMode(a.p, b.p);
     });
 
   let totalItemCount = 0;
@@ -5808,10 +6104,10 @@ function exportStockQuantitySheet(){
   mainRows.forEach(r => {
     rows.push({ ...r, isChild: false });
     totalItemCount++;
-    const children = visible
+    const children = products
       .filter(c => c.parentId === r.p.id)
       .map(c => ({ p: c, cat: r.cat, stock: computeStock(c.id) }))
-      .sort((a,b) => a.p.name.localeCompare(b.p.name));
+      .sort((a,b) => compareProductsBySortMode(a.p, b.p));
     children.forEach(c => {
       rows.push({ ...c, isChild: true });
       totalItemCount++;
@@ -5828,16 +6124,28 @@ function exportStockQuantitySheet(){
 
   const headerRow = ['Product Name','Stock Qty','Total Stock Qty','Unit'];
   const aoa = [];
+  const hiddenRows = new Set(); // 0-based row indices into aoa that should be hidden in the final sheet
   aoa.push(['Date:', dateStr]);
   aoa.push([]);
   groups.forEach((g, gi) => {
-    if(gi > 0) aoa.push([]); // 分類之間的空白間隔列
+    const groupAllHidden = g.items.every(r => r.p.hidden);
+    if(gi > 0){
+      const sepRowIdx = aoa.length;
+      aoa.push([]); // 分類之間的空白間隔列
+      if(groupAllHidden) hiddenRows.add(sepRowIdx);
+    }
+    const catRowIdx = aoa.length;
     aoa.push([catLabelEN(g.cat)]); // 分類標題列(保留)
+    if(groupAllHidden) hiddenRows.add(catRowIdx);
+    const headerRowIdx = aoa.length;
     aoa.push(headerRow.slice());
+    if(groupAllHidden) hiddenRows.add(headerRowIdx);
     g.items.forEach(r => {
       const name = r.isChild ? `⧉ ${r.p.name}` : r.p.name;
       const totalStockCell = r.isChild ? '—' : r.totalStock;
+      const rowIdx = aoa.length;
       aoa.push([name, r.stock, totalStockCell, r.p.unit]); // 不含分類欄
+      if(r.p.hidden) hiddenRows.add(rowIdx);
     });
   });
 
@@ -5845,6 +6153,11 @@ function exportStockQuantitySheet(){
   ws['!cols'] = [{wch:30},{wch:10},{wch:10},{wch:8}];
   ws['!pageSetup'] = { orientation: 'portrait', fitToWidth: 1, fitToHeight: 0, paperSize: 9 }; // paperSize 9 = A4
   ws['!margins'] = { left:0.5, right:0.5, top:0.6, bottom:0.6, header:0.3, footer:0.3 };
+  if(hiddenRows.size > 0){
+    const rowMeta = [];
+    aoa.forEach((_, i) => { rowMeta[i] = hiddenRows.has(i) ? { hidden: true } : {}; });
+    ws['!rows'] = rowMeta;
+  }
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Stock Quantity');
 
@@ -6272,7 +6585,7 @@ async function doConfirmOrderFromCart(dateVal, noteVal, partyId, partyName, item
 // 跟「登記進出貨」分頁的新增商品(併入待處理訂單草稿)都共用這個核心。
 async function mergeItemsIntoOrderCore(orderId, newItems){
   const order = orders.find(o => o.id === orderId);
-  if(!order || order.deleted || orderStatus(order) !== 'pending' || order.signedAt){
+  if(!order || order.deleted || !isPreVerificationStatus(order) || order.signedAt){
     return { ok: false, reason: 'not_editable' };
   }
   if(verifyPageOrderId === orderId){
@@ -6281,23 +6594,34 @@ async function mergeItemsIntoOrderCore(orderId, newItems){
 
   const prevItems = order.items;
   const mergedItems = prevItems.map(it => ({ ...it }));
+  const isProcessing = orderStatus(order) === 'processing';
+  const postVerifyAdditions = [];
   newItems.forEach(newIt => {
     const existing = mergedItems.find(it => it.productId === newIt.productId && !it.deleted);
     if(existing){
       const oldQty = existing.qty;
       existing.qty += newIt.qty;
       if(!existing.qtyHistory) existing.qtyHistory = [];
-      existing.qtyHistory.push({ from: oldQty, to: existing.qty, at: new Date().toISOString() });
+      const changeAt = new Date().toISOString();
+      existing.qtyHistory.push({ from: oldQty, to: existing.qty, at: changeAt });
+      if(isProcessing) postVerifyAdditions.push({ kind: 'qty', productId: existing.productId, name: existing.name, sku: existing.sku, unit: existing.unit, from: oldQty, to: existing.qty, at: changeAt });
     } else {
-      mergedItems.push({ ...newIt, qtyHistory: [{ added: true, at: new Date().toISOString(), qty: newIt.qty }] });
+      const addedAt = new Date().toISOString();
+      mergedItems.push({ ...newIt, qtyHistory: [{ added: true, at: addedAt, qty: newIt.qty }] });
+      if(isProcessing) postVerifyAdditions.push({ kind: 'added', productId: newIt.productId, name: newIt.name, sku: newIt.sku, unit: newIt.unit, qty: newIt.qty, at: addedAt });
     }
   });
   order.items = mergedItems;
+  if(postVerifyAdditions.length > 0){
+    if(!order.postVerifyChanges) order.postVerifyChanges = [];
+    order.postVerifyChanges.push(...postVerifyAdditions);
+  }
 
   try{
     await upsertOrders([order]);
   } catch(e){
     order.items = prevItems;
+    if(postVerifyAdditions.length > 0) order.postVerifyChanges.splice(order.postVerifyChanges.length - postVerifyAdditions.length, postVerifyAdditions.length);
     console.error('新增商品到既有訂單失敗', e);
     return { ok: false, reason: 'save_failed' };
   }
@@ -6331,6 +6655,14 @@ async function mergeItemsIntoExistingOrder(orderId, newItems){
 // 登記進出貨併入已完成訂單這些既有流程的既有行為一致;只有新的「送出訂貨」流程會建立 'pending'
 // (待處理,尚未核對、尚未扣庫存)的訂單。
 function orderStatus(o){ return o.status || 'confirmed'; }
+// 訂單還沒核對過(不管是單純待處理,還是倉庫已經列印過 picking slip、進入「處理中」)都算「還在
+// 核對前」的階段——倉庫端(登記進出貨、訂單核對)在這整個階段都可以編輯/核對這張訂單。只有
+// 訂購記錄(顧客自助修改)不一樣,一旦變成 'processing' 就不能再改了,見 renderOrderHistory
+// 的 editable 判斷(那裡刻意只比對 === 'pending',不用這個函式,才能正確排除 'processing')。
+function isPreVerificationStatus(order){
+  const s = orderStatus(order);
+  return s === 'pending' || s === 'processing';
+}
 
 function populateCompletedOrderPartyFilter(){
   const sel = document.getElementById('completedOrderPartyFilter');
@@ -6403,7 +6735,7 @@ function orderItemRowHtml(o, it, isPending, readOnly, context){
   // (例如 "(20→25)" 這種)——這個紀錄本來是給核對之前參考用的,核對之後只需要看「現在確實是
   // 多少數量」,加上下面獨立的「核對後變更」區塊(核對之後的異動有另外記錄在那裡),不需要再
   // 混著看這個。qtyHistory 陣列本身還是保留原始資料沒有刪除,只是核對後不在這裡顯示出來而已。
-  const qtyHistoryStr = (orderStatus(o) === 'pending' && it.qtyHistory && it.qtyHistory.length > 0)
+  const qtyHistoryStr = (isPreVerificationStatus(o) && it.qtyHistory && it.qtyHistory.length > 0)
     ? `(${it.qtyHistory.map(h => h.added ? t('newlyAddedLabel') : `${h.from}→${h.to}`).join(',')}) `
     : '';
   const isRestockDisplay = it.qty < 0;
@@ -6769,7 +7101,7 @@ function renderPendingOrders(){
   const dateFrom = document.getElementById('pendingOrderDateFrom') ? document.getElementById('pendingOrderDateFrom').value : '';
   const dateTo = document.getElementById('pendingOrderDateTo') ? document.getElementById('pendingOrderDateTo').value : '';
 
-  let list = orders.filter(o => orderStatus(o) === 'pending');
+  let list = orders.filter(o => isPreVerificationStatus(o));
   if(partyFilter) list = list.filter(o => o.partyId === partyFilter);
   if(dateFrom) list = list.filter(o => o.date >= dateFrom);
   if(dateTo) list = list.filter(o => o.date <= dateTo);
@@ -6783,6 +7115,9 @@ function renderPendingOrders(){
   container.innerHTML = list.map(o => {
     const isExpanded = expandedOrderIds.has(o.id);
     const wasModified = !o.deleted && o.items.some(it => (it.qtyHistory && it.qtyHistory.length > 0) || it.deleted);
+    // 「處理中」狀態下倉庫方的異動會記進 postVerifyChanges(見 savePendingOrderItemQty 等),這裡
+    // 一併判斷要不要顯示「觀看修改紀錄」按鈕,跟已完成訂單那邊是同一顆按鈕、同一個小視窗。
+    const hasHistory = wasModified || (o.postVerifyChanges && o.postVerifyChanges.length > 0);
     const itemsHtml = o.items.map(it => orderItemRowHtml(o, it, true, true, 'pending')).join('');
     const isEditingRemark = editingOrderRemarkId === o.id;
     const remarkHtml = isEditingRemark ? `
@@ -6828,7 +7163,7 @@ function renderPendingOrders(){
             ${wasModified ? `<span title="${t('orderWasModifiedTitle')}" style="margin-left:6px;color:var(--warn);">✎</span>` : ''}
             ${!o.deleted && !o.partyId ? `<span title="${t('orderNoPartyLinkedWarning')}" style="margin-left:6px;color:var(--crit);">⚠</span>` : ''}
           </span>
-          <span class="order-status-pill ${o.deleted ? 'deleted' : 'pending'}">${o.deleted ? t('statusOrderCancelled') : t('statusPending')}</span>
+          <span class="order-status-pill ${o.deleted ? 'deleted' : (o.status === 'processing' ? 'processing' : 'pending')}">${o.deleted ? t('statusOrderCancelled') : (o.status === 'processing' ? t('statusProcessing') : t('statusPending'))}</span>
         </div>
         ${isExpanded ? `
           <div class="order-items">${itemsHtml}</div>
@@ -6838,8 +7173,8 @@ function renderPendingOrders(){
             ${o.deleted ? '' : `<button class="btn ghost" onclick="editOrderViaRegister('${o.id}', 'pending')">${t('btnEdit')}</button>`}
             ${o.deleted ? '' : `<button class="btn ghost" onclick="openOrderInVerifyPage('${o.id}')" ${activeItemCount === 0 ? 'disabled' : ''}>${t('btnLoadIntoVerifyPage')}</button>`}
             ${o.deleted ? '' : `<button class="btn ghost" onclick="cancelPendingOrder('${o.id}')">${t('btnCancelWholeOrder')}</button>`}
-            <button class="btn ghost" onclick="exportPendingOrderExcel('${o.id}')">${t('btnExportOrder')}</button>
-            <button class="btn ghost" onclick="printPendingOrder('${o.id}')">${t('btnPrintOrder')}</button>
+            ${hasHistory ? `<button class="btn ghost" onclick="openOrderHistoryModal('${o.id}')">${t('btnViewHistory')}</button>` : ''}
+            <button class="btn ghost" onclick="printPendingOrder('${o.id}')">${t('btnPrintPickingSlip')}</button>
           </div>
         ` : ''}
       </div>
@@ -6857,33 +7192,6 @@ function escapeHtmlForPrint(str){
 // 不顯示 qtyHistory 那些異動紀錄(那是給管理畫面自己看的,匯出/列印給外部用的單子只要看結果就好)。
 function buildOrderExportRows(order){
   return order.items.filter(it => !it.deleted).map(it => ({ sku: it.sku || '', name: it.name, qty: it.qty, unit: it.unit }));
-}
-
-function exportOrderExcel(orderId, headerLabel){
-  const order = orders.find(o => o.id === orderId);
-  if(!order) return;
-  const items = buildOrderExportRows(order);
-  const aoa = [];
-  aoa.push([headerLabel]);
-  aoa.push([]);
-  aoa.push(['Order #', order.orderNo || orderId]);
-  aoa.push(['Date', order.date || '']);
-  aoa.push(['Customer', order.partyName || '']);
-  if(order.note) aoa.push(['Note', order.note]);
-  aoa.push([]);
-  aoa.push(['SKU', 'Product Name', 'Qty', 'Unit']);
-  items.forEach(it => aoa.push([it.sku, it.name, it.qty, it.unit]));
-
-  const ws = XLSX.utils.aoa_to_sheet(aoa);
-  ws['!cols'] = [{wch:9},{wch:28},{wch:10},{wch:10}]; // SKU 欄只要夠放代碼就好,不用跟商品名稱一樣寬
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, 'Order');
-  const safeOrderNo = (order.orderNo || orderId).replace(/[^a-zA-Z0-9#_-]/g, '');
-  XLSX.writeFile(wb, `Order_${safeOrderNo}.xlsx`);
-}
-
-function exportPendingOrderExcel(orderId){
-  exportOrderExcel(orderId, 'Pending Order');
 }
 
 // 列印(待處理訂單、已完成訂單共用):opts.includeCheckColumn 待處理訂單才會有(給撿貨的人拿筆
@@ -6949,8 +7257,27 @@ function printOrderDocument(orderId, opts){
   };
 }
 
-function printPendingOrder(orderId){
-  printOrderDocument(orderId, { includeCheckColumn: true, headerLabel: 'Pending Order' });
+// 待處理訂單列印 picking slip:第一次列印(訂單還是「待處理」)會把狀態改成「處理中」並存檔、
+// 記錄進後台紀錄——這個狀態轉換讓訂購記錄那邊知道要收回顧客自己改訂單的權限(editable 判斷
+// 只比對 === 'pending',變成 'processing' 之後自然就不能改了)。已經是「處理中」的訂單再列印
+// 一次不會重複轉換、也不會重複記錄。
+async function printPendingOrder(orderId){
+  const order = orders.find(o => o.id === orderId);
+  if(order && orderStatus(order) === 'pending'){
+    const oldStatus = order.status;
+    order.status = 'processing';
+    try{
+      await upsertOrders([order]);
+    } catch(e){
+      console.error('更新訂單狀態失敗', e);
+      order.status = oldStatus;
+      showInfoModal('⚠ 更新訂單狀態失敗,請重新整理頁面再試一次。');
+      return;
+    }
+    logInventoryAction('order_edit', `Order ${order.orderNo || orderId} - status changed to Processing (picking slip printed)`, order.orderNo);
+    renderAll();
+  }
+  printOrderDocument(orderId, { includeCheckColumn: true, headerLabel: 'Picking Slip' });
 }
 
 function printCompletedOrder(orderId){
@@ -6968,6 +7295,13 @@ function deletePendingOrderItem(orderId, productId){
     const now = new Date().toISOString();
     item.deleted = true;
     item.deletedAt = now;
+    // 列印過 picking slip(狀態 'processing')之後倉庫方才做的改動,一樣算進「核對後變更」——
+    // 即使還沒真的核對,只要 picking slip 已經印出去了,對倉庫來說訂單內容就已經算是「進行中」,
+    // 之後的異動都要留痕跡讓核對的人看得到。
+    if(orderStatus(order) === 'processing'){
+      if(!order.postVerifyChanges) order.postVerifyChanges = [];
+      order.postVerifyChanges.push({ kind: 'deleted', productId: item.productId, name: item.name, sku: item.sku, unit: item.unit, qty: item.qty, at: now });
+    }
     if(order.items.every(it => it.deleted)){
       order.deleted = true;
       order.deletedAt = now;
@@ -7088,12 +7422,18 @@ async function savePendingOrderItemQty(context, orderId, productId){
     const oldQty = item.qty;
     item.qty = newQty;
     if(!item.qtyHistory) item.qtyHistory = [];
-    item.qtyHistory.push({ from: oldQty, to: newQty, at: new Date().toISOString() });
+    const changeAt = new Date().toISOString();
+    item.qtyHistory.push({ from: oldQty, to: newQty, at: changeAt });
+    if(orderStatus(order) === 'processing'){
+      if(!order.postVerifyChanges) order.postVerifyChanges = [];
+      order.postVerifyChanges.push({ kind: 'qty', productId: item.productId, name: item.name, sku: item.sku, unit: item.unit, from: oldQty, to: newQty, at: changeAt });
+    }
     editingOrderItemKey = null;
     try{ await upsertOrders([order]); }
     catch(e){
       item.qty = oldQty;
       item.qtyHistory.pop();
+      if(orderStatus(order) === 'processing' && order.postVerifyChanges) order.postVerifyChanges.pop();
       console.error('儲存待處理訂單數量失敗', e);
       showInfoModal('⚠ 操作失敗,請重新整理頁面再試一次。');
       refreshOrderLists();
@@ -7112,7 +7452,7 @@ async function savePendingOrderItemQty(context, orderId, productId){
 // 核對要檢查/比對什麼(例如跟店家確認實際還有沒有貨)這類更細的業務邏輯,之後可以再擴充。
 async function verifyOrder(orderId){
   const order = orders.find(o => o.id === orderId);
-  if(!order || orderStatus(order) !== 'pending' || order.deleted) return;
+  if(!order || !isPreVerificationStatus(order) || order.deleted) return;
   const activeItems = order.items.filter(it => !it.deleted);
   if(activeItems.length === 0){
     showInfoModal(t('errVerifyNoActiveItems'));
@@ -7175,7 +7515,7 @@ let verifyPageRightItems = []; // [{ productId, sku, name, unit, qty }]
 function populateVerifyPageOrderSelect(){
   const sel = document.getElementById('verifyPageOrderSelect');
   if(!sel) return;
-  const pending = orders.filter(o => orderStatus(o) === 'pending' && !o.deleted)
+  const pending = orders.filter(o => isPreVerificationStatus(o) && !o.deleted)
     .sort((a,b) => (b.createdAt || b.date || '').localeCompare(a.createdAt || a.date || ''));
   sel.innerHTML = `<option value="">${t('optSelectPendingOrder')}</option>` +
     pending.map(o => `<option value="${o.id}">${(o.orderNo || o.id).replace(/"/g,'&quot;')}${o.partyName ? ' · ' + o.partyName.replace(/"/g,'&quot;') : ''}</option>`).join('');
@@ -7217,7 +7557,7 @@ function renderVerifyPage(){
   // 載入的訂單如果已經不是「待處理」了(例如核對成功、變成已完成訂單),表示這頁的任務已經結束,
   // 自動清空狀態、回到「請選擇訂單」的畫面,不繼續顯示一張已經核對過的舊訂單。
   const order = verifyPageOrderId ? orders.find(o => o.id === verifyPageOrderId) : null;
-  if(order && (orderStatus(order) !== 'pending' || order.deleted)){
+  if(order && (!isPreVerificationStatus(order) || order.deleted)){
     verifyPageOrderId = null;
     verifyPageRightItems = [];
   }
@@ -7321,7 +7661,7 @@ async function directVerifyFromVerifyPage(){
     return;
   }
   const order = verifyPageOrderId ? orders.find(o => o.id === verifyPageOrderId) : null;
-  if(!order || orderStatus(order) !== 'pending' || order.deleted){
+  if(!order || !isPreVerificationStatus(order) || order.deleted){
     msg.className = 'msg error';
     msg.textContent = t('errSelectPendingOrderFirst');
     return;
@@ -7332,7 +7672,7 @@ async function directVerifyFromVerifyPage(){
 function runOrderVerification(){
   const msg = document.getElementById('verifyPageMsg');
   const order = verifyPageOrderId ? orders.find(o => o.id === verifyPageOrderId) : null;
-  if(!order || orderStatus(order) !== 'pending' || order.deleted){
+  if(!order || !isPreVerificationStatus(order) || order.deleted){
     msg.className = 'msg error';
     msg.textContent = t('errSelectPendingOrderFirst');
     return;
@@ -7464,8 +7804,8 @@ function renderOrderHistory(){
 
     const statusLabel = o.deleted
       ? t('statusOrderCancelled')
-      : (status === 'confirmed' ? t('statusCompleted') : t('statusPending'));
-    const statusClass = o.deleted ? 'deleted' : (status === 'confirmed' ? 'confirmed' : 'pending');
+      : (status === 'confirmed' ? t('statusCompleted') : (status === 'processing' ? t('statusProcessing') : t('statusPending')));
+    const statusClass = o.deleted ? 'deleted' : (status === 'confirmed' ? 'confirmed' : (status === 'processing' ? 'processing' : 'pending'));
     const signedBadge = o.signedAt ? `<span title="${tf('orderSignedAtTitle', {datetime: formatOrderDateTime(o.signedAt)})}" style="margin-left:6px;color:var(--safe);">✔ ${t('statusSigned')}</span>` : '';
 
     return `
@@ -7545,7 +7885,7 @@ async function updateOrderDeliveryDate(orderId, newDate){
 
 function goAddProductsToOrder(orderId){
   const order = orders.find(o => o.id === orderId);
-  if(!order || order.deleted || orderStatus(order) !== 'pending' || order.signedAt) return;
+  if(!order || order.deleted || !isPreVerificationStatus(order) || order.signedAt) return;
   if(warnIfOrderBeingProcessed(orderId)) return;
 
   addingItemsToOrderId = orderId;
@@ -7595,7 +7935,7 @@ function editOrderViaRegister(orderId, mode){
   const order = orders.find(o => o.id === orderId);
   if(!order || order.deleted || order.signedAt) return;
   if(mode === 'pending'){
-    if(orderStatus(order) !== 'pending') return;
+    if(!isPreVerificationStatus(order)) return;
     if(warnIfOrderBeingProcessed(orderId)) return;
   } else if(mode === 'completed'){
     if(orderStatus(order) !== 'confirmed') return;
@@ -7639,12 +7979,25 @@ function signOrderHistory(orderId){
 function buildOrderAggregation(list){
   const productMap = Object.fromEntries(products.map(p => [p.id, p]));
   const groups = {};
+  function addToGroup(productId, qty, unit, name){
+    if(!groups[productId]) groups[productId] = { productId, qty: 0, unit, name };
+    groups[productId].qty += qty;
+  }
   list.forEach(o => {
     o.items.filter(it => !it.deleted).forEach(it => {
-      if(!groups[it.productId]){
-        groups[it.productId] = { productId: it.productId, qty: 0, unit: it.unit, name: it.name };
+      const p = productMap[it.productId];
+      // 這個商品如果設定了「已完成訂單匯出不顯示」,主商品本身完全不會出現在匯出裡——但如果
+      // 在訂單核對時有把批量商品切換成這個主商品(fulfilledViaSwitch),切換用掉的那些批量商品
+      // 數量,改成算在批量商品自己的行裡顯示,不會整個消失看不到到底是怎麼出貨的。切換之外、
+      // 這個品項本身沒被切換掉的剩餘數量,則完全不顯示(既不算在主商品身上、也沒有對應的批量
+      // 商品可以歸類)。
+      if(p && p.hideFromCompletedOrderExport){
+        (it.fulfilledViaSwitch || []).forEach(sw => {
+          addToGroup(sw.childId, sw.childQty, sw.childUnit, sw.childName);
+        });
+        return;
       }
-      groups[it.productId].qty += it.qty;
+      addToGroup(it.productId, it.qty, it.unit, it.name);
     });
   });
   const aggregated = Object.values(groups);
@@ -7672,7 +8025,14 @@ function buildOrderSheetAoa(list, partyLabel, dateLabel){
   const qtyByProductId = {};
   aggregated.forEach(g => { qtyByProductId[g.productId] = g; });
 
-  const allMain = products.slice();
+  const recordsOnly = completedExportFormat === 'recordsOnly';
+  // recordsOnly:只放「真的有出貨紀錄」的商品,沒紀錄的完全不放進 aoa(連隱藏列都沒有)。
+  // fullCatalog(預設,原本就有的行為):放庫存總覽全部可訂貨商品,沒紀錄的用隱藏列處理,
+  // 順序照庫存總覽/商品排序設置排列。
+  const allMain = recordsOnly
+    ? products.filter(p => qtyByProductId[p.id])
+    : products.slice();
+
   const byCat = {};
   allMain.forEach(p => {
     const cat = p.category || '未分類';
@@ -7688,19 +8048,23 @@ function buildOrderSheetAoa(list, partyLabel, dateLabel){
   aoa.push([]);
   aoa.push(['SKU','Product Name','Qty','Unit','Remarks']);
 
-  catList.forEach((cat, catIdx) => {
+  let isFirstGroup = true;
+  catList.forEach((cat) => {
     const items = byCat[cat];
     if(!items || items.length === 0) return;
     const groupAllHidden = items.every(p => !qtyByProductId[p.id]);
 
     // 分類跟分類之間的空白隔開列,跟著它後面緊接著的這個分類一起隱藏/一起顯示——這個分類如果
     // 整組都被隱藏,前面那條分隔空白列也要跟著隱藏,不然即使商品列都正確隱藏了,畫面上還是會看到
-    // 一整排「只剩分隔空白列冒出來」的空行,看起來像是隔了一大段空白。
-    if(catIdx > 0){
+    // 一整排「只剩分隔空白列冒出來」的空行,看起來像是隔了一大段空白。用 isFirstGroup(不是
+    // catList 的 index)判斷是不是第一組,因為 recordsOnly 模式下有些分類可能整組都被篩掉,
+    // 用 index 會誤判「這不是第一個出現的分類」。
+    if(!isFirstGroup){
       const sepRowIdx = aoa.length;
       aoa.push([]);
       if(groupAllHidden) hiddenRows.add(sepRowIdx);
     }
+    isFirstGroup = false;
 
     const headerRowIdx = aoa.length;
     aoa.push([`-- ${catLabelEN(cat)} --`]);
@@ -8143,6 +8507,10 @@ function renderProductEditModalBody(p, opts){
   const familyParent = isChild ? parent : p;
   const showBasisToggle = !opts.isNew && !!familyParent && (isChild || getChildProducts(p.id).length > 0);
   const currentBasisId = familyParent ? (familyParent.totalStockBasisId || familyParent.id) : null;
+  // 「已完成訂單匯出不顯示」勾選框:只有「主商品自己」而且底下確實有 multipack 子商品的情況下
+  // 才顯示——子商品本身不需要這個設定(匯出的時候本來就是看主商品要不要顯示,子商品的顯示與否
+  // 是切換紀錄決定的,不是這裡設的)。
+  const showHideFromExportToggle = !opts.isNew && !isChild && getChildProducts(p.id).length > 0;
   return `
     ${isChild && parent ? `
     <div class="field-block">
@@ -8167,6 +8535,14 @@ function renderProductEditModalBody(p, opts){
       <label>庫存量加權數<span style="color:var(--ink-soft);font-weight:400;"> — 計算主商品庫存總量時,批量商品數量會先乘以這個數字</span></label>
       <input type="number" id="editProdWeight" min="0" step="0.01" value="${p.childWeight !== null && p.childWeight !== undefined ? p.childWeight : ''}" placeholder="例如:20" style="width:100%;" />
     </div>
+    ${!opts.isNew ? `
+    <div class="field-block">
+      <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-weight:400;">
+        <input type="checkbox" id="editProdAutoConvertStockIn" ${p.autoConvertOnStockIn ? 'checked' : ''} />
+        <span>${t('fieldAutoConvertStockIn')}<span style="color:var(--ink-soft);font-weight:400;"> ${t('fieldAutoConvertStockInHint')}</span></span>
+      </label>
+    </div>
+    ` : ''}
     ` : `
     <div class="field-block">
       <label>${t('fieldCategory')}</label>
@@ -8219,6 +8595,14 @@ function renderProductEditModalBody(p, opts){
         <input type="checkbox" id="editProdShowInTotal" ${currentBasisId === p.id ? 'checked' : ''} ${p.hidden ? 'disabled' : ''}
           onchange="handleShowInTotalToggle(this, '${p.id}')" />
         <span>${t('fieldShowInTotalStock')}<span style="color:var(--ink-soft);font-weight:400;"> ${p.hidden ? t('fieldShowInTotalStockHiddenHint') : t('fieldShowInTotalStockHint')}</span></span>
+      </label>
+    </div>
+    ` : ''}
+    ${showHideFromExportToggle ? `
+    <div class="field-block">
+      <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-weight:400;">
+        <input type="checkbox" id="editProdHideFromExport" ${p.hideFromCompletedOrderExport ? 'checked' : ''} />
+        <span>${t('fieldHideFromCompletedExport')}<span style="color:var(--ink-soft);font-weight:400;"> ${t('fieldHideFromCompletedExportHint')}</span></span>
       </label>
     </div>
     ` : ''}
@@ -8301,6 +8685,8 @@ async function saveProductEditModal(){
       p.category = document.getElementById('editProdCategory').value;
     } else {
       p.childWeight = weightVal;
+      const autoConvertEl = document.getElementById('editProdAutoConvertStockIn');
+      if(autoConvertEl) p.autoConvertOnStockIn = autoConvertEl.checked;
     }
     p.manualAvg = avgRaw === '' ? null : parseFloat(avgRaw);
     p.safetyStock = safetyRaw === '' ? null : parseFloat(safetyRaw);
@@ -8314,6 +8700,8 @@ async function saveProductEditModal(){
     if(hiddenEl) p.hidden = hiddenEl.checked;
     const showInTotalEl = document.getElementById('editProdShowInTotal');
     if(showInTotalEl) applyTotalStockBasisChoice(p, showInTotalEl.checked);
+    const hideFromExportEl = document.getElementById('editProdHideFromExport');
+    if(hideFromExportEl) p.hideFromCompletedOrderExport = hideFromExportEl.checked;
   }
 
   await saveProducts();
@@ -8530,6 +8918,23 @@ async function confirmConversion(){
   }
   const batchProductId = conversionSourceBatchProductId;
   const verifyProductId = conversionSourceVerifyProductId;
+  // 如果這次切換是從「訂單核對」開的(verifyProductId 有值),把這次切換記在這張訂單、這個主商品
+  // 品項上——這樣「已完成訂單匯出不顯示」的主商品,匯出時才能改顯示這裡記錄的批量商品/數量,
+  // 而不是完全消失看不到到底是怎麼出貨的。訂單如果因為某些原因找不到(理論上不該發生),
+  // 就只是沒記到這筆,不影響切換本身已經成功完成。
+  if(verifyProductId && verifyPageOrderId){
+    const verifyOrder = orders.find(o => o.id === verifyPageOrderId);
+    const orderItem = verifyOrder ? verifyOrder.items.find(it => it.productId === parent.id && !it.deleted) : null;
+    if(orderItem){
+      if(!orderItem.fulfilledViaSwitch) orderItem.fulfilledViaSwitch = [];
+      orderItem.fulfilledViaSwitch.push({
+        childId: child.id, childSku: child.sku || '', childName: child.name, childUnit: child.unit,
+        childQty: qty, convertedQty, at: nowIso
+      });
+      try{ await upsertOrders([verifyOrder]); }
+      catch(e){ console.error('記錄訂單切換資訊失敗', e); }
+    }
+  }
   closeConversionModal();
   if(batchProductId) txBatchItems = txBatchItems.filter(it => it.productId !== batchProductId);
   if(verifyProductId) verifyPageRightItems = verifyPageRightItems.filter(it => it.productId !== verifyProductId);
@@ -8750,6 +9155,137 @@ async function submitTxBatch(action){
 
 // 進貨/入庫維持原本邏輯,不受出貨這次改版影響:一批共用同一個類型/日期/對象/備註,
 // 沒有訂單概念,單純各自登記成一筆進出貨紀錄。
+// Delivery Note 共用的表單讀取/驗證:日期、備註(相關已完成訂單號寫在這裡)都必填,商品清單
+// 至少要有一項——「儲存」「列印」都要先通過這個驗證才能繼續。回傳 { ok:true, data } 或
+// { ok:false, error }。
+function buildDeliveryNoteDraftFromForm(){
+  const date = document.getElementById('txDate').value;
+  const partyId = document.getElementById('txPartySelect').value || null;
+  const partyObj = partyId ? shippingParties.find(sp => sp.id === partyId) : null;
+  const note = document.getElementById('txNote').value.trim();
+
+  if(!date) return { ok: false, error: '請選擇 Delivery 日期' };
+  if(!note) return { ok: false, error: t('errDeliveryNoteRequired') };
+  if(txBatchItems.length === 0) return { ok: false, error: '請先把至少一項商品加入清單' };
+
+  return {
+    ok: true,
+    data: {
+      date, partyId, partyName: partyObj ? partyObj.name : '', note,
+      items: txBatchItems.map(it => ({ productId: it.productId, sku: it.sku || '', name: it.name, unit: it.unit, qty: it.qty }))
+    }
+  };
+}
+
+// Delivery Note「儲存」:存進 delivery_notes 資料庫,供之後用「載入」找回來繼續編輯。完全不會
+// 建立任何 transactions 紀錄、也不會動到任何商品的庫存數字——這只是單純的文件記錄。
+async function saveDeliveryNote(){
+  const msg = document.getElementById('txMsg');
+  const draft = buildDeliveryNoteDraftFromForm();
+  if(!draft.ok){ msg.className = 'msg error'; msg.textContent = `⚠ ${draft.error}`; return; }
+
+  const isUpdate = !!registerLoadedDeliveryNoteId;
+  const note = isUpdate
+    ? Object.assign(deliveryNotes.find(n => n.id === registerLoadedDeliveryNoteId), draft.data)
+    : { id: genId(), createdAt: new Date().toISOString(), ...draft.data };
+
+  try{
+    await upsertDeliveryNotes([note]);
+  } catch(e){
+    msg.className = 'msg error'; msg.textContent = '⚠ 儲存失敗,請重新整理頁面再試一次。';
+    return;
+  }
+
+  if(!isUpdate) deliveryNotes.push(note);
+  logInventoryAction('delivery_note', `${isUpdate ? 'Updated' : 'Created'} Delivery Note (${note.date}, ${note.note}) - ${note.items.length} item(s), no stock impact`, null);
+
+  registerDeliveryFlowType = '';
+  registerLoadedDeliveryNoteId = null;
+  txBatchItems = [];
+  const flowSel = document.getElementById('txDeliveryFlowType');
+  if(flowSel) flowSel.value = '';
+  setTxDeliveryFlowType('');
+  msg.className = 'msg ok';
+  msg.textContent = `✓ Delivery Note 已儲存(${note.date})`;
+}
+
+// Delivery Note「列印」:直接開列印視窗,不會存進資料庫——跟「儲存」是兩條分開的路徑,列印過
+// 不代表這張 Note 就被記錄下來了,兩者互不影響。
+async function printDeliveryNote(){
+  const msg = document.getElementById('txMsg');
+  const draft = buildDeliveryNoteDraftFromForm();
+  if(!draft.ok){ msg.className = 'msg error'; msg.textContent = `⚠ ${draft.error}`; return; }
+  const data = draft.data;
+
+  const rowsHtml = data.items.map(it => `
+    <tr>
+      <td>${escapeHtmlForPrint(it.name)}</td>
+      <td style="text-align:right;">${it.qty}</td>
+      <td>${escapeHtmlForPrint(it.unit)}</td>
+    </tr>
+  `).join('');
+
+  const html = `<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>Delivery Note</title>
+<style>
+  body{ font-family:'Microsoft JhengHei', Arial, sans-serif; padding:24px; color:#111; }
+  h1{ font-size:18px; margin:0 0 4px; }
+  h2{ font-size:12.5px; font-weight:700; letter-spacing:1.5px; text-transform:uppercase; color:#B23B2E; margin:0 0 14px; }
+  .meta{ font-size:13px; color:#333; margin-bottom:3px; }
+  table{ border-collapse:collapse; width:100%; margin-top:14px; }
+  th, td{ padding:7px 10px; border:1px solid #999; font-size:13px; text-align:left; }
+  th{ background:#eee; }
+</style>
+</head>
+<body>
+  <h2>Delivery Note</h2>
+  <h1>${escapeHtmlForPrint(data.partyName || 'Unspecified')}</h1>
+  <div class="meta">${escapeHtmlForPrint('Date')}: ${data.date}</div>
+  <div class="meta">${escapeHtmlForPrint('Note')}: ${escapeHtmlForPrint(data.note)}</div>
+  <table>
+    <thead><tr><th>${escapeHtmlForPrint('Product Name')}</th><th>${escapeHtmlForPrint('Qty')}</th><th>${escapeHtmlForPrint('Unit')}</th></tr></thead>
+    <tbody>${rowsHtml}</tbody>
+  </table>
+</body>
+</html>`;
+  const printWindow = window.open('', '_blank');
+  if(!printWindow){
+    showInfoModal(t('errPrintPopupBlocked'));
+    return;
+  }
+  printWindow.document.write(html);
+  printWindow.document.close();
+  printWindow.onload = () => {
+    printWindow.focus();
+    printWindow.print();
+  };
+
+  // 「載入」模式下列印,代表這張 Delivery Note 已經真的送出去、完成任務了,不需要再留著讓人
+  // 之後又載入一次——直接從資料庫移除。「新增」模式下列印本來就沒有存進資料庫過,沒有東西
+  // 需要刪除,這裡的判斷式(registerLoadedDeliveryNoteId 有值)天然就只會在「載入」模式下觸發。
+  if(registerLoadedDeliveryNoteId){
+    const noteIdToRemove = registerLoadedDeliveryNoteId;
+    try{
+      await deleteDeliveryNoteRow(noteIdToRemove);
+      const idx = deliveryNotes.findIndex(n => n.id === noteIdToRemove);
+      if(idx >= 0) deliveryNotes.splice(idx, 1);
+      logInventoryAction('delivery_note', `Printed and removed Delivery Note (${data.date}, ${data.note}) - considered fulfilled`, null);
+    } catch(e){
+      console.error('列印後移除 Delivery Note 失敗', e);
+      showInfoModal(t('errDeliveryNotePrintedButNotRemoved'));
+    }
+    registerDeliveryFlowType = '';
+    registerLoadedDeliveryNoteId = null;
+    txBatchItems = [];
+    const flowSel = document.getElementById('txDeliveryFlowType');
+    if(flowSel) flowSel.value = '';
+    setTxDeliveryFlowType('');
+  }
+}
+
 async function submitTxBatchSimple(date, msg){
   const party = document.getElementById('txParty').value.trim();
   const note = document.getElementById('txNote').value.trim();
@@ -8757,7 +9293,35 @@ async function submitTxBatchSimple(date, msg){
   if(txBatchItems.length === 0){ msg.className='msg error'; msg.textContent='請先把至少一項商品加入清單'; return; }
   if(!date){ msg.className='msg error'; msg.textContent='請選擇日期'; return; }
 
-  const newTxs = txBatchItems.map(it => ({ id: genId(), productId: it.productId, type: currentTxType, qty: it.qty, date, party, note }));
+  // 進貨(type='in')的時候,如果這個品項是批量商品、而且開了「自動切換」,不直接加進這個批量
+  // 商品自己的庫存,而是依加權數換算成主商品的數量,直接加進主商品的庫存——省掉「先進貨到批量
+  // 商品、之後再手動切換」這個中間步驟。換算結果如果不是整數就整批擋下來,不送出任何一筆,
+  // 避免主商品庫存出現小數。
+  if(currentTxType === 'in'){
+    const nonIntegerConversions = txBatchItems
+      .map(it => ({ it, p: products.find(pp => pp.id === it.productId) }))
+      .filter(({ p }) => p && p.parentId && p.autoConvertOnStockIn)
+      .map(({ it, p }) => ({ it, p, parent: products.find(pp => pp.id === p.parentId), weight: p.childWeight || 1, convertedQty: it.qty * (p.childWeight || 1) }))
+      .filter(x => !Number.isInteger(x.convertedQty));
+    if(nonIntegerConversions.length > 0){
+      msg.className = 'msg error';
+      msg.textContent = `⚠ ${nonIntegerConversions.map(x => `${x.p.name}: ${tf('errConversionResultNotInteger', { result: x.convertedQty.toLocaleString(undefined, {maximumFractionDigits: 4}), unit: x.parent ? x.parent.unit : '' })}`).join('; ')}`;
+      return;
+    }
+  }
+
+  const newTxs = txBatchItems.map(it => {
+    const p = products.find(pp => pp.id === it.productId);
+    if(currentTxType === 'in' && p && p.parentId && p.autoConvertOnStockIn){
+      const parent = products.find(pp => pp.id === p.parentId);
+      const weight = p.childWeight || 1;
+      return {
+        id: genId(), productId: p.parentId, type: 'in', qty: it.qty * weight, date, party,
+        note: note ? `${tf('autoConvertStockInNote', { name: p.name, qty: it.qty, unit: p.unit })}${note ? '、' + note : ''}` : tf('autoConvertStockInNote', { name: p.name, qty: it.qty, unit: p.unit })
+      };
+    }
+    return { id: genId(), productId: it.productId, type: currentTxType, qty: it.qty, date, party, note };
+  });
   transactions.push(...newTxs);
 
   try{
@@ -8975,11 +9539,19 @@ async function submitLoadPendingFlow(action, msg){
     }
 
     // 套用暫存的改數量(待處理訂單不影響庫存,單純改 order.items 上的數字跟異動紀錄)。
+    // 訂單如果已經是「處理中」(picking slip 印過了),這些異動也要記進「核對後變更」,
+    // 跟直接在待處理訂單清單上改是同一套邏輯(見 savePendingOrderItemQty)。
+    const isProcessing = orderStatus(order) === 'processing';
     pendingQtyChanges.forEach(({ item, newQty }) => {
       const oldQty = item.qty;
       item.qty = newQty;
       if(!item.qtyHistory) item.qtyHistory = [];
-      item.qtyHistory.push({ from: oldQty, to: newQty, at: new Date().toISOString() });
+      const changeAt = new Date().toISOString();
+      item.qtyHistory.push({ from: oldQty, to: newQty, at: changeAt });
+      if(isProcessing){
+        if(!order.postVerifyChanges) order.postVerifyChanges = [];
+        order.postVerifyChanges.push({ kind: 'qty', productId: item.productId, name: item.name, sku: item.sku, unit: item.unit, from: oldQty, to: newQty, at: changeAt });
+      }
       logInventoryAction('order_edit', `Pending order ${order.orderNo || order.id} - quantity adjusted: ${item.name} ${oldQty}→${newQty} ${item.unit} (not yet stocked out)`, order.orderNo);
     });
     // 套用暫存的刪除(軟刪除,一樣不影響庫存)。
@@ -8987,6 +9559,10 @@ async function submitLoadPendingFlow(action, msg){
     pendingDeletes.forEach(item => {
       item.deleted = true;
       item.deletedAt = now;
+      if(isProcessing){
+        if(!order.postVerifyChanges) order.postVerifyChanges = [];
+        order.postVerifyChanges.push({ kind: 'deleted', productId: item.productId, name: item.name, sku: item.sku, unit: item.unit, qty: item.qty, at: now });
+      }
       logInventoryAction('order_edit', `Pending order ${order.orderNo || order.id} - removed item: ${item.name} ${item.qty} ${item.unit}`, order.orderNo);
     });
     if(order.items.length > 0 && order.items.every(it => it.deleted)){
@@ -10821,7 +11397,7 @@ function handleGlobalScanKeydown(e){
     if(code.length >= SCAN_MIN_LENGTH) processBarcodeScan(code);
     return;
   }
-  if(e.key.length === 1){
+  if(e.key && e.key.length === 1){
     if(gap > SCAN_KEY_INTERVAL_MS) scanBuffer = '';
     scanBuffer += e.key;
   }
