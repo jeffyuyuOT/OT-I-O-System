@@ -783,11 +783,11 @@
     .order-items-table .row-qty{ grid-column:2; grid-row:1; justify-self:end; }
     .order-items-table .row-note-cell{ grid-column:1 / -1; grid-row:2; }
     .order-items-table .row-qty .td-mobile-label{ display:none; } /* 數量搬到名稱旁邊之後,擠在同一行不需要再重複標「訂貨數量」這個小標籤 */
-    /* row-qty 原本是橫向排列(數量輸入框+單位)——這裡改成直向堆疊、整體靠右,這樣才放得下
-       「平均用量」這一行,顯示在輸入框正下方、跟輸入框一樣靠右對齊。 */
-    .order-items-table .row-qty{ display:flex; flex-direction:column; align-items:flex-end; gap:2px; }
+    /* 「平均用量」跟「新增備註」同一行(row-note-cell,在輸入框那一行下面),用 space-between
+       把兩者分別推到最左、最右,不佔額外的一整行,比較省空間。 */
+    .order-items-table .row-note-cell{ display:flex; justify-content:space-between; align-items:baseline; gap:8px; }
     .avg-usage-mobile{
-      font-family:'Inter',sans-serif; font-size:10.5px; color:var(--ink-soft); white-space:nowrap;
+      font-family:'Inter',sans-serif; font-size:10.5px; color:var(--ink-soft); white-space:nowrap; flex-shrink:0;
     }
     .order-items-table tr.cat-row{
       display:block; grid-template-columns:none; padding:12px 0 4px; border-bottom:none;
@@ -6681,6 +6681,7 @@ function renderOrderItemsTable(){
           ${orderItemNoteDraft[p.id]
             ? `<span class="del-link" style="font-style:italic;" onclick="openOrderItemNoteModal('${p.id}')">${t('noteLabelPrefix')}${orderItemNoteDraft[p.id].replace(/</g,'&lt;')}</span>`
             : `<span class="del-link" onclick="openOrderItemNoteModal('${p.id}')">${t('btnAddItemNote')}</span>`}
+          <span class="show-mobile-only avg-usage-mobile" title="${avgTitle}">${t('avgUsageMobileLabel')}${isChildProduct ? ' —' : ` ${w.avg.toFixed(1)} ${p.unit}`}</span>
         </td>
         <td class="row-num hide-mobile" ${isChildProduct ? '' : `title="${avgTitle}"`}>${isChildProduct ? '—' : `${w.avg.toFixed(1)} ${p.unit}`}</td>
         <td class="row-num row-qty qty-col-data">
@@ -6690,7 +6691,6 @@ function renderOrderItemsTable(){
               max="${stock}" placeholder="0" value="${orderQtyDraft[p.id] != null ? orderQtyDraft[p.id] : ''}" ${outOfStock ? 'disabled' : ''}
               oninput="validateOrderQtyInput('${p.id}')" /><span class="qty-unit-label">${p.unit}</span>
           </div>
-          <span class="show-mobile-only avg-usage-mobile" title="${avgTitle}">${t('avgUsageMobileLabel')}${isChildProduct ? ' —' : ` ${w.avg.toFixed(1)} ${p.unit}`}</span>
         </td>
       </tr>
     `;
