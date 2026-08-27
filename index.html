@@ -4289,6 +4289,14 @@ async function deleteDeliveryNoteRow(id){
   scheduleAutoBackup();
 }
 
+// 還原預設(清空所有資料 / 清空後台紀錄與訂單)兩種情況都要用到——Delivery Note 一定會關聯到
+// 一張已完成訂單號,訂單被清空之後這些 Note 就變成指向不存在的訂單的孤兒資料,兩種清除模式
+// 都應該一併清掉,不留下對不上任何訂單的殘留紀錄。
+async function clearAllDeliveryNotes(){
+  const { error } = await sb.from('delivery_notes').delete().not('id', 'is', null);
+  if(error){ console.error('清空 Delivery Note 失敗', error); throw error; }
+}
+
 // 只有「還原備份」這個明確、具破壞性的動作才會整批覆蓋(先清空 orders 表,再整批寫回本地陣列的內容)。
 async function replaceAllOrders(orderList){
   const { error: delErr } = await sb.from('orders').delete().not('id', 'is', null);
@@ -4421,6 +4429,7 @@ async function clearAllData(){
 
     await replaceAllTransactions([]);      // 清空 transactions 表 + 重建庫存快取為空
     await replaceAllOrders([]);            // 清空 orders 表
+    await clearAllDeliveryNotes();         // 清空 delivery_notes 表(訂單都清空了,留著也是孤兒資料)
 
     products = [];
     await saveProducts();
@@ -4432,11 +4441,13 @@ async function clearAllData(){
 
     transactions = [];
     orders = [];
+    deliveryNotes = [];
     productStockMap = {};
 
     await loadInventoryLog();  // 重新從資料庫讀一次,確認真的清空了(而不是只清本地變數自欺欺人)
     renderAll();
     renderInventoryLog();
+    renderDeliveryNoteLog();
     showInfoModal(t('restoreDefaultSuccessAll'));
   } catch(e){
     console.error('Clear All Data 失敗', e);
@@ -4450,6 +4461,7 @@ async function clearInventoryLogsAndResetOrders(){
     // 一樣先確認 RPC 能成功執行,再動 orders 表,避免清到一半失敗留下不一致狀態。
     await clearInventoryLogTable();        // 透過 RPC 清空 inventory_log(繞過 RLS 限制)
     await replaceAllOrders([]);            // 清空 orders 表
+    await clearAllDeliveryNotes();         // 清空 delivery_notes 表(同上,訂單都清空了會變孤兒資料)
 
     orderCounter = 0;
     await saveOrderCounter();
@@ -4457,10 +4469,12 @@ async function clearInventoryLogsAndResetOrders(){
     catch(e){ /* RPC 可能還沒建立,已在 console 記錄錯誤,不擋住其他清除動作 */ }
 
     orders = [];
+    deliveryNotes = [];
 
     await loadInventoryLog();  // 重新從資料庫讀一次,確認真的清空了(而不是只清本地變數自欺欺人)
     renderAll();
     renderInventoryLog();
+    renderDeliveryNoteLog();
     showInfoModal(t('restoreDefaultSuccessLogsOrders'));
   } catch(e){
     console.error('Clear Inventory Logs & Reset Order # 失敗', e);
@@ -11526,12 +11540,14 @@ function downloadFile(filename, content, mimeType){
 async function exportFullBackup(){
   const backup = {
     exportedAt: new Date().toISOString(),
-    version: 4,
+    version: 5,
     products,
     transactions,
     orders,
     shippingParties,
-    categoryOrder
+    categoryOrder,
+    inventoryLogs,
+    deliveryNotes
   };
   const filename = `stock_ledger_backup_${todayISO()}.json`;
   const content = JSON.stringify(backup, null, 2);
@@ -11610,6 +11626,21 @@ function importFullBackup(){
         await replaceAllOrders(orders);
         await saveShippingParties();
         await saveCategoryOrder();
+        // inventory_log 是稽核用途的紀錄,故意不開放前端刪除(見 clearInventoryLogTable 旁邊的
+        // 說明)——還原備份的時候也一樣不整批覆蓋,只把備份裡的紀錄用 upsert 補進去,已經存在的
+        // (id 相同)就跳過不動,不會覆蓋掉還原當下資料庫裡已經有的紀錄。
+        if(Array.isArray(backup.inventoryLogs) && backup.inventoryLogs.length > 0){
+          try{
+            const { error: logErr } = await sb.from('inventory_log').upsert(backup.inventoryLogs, { onConflict: 'id', ignoreDuplicates: true });
+            if(logErr) throw logErr;
+          } catch(e){ console.error('還原後台紀錄失敗', e); }
+        }
+        if(Array.isArray(backup.deliveryNotes) && backup.deliveryNotes.length > 0){
+          try{ await upsertDeliveryNotes(backup.deliveryNotes); }
+          catch(e){ console.error('還原 Delivery Note 失敗', e); }
+        }
+        await loadInventoryLog();
+        await loadDeliveryNotes();
         const seqSynced = await syncOrderNoSequenceAfterRestore(orders);
         msg.className = seqSynced ? 'msg ok' : 'msg error';
         msg.textContent = tf('restoredBackupMsg', { products: products.length, transactions: transactions.length, orders: orders.length })
@@ -11617,6 +11648,7 @@ function importFullBackup(){
         fileInput.value = '';
         renderTabBar();
         renderAll();
+        renderDeliveryNoteLog();
       } catch(err){
         msg.className = 'msg error';
         msg.textContent = '還原失敗:' + err.message;
