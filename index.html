@@ -276,6 +276,9 @@
     font-family:'IBM Plex Mono',monospace; font-size:10px; color:var(--ink-soft);
     border:1px solid var(--line); border-radius:3px; padding:1px 5px; margin-right:6px;
   }
+  /* 預設(桌面版)隱藏——桌面版有自己專屬的「每次訂貨平均用量」欄位可以看,這個只在手機版的
+     mobile media query 裡才會被改成顯示,見上面該處的說明。 */
+  .show-mobile-only{ display:none; }
   .sku-tooltip-trigger{
     border-bottom:1px dotted var(--ink-soft); cursor:help;
   }
@@ -746,6 +749,9 @@
 
     /* 訂貨頁面商品清單:欄位比較少,直接隱藏「每週平均用量」欄,商品名稱/數量兩欄就能撐滿寬度 */
     .hide-mobile{ display:none; }
+    /* 反過來:平均用量在手機版沒有自己的欄位了,改成跟「新增備註」擠在同一格顯示——這個 class
+       只在手機版才顯示,桌面版預設 display:none(桌面版已經有自己專屬的欄位可以看,不用重複)。 */
+    .show-mobile-only{ display:inline-block !important; }
     .order-toolbar-row{ flex-direction:column; align-items:stretch !important; gap:8px !important; }
     .order-toolbar-row .field{ max-width:none !important; }
 
@@ -777,6 +783,12 @@
     .order-items-table .row-qty{ grid-column:2; grid-row:1; justify-self:end; }
     .order-items-table .row-note-cell{ grid-column:1 / -1; grid-row:2; }
     .order-items-table .row-qty .td-mobile-label{ display:none; } /* 數量搬到名稱旁邊之後,擠在同一行不需要再重複標「訂貨數量」這個小標籤 */
+    /* 「平均用量」跟「新增備註」同一行(row-note-cell,在輸入框那一行下面),用 space-between
+       把兩者分別推到最左、最右,不佔額外的一整行,比較省空間。 */
+    .order-items-table .row-note-cell{ display:flex; justify-content:space-between; align-items:baseline; gap:8px; }
+    .avg-usage-mobile{
+      font-family:'Inter',sans-serif; font-size:10.5px; color:var(--ink-soft); white-space:nowrap; flex-shrink:0;
+    }
     .order-items-table tr.cat-row{
       display:block; grid-template-columns:none; padding:12px 0 4px; border-bottom:none;
     }
@@ -1086,6 +1098,7 @@
               <option value="" data-i18n="optSelectOutFlowType">— 請選擇 —</option>
               <option value="new" data-i18n="optDeliveryNew">新增</option>
               <option value="load" data-i18n="optDeliveryLoad">載入</option>
+              <option value="view" data-i18n="optDeliveryView">觀看紀錄</option>
             </select>
           </div>
           <div class="field" id="txDeliveryNoteSelectWrap" style="display:none;">
@@ -1095,6 +1108,29 @@
             </select>
           </div>
         </div>
+      </div>
+      <div id="txDeliveryViewSection" class="section" style="display:none;margin-top:16px;">
+        <p style="font-size:12.5px;color:var(--ink-soft);margin:0 0 12px;" data-i18n="deliveryNoteLogDesc">
+          列出所有 Delivery Note,依日期排序。列印過的顯示「已完成」,還沒列印的顯示「待處理」。
+        </p>
+        <div class="filter-row">
+          <div class="field">
+            <label data-i18n="lblFromDate">從日期</label>
+            <input type="date" id="deliveryLogDateFrom" onchange="renderDeliveryNoteLog()" />
+          </div>
+          <div class="field">
+            <label data-i18n="lblToDate">到日期</label>
+            <input type="date" id="deliveryLogDateTo" onchange="renderDeliveryNoteLog()" />
+          </div>
+          <div class="field">
+            <label data-i18n="lblPartyGeneric">對象</label>
+            <select id="deliveryLogPartyFilter" onchange="renderDeliveryNoteLog()">
+              <option value="" data-i18n="logPartyAll">全部對象</option>
+            </select>
+          </div>
+          <button class="btn ghost" onclick="clearDeliveryLogFilters()" data-i18n="btnClearFilter">清除篩選</button>
+        </div>
+        <div id="deliveryNoteLogTable"><div class="empty-note" data-i18n="noRecordsYet">尚無紀錄</div></div>
       </div>
       <div id="txOutFlowTypeRow" style="display:none;">
         <div class="form-grid" style="grid-template-columns:1fr 1fr;max-width:520px;">
@@ -1567,7 +1603,6 @@
     <div class="subtab-bar">
       <button class="subtab-btn active" onclick="switchLogSubTab('subtab-log-tx')" id="btn-subtab-log-tx" data-i18n="subtabLogTx">進出貨紀錄</button>
       <button class="subtab-btn" onclick="switchLogSubTab('subtab-log-convert')" id="btn-subtab-log-convert" data-i18n="subtabLogConvert">切換紀錄</button>
-      <button class="subtab-btn" onclick="switchLogSubTab('subtab-log-delivery')" id="btn-subtab-log-delivery" data-i18n="subtabLogDelivery">Delivery Note紀錄</button>
       <button class="subtab-btn" onclick="switchLogSubTab('subtab-log-inventory')" id="btn-subtab-log-inventory" data-i18n="subtabLogInventory">後台紀錄</button>
     </div>
 
@@ -1629,18 +1664,6 @@
           保留最近一個月的切換紀錄。若切換錯誤,可以點右側「復原」按鈕撤銷。
         </p>
         <div id="convertHistoryTable"><div class="empty-note" data-i18n="noConvertHistory">最近一個月沒有切換紀錄。</div></div>
-      </div>
-    </div>
-
-    <div id="subtab-log-delivery" class="subtab-content">
-      <div class="section">
-        <div class="toolbar">
-          <div class="section-title" style="margin:0;"><span data-i18n="secDeliveryNoteLog">Delivery Note紀錄</span></div>
-        </div>
-        <p style="font-size:12.5px;color:var(--ink-soft);margin:0 0 12px;" data-i18n="deliveryNoteLogDesc">
-          列出所有 Delivery Note,依日期排序。列印過的顯示「已完成」,還沒列印的顯示「待處理」。
-        </p>
-        <div id="deliveryNoteLogTable"><div class="empty-note" data-i18n="noRecordsYet">尚無紀錄</div></div>
       </div>
     </div>
 
@@ -2086,9 +2109,8 @@ const I18N = {
     appTitleSubtitle: 'Inventory & Order Hub', appTitleSubtitleOrderOnly: 'Order Hub',
     appLoadingText: '載入中…',
     tabMaster: '系統管理', tabTx: '庫存管理', tabOverview: '庫存總覽', tabLog: '歷史紀錄',
-    subtabLogTx: '進出貨紀錄', subtabLogConvert: '切換紀錄', subtabLogDelivery: 'Delivery Note紀錄', subtabLogInventory: '後台紀錄',
+    subtabLogTx: '進出貨紀錄', subtabLogConvert: '切換紀錄', subtabLogInventory: '後台紀錄',
     secInventoryLog: '後台紀錄',
-    secDeliveryNoteLog: 'Delivery Note紀錄',
     deliveryNoteLogDesc: '列出所有 Delivery Note,依日期排序。列印過的顯示「已完成」,還沒列印的顯示「待處理」。',
     inventoryLogDesc: '列出所有操作動作(訂貨、進貨、出貨、入庫、修改訂單、刪除訂單…等),依時間先後排序(最新在最上面)，可用日期篩選特定時間段。',
     colLogTime: '時間', colLogAction: '操作動作', colLogUser: '操作使用者', colLogDesc: '內容', colLogOrderNo: '相關訂單',
@@ -2175,6 +2197,7 @@ const I18N = {
     partyUnspecified: '未指定',
     cartEmptyNote: '購物車是空的,請先在訂貨頁面填寫訂貨數量。',
     colWeeklyAvg: '每次訂貨平均用量', colOrderQty: '訂貨數量', oosLabel: '缺貨',
+    avgUsageMobileLabel: '平均用量',
     colItemNote: '備註', itemNotePlaceholder: '這個商品的備註(選填)',
     btnAddItemNote: '+ 新增備註',
     btnBackToTop: '▲ To the top',
@@ -2340,7 +2363,7 @@ const I18N = {
 
     lblProduct: '商品', lblType: '類型', lblQty: '數量', lblDate: '日期',
     lblStockIn: '進貨 +', lblStockOut: '出貨 −', lblStockRestock: '入庫', lblDeliveryNote: 'Delivery Note',
-    lblDeliveryFlowType: '操作', optDeliveryNew: '新增', optDeliveryLoad: '載入',
+    lblDeliveryFlowType: '操作', optDeliveryNew: '新增', optDeliveryLoad: '載入', optDeliveryView: '觀看紀錄',
     fieldSelectDeliveryNote: '選擇 Delivery Note', optSelectDeliveryNote: '— 請選擇 —',
     txNoteRequiredDeliveryLabel: '備註(必填,請填相關已完成訂單號)',
     errDeliveryNoteRequired: '請填寫備註(相關已完成訂單號)', btnPrint: '🖨️ 列印',
@@ -2498,9 +2521,8 @@ const I18N = {
     appTitleSubtitle: 'Inventory & Order Hub', appTitleSubtitleOrderOnly: 'Order Hub',
     appLoadingText: 'Loading…',
     tabMaster: 'System Admin', tabTx: 'Inventory Management', tabOverview: 'Stock Overview', tabLog: 'History',
-    subtabLogTx: 'Stock In/Out Log', subtabLogConvert: 'Conversion History', subtabLogDelivery: 'Delivery Note Log', subtabLogInventory: 'Inventory Log',
+    subtabLogTx: 'Stock In/Out Log', subtabLogConvert: 'Conversion History', subtabLogInventory: 'Inventory Log',
     secInventoryLog: 'Inventory Log',
-    secDeliveryNoteLog: 'Delivery Note Log',
     deliveryNoteLogDesc: 'Lists all Delivery Notes, sorted by date. Ones already printed show "Completed"; ones not yet printed show "Pending".',
     inventoryLogDesc: 'Every action taken in the app (place order, stock in, stock out, restock, edit order, delete order, etc.), newest first. Filter by date range to view a specific period.',
     colLogTime: 'Time', colLogAction: 'Action', colLogUser: 'User', colLogDesc: 'Details', colLogOrderNo: 'Related Order',
@@ -2587,6 +2609,7 @@ const I18N = {
     partyUnspecified: 'Unspecified',
     cartEmptyNote: 'Your cart is empty. Please fill in order quantities on the order page first.',
     colWeeklyAvg: 'Avg per Order', colOrderQty: 'Order Qty', oosLabel: 'Out of Stock',
+    avgUsageMobileLabel: 'Avg Usage',
     colItemNote: 'Note', itemNotePlaceholder: 'Note for this item (optional)',
     btnAddItemNote: '+ Add Note',
     btnBackToTop: '▲ To the top',
@@ -2752,7 +2775,7 @@ const I18N = {
 
     lblProduct: 'Product', lblType: 'Type', lblQty: 'Qty', lblDate: 'Date',
     lblStockIn: 'Stock In +', lblStockOut: 'Stock Out −', lblStockRestock: 'Restock', lblDeliveryNote: 'Delivery Note',
-    lblDeliveryFlowType: 'Action', optDeliveryNew: 'New', optDeliveryLoad: 'Load',
+    lblDeliveryFlowType: 'Action', optDeliveryNew: 'New', optDeliveryLoad: 'Load', optDeliveryView: 'View Records',
     fieldSelectDeliveryNote: 'Select Delivery Note', optSelectDeliveryNote: '— Select —',
     txNoteRequiredDeliveryLabel: 'Note (required, enter the related completed order number)',
     errDeliveryNoteRequired: 'Please enter a note (related completed order number)', btnPrint: '🖨️ Print',
@@ -3861,7 +3884,6 @@ function switchLogSubTab(subtabId){
   container.querySelectorAll('.subtab-btn').forEach(el => el.classList.remove('active'));
   if(subtabId === 'subtab-log-tx'){ renderLog(); }
   if(subtabId === 'subtab-log-convert'){ renderConvertHistoryTable(); }
-  if(subtabId === 'subtab-log-delivery'){ renderDeliveryNoteLog(); }
   if(subtabId === 'subtab-log-inventory'){ loadInventoryLog().then(renderInventoryLog); }
   document.getElementById(subtabId).classList.add('active-subtab');
   document.getElementById('btn-' + subtabId).classList.add('active');
@@ -4798,10 +4820,14 @@ function setTxType(type){
   const deliveryFlowRow = document.getElementById('txDeliveryFlowTypeRow');
   const invoiceFieldWrap = document.getElementById('txInvoiceFieldWrap');
   const mainGridEl = document.getElementById('txMainFormGrid');
+  const deliveryViewSection = document.getElementById('txDeliveryViewSection');
   // Invoice 號碼欄位只有「進貨」才需要——其他類型先統一藏起來、版面維持標準三欄,
-  // 'in' 分支下面會再改成顯示 + 四欄。
+  // 'in' 分支下面會再改成顯示 + 四欄。「觀看紀錄」的清單畫面同理,只有 Delivery Note 類型
+  // 底下選了「觀看紀錄」才會顯示(見 setTxDeliveryFlowType),切到其他類型一律先藏起來,
+  // 不然選過一次之後切別的類型,這塊清單會一直卡著不消失。
   if(invoiceFieldWrap) invoiceFieldWrap.style.display = 'none';
   if(mainGridEl) mainGridEl.style.gridTemplateColumns = '1fr 1fr 1.4fr';
+  if(deliveryViewSection) deliveryViewSection.style.display = 'none';
   if(type === 'in'){
     partyLabel.textContent = t('partyLabelIn');
     partyInput.placeholder = t('partyPlaceholderIn');
@@ -4988,6 +5014,7 @@ function setTxDeliveryFlowType(flowType){
   const noteSelectWrap = document.getElementById('txDeliveryNoteSelectWrap');
   const noteSelect = document.getElementById('txDeliveryNoteSelect');
   const existingSection = document.getElementById('txExistingItemsSection');
+  const viewSection = document.getElementById('txDeliveryViewSection');
   const partySelect = document.getElementById('txPartySelect');
   const dateInput = document.getElementById('txDate');
   const noteLabel = document.getElementById('txNoteLabel');
@@ -4998,20 +5025,30 @@ function setTxDeliveryFlowType(flowType){
   if(noteLabel) noteLabel.textContent = t('txNoteRequiredDeliveryLabel');
 
   if(flowType === 'load'){
+    if(viewSection) viewSection.style.display = 'none';
     if(noteSelectWrap) noteSelectWrap.style.display = '';
     if(noteSelect){
       // 「載入」只列出還沒列印過(status 不是 'completed')的 Note——已經列印完成的表示這筆
-      // 送貨已經處理完了,不應該再被找出來繼續編輯,它的歷史紀錄改到「歷史紀錄 → Delivery
-      // Note紀錄」那邊查看。
+      // 送貨已經處理完了,不應該再被找出來繼續編輯,它的歷史紀錄改到「觀看紀錄」那邊查看。
       const sorted = deliveryNotes.filter(n => n.status !== 'completed').slice().sort((a,b) => (b.date || '').localeCompare(a.date || ''));
       noteSelect.innerHTML = `<option value="">${t('optSelectDeliveryNote')}</option>` +
         sorted.map(n => `<option value="${n.id}">${n.date || ''}${n.note ? ` (${n.note.replace(/"/g,'&quot;')})` : ''}</option>`).join('');
     }
     showTxMainFormArea(false);
   } else if(flowType === 'new'){
+    if(viewSection) viewSection.style.display = 'none';
     if(noteSelectWrap) noteSelectWrap.style.display = 'none';
     showTxMainFormArea(true);
+  } else if(flowType === 'view'){
+    // 「觀看紀錄」原本是「歷史紀錄」底下獨立一個子分頁,後來考慮到 Delivery Note 很少被回頭
+    // 查看,不值得佔用一整個子分頁,改成併進這裡的「操作」下拉選單——選了直接在原本表單的
+    // 位置顯示清單,不需要主表單(日期/出貨方/備註/商品清單)那一整套欄位。
+    if(noteSelectWrap) noteSelectWrap.style.display = 'none';
+    showTxMainFormArea(false);
+    if(viewSection) viewSection.style.display = '';
+    renderDeliveryNoteLog();
   } else {
+    if(viewSection) viewSection.style.display = 'none';
     if(noteSelectWrap) noteSelectWrap.style.display = 'none';
     showTxMainFormArea(false);
   }
@@ -6644,6 +6681,7 @@ function renderOrderItemsTable(){
           ${orderItemNoteDraft[p.id]
             ? `<span class="del-link" style="font-style:italic;" onclick="openOrderItemNoteModal('${p.id}')">${t('noteLabelPrefix')}${orderItemNoteDraft[p.id].replace(/</g,'&lt;')}</span>`
             : `<span class="del-link" onclick="openOrderItemNoteModal('${p.id}')">${t('btnAddItemNote')}</span>`}
+          <span class="show-mobile-only avg-usage-mobile" title="${avgTitle}">${t('avgUsageMobileLabel')}${isChildProduct ? ' —' : ` ${w.avg.toFixed(1)} ${p.unit}`}</span>
         </td>
         <td class="row-num hide-mobile" ${isChildProduct ? '' : `title="${avgTitle}"`}>${isChildProduct ? '—' : `${w.avg.toFixed(1)} ${p.unit}`}</td>
         <td class="row-num row-qty qty-col-data">
@@ -7074,7 +7112,7 @@ function orderItemRowHtml(o, it, isPending, readOnly, context){
     const label = isPending ? t('itemDeletedLabelPending') : (it.deleteStockStatus === 'stocked_out' ? t('itemDeletedLabelStockedOut') : t('itemDeletedLabel'));
     return `
       <div>
-        <span style="text-decoration:line-through;color:var(--ink-soft);">${it.name}${it.sku ? ` (${it.sku})` : ''}</span>
+        <span style="text-decoration:line-through;color:var(--ink-soft);">${it.sku ? `<span class="sku-tooltip-trigger" data-sku="${it.sku.replace(/"/g,'&quot;')}">${it.name}</span>` : it.name}</span>
         <span style="color:var(--ink-soft);">${it.qty} ${it.unit} · <span style="color:var(--crit);">${label}</span></span>
         ${it.note ? `<div style="font-size:11px;color:var(--ink-soft);font-style:italic;">${t('noteLabelPrefix')}${it.note.replace(/</g,'&lt;')}</div>` : ''}
       </div>
@@ -7093,7 +7131,7 @@ function orderItemRowHtml(o, it, isPending, readOnly, context){
   if(isEditingQty){
     return `
       <div>
-        <span>${it.name}${it.sku ? ` (${it.sku})` : ''}</span>
+        <span>${it.sku ? `<span class="sku-tooltip-trigger" data-sku="${it.sku.replace(/"/g,'&quot;')}">${it.name}</span>` : it.name}</span>
         <span>
           <input type="number" id="orderItemQtyInput_${context}_${o.id}_${it.productId}" value="${it.qty}" ${isPending ? 'min="0"' : ''} step="1"
             style="width:70px;font-family:inherit;font-size:inherit;" />
@@ -7118,7 +7156,7 @@ function orderItemRowHtml(o, it, isPending, readOnly, context){
     : qtyLabel;
   return `
     <div>
-      <span>${it.name}${it.sku ? ` (${it.sku})` : ''}</span>
+      <span>${it.sku ? `<span class="sku-tooltip-trigger" data-sku="${it.sku.replace(/"/g,'&quot;')}">${it.name}</span>` : it.name}</span>
       <span>${qtyDisplay}
         ${canEdit ? `<span class="del-link" style="margin-left:8px;" onclick="startEditOrderItemQty('${context}','${o.id}','${it.productId}')">${t('btnEditQty')}</span>` : ''}
         ${canEdit ? `<span class="del-link" style="margin-left:8px;color:var(--crit);" onclick="${deleteFn}('${o.id}','${it.productId}')">${t('btnDelete')}</span>` : ''}
@@ -7604,11 +7642,11 @@ function printOrderDocument(orderId, opts){
 
   const rowsHtml = items.map(it => `
     <tr>
-      ${includeCheck ? `<td class="check-col"></td>` : ''}
       ${includeSku ? `<td class="sku-col">${escapeHtmlForPrint(it.sku)}</td>` : ''}
       <td>${escapeHtmlForPrint(it.name)}</td>
       <td style="text-align:right;">${it.qty}</td>
       <td>${escapeHtmlForPrint(it.unit)}</td>
+      ${includeCheck ? `<td class="check-col"></td>` : ''}
     </tr>
   `).join('');
   const checkTh = includeCheck ? `<th class="check-col">${escapeHtmlForPrint('Check')}</th>` : '';
@@ -7639,7 +7677,7 @@ function printOrderDocument(orderId, opts){
   <div class="meta">${escapeHtmlForPrint('Customer')}: ${escapeHtmlForPrint(order.partyName)}</div>
   ${(order.note && !includeCheck) ? `<div class="meta">${escapeHtmlForPrint('Note')}: ${escapeHtmlForPrint(order.note)}</div>` : ''}
   <table>
-    <thead><tr>${checkTh}${skuTh}<th>${escapeHtmlForPrint('Product Name')}</th><th>${escapeHtmlForPrint('Qty')}</th><th>${escapeHtmlForPrint('Unit')}</th></tr></thead>
+    <thead><tr>${skuTh}<th>${escapeHtmlForPrint('Product Name')}</th><th>${escapeHtmlForPrint('Qty')}</th><th>${escapeHtmlForPrint('Unit')}</th>${checkTh}</tr></thead>
     <tbody>${rowsHtml}</tbody>
   </table>
   ${(order.note && includeCheck) ? `<div class="note-after-table">${escapeHtmlForPrint('Note')}: ${escapeHtmlForPrint(order.note)}</div>` : ''}
@@ -10938,7 +10976,7 @@ function renderStockCards(){
       <tr id="stockRow_${p.id}" class="stock-row row-${gauge.cls} ${selectedProductIds.has(p.id) ? 'selected-row' : ''} ${p.hidden ? 'hidden-product-row' : ''}">
         <td class="row-check"><input type="checkbox" ${selectedProductIds.has(p.id) ? 'checked' : ''} onchange="toggleSelectProduct('${p.id}', this.checked)" /></td>
         <td class="row-indicator"><span class="dot dot-${gauge.cls}" title="${gauge.label}"></span></td>
-        <td class="row-name" style="${isSubRow ? 'padding-left:26px;' : ''}">${p.sku ? `<span class="sku-tooltip-trigger" data-sku="${p.sku.replace(/"/g,'&quot;')}">${p.name}</span>` : p.name}${expandArrow}<span class="row-unit">${p.unit}</span>${p.barcode ? `<span title="${tf('barcodeValueTitle', {barcode: p.barcode})}" style="margin-left:4px;">🏷️</span>` : ''}${p.hidden ? `<span class="hidden-badge">${t('hiddenBadge')}</span>` : ''}${p.orderable ? `<span class="orderable-badge">${t('orderableBadge')}</span>` : ''}</td>
+        <td class="row-name" style="${isSubRow ? 'padding-left:26px;' : ''}">${p.sku ? `<span class="sku-tooltip-trigger" data-sku="${p.sku.replace(/"/g,'&quot;')}">${p.name}</span>` : p.name}${p.photoUrl ? `<span class="del-link" title="${t('btnViewPhoto')}" onclick="openProductPhotoModal('${p.id}')" style="margin-left:4px;">📷</span>` : ''}${expandArrow}<span class="row-unit">${p.unit}</span>${p.barcode ? `<span title="${tf('barcodeValueTitle', {barcode: p.barcode})}" style="margin-left:4px;">🏷️</span>` : ''}${p.hidden ? `<span class="hidden-badge">${t('hiddenBadge')}</span>` : ''}${p.orderable ? `<span class="orderable-badge">${t('orderableBadge')}</span>` : ''}</td>
         <td class="row-num row-stock-own"><span class="td-mobile-label">${t('colStock')}</span>${stock}</td>
         <td class="row-num row-stock-total"><span class="td-mobile-label">${t('colTotalStock')}</span><span class="row-value-line">${isSubRow ? '—' : totalStockDisplay}<span class="row-edit-cart">${editCartLinks}</span></span></td>
         <td class="row-num row-avg" ${avgTitle ? `title="${avgTitle}"` : ''}><span class="td-mobile-label">${t('colAvgOut')}</span>${avgLabel}</td>
@@ -11372,17 +11410,45 @@ async function refreshInventoryLog(){
   renderInventoryLog();
 }
 
+function clearDeliveryLogFilters(){
+  document.getElementById('deliveryLogDateFrom').value = '';
+  document.getElementById('deliveryLogDateTo').value = '';
+  document.getElementById('deliveryLogPartyFilter').value = '';
+  renderDeliveryNoteLog();
+}
+
 // Delivery Note紀錄:列出所有 Delivery Note(不分狀態),依日期排序(最新在最上面)。
 // 已經列印過(status:'completed')的顯示「已完成」,還沒列印的顯示「待處理」——沿用訂單那邊
-// 現成的狀態小標籤樣式(order-status-pill),不用另外做一套。
+// 現成的狀態小標籤樣式(order-status-pill),不用另外做一套。支援日期區間跟出貨方篩選。
 function renderDeliveryNoteLog(){
   const container = document.getElementById('deliveryNoteLogTable');
   if(!container) return;
-  if(deliveryNotes.length === 0){
+
+  // 出貨方下拉選單:從目前所有 Delivery Note 實際出現過的出貨方名稱整理出來,選項會隨著
+  // 資料變動;重新整理選項的時候保留使用者原本選的值(如果那個值還在新的選項清單裡)。
+  const partySelect = document.getElementById('deliveryLogPartyFilter');
+  if(partySelect){
+    const prevVal = partySelect.value;
+    const parties = [...new Set(deliveryNotes.map(n => n.partyName).filter(Boolean))].sort();
+    partySelect.innerHTML = `<option value="">${t('logPartyAll')}</option>` +
+      parties.map(p => `<option value="${p.replace(/"/g,'&quot;')}">${p.replace(/</g,'&lt;')}</option>`).join('');
+    if(parties.includes(prevVal)) partySelect.value = prevVal;
+  }
+
+  const dateFrom = document.getElementById('deliveryLogDateFrom') ? document.getElementById('deliveryLogDateFrom').value : '';
+  const dateTo = document.getElementById('deliveryLogDateTo') ? document.getElementById('deliveryLogDateTo').value : '';
+  const partyFilter = partySelect ? partySelect.value : '';
+
+  let list = deliveryNotes.slice();
+  if(dateFrom) list = list.filter(n => n.date >= dateFrom);
+  if(dateTo) list = list.filter(n => n.date <= dateTo);
+  if(partyFilter) list = list.filter(n => n.partyName === partyFilter);
+
+  if(list.length === 0){
     container.innerHTML = `<div class="empty-note">${t('noRecordsYet')}</div>`;
     return;
   }
-  const sorted = deliveryNotes.slice().sort((a,b) => (b.date || '').localeCompare(a.date || ''));
+  const sorted = list.sort((a,b) => (b.date || '').localeCompare(a.date || ''));
   container.innerHTML = `<table class="stock-table">
       <thead><tr>
         <th>${t('colDate')}</th>
