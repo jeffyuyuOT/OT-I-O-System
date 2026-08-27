@@ -1075,6 +1075,7 @@
           <option value="out" data-i18n="lblStockOut">出貨 −</option>
           <option value="restock" data-i18n="lblStockRestock">入庫</option>
           <option value="delivery" data-i18n="lblDeliveryNote">Delivery Note</option>
+          <option value="adjustment" data-i18n="optFlowAdjustment">庫存調整</option>
         </select>
       </div>
       <div id="txDeliveryFlowTypeRow" style="display:none;">
@@ -1104,7 +1105,6 @@
               <option value="new-order" data-i18n="optFlowNewOrder">新增訂單</option>
               <option value="load-pending" data-i18n="optFlowLoadPending">載入現有待處理訂單</option>
               <option value="load-completed" data-i18n="optFlowLoadCompleted">載入現有已完成訂單</option>
-              <option value="adjustment" data-i18n="optFlowAdjustment">庫存調整</option>
             </select>
           </div>
           <div class="field" id="txOutFlowOrderSelectWrap" style="display:none;">
@@ -1370,7 +1370,7 @@
           </select>
           <button class="btn ghost" onclick="toggleCategoryOrderPanel()" data-i18n="tabOrderBtn">調整分類順序</button>
           <button class="btn ghost" onclick="exportStockQuantitySheet()" data-i18n="btnExportStockQty">📊 匯出庫存數量</button>
-          <button class="btn ghost" onclick="openConvertHistoryWindow()" data-i18n="btnConvertHistory">🕘 切換紀錄</button>
+          <button class="btn ghost" onclick="switchTab('tab-log');switchLogSubTab('subtab-log-convert');" data-i18n="btnConvertHistory">🕘 切換紀錄</button>
           <label style="display:flex;align-items:center;gap:5px;font-size:12px;color:var(--ink-soft);cursor:pointer;">
             <input type="checkbox" id="showHiddenProducts" onchange="toggleShowHiddenProducts(this.checked)" />
             <span data-i18n="showHiddenProducts">顯示隱藏商品</span>
@@ -1556,79 +1556,112 @@
   </div>
 
   <div id="tab-log" class="tab-content">
-    <div class="section">
-      <div class="toolbar">
-        <div class="section-title" style="margin:0;"><span data-i18n="secTxLog">進出貨紀錄</span></div>
-      </div>
-
-      <div class="filter-row">
-        <div class="field">
-          <label data-i18n="fieldFilterByCategory">依分類篩選商品</label>
-          <select id="logCategoryFilter" onchange="onLogCategoryFilterChange()">
-            <option value="">全部分類</option>
-          </select>
-        </div>
-        <div class="field">
-          <label data-i18n="lblProduct">商品</label>
-          <select id="logFilter" onchange="renderLog()">
-            <option value="">全部商品</option>
-          </select>
-        </div>
-        <div class="field">
-          <label data-i18n="lblType">類型</label>
-          <select id="logTypeFilter" onchange="renderLog()">
-            <option value="" data-i18n="logTypeAll">全部類型</option>
-            <option value="in" data-i18n="typeIn">進貨</option>
-            <option value="out" data-i18n="typeOut">出貨</option>
-            <option value="restock" data-i18n="typeRestock">入庫</option>
-          </select>
-        </div>
-        <div class="field">
-          <label data-i18n="lblPartyGeneric">對象</label>
-          <select id="logPartyFilter" onchange="renderLog()">
-            <option value="">全部對象</option>
-          </select>
-        </div>
-        <div class="field">
-          <label data-i18n="lblFromDate">從日期</label>
-          <input type="date" id="logDateFrom" onchange="renderLog()" />
-        </div>
-        <div class="field">
-          <label data-i18n="lblToDate">到日期</label>
-          <input type="date" id="logDateTo" onchange="renderLog()" />
-        </div>
-        <button class="btn ghost" onclick="clearLogFilters()" data-i18n="btnClearFilter">清除篩選</button>
-      </div>
-
-      <div id="logTable"><div class="empty-note" data-i18n="noRecordsYet">尚無紀錄</div></div>
+    <div class="subtab-bar">
+      <button class="subtab-btn active" onclick="switchLogSubTab('subtab-log-tx')" id="btn-subtab-log-tx" data-i18n="subtabLogTx">進出貨紀錄</button>
+      <button class="subtab-btn" onclick="switchLogSubTab('subtab-log-convert')" id="btn-subtab-log-convert" data-i18n="subtabLogConvert">切換紀錄</button>
+      <button class="subtab-btn" onclick="switchLogSubTab('subtab-log-delivery')" id="btn-subtab-log-delivery" data-i18n="subtabLogDelivery">Delivery Note紀錄</button>
+      <button class="subtab-btn" onclick="switchLogSubTab('subtab-log-inventory')" id="btn-subtab-log-inventory" data-i18n="subtabLogInventory">後台紀錄</button>
     </div>
-  </div>
 
-  <div id="tab-inventory-log" class="tab-content">
-    <div class="section">
-      <div class="toolbar">
-        <div class="section-title" style="margin:0;"><span data-i18n="secInventoryLog">後台紀錄</span></div>
+    <div id="subtab-log-tx" class="subtab-content active-subtab">
+      <div class="section">
+        <div class="toolbar">
+          <div class="section-title" style="margin:0;"><span data-i18n="secTxLog">進出貨紀錄</span></div>
+        </div>
+
+        <div class="filter-row">
+          <div class="field">
+            <label data-i18n="fieldFilterByCategory">依分類篩選商品</label>
+            <select id="logCategoryFilter" onchange="onLogCategoryFilterChange()">
+              <option value="">全部分類</option>
+            </select>
+          </div>
+          <div class="field">
+            <label data-i18n="lblProduct">商品</label>
+            <select id="logFilter" onchange="renderLog()">
+              <option value="">全部商品</option>
+            </select>
+          </div>
+          <div class="field">
+            <label data-i18n="lblType">類型</label>
+            <select id="logTypeFilter" onchange="renderLog()">
+              <option value="" data-i18n="logTypeAll">全部類型</option>
+              <option value="in" data-i18n="typeIn">進貨</option>
+              <option value="out" data-i18n="typeOut">出貨</option>
+              <option value="restock" data-i18n="typeRestock">入庫</option>
+            </select>
+          </div>
+          <div class="field">
+            <label data-i18n="lblPartyGeneric">對象</label>
+            <select id="logPartyFilter" onchange="renderLog()">
+              <option value="">全部對象</option>
+            </select>
+          </div>
+          <div class="field">
+            <label data-i18n="lblFromDate">從日期</label>
+            <input type="date" id="logDateFrom" onchange="renderLog()" />
+          </div>
+          <div class="field">
+            <label data-i18n="lblToDate">到日期</label>
+            <input type="date" id="logDateTo" onchange="renderLog()" />
+          </div>
+          <button class="btn ghost" onclick="clearLogFilters()" data-i18n="btnClearFilter">清除篩選</button>
+        </div>
+
+        <div id="logTable"><div class="empty-note" data-i18n="noRecordsYet">尚無紀錄</div></div>
       </div>
-      <p style="font-size:12.5px;color:var(--ink-soft);margin:0 0 12px;" data-i18n="inventoryLogDesc">
-        列出所有操作動作(訂貨、進貨、出貨、入庫、修改訂單、刪除訂單…等),依時間先後排序(最新在最上面)，可用日期篩選特定時間段。
-      </p>
-      <div class="filter-row">
-        <div class="field">
-          <label data-i18n="lblFromDate">從日期</label>
-          <input type="date" id="invLogDateFrom" onchange="renderInventoryLog()" />
+    </div>
+
+    <div id="subtab-log-convert" class="subtab-content">
+      <div class="section">
+        <div class="toolbar">
+          <div class="section-title" style="margin:0;"><span data-i18n="convertHistoryTitle">批量商品切換紀錄</span></div>
         </div>
-        <div class="field">
-          <label data-i18n="lblToDate">到日期</label>
-          <input type="date" id="invLogDateTo" onchange="renderInventoryLog()" />
-        </div>
-        <div class="field">
-          <label data-i18n="lblSearch">搜尋</label>
-          <input type="text" id="invLogSearchFilter" placeholder="使用者、出貨方、訂單號…" oninput="renderInventoryLog()" style="width:180px;" data-i18n-placeholder="invLogSearchPlaceholder" />
-        </div>
-        <button class="btn ghost" onclick="clearInventoryLogFilters()" data-i18n="btnClearFilter">清除篩選</button>
-        <button class="btn ghost" onclick="refreshInventoryLog()">🔄 重新整理</button>
+        <p style="font-size:12.5px;color:var(--ink-soft);margin:0 0 12px;" data-i18n="convertHistoryDesc">
+          保留最近一個月的切換紀錄。若切換錯誤,可以點右側「復原」按鈕撤銷。
+        </p>
+        <div id="convertHistoryTable"><div class="empty-note" data-i18n="noConvertHistory">最近一個月沒有切換紀錄。</div></div>
       </div>
-      <div id="inventoryLogTable"><div class="empty-note" data-i18n="noRecordsYet">尚無紀錄</div></div>
+    </div>
+
+    <div id="subtab-log-delivery" class="subtab-content">
+      <div class="section">
+        <div class="toolbar">
+          <div class="section-title" style="margin:0;"><span data-i18n="secDeliveryNoteLog">Delivery Note紀錄</span></div>
+        </div>
+        <p style="font-size:12.5px;color:var(--ink-soft);margin:0 0 12px;" data-i18n="deliveryNoteLogDesc">
+          列出所有 Delivery Note,依日期排序。列印過的顯示「已完成」,還沒列印的顯示「待處理」。
+        </p>
+        <div id="deliveryNoteLogTable"><div class="empty-note" data-i18n="noRecordsYet">尚無紀錄</div></div>
+      </div>
+    </div>
+
+    <div id="subtab-log-inventory" class="subtab-content">
+      <div class="section">
+        <div class="toolbar">
+          <div class="section-title" style="margin:0;"><span data-i18n="secInventoryLog">後台紀錄</span></div>
+        </div>
+        <p style="font-size:12.5px;color:var(--ink-soft);margin:0 0 12px;" data-i18n="inventoryLogDesc">
+          列出所有操作動作(訂貨、進貨、出貨、入庫、修改訂單、刪除訂單…等),依時間先後排序(最新在最上面)，可用日期篩選特定時間段。
+        </p>
+        <div class="filter-row">
+          <div class="field">
+            <label data-i18n="lblFromDate">從日期</label>
+            <input type="date" id="invLogDateFrom" onchange="renderInventoryLog()" />
+          </div>
+          <div class="field">
+            <label data-i18n="lblToDate">到日期</label>
+            <input type="date" id="invLogDateTo" onchange="renderInventoryLog()" />
+          </div>
+          <div class="field">
+            <label data-i18n="lblSearch">搜尋</label>
+            <input type="text" id="invLogSearchFilter" placeholder="使用者、出貨方、訂單號…" oninput="renderInventoryLog()" style="width:180px;" data-i18n-placeholder="invLogSearchPlaceholder" />
+          </div>
+          <button class="btn ghost" onclick="clearInventoryLogFilters()" data-i18n="btnClearFilter">清除篩選</button>
+          <button class="btn ghost" onclick="refreshInventoryLog()">🔄 重新整理</button>
+        </div>
+        <div id="inventoryLogTable"><div class="empty-note" data-i18n="noRecordsYet">尚無紀錄</div></div>
+      </div>
     </div>
   </div>
   </div>
@@ -1941,7 +1974,6 @@ let conversionParentId = null; // 'toChild' 模式下,來源主商品 id
 let conversionSourceBatchProductId = null; // 如果這次切換是從「登記進出貨」清單裡按切換鍵開啟的,記住是哪個品項,切換成功後要把它從清單移除
 let conversionSourceVerifyProductId = null; // 如果這次切換是從「訂單核對→新增商品(實際點貨)」清單裡按切換鍵開啟的,記住是哪個品項,切換成功後要把它從清單移除
 let conversionDefaultQty = 1; // 切換視窗數量輸入框預設值——一般切換預設 1,但從登記進出貨/訂單核對清單按切換鍵開啟時,預設帶入那個品項目前清單上的數量
-let convertHistoryWindowRef = null; // 開啟中的「切換紀錄」分頁參照
 
 const DEFAULT_CATEGORY_ORDER = ['Frozen Beverages','Gelato','Other Beverages/ Ingredients','Tea','Toppings','Packaging'];
 let categoryOrder = [...DEFAULT_CATEGORY_ORDER];
@@ -1984,8 +2016,11 @@ const I18N = {
     appTitle: 'Orange Tea AU | Inventory & Order Hub', appTitleOrderOnly: 'Orange Tea AU | Order Hub',
     appTitleSubtitle: 'Inventory & Order Hub', appTitleSubtitleOrderOnly: 'Order Hub',
     appLoadingText: '載入中…',
-    tabMaster: '系統管理', tabTx: '庫存管理', tabOverview: '庫存總覽', tabLog: '進出貨紀錄',
-    tabInventoryLog: '後台紀錄', secInventoryLog: '後台紀錄',
+    tabMaster: '系統管理', tabTx: '庫存管理', tabOverview: '庫存總覽', tabLog: '歷史紀錄',
+    subtabLogTx: '進出貨紀錄', subtabLogConvert: '切換紀錄', subtabLogDelivery: 'Delivery Note紀錄', subtabLogInventory: '後台紀錄',
+    secInventoryLog: '後台紀錄',
+    secDeliveryNoteLog: 'Delivery Note紀錄',
+    deliveryNoteLogDesc: '列出所有 Delivery Note,依日期排序。列印過的顯示「已完成」,還沒列印的顯示「待處理」。',
     inventoryLogDesc: '列出所有操作動作(訂貨、進貨、出貨、入庫、修改訂單、刪除訂單…等),依時間先後排序(最新在最上面)，可用日期篩選特定時間段。',
     colLogTime: '時間', colLogAction: '操作動作', colLogUser: '操作使用者', colLogDesc: '內容', colLogOrderNo: '相關訂單',
     noInventoryLogs: '沒有符合篩選條件的紀錄', unknownUser: '(未知使用者)',
@@ -2379,8 +2414,11 @@ const I18N = {
     appTitle: 'Orange Tea AU | Inventory & Order Hub', appTitleOrderOnly: 'Orange Tea AU | Order Hub',
     appTitleSubtitle: 'Inventory & Order Hub', appTitleSubtitleOrderOnly: 'Order Hub',
     appLoadingText: 'Loading…',
-    tabMaster: 'System Admin', tabTx: 'Inventory Management', tabOverview: 'Stock Overview', tabLog: 'Stock In/Out Log',
-    tabInventoryLog: 'Inventory Log', secInventoryLog: 'Inventory Log',
+    tabMaster: 'System Admin', tabTx: 'Inventory Management', tabOverview: 'Stock Overview', tabLog: 'History',
+    subtabLogTx: 'Stock In/Out Log', subtabLogConvert: 'Conversion History', subtabLogDelivery: 'Delivery Note Log', subtabLogInventory: 'Inventory Log',
+    secInventoryLog: 'Inventory Log',
+    secDeliveryNoteLog: 'Delivery Note Log',
+    deliveryNoteLogDesc: 'Lists all Delivery Notes, sorted by date. Ones already printed show "Completed"; ones not yet printed show "Pending".',
     inventoryLogDesc: 'Every action taken in the app (place order, stock in, stock out, restock, edit order, delete order, etc.), newest first. Filter by date range to view a specific period.',
     colLogTime: 'Time', colLogAction: 'Action', colLogUser: 'User', colLogDesc: 'Details', colLogOrderNo: 'Related Order',
     noInventoryLogs: 'No log entries match the current filter', unknownUser: '(unknown user)',
@@ -3105,8 +3143,7 @@ const TAB_DEFS = [
   { id: 'tab-overview', labelKey: 'tabOverview' },
   { id: 'tab-order', labelKey: 'tabOrder' },
   { id: 'tab-order-admin', labelKey: 'secOrderAdmin' },
-  { id: 'tab-log', labelKey: 'tabLog' },
-  { id: 'tab-inventory-log', labelKey: 'tabInventoryLog' }
+  { id: 'tab-log', labelKey: 'tabLog' }
 ];
 
 // ===== 使用者帳號 / 身分權限 =====
@@ -3136,7 +3173,7 @@ const CAPABILITY_DEFS = [
 const ROLE_DEFAULT_TABS = {
   admin: TAB_DEFS.map(d => d.id),
   order: ['tab-order'],
-  inventory: ['tab-tx', 'tab-overview', 'tab-order-admin', 'tab-log', 'tab-inventory-log']
+  inventory: ['tab-tx', 'tab-overview', 'tab-order-admin', 'tab-log']
 };
 
 // Turn a plain username into the placeholder email Supabase Auth needs.
@@ -3642,7 +3679,6 @@ function switchTab(tabId){
   // display:none, so re-render whichever tab just became visible
   if(tabId === 'tab-overview'){ populateCategoryDropdowns(); renderStockCards(); }
   if(tabId === 'tab-log'){ renderLog(); }
-  if(tabId === 'tab-inventory-log'){ renderInventoryLog(); }
   if(tabId === 'tab-tx'){ renderProductSelect(); renderTxBatchList(); populateExportPartySelect(); }
   if(tabId === 'tab-order'){
     populatePartySelect(); renderOrderItemsTable(); renderOrderHistory();
@@ -3663,7 +3699,6 @@ function switchTab(tabId){
     if(usersBtn) usersBtn.style.display = hasCapability('cap-manage-users') ? '' : 'none';
     if(!hasCapability('cap-manage-users')) switchSystemSubTab('subtab-sys-settings');
   }
-  if(tabId === 'tab-inventory-log'){ loadInventoryLog().then(renderInventoryLog); }
 }
 
 
@@ -3714,6 +3749,23 @@ function switchTxSubTab(subtabId){
   if(subtabId === 'subtab-tx-data'){ populateExportPartySelect(); }
   if(subtabId === 'subtab-tx-verify'){ renderVerifyPage(); renderVerifyPageProductSelect(); }
   if(subtabId === 'subtab-tx-forecast'){ renderForecastTable(); }
+  document.getElementById(subtabId).classList.add('active-subtab');
+  document.getElementById('btn-' + subtabId).classList.add('active');
+}
+
+// 歷史紀錄分頁(tab-log)自己的子分頁切換(進出貨紀錄/切換紀錄/Delivery Note紀錄/後台紀錄),
+// 只在它自己的容器裡找 .subtab-content/.subtab-btn,不會動到其他分頁那幾組子分頁的顯示狀態。
+function switchLogSubTab(subtabId){
+  const container = document.getElementById('tab-log');
+  if(!container) return;
+  document.body.classList.remove('mobile-subtab-menu-active');
+  document.body.classList.add('mobile-subtab-content-active');
+  container.querySelectorAll('.subtab-content').forEach(el => el.classList.remove('active-subtab'));
+  container.querySelectorAll('.subtab-btn').forEach(el => el.classList.remove('active'));
+  if(subtabId === 'subtab-log-tx'){ renderLog(); }
+  if(subtabId === 'subtab-log-convert'){ renderConvertHistoryTable(); }
+  if(subtabId === 'subtab-log-delivery'){ renderDeliveryNoteLog(); }
+  if(subtabId === 'subtab-log-inventory'){ loadInventoryLog().then(renderInventoryLog); }
   document.getElementById(subtabId).classList.add('active-subtab');
   document.getElementById('btn-' + subtabId).classList.add('active');
 }
@@ -4498,12 +4550,18 @@ function setTxType(type){
     partyInput.style.display = 'none';
     partySelect.style.display = '';
     if(deliveryFlowRow) deliveryFlowRow.style.display = 'none';
+    // 出貨、Delivery Note 都需要出貨方欄位、標準三欄版面——如果是從「庫存調整」切過來的
+    // (那邊會把這兩個藏起來/改成兩欄),這裡要復原回來。
+    const partyFieldWrap = document.getElementById('txPartyFieldWrap');
+    const mainGrid = document.getElementById('txMainFormGrid');
+    if(partyFieldWrap) partyFieldWrap.style.display = '';
+    if(mainGrid) mainGrid.style.gridTemplateColumns = '1fr 1fr 1.4fr';
     // 如果是從 Delivery Note 切過來的,要把 Delivery Note 那邊的暫存狀態清掉,不然待會切回
     // Delivery Note 時,會看到上一次的殘留狀態(例如還停在「載入」某一張舊 Note 的畫面)。
     registerDeliveryFlowType = '';
     registerLoadedDeliveryNoteId = null;
     txBatchItems = [];
-    // 出貨一定要先選「出貨類型」,選了之後(如果是新增訂單/庫存調整就直接展開;如果是載入
+    // 出貨一定要先選「出貨類型」,選了之後(如果是新增訂單就直接展開;如果是載入
     // 現有訂單,還要再選出是哪一張)下面的主表單區塊才會出現——避免使用者還沒決定清楚要做
     // 哪一種操作,就先動手填日期/加商品,結果選了類型才發現整個表單邏輯不一樣要重填。
     if(outFlowRow) outFlowRow.style.display = '';
@@ -4514,6 +4572,10 @@ function setTxType(type){
     partyInput.style.display = 'none';
     partySelect.style.display = '';
     if(outFlowRow) outFlowRow.style.display = 'none';
+    const partyFieldWrap = document.getElementById('txPartyFieldWrap');
+    const mainGrid = document.getElementById('txMainFormGrid');
+    if(partyFieldWrap) partyFieldWrap.style.display = '';
+    if(mainGrid) mainGrid.style.gridTemplateColumns = '1fr 1fr 1.4fr';
     // 反過來,如果是從「出貨」切過來的,也要把出貨那邊的暫存狀態清掉,同樣的道理。
     registerOutFlowType = '';
     registerLoadedOrderId = null;
@@ -4522,6 +4584,33 @@ function setTxType(type){
     // Delivery Note 也要先選「新增」還是「載入」,邏輯跟出貨類型一樣——選了才展開下面的表單。
     if(deliveryFlowRow) deliveryFlowRow.style.display = '';
     setTxDeliveryFlowType(registerDeliveryFlowType || '');
+  } else if(type === 'adjustment'){
+    // 庫存調整不需要出貨方(這個異動不是要出給誰,單純是庫存數字校正),把出貨方欄位整個藏起來,
+    // 表單格線也跟著從三欄變兩欄,不會留一塊空白;備註改成必填(校正原因寫在這裡)。原本是
+    // 「登記進出貨→出貨→庫存調整」底下的其中一種出貨類型,現在獨立成頂層類型自己的分頁,
+    // 選了就直接展開表單,不需要再多選一層。
+    if(outFlowRow) outFlowRow.style.display = 'none';
+    if(deliveryFlowRow) deliveryFlowRow.style.display = 'none';
+    const partyFieldWrap = document.getElementById('txPartyFieldWrap');
+    const mainGrid = document.getElementById('txMainFormGrid');
+    const noteLabel = document.getElementById('txNoteLabel');
+    const existingSection = document.getElementById('txExistingItemsSection');
+    const postVerifySection = document.getElementById('txPostVerifyChangesSection');
+    if(partyFieldWrap) partyFieldWrap.style.display = 'none';
+    if(mainGrid) mainGrid.style.gridTemplateColumns = '1fr 1.4fr';
+    if(noteLabel) noteLabel.textContent = t('txNoteRequiredLabel');
+    if(existingSection) existingSection.style.display = 'none';
+    if(postVerifySection) postVerifySection.style.display = 'none';
+    registerOutFlowType = '';
+    registerLoadedOrderId = null;
+    registerPendingItemChanges = {};
+    registerDeliveryFlowType = '';
+    registerLoadedDeliveryNoteId = null;
+    txBatchItems = [];
+    showTxMainFormArea(true);
+    renderTxSubmitArea();
+    renderTxBatchList();
+    renderProductSelect();
   } else {
     partyLabel.textContent = t('partyLabelRestock');
     partyInput.placeholder = t('partyPlaceholderRestock');
@@ -4569,8 +4658,8 @@ function resetRegisterOutFlow(){
   if(dateInput) dateInput.disabled = false;
 }
 
-// 「出貨類型」下拉選單改變時呼叫。四種類型的表單長相差異很大,這個函式負責決定當下要顯示
-// 哪些區塊:'new-order'/'adjustment' 選了就直接展開主表單;'load-pending'/'load-completed'
+// 「出貨類型」下拉選單改變時呼叫。三種類型的表單長相差異很大,這個函式負責決定當下要顯示
+// 哪些區塊:'new-order' 選了就直接展開主表單;'load-pending'/'load-completed'
 // 還要再選出實際是哪一張訂單,選出來之前主表單保持隱藏。
 function setTxOutFlowType(flowType){
   registerOutFlowType = flowType;
@@ -4592,16 +4681,10 @@ function setTxOutFlowType(flowType){
   if(partySelect) partySelect.disabled = false;
   if(dateInput) dateInput.disabled = false;
   if(noteLabel) noteLabel.textContent = t('txNoteSharedLabel');
-
-  // 庫存調整不需要出貨方(這個異動不是要出給誰,單純是庫存數字校正),把出貨方欄位整個藏起來,
-  // 表單格線也跟著從三欄變兩欄,不會留一塊空白。其他三種流程都要出貨方,照常顯示。
-  if(flowType === 'adjustment'){
-    if(partyFieldWrap) partyFieldWrap.style.display = 'none';
-    if(mainGrid) mainGrid.style.gridTemplateColumns = '1fr 1.4fr';
-  } else {
-    if(partyFieldWrap) partyFieldWrap.style.display = '';
-    if(mainGrid) mainGrid.style.gridTemplateColumns = '1fr 1fr 1.4fr';
-  }
+  // 出貨的三種流程(新增訂單/載入待處理/載入已完成)都需要出貨方,固定顯示、固定三欄——庫存
+  // 調整已經搬到「登記進出貨」的頂層類型自己處理,這裡不用再判斷了。
+  if(partyFieldWrap) partyFieldWrap.style.display = '';
+  if(mainGrid) mainGrid.style.gridTemplateColumns = '1fr 1fr 1.4fr';
 
   if(flowType === 'load-pending' || flowType === 'load-completed'){
     if(orderWrap) orderWrap.style.display = '';
@@ -4612,9 +4695,8 @@ function setTxOutFlowType(flowType){
         eligible.map(o => `<option value="${o.id}">${o.orderNo || ''} · ${o.date}${o.partyName ? ' · ' + o.partyName : ''}</option>`).join('');
     }
     showTxMainFormArea(false);
-  } else if(flowType === 'new-order' || flowType === 'adjustment'){
+  } else if(flowType === 'new-order'){
     if(orderWrap) orderWrap.style.display = 'none';
-    if(flowType === 'adjustment' && noteLabel) noteLabel.textContent = t('txNoteRequiredLabel');
     showTxMainFormArea(true);
   } else {
     if(orderWrap) orderWrap.style.display = 'none';
@@ -4647,7 +4729,10 @@ function setTxDeliveryFlowType(flowType){
   if(flowType === 'load'){
     if(noteSelectWrap) noteSelectWrap.style.display = '';
     if(noteSelect){
-      const sorted = deliveryNotes.slice().sort((a,b) => (b.date || '').localeCompare(a.date || ''));
+      // 「載入」只列出還沒列印過(status 不是 'completed')的 Note——已經列印完成的表示這筆
+      // 送貨已經處理完了,不應該再被找出來繼續編輯,它的歷史紀錄改到「歷史紀錄 → Delivery
+      // Note紀錄」那邊查看。
+      const sorted = deliveryNotes.filter(n => n.status !== 'completed').slice().sort((a,b) => (b.date || '').localeCompare(a.date || ''));
       noteSelect.innerHTML = `<option value="">${t('optSelectDeliveryNote')}</option>` +
         sorted.map(n => `<option value="${n.id}">${n.date || ''}${n.note ? ` (${n.note.replace(/"/g,'&quot;')})` : ''}</option>`).join('');
     }
@@ -4706,8 +4791,6 @@ function renderTxSubmitArea(){
   } else if(registerOutFlowType === 'load-completed'){
     const disabled = registerLoadedOrderId ? '' : 'disabled';
     area.innerHTML = `<button class="btn" onclick="submitTxBatch('save-completed')" ${disabled}>${t('btnSave')}</button>`;
-  } else if(registerOutFlowType === 'adjustment'){
-    area.innerHTML = `<button class="btn" onclick="submitTxBatch('adjustment')">${t('btnRegister')}</button>`;
   } else {
     area.innerHTML = '';
   }
@@ -9022,63 +9105,45 @@ function getConversionRecords(){
     .sort((a, b) => b.sortKey - a.sortKey);
 }
 
-function openConvertHistoryWindow(){
-  convertHistoryWindowRef = window.open('', '_blank');
-  renderConvertHistoryWindow();
-}
-
-function renderConvertHistoryWindow(){
-  if(!convertHistoryWindowRef || convertHistoryWindowRef.closed) return;
+// 之前是開獨立彈出視窗顯示,現在改成嵌在「歷史紀錄 → 切換紀錄」子分頁裡直接顯示,復原按鈕
+// 也改成直接呼叫 undoConversion(...),不用再透過 window.opener 跨視窗呼叫。
+function renderConvertHistoryTable(){
+  const container = document.getElementById('convertHistoryTable');
+  if(!container) return;
   const records = getConversionRecords();
-  const rowsHtml = records.length === 0
-    ? `<p style="color:#68675F;font-family:Inter,sans-serif;font-size:13px;">${t('noConvertHistory')}</p>`
-    : `<table style="width:100%;border-collapse:collapse;font-family:'IBM Plex Mono',monospace;font-size:12.5px;">
-        <thead><tr style="text-align:left;border-bottom:2px solid #1E1E1B;">
-          <th style="padding:8px;">${t('colDate')}</th>
-          <th style="padding:8px;">${t('convertFromLabel')}</th>
-          <th style="padding:8px;">${t('convertToLabel')}</th>
-          <th style="padding:8px;"></th>
-        </tr></thead>
-        <tbody>
-          ${records.map(r => `
-            <tr style="border-bottom:1px solid #D6D0BE;">
-              <td style="padding:8px;white-space:nowrap;">${r.date}${r.time ? ` ${r.time}` : ''}</td>
-              <td style="padding:8px;">${r.fromName} −${r.fromQty} ${r.fromUnit}</td>
-              <td style="padding:8px;">${r.toName} +${r.toQty} ${r.toUnit}</td>
-              <td style="padding:8px;"><button onclick="window.opener.undoConversion('${r.conversionId}')" style="cursor:pointer;border:1px solid #B5453B;background:#F3DFDB;color:#B5453B;border-radius:2px;padding:5px 10px;font-family:Inter,sans-serif;font-size:11.5px;font-weight:600;">${t('btnUndoConversion')}</button></td>
-            </tr>
-          `).join('')}
-        </tbody>
-      </table>`;
-  const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>${t('convertHistoryTitle')}</title></head>
-    <body style="margin:0;padding:24px;background:#EBE8E0;font-family:Inter,sans-serif;color:#1E1E1B;">
-      <h2 style="margin:0 0 4px;font-size:18px;">${t('convertHistoryTitle')}</h2>
-      <p style="color:#68675F;font-size:12.5px;margin:0 0 16px;">${t('convertHistoryDesc')}</p>
-      ${rowsHtml}
-    </body></html>`;
-  convertHistoryWindowRef.document.open();
-  convertHistoryWindowRef.document.write(html);
-  convertHistoryWindowRef.document.close();
+  if(records.length === 0){
+    container.innerHTML = `<div class="empty-note">${t('noConvertHistory')}</div>`;
+    return;
+  }
+  container.innerHTML = `<table class="stock-table">
+      <thead><tr>
+        <th>${t('colDate')}</th>
+        <th>${t('convertFromLabel')}</th>
+        <th>${t('convertToLabel')}</th>
+        <th></th>
+      </tr></thead>
+      <tbody>
+        ${records.map(r => `
+          <tr>
+            <td style="white-space:nowrap;">${r.date}${r.time ? ` ${r.time}` : ''}</td>
+            <td>${r.fromName} −${r.fromQty} ${r.fromUnit}</td>
+            <td>${r.toName} +${r.toQty} ${r.toUnit}</td>
+            <td><span class="del-link" onclick="undoConversion('${r.conversionId}')">${t('btnUndoConversion')}</span></td>
+          </tr>
+        `).join('')}
+      </tbody>
+    </table>`;
 }
 
-// 復原一組切換紀錄:把配對的兩筆交易一起刪除。這個 function 是給「切換紀錄」分頁(window.opener)呼叫的,
-// 所以定義在最上層(全域),讓另一個分頁可以透過 window.opener.undoConversion(...) 呼叫到。
+// 復原一組切換紀錄:把配對的兩筆交易一起刪除。由「歷史紀錄 → 切換紀錄」子分頁裡的「復原」
+// 按鈕直接呼叫。
 // 復原前要先檢查:這兩筆交易裡,「type 是 in(切換當下新增進去的那筆)」如果被移除,會不會讓那個
 // 商品現在的庫存變成負的——如果切換之後那個商品又被出貨掉了(不管是透過訂單還是登記進出貨),
 // 庫存可能已經不夠讓這筆切換完整復原,這種情況要擋下來並清楚告知是哪個商品、目前只剩多少庫存。
 // 「type 是 out(切換當下扣掉的那筆)」復原時是把庫存加回去,不會有變負的風險,不用檢查。
-// 這個警示要顯示在「切換紀錄」那個彈出視窗裡,不是主視窗——因為使用者按「復原」的時候,
-// 注意力跟滑鼠焦點都在切換紀錄那個彈出視窗上,如果用 showInfoModal() 彈在主視窗,使用者根本
-// 看不到(除非剛好切回主視窗分頁才會發現),等於沒有真的示警到。彈出視窗是純手刻的極簡 HTML,
-// 沒有主視窗那一整套彈窗 UI 可以用,所以直接用瀏覽器原生的 alert() 顯示在那個視窗上最直接可靠。
 async function undoConversion(conversionId){
   const pair = transactions.filter(tx => tx.conversionId === conversionId);
   if(pair.length === 0) return;
-
-  const alertInPopup = (message) => {
-    if(convertHistoryWindowRef && !convertHistoryWindowRef.closed) convertHistoryWindowRef.alert(message);
-    else showInfoModal(message);
-  };
 
   for(const tx of pair){
     if(tx.type !== 'in') continue;
@@ -9086,7 +9151,7 @@ async function undoConversion(conversionId){
     const afterRevert = currentStock - tx.qty;
     if(afterRevert < 0){
       const p = products.find(x => x.id === tx.productId);
-      alertInPopup(tf('errUndoConversionWouldGoNegative', {
+      showInfoModal(tf('errUndoConversionWouldGoNegative', {
         name: p ? p.name : tx.productId,
         stock: currentStock,
         unit: p ? p.unit : '',
@@ -9100,7 +9165,7 @@ async function undoConversion(conversionId){
   await deleteTransactions(pair);
   logInventoryAction('conversion_undo', `Reverted conversion (id ${conversionId})`, null);
   renderAll();
-  renderConvertHistoryWindow();
+  renderConvertHistoryTable();
 }
 
 // 併入「已完成訂單」(會真的扣/加庫存):針對這批品項各自建一筆進出貨紀錄(連結這張訂單的
@@ -9169,6 +9234,10 @@ async function submitTxBatch(action){
   const msg = document.getElementById('txMsg');
   const date = document.getElementById('txDate').value;
 
+  if(currentTxType === 'adjustment'){
+    return submitAdjustmentFlow(date, msg);
+  }
+
   if(currentTxType !== 'out'){
     return submitTxBatchSimple(date, msg);
   }
@@ -9182,7 +9251,6 @@ async function submitTxBatch(action){
   if(registerOutFlowType === 'new-order') return submitNewOrderFlow(action, date, msg);
   if(registerOutFlowType === 'load-pending') return submitLoadPendingFlow(action, msg);
   if(registerOutFlowType === 'load-completed') return submitLoadCompletedFlow(date, msg);
-  if(registerOutFlowType === 'adjustment') return submitAdjustmentFlow(date, msg);
 }
 
 // 進貨/入庫維持原本邏輯,不受出貨這次改版影響:一批共用同一個類型/日期/對象/備註,
@@ -9219,7 +9287,7 @@ async function saveDeliveryNote(){
   const isUpdate = !!registerLoadedDeliveryNoteId;
   const note = isUpdate
     ? Object.assign(deliveryNotes.find(n => n.id === registerLoadedDeliveryNoteId), draft.data)
-    : { id: genId(), createdAt: new Date().toISOString(), ...draft.data };
+    : { id: genId(), createdAt: new Date().toISOString(), status: 'pending', ...draft.data };
 
   try{
     await upsertDeliveryNotes([note]);
@@ -9295,18 +9363,27 @@ async function printDeliveryNote(){
     printWindow.print();
   };
 
-  // 「載入」模式下列印,代表這張 Delivery Note 已經真的送出去、完成任務了,不需要再留著讓人
-  // 之後又載入一次——直接從資料庫移除。「新增」模式下列印本來就沒有存進資料庫過,沒有東西
-  // 需要刪除,這裡的判斷式(registerLoadedDeliveryNoteId 有值)天然就只會在「載入」模式下觸發。
+  // 「載入」模式下列印,代表這張 Delivery Note 已經真的送出去、完成任務了——之前是直接從資料庫
+  // 刪除,現在改成標記 status:'completed' 並保留下來,這樣「歷史紀錄 → Delivery Note紀錄」才能
+  // 顯示這筆的完整歷史(已完成/待處理)。「載入」的下拉選單只會列出還沒完成的 Note(見
+  // setTxDeliveryFlowType),所以這裡標記完成後不會再被找出來繼續編輯。「新增」模式下列印
+  // 本來就沒有存進資料庫過,這裡的判斷式(registerLoadedDeliveryNoteId 有值)天然就只會在
+  // 「載入」模式下觸發,「新增」模式列印維持原樣、完全不會留下任何紀錄。
   if(registerLoadedDeliveryNoteId){
-    const noteIdToRemove = registerLoadedDeliveryNoteId;
+    const noteId = registerLoadedDeliveryNoteId;
+    const existingNote = deliveryNotes.find(n => n.id === noteId);
+    const prevSnapshot = existingNote ? { ...existingNote } : null;
     try{
-      await deleteDeliveryNoteRow(noteIdToRemove);
-      const idx = deliveryNotes.findIndex(n => n.id === noteIdToRemove);
-      if(idx >= 0) deliveryNotes.splice(idx, 1);
-      logInventoryAction('delivery_note', `Printed and removed Delivery Note (${data.date}, ${data.note}) - considered fulfilled`, null);
+      if(existingNote){
+        Object.assign(existingNote, data); // 存進去的是實際列印出來的最新內容,不是載入當下的舊資料
+        existingNote.status = 'completed';
+        existingNote.completedAt = new Date().toISOString();
+        await upsertDeliveryNotes([existingNote]);
+      }
+      logInventoryAction('delivery_note', `Printed Delivery Note (${data.date}, ${data.note}) - marked as completed`, null);
     } catch(e){
-      console.error('列印後移除 Delivery Note 失敗', e);
+      console.error('標記 Delivery Note 完成失敗', e);
+      if(existingNote && prevSnapshot) Object.assign(existingNote, prevSnapshot); // 存失敗就整份退回原本的樣子
       showInfoModal(t('errDeliveryNotePrintedButNotRemoved'));
     }
     registerDeliveryFlowType = '';
@@ -9832,9 +9909,11 @@ async function submitAdjustmentFlow(date, msg){
     }
     logInventoryAction('tx_out', `Logged stock adjustment: ${txBatchItems.length} item(s) — ${note}`, null);
     const count = txBatchItems.length;
+    // 提交完之後留在「庫存調整」這個頂層類型上,方便連續登記好幾筆調整——只清空這次的品項清單
+    // 跟備註,不去動出貨方欄位隱藏/兩欄版面這些跟「庫存調整」綁在一起的畫面設定(那些是
+    // setTxType('adjustment') 負責的,不需要在這裡重複呼叫或退回舊的出貨流程邏輯)。renderAll()
+    // 本身就會重新渲染 txSubmitArea/txBatchList/productSelect,不用在這裡另外呼叫。
     txBatchItems = [];
-    resetRegisterOutFlow();
-    setTxOutFlowType('');
     document.getElementById('txNote').value = '';
     msg.className='msg ok'; msg.textContent = `✓ 已提交庫存調整,共 ${count} 項商品`;
     renderAll();
@@ -10933,6 +11012,42 @@ function clearInventoryLogFilters(){
 async function refreshInventoryLog(){
   await loadInventoryLog();
   renderInventoryLog();
+}
+
+// Delivery Note紀錄:列出所有 Delivery Note(不分狀態),依日期排序(最新在最上面)。
+// 已經列印過(status:'completed')的顯示「已完成」,還沒列印的顯示「待處理」——沿用訂單那邊
+// 現成的狀態小標籤樣式(order-status-pill),不用另外做一套。
+function renderDeliveryNoteLog(){
+  const container = document.getElementById('deliveryNoteLogTable');
+  if(!container) return;
+  if(deliveryNotes.length === 0){
+    container.innerHTML = `<div class="empty-note">${t('noRecordsYet')}</div>`;
+    return;
+  }
+  const sorted = deliveryNotes.slice().sort((a,b) => (b.date || '').localeCompare(a.date || ''));
+  container.innerHTML = `<table class="stock-table">
+      <thead><tr>
+        <th>${t('colDate')}</th>
+        <th>${t('lblPartyGeneric')}</th>
+        <th>${t('colItemNote')}</th>
+        <th>${t('lblProduct')}</th>
+        <th></th>
+      </tr></thead>
+      <tbody>
+        ${sorted.map(n => {
+          const isCompleted = n.status === 'completed';
+          const itemsSummary = (n.items || []).map(it => `${it.name} ${it.qty} ${it.unit}`).join(', ');
+          return `
+          <tr>
+            <td style="white-space:nowrap;">${n.date || ''}</td>
+            <td>${n.partyName ? n.partyName.replace(/</g,'&lt;') : t('partyUnspecified')}</td>
+            <td>${(n.note || '').replace(/</g,'&lt;')}</td>
+            <td>${itemsSummary.replace(/</g,'&lt;')}</td>
+            <td><span class="order-status-pill ${isCompleted ? 'confirmed' : 'pending'}">${isCompleted ? t('statusCompleted') : t('statusPending')}</span></td>
+          </tr>`;
+        }).join('')}
+      </tbody>
+    </table>`;
 }
 
 function renderInventoryLog(){
