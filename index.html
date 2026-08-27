@@ -783,6 +783,12 @@
     .order-items-table .row-qty{ grid-column:2; grid-row:1; justify-self:end; }
     .order-items-table .row-note-cell{ grid-column:1 / -1; grid-row:2; }
     .order-items-table .row-qty .td-mobile-label{ display:none; } /* 數量搬到名稱旁邊之後,擠在同一行不需要再重複標「訂貨數量」這個小標籤 */
+    /* row-qty 原本是橫向排列(數量輸入框+單位)——這裡改成直向堆疊、整體靠右,這樣才放得下
+       「平均用量」這一行,顯示在輸入框正下方、跟輸入框一樣靠右對齊。 */
+    .order-items-table .row-qty{ display:flex; flex-direction:column; align-items:flex-end; gap:2px; }
+    .avg-usage-mobile{
+      font-family:'Inter',sans-serif; font-size:10.5px; color:var(--ink-soft); white-space:nowrap;
+    }
     .order-items-table tr.cat-row{
       display:block; grid-template-columns:none; padding:12px 0 4px; border-bottom:none;
     }
@@ -2191,6 +2197,7 @@ const I18N = {
     partyUnspecified: '未指定',
     cartEmptyNote: '購物車是空的,請先在訂貨頁面填寫訂貨數量。',
     colWeeklyAvg: '每次訂貨平均用量', colOrderQty: '訂貨數量', oosLabel: '缺貨',
+    avgUsageMobileLabel: '平均用量',
     colItemNote: '備註', itemNotePlaceholder: '這個商品的備註(選填)',
     btnAddItemNote: '+ 新增備註',
     btnBackToTop: '▲ To the top',
@@ -2602,6 +2609,7 @@ const I18N = {
     partyUnspecified: 'Unspecified',
     cartEmptyNote: 'Your cart is empty. Please fill in order quantities on the order page first.',
     colWeeklyAvg: 'Avg per Order', colOrderQty: 'Order Qty', oosLabel: 'Out of Stock',
+    avgUsageMobileLabel: 'Avg Usage',
     colItemNote: 'Note', itemNotePlaceholder: 'Note for this item (optional)',
     btnAddItemNote: '+ Add Note',
     btnBackToTop: '▲ To the top',
@@ -6673,7 +6681,6 @@ function renderOrderItemsTable(){
           ${orderItemNoteDraft[p.id]
             ? `<span class="del-link" style="font-style:italic;" onclick="openOrderItemNoteModal('${p.id}')">${t('noteLabelPrefix')}${orderItemNoteDraft[p.id].replace(/</g,'&lt;')}</span>`
             : `<span class="del-link" onclick="openOrderItemNoteModal('${p.id}')">${t('btnAddItemNote')}</span>`}
-          <span class="show-mobile-only" style="font-family:'Inter',sans-serif;font-size:11px;color:var(--ink-soft);margin-left:8px;" title="${avgTitle}">${isChildProduct ? '—' : `${w.avg.toFixed(1)} ${p.unit}`}</span>
         </td>
         <td class="row-num hide-mobile" ${isChildProduct ? '' : `title="${avgTitle}"`}>${isChildProduct ? '—' : `${w.avg.toFixed(1)} ${p.unit}`}</td>
         <td class="row-num row-qty qty-col-data">
@@ -6683,6 +6690,7 @@ function renderOrderItemsTable(){
               max="${stock}" placeholder="0" value="${orderQtyDraft[p.id] != null ? orderQtyDraft[p.id] : ''}" ${outOfStock ? 'disabled' : ''}
               oninput="validateOrderQtyInput('${p.id}')" /><span class="qty-unit-label">${p.unit}</span>
           </div>
+          <span class="show-mobile-only avg-usage-mobile" title="${avgTitle}">${t('avgUsageMobileLabel')}${isChildProduct ? ' —' : ` ${w.avg.toFixed(1)} ${p.unit}`}</span>
         </td>
       </tr>
     `;
@@ -10968,7 +10976,7 @@ function renderStockCards(){
       <tr id="stockRow_${p.id}" class="stock-row row-${gauge.cls} ${selectedProductIds.has(p.id) ? 'selected-row' : ''} ${p.hidden ? 'hidden-product-row' : ''}">
         <td class="row-check"><input type="checkbox" ${selectedProductIds.has(p.id) ? 'checked' : ''} onchange="toggleSelectProduct('${p.id}', this.checked)" /></td>
         <td class="row-indicator"><span class="dot dot-${gauge.cls}" title="${gauge.label}"></span></td>
-        <td class="row-name" style="${isSubRow ? 'padding-left:26px;' : ''}">${p.sku ? `<span class="sku-tooltip-trigger" data-sku="${p.sku.replace(/"/g,'&quot;')}">${p.name}</span>` : p.name}${expandArrow}<span class="row-unit">${p.unit}</span>${p.barcode ? `<span title="${tf('barcodeValueTitle', {barcode: p.barcode})}" style="margin-left:4px;">🏷️</span>` : ''}${p.hidden ? `<span class="hidden-badge">${t('hiddenBadge')}</span>` : ''}${p.orderable ? `<span class="orderable-badge">${t('orderableBadge')}</span>` : ''}</td>
+        <td class="row-name" style="${isSubRow ? 'padding-left:26px;' : ''}">${p.sku ? `<span class="sku-tooltip-trigger" data-sku="${p.sku.replace(/"/g,'&quot;')}">${p.name}</span>` : p.name}${p.photoUrl ? `<span class="del-link" title="${t('btnViewPhoto')}" onclick="openProductPhotoModal('${p.id}')" style="margin-left:4px;">📷</span>` : ''}${expandArrow}<span class="row-unit">${p.unit}</span>${p.barcode ? `<span title="${tf('barcodeValueTitle', {barcode: p.barcode})}" style="margin-left:4px;">🏷️</span>` : ''}${p.hidden ? `<span class="hidden-badge">${t('hiddenBadge')}</span>` : ''}${p.orderable ? `<span class="orderable-badge">${t('orderableBadge')}</span>` : ''}</td>
         <td class="row-num row-stock-own"><span class="td-mobile-label">${t('colStock')}</span>${stock}</td>
         <td class="row-num row-stock-total"><span class="td-mobile-label">${t('colTotalStock')}</span><span class="row-value-line">${isSubRow ? '—' : totalStockDisplay}<span class="row-edit-cart">${editCartLinks}</span></span></td>
         <td class="row-num row-avg" ${avgTitle ? `title="${avgTitle}"` : ''}><span class="td-mobile-label">${t('colAvgOut')}</span>${avgLabel}</td>
