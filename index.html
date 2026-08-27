@@ -1126,6 +1126,10 @@
           <input id="txParty" type="text" placeholder="例如:大盤商 A" />
           <select id="txPartySelect" style="display:none;"></select>
         </div>
+        <div class="field" id="txInvoiceFieldWrap" style="display:none;">
+          <label data-i18n="fieldInvoiceNo">Invoice 號碼(選填)</label>
+          <input id="txInvoiceNo" type="text" placeholder="例如:INV-00123" />
+        </div>
         <div class="field">
           <label id="txNoteLabel" data-i18n="txNoteSharedLabel">備註(選填)</label>
           <input id="txNote" type="text" placeholder="例如:客戶訂單 #123" />
@@ -1443,6 +1447,10 @@
         請確認以下訂貨數量。按「繼續訂貨」可以回到訂貨頁面修改
       </p>
       <div id="cartItemsTable"></div>
+      <div class="field" style="max-width:360px;margin-top:12px;">
+        <label data-i18n="fieldOrderNote">備註(選填)</label>
+        <input type="text" id="cartOrderNote" placeholder="例如:用途、聯絡方式…" oninput="document.getElementById('orderNote').value = this.value;" />
+      </div>
       <div style="margin-top:14px;display:flex;gap:10px;">
         <button class="btn ghost" onclick="closeCart()" data-i18n="btnOrderMore">← 繼續訂貨</button>
         <button class="btn" onclick="confirmOrderFromCart()" data-i18n="btnConfirmOrderFinal">✅ 提交訂單</button>
@@ -1933,8 +1941,23 @@ function compareProductsBySortMode(a, b){
     return (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base' });
   }
   if(productSortMode === 'import'){
-    return 0; // 不特別排序,維持商品原本在陣列裡的相對順序——JS 的 Array.sort 是穩定排序,
-              // 回傳 0 的項目彼此順序不會被打亂,等於就是「匯入商品主檔」當初建立的順序。
+    // 批量商品(有 parentId)不看自己在陣列裡的位置——那只反映它是「什麼時候被新增/匯入進系統
+    // 的」,不代表邏輯上該排在哪裡。常見情況是主商品很早就匯入了,批量商品是後來才另外新增/
+    // 匯入的,如果照自己的陣列位置排,會被排到最後面去,而不是貼在主商品後面。這裡改成:
+    // 批量商品借用「自己主商品」的陣列位置當排序依據,讓它自然跟著主商品、不受自己實際新增
+    // 時間影響;同一個主商品底下如果有好幾個批量商品,彼此之間才退回用自己的陣列位置排序。
+    const parentIndexOf = (p) => {
+      if(!p.parentId) return products.indexOf(p);
+      const parent = products.find(x => x.id === p.parentId);
+      return parent ? products.indexOf(parent) : products.indexOf(p);
+    };
+    const aKeyIndex = parentIndexOf(a);
+    const bKeyIndex = parentIndexOf(b);
+    if(aKeyIndex !== bKeyIndex) return aKeyIndex - bKeyIndex;
+    if(!a.parentId && b.parentId) return -1; // 同一組的話,主商品排在自己的批量商品前面
+    if(a.parentId && !b.parentId) return 1;
+    if(a.parentId && b.parentId) return products.indexOf(a) - products.indexOf(b); // 同一個主商品底下好幾個批量商品,彼此退回用自己的陣列位置排
+    return 0;
   }
   // 預設 'sku':照 SKU 排序(數字感知,例如 A2 會排在 A10 前面),沒有 SKU 的退回用名稱排序。
   const as = a.sku || '', bs = b.sku || '';
@@ -2271,6 +2294,7 @@ const I18N = {
     partyLabelIn: '進貨方(供應商)', partyLabelOut: '出貨方(客戶/門市,選填)', partyLabelRestock: '對象(選填)',
     partyPlaceholderIn: '例如:大盤商 A', partyPlaceholderOut: '例如:三民店 / 客戶王先生', partyPlaceholderRestock: '例如:訂單調整 / 盤點',
     txNoteSharedLabel: '備註(選填)',
+    fieldInvoiceNo: 'Invoice 號碼(選填)',
     txNoteRequiredLabel: '備註(必填,套用到本次登記的所有商品)',
     lblOutFlowType: '出貨類型', optSelectOutFlowType: '— 請選擇 —',
     optFlowNewOrder: '新增訂單', optFlowLoadPending: '載入現有待處理訂單',
@@ -2669,6 +2693,7 @@ const I18N = {
     partyLabelIn: 'Supplier', partyLabelOut: 'Customer/Store (optional)', partyLabelRestock: 'Party (optional)',
     partyPlaceholderIn: 'e.g. Supplier A', partyPlaceholderOut: 'e.g. Store #3 / Customer Wang', partyPlaceholderRestock: 'e.g. Order adjustment / Stocktake',
     txNoteSharedLabel: 'Note (optional)',
+    fieldInvoiceNo: 'Invoice No. (optional)',
     txNoteRequiredLabel: 'Note (required, applies to every product logged this time)',
     lblOutFlowType: 'Shipment Type', optSelectOutFlowType: '— Select —',
     optFlowNewOrder: 'New Order', optFlowLoadPending: 'Load Existing Pending Order',
@@ -4535,6 +4560,12 @@ function setTxType(type){
   const partySelect = document.getElementById('txPartySelect');
   const outFlowRow = document.getElementById('txOutFlowTypeRow');
   const deliveryFlowRow = document.getElementById('txDeliveryFlowTypeRow');
+  const invoiceFieldWrap = document.getElementById('txInvoiceFieldWrap');
+  const mainGridEl = document.getElementById('txMainFormGrid');
+  // Invoice 號碼欄位只有「進貨」才需要——其他類型先統一藏起來、版面維持標準三欄,
+  // 'in' 分支下面會再改成顯示 + 四欄。
+  if(invoiceFieldWrap) invoiceFieldWrap.style.display = 'none';
+  if(mainGridEl) mainGridEl.style.gridTemplateColumns = '1fr 1fr 1.4fr';
   if(type === 'in'){
     partyLabel.textContent = t('partyLabelIn');
     partyInput.placeholder = t('partyPlaceholderIn');
@@ -4543,6 +4574,10 @@ function setTxType(type){
     if(outFlowRow) outFlowRow.style.display = 'none';
     if(deliveryFlowRow) deliveryFlowRow.style.display = 'none';
     resetRegisterOutFlow();
+    // resetRegisterOutFlow() 會把版面重設回標準三欄,所以 Invoice 欄位的顯示/四欄版面要在
+    // 它之後才套用,不然會被蓋掉。
+    if(invoiceFieldWrap) invoiceFieldWrap.style.display = '';
+    if(mainGridEl) mainGridEl.style.gridTemplateColumns = '1fr 1fr 1fr 1.2fr';
     showTxMainFormArea(true);
   } else if(type === 'out'){
     partyLabel.textContent = t('partyLabelOut');
@@ -6522,6 +6557,9 @@ function openCart(){
   document.getElementById('orderFormSection').style.display = 'none';
   document.getElementById('orderCartSection').style.display = '';
   document.getElementById('cartMsg').textContent = '';
+  // 主表單那個備註欄位這時候被藏起來了(orderFormSection 隱藏),購物車裡另外放一個備註欄位,
+  // 開啟購物車的時候先把目前的值帶過去,兩邊維持同步(見輸入框上的 oninput,反向同步回主表單)。
+  document.getElementById('cartOrderNote').value = document.getElementById('orderNote').value;
 }
 
 // 按購物車裡的「Order more / 繼續訂貨」:回到訂貨頁面繼續調整數量,草稿(orderQtyDraft)保留不變。
@@ -7340,6 +7378,7 @@ function printOrderDocument(orderId, opts){
   h1{ font-size:18px; margin:0 0 4px; }
   h2{ font-size:12.5px; font-weight:700; letter-spacing:1.5px; text-transform:uppercase; color:#B23B2E; margin:0 0 14px; }
   .meta{ font-size:13px; color:#333; margin-bottom:3px; }
+  .note-after-table{ font-size:16px; font-weight:600; color:#111; margin-top:16px; }
   table{ border-collapse:collapse; width:100%; margin-top:14px; }
   th, td{ padding:7px 10px; border:1px solid #999; font-size:13px; text-align:left; }
   th{ background:#eee; }
@@ -7352,11 +7391,12 @@ function printOrderDocument(orderId, opts){
   <h1>${escapeHtmlForPrint('Order #')} ${escapeHtmlForPrint(order.orderNo || orderId)}</h1>
   <div class="meta">${escapeHtmlForPrint('Date')}: ${order.date || ''}</div>
   <div class="meta">${escapeHtmlForPrint('Customer')}: ${escapeHtmlForPrint(order.partyName)}</div>
-  ${order.note ? `<div class="meta">${escapeHtmlForPrint('Note')}: ${escapeHtmlForPrint(order.note)}</div>` : ''}
+  ${(order.note && !includeCheck) ? `<div class="meta">${escapeHtmlForPrint('Note')}: ${escapeHtmlForPrint(order.note)}</div>` : ''}
   <table>
     <thead><tr>${checkTh}${skuTh}<th>${escapeHtmlForPrint('Product Name')}</th><th>${escapeHtmlForPrint('Qty')}</th><th>${escapeHtmlForPrint('Unit')}</th></tr></thead>
     <tbody>${rowsHtml}</tbody>
   </table>
+  ${(order.note && includeCheck) ? `<div class="note-after-table">${escapeHtmlForPrint('Note')}: ${escapeHtmlForPrint(order.note)}</div>` : ''}
 </body>
 </html>`;
   const printWindow = window.open('', '_blank');
@@ -9398,6 +9438,7 @@ async function printDeliveryNote(){
 async function submitTxBatchSimple(date, msg){
   const party = document.getElementById('txParty').value.trim();
   const note = document.getElementById('txNote').value.trim();
+  const invoiceNo = currentTxType === 'in' ? document.getElementById('txInvoiceNo').value.trim() : '';
 
   if(txBatchItems.length === 0){ msg.className='msg error'; msg.textContent='請先把至少一項商品加入清單'; return; }
   if(!date){ msg.className='msg error'; msg.textContent='請選擇日期'; return; }
@@ -9425,11 +9466,11 @@ async function submitTxBatchSimple(date, msg){
       const parent = products.find(pp => pp.id === p.parentId);
       const weight = p.childWeight || 1;
       return {
-        id: genId(), productId: p.parentId, type: 'in', qty: it.qty * weight, date, party,
+        id: genId(), productId: p.parentId, type: 'in', qty: it.qty * weight, date, party, invoiceNo,
         note: note ? `${tf('autoConvertStockInNote', { name: p.name, qty: it.qty, unit: p.unit })}${note ? '、' + note : ''}` : tf('autoConvertStockInNote', { name: p.name, qty: it.qty, unit: p.unit })
       };
     }
-    return { id: genId(), productId: it.productId, type: currentTxType, qty: it.qty, date, party, note };
+    return { id: genId(), productId: it.productId, type: currentTxType, qty: it.qty, date, party, note, invoiceNo };
   });
   transactions.push(...newTxs);
 
@@ -9453,6 +9494,7 @@ async function submitTxBatchSimple(date, msg){
   if(currentTxType === 'restock'){ document.getElementById('txParty').value = 'Opulent Imports'; }
   else { document.getElementById('txParty').value = ''; }
   document.getElementById('txNote').value = '';
+  document.getElementById('txInvoiceNo').value = '';
   msg.className='msg ok';
   msg.textContent = `✓ 已提交 ${count} 項商品`;
   renderAll();
@@ -11328,6 +11370,10 @@ function exportShipmentSheet(){
     return;
   }
 
+  if(type === 'in'){
+    return exportStockInSheet(rows, productMap, dateFrom, dateTo, msg);
+  }
+
   // aggregate: same party + same product within the selected period gets summed into one line
   const groups = {};
   rows.forEach(t => {
@@ -11415,6 +11461,66 @@ function exportShipmentSheet(){
   msg.textContent = `✓ 已匯出 ${aggregated.length} 筆彙總品項(來自 ${rows.length} 筆原始紀錄):${filename}`;
 }
 
+// 進貨(type='in')專用的匯出——跟出貨/入庫共用的那套「Shop:/Date: 表頭 + 依商品彙總數量」邏輯
+// 不一樣,原因是:(1) 進貨方本來就不是「Shop」,用同一套表頭措辭不準確;(2) 匯出一段時間的進貨
+// 紀錄時,同一個商品在不同時間點可能是跟不同的供應商、不同的 Invoice 進的貨,彙總成一筆會把
+// 這些細節混在一起、也沒辦法各自對應到一個 Invoice 號碼——所以這裡完全不彙總,每一筆進貨
+// 交易紀錄各自佔一列,各自帶自己的進貨方/Invoice號/日期。
+function exportStockInSheet(rows, productMap, dateFrom, dateTo, msg){
+  const sorted = rows.slice().sort((a, b) => {
+    if(a.date !== b.date) return (a.date || '').localeCompare(b.date || '');
+    const pa = productMap[a.productId], pb = productMap[b.productId];
+    return (pa ? pa.name : '').localeCompare(pb ? pb.name : '');
+  });
+
+  const aoa = [];
+  aoa.push(['SKU', 'Name', 'Qty', 'Unit', 'Supplier', 'Invoice No.', 'Date']);
+  sorted.forEach(t => {
+    const p = productMap[t.productId];
+    aoa.push([
+      p && p.sku ? p.sku : '',
+      p ? p.name : '(deleted product)',
+      t.qty,
+      p ? p.unit : '',
+      t.party || '',
+      t.invoiceNo || '',
+      t.date || ''
+    ]);
+  });
+
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
+  ws['!cols'] = [
+    {wch:10}, // SKU
+    {wch:32}, // Name
+    {wch:8},  // Qty
+    {wch:10}, // Unit
+    {wch:18}, // Supplier
+    {wch:16}, // Invoice No.
+    {wch:12}  // Date
+  ];
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Stock In');
+
+  // 檔名格式:「Opulent - Stock in 日期」,單日只顯示那一天,區間就寫成 "date1 to date2";
+  // 兩個日期篩選都沒填(匯出全部進貨紀錄)的話,用資料裡實際最早/最晚的日期組成區間,
+  // 確保檔名還是能反映實際涵蓋的期間,不會什麼日期資訊都沒有。
+  let dateForFilename;
+  if(dateFrom && dateTo){
+    dateForFilename = dateFrom === dateTo ? dateFrom : `${dateFrom} to ${dateTo}`;
+  } else if(dateFrom || dateTo){
+    dateForFilename = dateFrom || dateTo;
+  } else {
+    const allDates = sorted.map(t => t.date).filter(Boolean).sort();
+    const earliest = allDates[0], latest = allDates[allDates.length - 1];
+    dateForFilename = (earliest && latest) ? (earliest === latest ? earliest : `${earliest} to ${latest}`) : todayISO();
+  }
+  const filename = `Opulent - Stock in ${dateForFilename}.xlsx`;
+
+  XLSX.writeFile(wb, filename);
+  msg.className = 'msg ok';
+  msg.textContent = `✓ 已匯出 ${sorted.length} 筆進貨紀錄:${filename}`;
+}
+
 async function startApp(){
   document.getElementById('txDate').value = todayISO();
   document.getElementById('txImportDate').value = todayISO();
@@ -11472,6 +11578,14 @@ function isUserActivelyEditing(){
   const anyModalOpen = [...document.querySelectorAll('.modal-overlay')]
     .some(el => el.style.display && el.style.display !== 'none');
   if(anyModalOpen) return true;
+  // 除了下面這幾個具名的「正在編輯」狀態,再加一個通用判斷:只要現在正焦點在某個
+  // input/select/textarea 上,就算是「使用者正在操作」——訂貨頁面商品清單的數量輸入框
+  // 就是這種情況,它沒有對應到任何一個具名狀態變數,原本完全不會被這個函式擋下來,導致打字
+  // 打到一半,背景同步(每 10 秒一次)重畫整個商品清單,把游標整個踢出輸入框。與其每次
+  // 遇到一個新的輸入情境就再加一個變數,不如直接用「有沒有東西被聚焦」這個更通用、更不容易
+  // 漏掉的判斷方式。
+  const activeTag = document.activeElement && document.activeElement.tagName;
+  if(activeTag === 'INPUT' || activeTag === 'SELECT' || activeTag === 'TEXTAREA') return true;
   return !!(appendingNoteTxId || editingProductId || editingPartyId || editingOrderItemKey ||
     editingOrderRemarkId || editingUserModalId || editingOrderPartyId ||
     addingItemsToOrderId || registerOutFlowType);
