@@ -1823,6 +1823,7 @@ function txToRow(tx){
     date: tx.date || null,
     party: tx.party || null,
     note: tx.note || null,
+    invoice_no: tx.invoiceNo || null,
     system: !!tx.system,
     order_id: tx.orderId || null,
     conversion: !!tx.conversion,
@@ -1832,6 +1833,7 @@ function txToRow(tx){
 }
 function rowToTx(row){
   const tx = { id: row.id, productId: row.product_id, type: row.type, qty: Number(row.qty), date: row.date, party: row.party || '', note: row.note || '' };
+  if(row.invoice_no) tx.invoiceNo = row.invoice_no;
   if(row.system) tx.system = true;
   if(row.order_id) tx.orderId = row.order_id;
   if(row.conversion) tx.conversion = true;
@@ -2305,6 +2307,7 @@ const I18N = {
     partyPlaceholderIn: '例如:大盤商 A', partyPlaceholderOut: '例如:三民店 / 客戶王先生', partyPlaceholderRestock: '例如:訂單調整 / 盤點',
     txNoteSharedLabel: '備註(選填)',
     fieldInvoiceNo: 'Invoice 號碼(選填)',
+    invoiceNoInline: 'Invoice: {no}',
     txNoteRequiredLabel: '備註(必填,套用到本次登記的所有商品)',
     lblOutFlowType: '出貨類型', optSelectOutFlowType: '— 請選擇 —',
     optFlowNewOrder: '新增訂單', optFlowLoadPending: '載入現有待處理訂單',
@@ -2708,6 +2711,7 @@ const I18N = {
     partyPlaceholderIn: 'e.g. Supplier A', partyPlaceholderOut: 'e.g. Store #3 / Customer Wang', partyPlaceholderRestock: 'e.g. Order adjustment / Stocktake',
     txNoteSharedLabel: 'Note (optional)',
     fieldInvoiceNo: 'Invoice No. (optional)',
+    invoiceNoInline: 'Invoice: {no}',
     txNoteRequiredLabel: 'Note (required, applies to every product logged this time)',
     lblOutFlowType: 'Shipment Type', optSelectOutFlowType: '— Select —',
     optFlowNewOrder: 'New Order', optFlowLoadPending: 'Load Existing Pending Order',
@@ -11091,7 +11095,7 @@ function renderLog(){
               <td class="col-product">${p ? p.name : '(已刪除商品)'}</td>
               <td class="col-type"><span class="type-pill ${tx.type}">${tx.type === 'in' ? t('typeIn') : (tx.type === 'restock' ? t('typeRestock') : t('typeOut'))}</span></td>
               <td class="col-qty">${tx.qty}${p ? ' ' + p.unit : ''}</td>
-              <td class="col-party">${tx.party || '—'}</td>
+              <td class="col-party">${tx.party || '—'}${tx.invoiceNo ? `<div style="font-size:11px;color:var(--ink-soft);">${tf('invoiceNoInline', {no: tx.invoiceNo.replace(/</g,'&lt;')})}</div>` : ''}</td>
               <td colspan="2">
                 ${tx.note ? `<div style="color:var(--ink-soft);font-size:11.5px;white-space:pre-wrap;margin-bottom:4px;">${tx.note.replace(/</g,'&lt;')}</div>` : ''}
                 <input type="text" id="appendNoteInput" placeholder="${t('appendNotePlaceholder')}" style="width:100%;" />
@@ -11107,7 +11111,7 @@ function renderLog(){
             <td class="col-product">${p ? p.name : '(已刪除商品)'}</td>
             <td class="col-type"><span class="type-pill ${tx.type}">${tx.type === 'in' ? t('typeIn') : (tx.type === 'restock' ? t('typeRestock') : t('typeOut'))}</span></td>
             <td class="col-qty">${tx.qty}${p ? ' ' + p.unit : ''}</td>
-            <td class="col-party">${tx.party || '—'}</td>
+            <td class="col-party">${tx.party || '—'}${tx.invoiceNo ? `<div style="font-size:11px;color:var(--ink-soft);">${tf('invoiceNoInline', {no: tx.invoiceNo.replace(/</g,'&lt;')})}</div>` : ''}</td>
             <td class="col-note">${tx.note
               ? `<span class="tx-note-text" onclick="toggleTxNoteDisplay(this)" title="${t('btnViewNoteTitle')}">${tx.note.replace(/</g,'&lt;')}</span>`
               : '—'}</td>
