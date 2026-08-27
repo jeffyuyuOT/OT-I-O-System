@@ -3979,6 +3979,14 @@ function setupSignaturePadCanvas(){
   canvas.height = rect.height * ratio;
   const ctx = canvas.getContext('2d');
   ctx.scale(ratio, ratio);
+  // 畫布本身雖然有 CSS 的白色背景,但那只是 DOM 元素的背景,不是畫布「畫面內容」本身——
+  // 有些手機瀏覽器(尤其系統設定深色模式時)畫布實際內容預設是透明的,線條深色、透明背景疊在
+  // 深色系統介面上會看不清楚。另外更關鍵的是:之後用 canvas.toBlob() 存檔時,存下來的圖片
+  // 只會抓「畫面內容」本身,不會連 CSS 背景一起存進去——如果畫面內容是透明的,存出來的簽名圖
+  // 也會是透明背景,之後不管在哪裡顯示都可能看不清楚簽名筆跡。這裡直接把畫布實際內容也填成
+  // 白色,不只是靠 CSS 背景,兩個問題一次解決。
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(0, 0, rect.width, rect.height);
   ctx.lineWidth = 2.2;
   ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
@@ -4021,7 +4029,12 @@ function clearSignaturePad(){
   const canvas = document.getElementById('signaturePadCanvas');
   if(!canvas || !signaturePadCtx) return;
   const ratio = window.devicePixelRatio || 1;
-  signaturePadCtx.clearRect(0, 0, canvas.width / ratio, canvas.height / ratio);
+  const cssWidth = canvas.width / ratio;
+  const cssHeight = canvas.height / ratio;
+  signaturePadCtx.clearRect(0, 0, cssWidth, cssHeight);
+  // 清除重簽的時候也要重新填白,不然清掉之後又變回透明背景。
+  signaturePadCtx.fillStyle = '#fff';
+  signaturePadCtx.fillRect(0, 0, cssWidth, cssHeight);
   signaturePadHasContent = false;
 }
 
