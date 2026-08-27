@@ -1075,6 +1075,7 @@
           <option value="out" data-i18n="lblStockOut">出貨 −</option>
           <option value="restock" data-i18n="lblStockRestock">入庫</option>
           <option value="delivery" data-i18n="lblDeliveryNote">Delivery Note</option>
+          <option value="adjustment" data-i18n="optFlowAdjustment">庫存調整</option>
         </select>
       </div>
       <div id="txDeliveryFlowTypeRow" style="display:none;">
@@ -1104,7 +1105,6 @@
               <option value="new-order" data-i18n="optFlowNewOrder">新增訂單</option>
               <option value="load-pending" data-i18n="optFlowLoadPending">載入現有待處理訂單</option>
               <option value="load-completed" data-i18n="optFlowLoadCompleted">載入現有已完成訂單</option>
-              <option value="adjustment" data-i18n="optFlowAdjustment">庫存調整</option>
             </select>
           </div>
           <div class="field" id="txOutFlowOrderSelectWrap" style="display:none;">
@@ -1125,6 +1125,10 @@
           <label id="txPartyLabel" data-i18n="partyLabelIn">進貨方(供應商)</label>
           <input id="txParty" type="text" placeholder="例如:大盤商 A" />
           <select id="txPartySelect" style="display:none;"></select>
+        </div>
+        <div class="field" id="txInvoiceFieldWrap" style="display:none;">
+          <label data-i18n="fieldInvoiceNo">Invoice 號碼(選填)</label>
+          <input id="txInvoiceNo" type="text" placeholder="例如:INV-00123" />
         </div>
         <div class="field">
           <label id="txNoteLabel" data-i18n="txNoteSharedLabel">備註(選填)</label>
@@ -1370,7 +1374,7 @@
           </select>
           <button class="btn ghost" onclick="toggleCategoryOrderPanel()" data-i18n="tabOrderBtn">調整分類順序</button>
           <button class="btn ghost" onclick="exportStockQuantitySheet()" data-i18n="btnExportStockQty">📊 匯出庫存數量</button>
-          <button class="btn ghost" onclick="openConvertHistoryWindow()" data-i18n="btnConvertHistory">🕘 切換紀錄</button>
+          <button class="btn ghost" onclick="switchTab('tab-log');switchLogSubTab('subtab-log-convert');" data-i18n="btnConvertHistory">🕘 切換紀錄</button>
           <label style="display:flex;align-items:center;gap:5px;font-size:12px;color:var(--ink-soft);cursor:pointer;">
             <input type="checkbox" id="showHiddenProducts" onchange="toggleShowHiddenProducts(this.checked)" />
             <span data-i18n="showHiddenProducts">顯示隱藏商品</span>
@@ -1443,6 +1447,10 @@
         請確認以下訂貨數量。按「繼續訂貨」可以回到訂貨頁面修改
       </p>
       <div id="cartItemsTable"></div>
+      <div class="field" style="max-width:360px;margin-top:12px;">
+        <label data-i18n="fieldOrderNote">備註(選填)</label>
+        <input type="text" id="cartOrderNote" placeholder="例如:用途、聯絡方式…" oninput="document.getElementById('orderNote').value = this.value;" />
+      </div>
       <div style="margin-top:14px;display:flex;gap:10px;">
         <button class="btn ghost" onclick="closeCart()" data-i18n="btnOrderMore">← 繼續訂貨</button>
         <button class="btn" onclick="confirmOrderFromCart()" data-i18n="btnConfirmOrderFinal">✅ 提交訂單</button>
@@ -1556,79 +1564,112 @@
   </div>
 
   <div id="tab-log" class="tab-content">
-    <div class="section">
-      <div class="toolbar">
-        <div class="section-title" style="margin:0;"><span data-i18n="secTxLog">進出貨紀錄</span></div>
-      </div>
-
-      <div class="filter-row">
-        <div class="field">
-          <label data-i18n="fieldFilterByCategory">依分類篩選商品</label>
-          <select id="logCategoryFilter" onchange="onLogCategoryFilterChange()">
-            <option value="">全部分類</option>
-          </select>
-        </div>
-        <div class="field">
-          <label data-i18n="lblProduct">商品</label>
-          <select id="logFilter" onchange="renderLog()">
-            <option value="">全部商品</option>
-          </select>
-        </div>
-        <div class="field">
-          <label data-i18n="lblType">類型</label>
-          <select id="logTypeFilter" onchange="renderLog()">
-            <option value="" data-i18n="logTypeAll">全部類型</option>
-            <option value="in" data-i18n="typeIn">進貨</option>
-            <option value="out" data-i18n="typeOut">出貨</option>
-            <option value="restock" data-i18n="typeRestock">入庫</option>
-          </select>
-        </div>
-        <div class="field">
-          <label data-i18n="lblPartyGeneric">對象</label>
-          <select id="logPartyFilter" onchange="renderLog()">
-            <option value="">全部對象</option>
-          </select>
-        </div>
-        <div class="field">
-          <label data-i18n="lblFromDate">從日期</label>
-          <input type="date" id="logDateFrom" onchange="renderLog()" />
-        </div>
-        <div class="field">
-          <label data-i18n="lblToDate">到日期</label>
-          <input type="date" id="logDateTo" onchange="renderLog()" />
-        </div>
-        <button class="btn ghost" onclick="clearLogFilters()" data-i18n="btnClearFilter">清除篩選</button>
-      </div>
-
-      <div id="logTable"><div class="empty-note" data-i18n="noRecordsYet">尚無紀錄</div></div>
+    <div class="subtab-bar">
+      <button class="subtab-btn active" onclick="switchLogSubTab('subtab-log-tx')" id="btn-subtab-log-tx" data-i18n="subtabLogTx">進出貨紀錄</button>
+      <button class="subtab-btn" onclick="switchLogSubTab('subtab-log-convert')" id="btn-subtab-log-convert" data-i18n="subtabLogConvert">切換紀錄</button>
+      <button class="subtab-btn" onclick="switchLogSubTab('subtab-log-delivery')" id="btn-subtab-log-delivery" data-i18n="subtabLogDelivery">Delivery Note紀錄</button>
+      <button class="subtab-btn" onclick="switchLogSubTab('subtab-log-inventory')" id="btn-subtab-log-inventory" data-i18n="subtabLogInventory">後台紀錄</button>
     </div>
-  </div>
 
-  <div id="tab-inventory-log" class="tab-content">
-    <div class="section">
-      <div class="toolbar">
-        <div class="section-title" style="margin:0;"><span data-i18n="secInventoryLog">後台紀錄</span></div>
+    <div id="subtab-log-tx" class="subtab-content active-subtab">
+      <div class="section">
+        <div class="toolbar">
+          <div class="section-title" style="margin:0;"><span data-i18n="secTxLog">進出貨紀錄</span></div>
+        </div>
+
+        <div class="filter-row">
+          <div class="field">
+            <label data-i18n="fieldFilterByCategory">依分類篩選商品</label>
+            <select id="logCategoryFilter" onchange="onLogCategoryFilterChange()">
+              <option value="">全部分類</option>
+            </select>
+          </div>
+          <div class="field">
+            <label data-i18n="lblProduct">商品</label>
+            <select id="logFilter" onchange="renderLog()">
+              <option value="">全部商品</option>
+            </select>
+          </div>
+          <div class="field">
+            <label data-i18n="lblType">類型</label>
+            <select id="logTypeFilter" onchange="renderLog()">
+              <option value="" data-i18n="logTypeAll">全部類型</option>
+              <option value="in" data-i18n="typeIn">進貨</option>
+              <option value="out" data-i18n="typeOut">出貨</option>
+              <option value="restock" data-i18n="typeRestock">入庫</option>
+            </select>
+          </div>
+          <div class="field">
+            <label data-i18n="lblPartyGeneric">對象</label>
+            <select id="logPartyFilter" onchange="renderLog()">
+              <option value="">全部對象</option>
+            </select>
+          </div>
+          <div class="field">
+            <label data-i18n="lblFromDate">從日期</label>
+            <input type="date" id="logDateFrom" onchange="renderLog()" />
+          </div>
+          <div class="field">
+            <label data-i18n="lblToDate">到日期</label>
+            <input type="date" id="logDateTo" onchange="renderLog()" />
+          </div>
+          <button class="btn ghost" onclick="clearLogFilters()" data-i18n="btnClearFilter">清除篩選</button>
+        </div>
+
+        <div id="logTable"><div class="empty-note" data-i18n="noRecordsYet">尚無紀錄</div></div>
       </div>
-      <p style="font-size:12.5px;color:var(--ink-soft);margin:0 0 12px;" data-i18n="inventoryLogDesc">
-        列出所有操作動作(訂貨、進貨、出貨、入庫、修改訂單、刪除訂單…等),依時間先後排序(最新在最上面)，可用日期篩選特定時間段。
-      </p>
-      <div class="filter-row">
-        <div class="field">
-          <label data-i18n="lblFromDate">從日期</label>
-          <input type="date" id="invLogDateFrom" onchange="renderInventoryLog()" />
+    </div>
+
+    <div id="subtab-log-convert" class="subtab-content">
+      <div class="section">
+        <div class="toolbar">
+          <div class="section-title" style="margin:0;"><span data-i18n="convertHistoryTitle">批量商品切換紀錄</span></div>
         </div>
-        <div class="field">
-          <label data-i18n="lblToDate">到日期</label>
-          <input type="date" id="invLogDateTo" onchange="renderInventoryLog()" />
-        </div>
-        <div class="field">
-          <label data-i18n="lblSearch">搜尋</label>
-          <input type="text" id="invLogSearchFilter" placeholder="使用者、出貨方、訂單號…" oninput="renderInventoryLog()" style="width:180px;" data-i18n-placeholder="invLogSearchPlaceholder" />
-        </div>
-        <button class="btn ghost" onclick="clearInventoryLogFilters()" data-i18n="btnClearFilter">清除篩選</button>
-        <button class="btn ghost" onclick="refreshInventoryLog()">🔄 重新整理</button>
+        <p style="font-size:12.5px;color:var(--ink-soft);margin:0 0 12px;" data-i18n="convertHistoryDesc">
+          保留最近一個月的切換紀錄。若切換錯誤,可以點右側「復原」按鈕撤銷。
+        </p>
+        <div id="convertHistoryTable"><div class="empty-note" data-i18n="noConvertHistory">最近一個月沒有切換紀錄。</div></div>
       </div>
-      <div id="inventoryLogTable"><div class="empty-note" data-i18n="noRecordsYet">尚無紀錄</div></div>
+    </div>
+
+    <div id="subtab-log-delivery" class="subtab-content">
+      <div class="section">
+        <div class="toolbar">
+          <div class="section-title" style="margin:0;"><span data-i18n="secDeliveryNoteLog">Delivery Note紀錄</span></div>
+        </div>
+        <p style="font-size:12.5px;color:var(--ink-soft);margin:0 0 12px;" data-i18n="deliveryNoteLogDesc">
+          列出所有 Delivery Note,依日期排序。列印過的顯示「已完成」,還沒列印的顯示「待處理」。
+        </p>
+        <div id="deliveryNoteLogTable"><div class="empty-note" data-i18n="noRecordsYet">尚無紀錄</div></div>
+      </div>
+    </div>
+
+    <div id="subtab-log-inventory" class="subtab-content">
+      <div class="section">
+        <div class="toolbar">
+          <div class="section-title" style="margin:0;"><span data-i18n="secInventoryLog">後台紀錄</span></div>
+        </div>
+        <p style="font-size:12.5px;color:var(--ink-soft);margin:0 0 12px;" data-i18n="inventoryLogDesc">
+          列出所有操作動作(訂貨、進貨、出貨、入庫、修改訂單、刪除訂單…等),依時間先後排序(最新在最上面)，可用日期篩選特定時間段。
+        </p>
+        <div class="filter-row">
+          <div class="field">
+            <label data-i18n="lblFromDate">從日期</label>
+            <input type="date" id="invLogDateFrom" onchange="renderInventoryLog()" />
+          </div>
+          <div class="field">
+            <label data-i18n="lblToDate">到日期</label>
+            <input type="date" id="invLogDateTo" onchange="renderInventoryLog()" />
+          </div>
+          <div class="field">
+            <label data-i18n="lblSearch">搜尋</label>
+            <input type="text" id="invLogSearchFilter" placeholder="使用者、出貨方、訂單號…" oninput="renderInventoryLog()" style="width:180px;" data-i18n-placeholder="invLogSearchPlaceholder" />
+          </div>
+          <button class="btn ghost" onclick="clearInventoryLogFilters()" data-i18n="btnClearFilter">清除篩選</button>
+          <button class="btn ghost" onclick="refreshInventoryLog()">🔄 重新整理</button>
+        </div>
+        <div id="inventoryLogTable"><div class="empty-note" data-i18n="noRecordsYet">尚無紀錄</div></div>
+      </div>
     </div>
   </div>
   </div>
@@ -1656,6 +1697,49 @@
       <button class="btn ghost" onclick="closeOrderItemNoteModal()" data-i18n="btnCancel">取消</button>
       <button class="btn" onclick="saveOrderItemNoteModal()" data-i18n="btnSave">儲存</button>
     </div>
+  </div>
+</div>
+
+<div id="productPhotoModalOverlay" class="modal-overlay" style="display:none;" onclick="if(event.target===this) closeProductPhotoModal();">
+  <div class="modal-box" style="max-width:min(520px, 90vw);text-align:center;">
+    <div style="text-align:right;margin-bottom:8px;">
+      <span class="del-link" onclick="closeProductPhotoModal()" style="font-size:20px;font-weight:700;">✕</span>
+    </div>
+    <img id="productPhotoModalImg" src="" style="max-width:100%;max-height:70vh;border-radius:4px;" />
+  </div>
+</div>
+
+<div id="warehouseSignModalOverlay" class="modal-overlay" style="display:none;">
+  <div class="modal-box" style="max-width:min(480px, 92vw);">
+    <div class="section-title" style="margin-bottom:12px;" data-i18n="warehouseSignModalTitle">代客戶簽收</div>
+    <p style="font-size:12px;color:var(--ink-soft);margin:0 0 12px;" data-i18n="warehouseSignModalDesc">
+      給收貨者不是訂貨帳號本人的情況使用——請收貨者在下面簽名欄簽名,系統會記錄簽收人姓名跟簽名圖檔。
+    </p>
+    <div class="field-block">
+      <label data-i18n="fieldSignerName">簽收人姓名</label>
+      <input type="text" id="warehouseSignerName" style="width:100%;" placeholder="請輸入簽收人姓名" data-i18n-placeholder="fieldSignerNamePlaceholder" />
+    </div>
+    <div class="field-block">
+      <label data-i18n="fieldSignaturePad">簽名(手指或滑鼠皆可簽)</label>
+      <canvas id="signaturePadCanvas" style="width:100%;height:180px;border:1px solid var(--line);border-radius:4px;background:#fff;touch-action:none;cursor:crosshair;"></canvas>
+      <div style="margin-top:6px;">
+        <span class="del-link" onclick="clearSignaturePad()" data-i18n="btnClearSignature">清除重簽</span>
+      </div>
+    </div>
+    <div id="warehouseSignModalMsg" class="msg"></div>
+    <div class="modal-actions">
+      <button class="btn ghost" onclick="closeWarehouseSignModal()" data-i18n="btnCancel">取消</button>
+      <button class="btn" onclick="saveWarehouseSign()" data-i18n="btnSave">儲存</button>
+    </div>
+  </div>
+</div>
+
+<div id="signatureViewModalOverlay" class="modal-overlay" style="display:none;" onclick="if(event.target===this) closeSignatureViewModal();">
+  <div class="modal-box" style="max-width:min(480px, 90vw);text-align:center;">
+    <div style="text-align:right;margin-bottom:8px;">
+      <span class="del-link" onclick="closeSignatureViewModal()" style="font-size:20px;font-weight:700;">✕</span>
+    </div>
+    <img id="signatureViewModalImg" src="" style="max-width:100%;max-height:50vh;border:1px solid var(--line);border-radius:4px;background:#fff;" />
   </div>
 </div>
 
@@ -1773,6 +1857,7 @@ function txToRow(tx){
     date: tx.date || null,
     party: tx.party || null,
     note: tx.note || null,
+    invoice_no: tx.invoiceNo || null,
     system: !!tx.system,
     order_id: tx.orderId || null,
     conversion: !!tx.conversion,
@@ -1782,6 +1867,7 @@ function txToRow(tx){
 }
 function rowToTx(row){
   const tx = { id: row.id, productId: row.product_id, type: row.type, qty: Number(row.qty), date: row.date, party: row.party || '', note: row.note || '' };
+  if(row.invoice_no) tx.invoiceNo = row.invoice_no;
   if(row.system) tx.system = true;
   if(row.order_id) tx.orderId = row.order_id;
   if(row.conversion) tx.conversion = true;
@@ -1900,8 +1986,23 @@ function compareProductsBySortMode(a, b){
     return (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base' });
   }
   if(productSortMode === 'import'){
-    return 0; // 不特別排序,維持商品原本在陣列裡的相對順序——JS 的 Array.sort 是穩定排序,
-              // 回傳 0 的項目彼此順序不會被打亂,等於就是「匯入商品主檔」當初建立的順序。
+    // 批量商品(有 parentId)不看自己在陣列裡的位置——那只反映它是「什麼時候被新增/匯入進系統
+    // 的」,不代表邏輯上該排在哪裡。常見情況是主商品很早就匯入了,批量商品是後來才另外新增/
+    // 匯入的,如果照自己的陣列位置排,會被排到最後面去,而不是貼在主商品後面。這裡改成:
+    // 批量商品借用「自己主商品」的陣列位置當排序依據,讓它自然跟著主商品、不受自己實際新增
+    // 時間影響;同一個主商品底下如果有好幾個批量商品,彼此之間才退回用自己的陣列位置排序。
+    const parentIndexOf = (p) => {
+      if(!p.parentId) return products.indexOf(p);
+      const parent = products.find(x => x.id === p.parentId);
+      return parent ? products.indexOf(parent) : products.indexOf(p);
+    };
+    const aKeyIndex = parentIndexOf(a);
+    const bKeyIndex = parentIndexOf(b);
+    if(aKeyIndex !== bKeyIndex) return aKeyIndex - bKeyIndex;
+    if(!a.parentId && b.parentId) return -1; // 同一組的話,主商品排在自己的批量商品前面
+    if(a.parentId && !b.parentId) return 1;
+    if(a.parentId && b.parentId) return products.indexOf(a) - products.indexOf(b); // 同一個主商品底下好幾個批量商品,彼此退回用自己的陣列位置排
+    return 0;
   }
   // 預設 'sku':照 SKU 排序(數字感知,例如 A2 會排在 A10 前面),沒有 SKU 的退回用名稱排序。
   const as = a.sku || '', bs = b.sku || '';
@@ -1914,6 +2015,7 @@ function compareProductsBySortMode(a, b){
 let lastAutoBackupMode = null; // 'folder' | 'download' | 'unsupported' | null
 let appendingNoteTxId = null; // 進出貨紀錄已經不能整列編輯了,只能疊加新增附註,用這個狀態控制哪一列在顯示新增附註的輸入框。
 let editingProductId = null;
+let editingProductPhotoUrl = null; // 商品編輯視窗開著的這段期間,目前(可能剛上傳、還沒按「儲存」)的照片網址
 let pendingTotalStockBasisChoice = null; // 商品編輯視窗裡取消勾選「顯示於庫存總覽」時,自動或使用者選出的接手商品 id(存到儲存的時候才真的套用)
 let editingPartyId = null;
 let openPartyProductPanelId = null;
@@ -1941,7 +2043,6 @@ let conversionParentId = null; // 'toChild' 模式下,來源主商品 id
 let conversionSourceBatchProductId = null; // 如果這次切換是從「登記進出貨」清單裡按切換鍵開啟的,記住是哪個品項,切換成功後要把它從清單移除
 let conversionSourceVerifyProductId = null; // 如果這次切換是從「訂單核對→新增商品(實際點貨)」清單裡按切換鍵開啟的,記住是哪個品項,切換成功後要把它從清單移除
 let conversionDefaultQty = 1; // 切換視窗數量輸入框預設值——一般切換預設 1,但從登記進出貨/訂單核對清單按切換鍵開啟時,預設帶入那個品項目前清單上的數量
-let convertHistoryWindowRef = null; // 開啟中的「切換紀錄」分頁參照
 
 const DEFAULT_CATEGORY_ORDER = ['Frozen Beverages','Gelato','Other Beverages/ Ingredients','Tea','Toppings','Packaging'];
 let categoryOrder = [...DEFAULT_CATEGORY_ORDER];
@@ -1984,8 +2085,11 @@ const I18N = {
     appTitle: 'Orange Tea AU | Inventory & Order Hub', appTitleOrderOnly: 'Orange Tea AU | Order Hub',
     appTitleSubtitle: 'Inventory & Order Hub', appTitleSubtitleOrderOnly: 'Order Hub',
     appLoadingText: '載入中…',
-    tabMaster: '系統管理', tabTx: '庫存管理', tabOverview: '庫存總覽', tabLog: '進出貨紀錄',
-    tabInventoryLog: '後台紀錄', secInventoryLog: '後台紀錄',
+    tabMaster: '系統管理', tabTx: '庫存管理', tabOverview: '庫存總覽', tabLog: '歷史紀錄',
+    subtabLogTx: '進出貨紀錄', subtabLogConvert: '切換紀錄', subtabLogDelivery: 'Delivery Note紀錄', subtabLogInventory: '後台紀錄',
+    secInventoryLog: '後台紀錄',
+    secDeliveryNoteLog: 'Delivery Note紀錄',
+    deliveryNoteLogDesc: '列出所有 Delivery Note,依日期排序。列印過的顯示「已完成」,還沒列印的顯示「待處理」。',
     inventoryLogDesc: '列出所有操作動作(訂貨、進貨、出貨、入庫、修改訂單、刪除訂單…等),依時間先後排序(最新在最上面)，可用日期篩選特定時間段。',
     colLogTime: '時間', colLogAction: '操作動作', colLogUser: '操作使用者', colLogDesc: '內容', colLogOrderNo: '相關訂單',
     noInventoryLogs: '沒有符合篩選條件的紀錄', unknownUser: '(未知使用者)',
@@ -2135,6 +2239,14 @@ const I18N = {
     orderHistoryDesc: '這裡列出你送出過的訂貨單(含日期時間),點一筆可以展開看內容。訂單「核對」之前都還可以修改數量或移除品項;一旦核對過(進入已完成訂單)或已經簽收,就不能再修改。',
     noOrderHistory: '還沒有任何訂購記錄。', orderHistoryNoItemsLeft: '這張訂單裡的商品都已經被移除了。',
     btnEditOrder: '修改', btnSignReceipt: '📦 簽收', statusSigned: '已簽收',
+    btnWarehouseSign: '📦 代客戶簽收',
+    warehouseSignModalTitle: '代客戶簽收',
+    warehouseSignModalDesc: '給收貨者不是訂貨帳號本人的情況使用——請收貨者在下面簽名欄簽名,系統會記錄簽收人姓名跟簽名圖檔。',
+    fieldSignerName: '簽收人姓名', fieldSignerNamePlaceholder: '請輸入簽收人姓名',
+    fieldSignaturePad: '簽名(手指或滑鼠皆可簽)', btnClearSignature: '清除重簽',
+    errSignerNameRequired: '請填寫簽收人姓名', errSignatureRequired: '請在簽名欄簽名',
+    uploadingSignatureMsg: '上傳中…', errSignatureSaveFailed: '簽收失敗,請重新整理頁面再試一次',
+    secSignInfo: '簽收資訊', signedByNameLabel: '由 {name} 簽收(代客戶簽收)', signedByUsernameLabel: '由 {name}(用戶名)簽收',
     orderSignedAtTitle: '簽收時間:{datetime}',
     errInvalidHistoryQty: '「{name}」請輸入 1 以上的數量(要移除該商品請按「刪除」)',
     errHistoryQtyExceedsAvailable: '「{name}」數量超過目前可訂數量(最多 {available})',
@@ -2236,6 +2348,8 @@ const I18N = {
     partyLabelIn: '進貨方(供應商)', partyLabelOut: '出貨方(客戶/門市,選填)', partyLabelRestock: '對象(選填)',
     partyPlaceholderIn: '例如:大盤商 A', partyPlaceholderOut: '例如:三民店 / 客戶王先生', partyPlaceholderRestock: '例如:訂單調整 / 盤點',
     txNoteSharedLabel: '備註(選填)',
+    fieldInvoiceNo: 'Invoice 號碼(選填)',
+    invoiceNoInline: 'Invoice: {no}',
     txNoteRequiredLabel: '備註(必填,套用到本次登記的所有商品)',
     lblOutFlowType: '出貨類型', optSelectOutFlowType: '— 請選擇 —',
     optFlowNewOrder: '新增訂單', optFlowLoadPending: '載入現有待處理訂單',
@@ -2350,6 +2464,10 @@ const I18N = {
     autoConvertMultipackHint: '只有主商品「剛好只有一種 multipack 商品」,或已經在編輯商品畫面勾選「顯示於總庫存量」指定某個 multipack 商品時才會生效;數量不足整數倍的部分,仍會用主商品下單。',
     fieldShowInTotalStock: '顯示於庫存總覽',
     fieldAutoConvertStockIn: '自動切換',
+    fieldProductPhoto: '商品照片', btnRemovePhoto: '移除照片',
+    errPhotoMustBeImage: '請選擇圖片檔案', errPhotoTooLarge: '圖片檔案太大,請壓縮到 5MB 以下',
+    uploadingPhotoMsg: '上傳中…', photoUploadedMsg: '✓ 已上傳', errPhotoUploadFailed: '上傳失敗,請重新整理頁面再試一次',
+    btnViewPhoto: '📷 觀看照片',
     fieldAutoConvertStockInHint: '— 勾選後,登記進出貨的「進貨」如果是這個批量商品,會直接依加權數換算成主商品的數量、加進主商品的庫存,不會加進這個批量商品自己的庫存。',
     fieldHideFromCompletedExport: '已完成訂單匯出不顯示',
     fieldHideFromCompletedExportHint: '— 勾選後,已完成訂單匯出時不會列出這個主商品;如果在訂單核對頁面把批量商品切換成這個主商品,切換用的批量商品跟數量會顯示在匯出檔案裡。',
@@ -2379,8 +2497,11 @@ const I18N = {
     appTitle: 'Orange Tea AU | Inventory & Order Hub', appTitleOrderOnly: 'Orange Tea AU | Order Hub',
     appTitleSubtitle: 'Inventory & Order Hub', appTitleSubtitleOrderOnly: 'Order Hub',
     appLoadingText: 'Loading…',
-    tabMaster: 'System Admin', tabTx: 'Inventory Management', tabOverview: 'Stock Overview', tabLog: 'Stock In/Out Log',
-    tabInventoryLog: 'Inventory Log', secInventoryLog: 'Inventory Log',
+    tabMaster: 'System Admin', tabTx: 'Inventory Management', tabOverview: 'Stock Overview', tabLog: 'History',
+    subtabLogTx: 'Stock In/Out Log', subtabLogConvert: 'Conversion History', subtabLogDelivery: 'Delivery Note Log', subtabLogInventory: 'Inventory Log',
+    secInventoryLog: 'Inventory Log',
+    secDeliveryNoteLog: 'Delivery Note Log',
+    deliveryNoteLogDesc: 'Lists all Delivery Notes, sorted by date. Ones already printed show "Completed"; ones not yet printed show "Pending".',
     inventoryLogDesc: 'Every action taken in the app (place order, stock in, stock out, restock, edit order, delete order, etc.), newest first. Filter by date range to view a specific period.',
     colLogTime: 'Time', colLogAction: 'Action', colLogUser: 'User', colLogDesc: 'Details', colLogOrderNo: 'Related Order',
     noInventoryLogs: 'No log entries match the current filter', unknownUser: '(unknown user)',
@@ -2530,6 +2651,14 @@ const I18N = {
     orderHistoryDesc: 'This lists the orders you\'ve placed (with date and time) — click one to expand and see its contents. You can still change quantities or remove items before an order is verified; once verified (moved to Completed Orders) or signed for, it can no longer be changed.',
     noOrderHistory: 'No order history yet.', orderHistoryNoItemsLeft: 'All items in this order have been removed.',
     btnEditOrder: 'Edit', btnSignReceipt: '📦 Sign for Receipt', statusSigned: 'Signed',
+    btnWarehouseSign: '📦 Sign on Behalf of Customer',
+    warehouseSignModalTitle: 'Sign on Behalf of Customer',
+    warehouseSignModalDesc: 'For when the recipient is not the ordering account holder — have the recipient sign below. Their name and signature will be recorded.',
+    fieldSignerName: 'Signer Name', fieldSignerNamePlaceholder: 'Enter signer\'s name',
+    fieldSignaturePad: 'Signature (finger or mouse)', btnClearSignature: 'Clear & Re-sign',
+    errSignerNameRequired: 'Please enter the signer\'s name', errSignatureRequired: 'Please sign in the signature box',
+    uploadingSignatureMsg: 'Uploading…', errSignatureSaveFailed: 'Failed to save signature, please refresh and try again',
+    secSignInfo: 'Signature Info', signedByNameLabel: 'Signed by {name} (on behalf of customer)', signedByUsernameLabel: 'Signed by {name} (account)',
     orderSignedAtTitle: 'Signed at: {datetime}',
     errInvalidHistoryQty: '"{name}": please enter a quantity of at least 1 (use "Delete" to remove this item)',
     errHistoryQtyExceedsAvailable: '"{name}" exceeds the current available-to-order quantity (max {available})',
@@ -2631,6 +2760,8 @@ const I18N = {
     partyLabelIn: 'Supplier', partyLabelOut: 'Customer/Store (optional)', partyLabelRestock: 'Party (optional)',
     partyPlaceholderIn: 'e.g. Supplier A', partyPlaceholderOut: 'e.g. Store #3 / Customer Wang', partyPlaceholderRestock: 'e.g. Order adjustment / Stocktake',
     txNoteSharedLabel: 'Note (optional)',
+    fieldInvoiceNo: 'Invoice No. (optional)',
+    invoiceNoInline: 'Invoice: {no}',
     txNoteRequiredLabel: 'Note (required, applies to every product logged this time)',
     lblOutFlowType: 'Shipment Type', optSelectOutFlowType: '— Select —',
     optFlowNewOrder: 'New Order', optFlowLoadPending: 'Load Existing Pending Order',
@@ -2745,6 +2876,10 @@ const I18N = {
     autoConvertMultipackHint: 'Only applies when a main product has exactly one multi-pack product, or a multi-pack product has been marked "Show in Total Stock" for it in the product edit screen; any amount that isn\'t an exact multiple still gets ordered as the main product.',
     fieldShowInTotalStock: 'Show in Stock Overview',
     fieldAutoConvertStockIn: 'Auto-Convert',
+    fieldProductPhoto: 'Product Photo', btnRemovePhoto: 'Remove Photo',
+    errPhotoMustBeImage: 'Please select an image file', errPhotoTooLarge: 'Image is too large, please compress it under 5MB',
+    uploadingPhotoMsg: 'Uploading…', photoUploadedMsg: '✓ Uploaded', errPhotoUploadFailed: 'Upload failed, please refresh and try again',
+    btnViewPhoto: '📷 View Photo',
     fieldAutoConvertStockInHint: '— When checked, logging a "Stock In" for this multipack product will automatically convert it (using the weight) directly into the main product\'s stock, instead of adding to this multipack product\'s own stock.',
     fieldHideFromCompletedExport: 'Hide from Completed Order Export',
     fieldHideFromCompletedExportHint: '— When checked, this main product won\'t be listed when exporting completed orders; if a multipack product is switched to this main product on the Order Verification page, the multipack product and quantity used will appear in the export instead.',
@@ -3105,8 +3240,7 @@ const TAB_DEFS = [
   { id: 'tab-overview', labelKey: 'tabOverview' },
   { id: 'tab-order', labelKey: 'tabOrder' },
   { id: 'tab-order-admin', labelKey: 'secOrderAdmin' },
-  { id: 'tab-log', labelKey: 'tabLog' },
-  { id: 'tab-inventory-log', labelKey: 'tabInventoryLog' }
+  { id: 'tab-log', labelKey: 'tabLog' }
 ];
 
 // ===== 使用者帳號 / 身分權限 =====
@@ -3136,7 +3270,7 @@ const CAPABILITY_DEFS = [
 const ROLE_DEFAULT_TABS = {
   admin: TAB_DEFS.map(d => d.id),
   order: ['tab-order'],
-  inventory: ['tab-tx', 'tab-overview', 'tab-order-admin', 'tab-log', 'tab-inventory-log']
+  inventory: ['tab-tx', 'tab-overview', 'tab-order-admin', 'tab-log']
 };
 
 // Turn a plain username into the placeholder email Supabase Auth needs.
@@ -3642,7 +3776,6 @@ function switchTab(tabId){
   // display:none, so re-render whichever tab just became visible
   if(tabId === 'tab-overview'){ populateCategoryDropdowns(); renderStockCards(); }
   if(tabId === 'tab-log'){ renderLog(); }
-  if(tabId === 'tab-inventory-log'){ renderInventoryLog(); }
   if(tabId === 'tab-tx'){ renderProductSelect(); renderTxBatchList(); populateExportPartySelect(); }
   if(tabId === 'tab-order'){
     populatePartySelect(); renderOrderItemsTable(); renderOrderHistory();
@@ -3663,7 +3796,6 @@ function switchTab(tabId){
     if(usersBtn) usersBtn.style.display = hasCapability('cap-manage-users') ? '' : 'none';
     if(!hasCapability('cap-manage-users')) switchSystemSubTab('subtab-sys-settings');
   }
-  if(tabId === 'tab-inventory-log'){ loadInventoryLog().then(renderInventoryLog); }
 }
 
 
@@ -3714,6 +3846,23 @@ function switchTxSubTab(subtabId){
   if(subtabId === 'subtab-tx-data'){ populateExportPartySelect(); }
   if(subtabId === 'subtab-tx-verify'){ renderVerifyPage(); renderVerifyPageProductSelect(); }
   if(subtabId === 'subtab-tx-forecast'){ renderForecastTable(); }
+  document.getElementById(subtabId).classList.add('active-subtab');
+  document.getElementById('btn-' + subtabId).classList.add('active');
+}
+
+// 歷史紀錄分頁(tab-log)自己的子分頁切換(進出貨紀錄/切換紀錄/Delivery Note紀錄/後台紀錄),
+// 只在它自己的容器裡找 .subtab-content/.subtab-btn,不會動到其他分頁那幾組子分頁的顯示狀態。
+function switchLogSubTab(subtabId){
+  const container = document.getElementById('tab-log');
+  if(!container) return;
+  document.body.classList.remove('mobile-subtab-menu-active');
+  document.body.classList.add('mobile-subtab-content-active');
+  container.querySelectorAll('.subtab-content').forEach(el => el.classList.remove('active-subtab'));
+  container.querySelectorAll('.subtab-btn').forEach(el => el.classList.remove('active'));
+  if(subtabId === 'subtab-log-tx'){ renderLog(); }
+  if(subtabId === 'subtab-log-convert'){ renderConvertHistoryTable(); }
+  if(subtabId === 'subtab-log-delivery'){ renderDeliveryNoteLog(); }
+  if(subtabId === 'subtab-log-inventory'){ loadInventoryLog().then(renderInventoryLog); }
   document.getElementById(subtabId).classList.add('active-subtab');
   document.getElementById('btn-' + subtabId).classList.add('active');
 }
@@ -3794,6 +3943,156 @@ function openOrderItemNoteModal(productId){
 function closeOrderItemNoteModal(){
   orderItemNoteModalProductId = null;
   document.getElementById('orderItemNoteModalOverlay').style.display = 'none';
+}
+
+function openProductPhotoModal(productId){
+  const p = products.find(x => x.id === productId);
+  if(!p || !p.photoUrl) return;
+  document.getElementById('productPhotoModalImg').src = p.photoUrl;
+  document.getElementById('productPhotoModalOverlay').style.display = 'flex';
+}
+
+function closeProductPhotoModal(){
+  document.getElementById('productPhotoModalOverlay').style.display = 'none';
+  document.getElementById('productPhotoModalImg').src = ''; // 關掉就把圖片來源清掉,避免瀏覽器繼續佔用這張圖的記憶體
+}
+
+// ===== 代客戶簽收(倉庫方)=====
+// 給收貨者不是訂貨帳號本人的情況用:訂購記錄本身已經有一個「簽收」按鈕,但那是訂貨帳號自己
+// 登入才按得到的,只會記錄「哪個帳號按的」,沒有簽名。這裡是額外的、給倉庫端用的簽收入口,
+// 多存簽收人姓名跟手寫簽名圖檔,兩種簽收方式最後都會讓 order.signedAt 有值(判斷「有沒有
+// 簽收」還是看這個欄位,兩邊共用),差別在 order.signInfo 記錄的是哪一種簽收方式、細節是什麼。
+let warehouseSignOrderId = null;
+let signaturePadHasContent = false;
+let signaturePadDrawing = false;
+let signaturePadCtx = null;
+
+function setupSignaturePadCanvas(){
+  const canvas = document.getElementById('signaturePadCanvas');
+  if(!canvas) return;
+  // canvas 的實際繪圖解析度要另外設定(不能只靠 CSS width/height),不然在高解析度螢幕
+  // (例如大多數手機)上畫出來的線條會模糊。這裡照 devicePixelRatio 放大內部畫布尺寸,
+  // 畫的時候再用同樣的比例縮放繪圖座標系統,顯示出來還是照 CSS 尺寸,但線條清晰。
+  const rect = canvas.getBoundingClientRect();
+  const ratio = window.devicePixelRatio || 1;
+  canvas.width = rect.width * ratio;
+  canvas.height = rect.height * ratio;
+  const ctx = canvas.getContext('2d');
+  ctx.scale(ratio, ratio);
+  // 畫布本身雖然有 CSS 的白色背景,但那只是 DOM 元素的背景,不是畫布「畫面內容」本身——
+  // 有些手機瀏覽器(尤其系統設定深色模式時)畫布實際內容預設是透明的,線條深色、透明背景疊在
+  // 深色系統介面上會看不清楚。另外更關鍵的是:之後用 canvas.toBlob() 存檔時,存下來的圖片
+  // 只會抓「畫面內容」本身,不會連 CSS 背景一起存進去——如果畫面內容是透明的,存出來的簽名圖
+  // 也會是透明背景,之後不管在哪裡顯示都可能看不清楚簽名筆跡。這裡直接把畫布實際內容也填成
+  // 白色,不只是靠 CSS 背景,兩個問題一次解決。
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(0, 0, rect.width, rect.height);
+  ctx.lineWidth = 2.2;
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  ctx.strokeStyle = '#1E1E1B';
+  signaturePadCtx = ctx;
+  signaturePadHasContent = false;
+
+  const getPos = (e) => {
+    const r = canvas.getBoundingClientRect();
+    const point = e.touches ? e.touches[0] : e;
+    return { x: point.clientX - r.left, y: point.clientY - r.top };
+  };
+  const start = (e) => {
+    e.preventDefault();
+    signaturePadDrawing = true;
+    const pos = getPos(e);
+    ctx.beginPath();
+    ctx.moveTo(pos.x, pos.y);
+  };
+  const move = (e) => {
+    if(!signaturePadDrawing) return;
+    e.preventDefault();
+    const pos = getPos(e);
+    ctx.lineTo(pos.x, pos.y);
+    ctx.stroke();
+    signaturePadHasContent = true;
+  };
+  const end = (e) => { signaturePadDrawing = false; };
+
+  canvas.onmousedown = start;
+  canvas.onmousemove = move;
+  canvas.onmouseup = end;
+  canvas.onmouseleave = end;
+  canvas.ontouchstart = start;
+  canvas.ontouchmove = move;
+  canvas.ontouchend = end;
+}
+
+function clearSignaturePad(){
+  const canvas = document.getElementById('signaturePadCanvas');
+  if(!canvas || !signaturePadCtx) return;
+  const ratio = window.devicePixelRatio || 1;
+  const cssWidth = canvas.width / ratio;
+  const cssHeight = canvas.height / ratio;
+  signaturePadCtx.clearRect(0, 0, cssWidth, cssHeight);
+  // 清除重簽的時候也要重新填白,不然清掉之後又變回透明背景。
+  signaturePadCtx.fillStyle = '#fff';
+  signaturePadCtx.fillRect(0, 0, cssWidth, cssHeight);
+  signaturePadHasContent = false;
+}
+
+function openWarehouseSignModal(orderId){
+  const order = orders.find(o => o.id === orderId);
+  if(!order || order.deleted || order.signedAt) return;
+  warehouseSignOrderId = orderId;
+  document.getElementById('warehouseSignerName').value = '';
+  document.getElementById('warehouseSignModalMsg').textContent = '';
+  document.getElementById('warehouseSignModalOverlay').style.display = 'flex';
+  // 畫布要等 modal 真的顯示出來、有實際寬高之後再設定尺寸,不然量到的會是 0。
+  requestAnimationFrame(setupSignaturePadCanvas);
+}
+
+function closeWarehouseSignModal(){
+  warehouseSignOrderId = null;
+  document.getElementById('warehouseSignModalOverlay').style.display = 'none';
+}
+
+async function saveWarehouseSign(){
+  const order = orders.find(o => o.id === warehouseSignOrderId);
+  const msg = document.getElementById('warehouseSignModalMsg');
+  if(!order){ closeWarehouseSignModal(); return; }
+  const signerName = document.getElementById('warehouseSignerName').value.trim();
+  if(!signerName){ msg.className = 'msg error'; msg.textContent = t('errSignerNameRequired'); return; }
+  if(!signaturePadHasContent){ msg.className = 'msg error'; msg.textContent = t('errSignatureRequired'); return; }
+
+  msg.className = 'msg'; msg.textContent = t('uploadingSignatureMsg');
+  const canvas = document.getElementById('signaturePadCanvas');
+  const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/png'));
+  const path = `${genId()}.png`;
+  try{
+    const { error: upErr } = await sb.storage.from('order-signatures').upload(path, blob, { upsert: true, contentType: 'image/png' });
+    if(upErr) throw upErr;
+    const { data } = sb.storage.from('order-signatures').getPublicUrl(path);
+
+    const prevSignedAt = order.signedAt;
+    const prevSignInfo = order.signInfo;
+    order.signedAt = new Date().toISOString();
+    order.signInfo = { type: 'warehouse', signerName, signatureUrl: data.publicUrl };
+    await upsertOrders([order]);
+    logInventoryAction('order_edit', `Order ${order.orderNo || order.id} - signed for receipt by warehouse on behalf of ${signerName}`, order.orderNo);
+    closeWarehouseSignModal();
+    renderAll();
+  } catch(e){
+    console.error('代客戶簽收失敗', e);
+    msg.className = 'msg error'; msg.textContent = t('errSignatureSaveFailed');
+  }
+}
+
+function openSignatureViewModal(url){
+  document.getElementById('signatureViewModalImg').src = url;
+  document.getElementById('signatureViewModalOverlay').style.display = 'flex';
+}
+
+function closeSignatureViewModal(){
+  document.getElementById('signatureViewModalOverlay').style.display = 'none';
+  document.getElementById('signatureViewModalImg').src = '';
 }
 
 function saveOrderItemNoteModal(){
@@ -4483,6 +4782,12 @@ function setTxType(type){
   const partySelect = document.getElementById('txPartySelect');
   const outFlowRow = document.getElementById('txOutFlowTypeRow');
   const deliveryFlowRow = document.getElementById('txDeliveryFlowTypeRow');
+  const invoiceFieldWrap = document.getElementById('txInvoiceFieldWrap');
+  const mainGridEl = document.getElementById('txMainFormGrid');
+  // Invoice 號碼欄位只有「進貨」才需要——其他類型先統一藏起來、版面維持標準三欄,
+  // 'in' 分支下面會再改成顯示 + 四欄。
+  if(invoiceFieldWrap) invoiceFieldWrap.style.display = 'none';
+  if(mainGridEl) mainGridEl.style.gridTemplateColumns = '1fr 1fr 1.4fr';
   if(type === 'in'){
     partyLabel.textContent = t('partyLabelIn');
     partyInput.placeholder = t('partyPlaceholderIn');
@@ -4491,6 +4796,10 @@ function setTxType(type){
     if(outFlowRow) outFlowRow.style.display = 'none';
     if(deliveryFlowRow) deliveryFlowRow.style.display = 'none';
     resetRegisterOutFlow();
+    // resetRegisterOutFlow() 會把版面重設回標準三欄,所以 Invoice 欄位的顯示/四欄版面要在
+    // 它之後才套用,不然會被蓋掉。
+    if(invoiceFieldWrap) invoiceFieldWrap.style.display = '';
+    if(mainGridEl) mainGridEl.style.gridTemplateColumns = '1fr 1fr 1fr 1.2fr';
     showTxMainFormArea(true);
   } else if(type === 'out'){
     partyLabel.textContent = t('partyLabelOut');
@@ -4498,12 +4807,18 @@ function setTxType(type){
     partyInput.style.display = 'none';
     partySelect.style.display = '';
     if(deliveryFlowRow) deliveryFlowRow.style.display = 'none';
+    // 出貨、Delivery Note 都需要出貨方欄位、標準三欄版面——如果是從「庫存調整」切過來的
+    // (那邊會把這兩個藏起來/改成兩欄),這裡要復原回來。
+    const partyFieldWrap = document.getElementById('txPartyFieldWrap');
+    const mainGrid = document.getElementById('txMainFormGrid');
+    if(partyFieldWrap) partyFieldWrap.style.display = '';
+    if(mainGrid) mainGrid.style.gridTemplateColumns = '1fr 1fr 1.4fr';
     // 如果是從 Delivery Note 切過來的,要把 Delivery Note 那邊的暫存狀態清掉,不然待會切回
     // Delivery Note 時,會看到上一次的殘留狀態(例如還停在「載入」某一張舊 Note 的畫面)。
     registerDeliveryFlowType = '';
     registerLoadedDeliveryNoteId = null;
     txBatchItems = [];
-    // 出貨一定要先選「出貨類型」,選了之後(如果是新增訂單/庫存調整就直接展開;如果是載入
+    // 出貨一定要先選「出貨類型」,選了之後(如果是新增訂單就直接展開;如果是載入
     // 現有訂單,還要再選出是哪一張)下面的主表單區塊才會出現——避免使用者還沒決定清楚要做
     // 哪一種操作,就先動手填日期/加商品,結果選了類型才發現整個表單邏輯不一樣要重填。
     if(outFlowRow) outFlowRow.style.display = '';
@@ -4514,6 +4829,10 @@ function setTxType(type){
     partyInput.style.display = 'none';
     partySelect.style.display = '';
     if(outFlowRow) outFlowRow.style.display = 'none';
+    const partyFieldWrap = document.getElementById('txPartyFieldWrap');
+    const mainGrid = document.getElementById('txMainFormGrid');
+    if(partyFieldWrap) partyFieldWrap.style.display = '';
+    if(mainGrid) mainGrid.style.gridTemplateColumns = '1fr 1fr 1.4fr';
     // 反過來,如果是從「出貨」切過來的,也要把出貨那邊的暫存狀態清掉,同樣的道理。
     registerOutFlowType = '';
     registerLoadedOrderId = null;
@@ -4522,6 +4841,33 @@ function setTxType(type){
     // Delivery Note 也要先選「新增」還是「載入」,邏輯跟出貨類型一樣——選了才展開下面的表單。
     if(deliveryFlowRow) deliveryFlowRow.style.display = '';
     setTxDeliveryFlowType(registerDeliveryFlowType || '');
+  } else if(type === 'adjustment'){
+    // 庫存調整不需要出貨方(這個異動不是要出給誰,單純是庫存數字校正),把出貨方欄位整個藏起來,
+    // 表單格線也跟著從三欄變兩欄,不會留一塊空白;備註改成必填(校正原因寫在這裡)。原本是
+    // 「登記進出貨→出貨→庫存調整」底下的其中一種出貨類型,現在獨立成頂層類型自己的分頁,
+    // 選了就直接展開表單,不需要再多選一層。
+    if(outFlowRow) outFlowRow.style.display = 'none';
+    if(deliveryFlowRow) deliveryFlowRow.style.display = 'none';
+    const partyFieldWrap = document.getElementById('txPartyFieldWrap');
+    const mainGrid = document.getElementById('txMainFormGrid');
+    const noteLabel = document.getElementById('txNoteLabel');
+    const existingSection = document.getElementById('txExistingItemsSection');
+    const postVerifySection = document.getElementById('txPostVerifyChangesSection');
+    if(partyFieldWrap) partyFieldWrap.style.display = 'none';
+    if(mainGrid) mainGrid.style.gridTemplateColumns = '1fr 1.4fr';
+    if(noteLabel) noteLabel.textContent = t('txNoteRequiredLabel');
+    if(existingSection) existingSection.style.display = 'none';
+    if(postVerifySection) postVerifySection.style.display = 'none';
+    registerOutFlowType = '';
+    registerLoadedOrderId = null;
+    registerPendingItemChanges = {};
+    registerDeliveryFlowType = '';
+    registerLoadedDeliveryNoteId = null;
+    txBatchItems = [];
+    showTxMainFormArea(true);
+    renderTxSubmitArea();
+    renderTxBatchList();
+    renderProductSelect();
   } else {
     partyLabel.textContent = t('partyLabelRestock');
     partyInput.placeholder = t('partyPlaceholderRestock');
@@ -4569,8 +4915,8 @@ function resetRegisterOutFlow(){
   if(dateInput) dateInput.disabled = false;
 }
 
-// 「出貨類型」下拉選單改變時呼叫。四種類型的表單長相差異很大,這個函式負責決定當下要顯示
-// 哪些區塊:'new-order'/'adjustment' 選了就直接展開主表單;'load-pending'/'load-completed'
+// 「出貨類型」下拉選單改變時呼叫。三種類型的表單長相差異很大,這個函式負責決定當下要顯示
+// 哪些區塊:'new-order' 選了就直接展開主表單;'load-pending'/'load-completed'
 // 還要再選出實際是哪一張訂單,選出來之前主表單保持隱藏。
 function setTxOutFlowType(flowType){
   registerOutFlowType = flowType;
@@ -4592,16 +4938,10 @@ function setTxOutFlowType(flowType){
   if(partySelect) partySelect.disabled = false;
   if(dateInput) dateInput.disabled = false;
   if(noteLabel) noteLabel.textContent = t('txNoteSharedLabel');
-
-  // 庫存調整不需要出貨方(這個異動不是要出給誰,單純是庫存數字校正),把出貨方欄位整個藏起來,
-  // 表單格線也跟著從三欄變兩欄,不會留一塊空白。其他三種流程都要出貨方,照常顯示。
-  if(flowType === 'adjustment'){
-    if(partyFieldWrap) partyFieldWrap.style.display = 'none';
-    if(mainGrid) mainGrid.style.gridTemplateColumns = '1fr 1.4fr';
-  } else {
-    if(partyFieldWrap) partyFieldWrap.style.display = '';
-    if(mainGrid) mainGrid.style.gridTemplateColumns = '1fr 1fr 1.4fr';
-  }
+  // 出貨的三種流程(新增訂單/載入待處理/載入已完成)都需要出貨方,固定顯示、固定三欄——庫存
+  // 調整已經搬到「登記進出貨」的頂層類型自己處理,這裡不用再判斷了。
+  if(partyFieldWrap) partyFieldWrap.style.display = '';
+  if(mainGrid) mainGrid.style.gridTemplateColumns = '1fr 1fr 1.4fr';
 
   if(flowType === 'load-pending' || flowType === 'load-completed'){
     if(orderWrap) orderWrap.style.display = '';
@@ -4612,9 +4952,8 @@ function setTxOutFlowType(flowType){
         eligible.map(o => `<option value="${o.id}">${o.orderNo || ''} · ${o.date}${o.partyName ? ' · ' + o.partyName : ''}</option>`).join('');
     }
     showTxMainFormArea(false);
-  } else if(flowType === 'new-order' || flowType === 'adjustment'){
+  } else if(flowType === 'new-order'){
     if(orderWrap) orderWrap.style.display = 'none';
-    if(flowType === 'adjustment' && noteLabel) noteLabel.textContent = t('txNoteRequiredLabel');
     showTxMainFormArea(true);
   } else {
     if(orderWrap) orderWrap.style.display = 'none';
@@ -4647,7 +4986,10 @@ function setTxDeliveryFlowType(flowType){
   if(flowType === 'load'){
     if(noteSelectWrap) noteSelectWrap.style.display = '';
     if(noteSelect){
-      const sorted = deliveryNotes.slice().sort((a,b) => (b.date || '').localeCompare(a.date || ''));
+      // 「載入」只列出還沒列印過(status 不是 'completed')的 Note——已經列印完成的表示這筆
+      // 送貨已經處理完了,不應該再被找出來繼續編輯,它的歷史紀錄改到「歷史紀錄 → Delivery
+      // Note紀錄」那邊查看。
+      const sorted = deliveryNotes.filter(n => n.status !== 'completed').slice().sort((a,b) => (b.date || '').localeCompare(a.date || ''));
       noteSelect.innerHTML = `<option value="">${t('optSelectDeliveryNote')}</option>` +
         sorted.map(n => `<option value="${n.id}">${n.date || ''}${n.note ? ` (${n.note.replace(/"/g,'&quot;')})` : ''}</option>`).join('');
     }
@@ -4706,8 +5048,6 @@ function renderTxSubmitArea(){
   } else if(registerOutFlowType === 'load-completed'){
     const disabled = registerLoadedOrderId ? '' : 'disabled';
     area.innerHTML = `<button class="btn" onclick="submitTxBatch('save-completed')" ${disabled}>${t('btnSave')}</button>`;
-  } else if(registerOutFlowType === 'adjustment'){
-    area.innerHTML = `<button class="btn" onclick="submitTxBatch('adjustment')">${t('btnRegister')}</button>`;
   } else {
     area.innerHTML = '';
   }
@@ -6285,7 +6625,7 @@ function renderOrderItemsTable(){
       : '';
     const row = `
       <tr class="${outOfStock ? 'oos-row' : ''}">
-        <td class="row-name" style="${isNested ? 'padding-left:26px;' : ''}">${(isChildProduct && !hideMultipackIconOnOrderPage) ? '⧉ ' : ''}${p.sku ? `<span class="sku-tooltip-trigger" data-sku="${p.sku.replace(/"/g,'&quot;')}">${p.name}</span>` : p.name}${p.orderPageRemark ? `<span style="font-style:italic;font-size:11.5px;color:var(--ink-soft);"> ${p.orderPageRemark.replace(/</g,'&lt;')}</span>` : ''}${expandArrow}${outOfStock ? `<span class="oos-badge">${t('oosLabel')}</span>` : ''}</td>
+        <td class="row-name" style="${isNested ? 'padding-left:26px;' : ''}">${(isChildProduct && !hideMultipackIconOnOrderPage) ? '⧉ ' : ''}${p.sku ? `<span class="sku-tooltip-trigger" data-sku="${p.sku.replace(/"/g,'&quot;')}">${p.name}</span>` : p.name}${p.photoUrl ? `<span class="del-link" title="${t('btnViewPhoto')}" onclick="openProductPhotoModal('${p.id}')" style="margin-left:4px;">📷</span>` : ''}${p.orderPageRemark ? `<span style="font-style:italic;font-size:11.5px;color:var(--ink-soft);"> ${p.orderPageRemark.replace(/</g,'&lt;')}</span>` : ''}${expandArrow}${outOfStock ? `<span class="oos-badge">${t('oosLabel')}</span>` : ''}</td>
         <td class="row-note-cell">
           ${orderItemNoteDraft[p.id]
             ? `<span class="del-link" style="font-style:italic;" onclick="openOrderItemNoteModal('${p.id}')">${t('noteLabelPrefix')}${orderItemNoteDraft[p.id].replace(/</g,'&lt;')}</span>`
@@ -6439,6 +6779,9 @@ function openCart(){
   document.getElementById('orderFormSection').style.display = 'none';
   document.getElementById('orderCartSection').style.display = '';
   document.getElementById('cartMsg').textContent = '';
+  // 主表單那個備註欄位這時候被藏起來了(orderFormSection 隱藏),購物車裡另外放一個備註欄位,
+  // 開啟購物車的時候先把目前的值帶過去,兩邊維持同步(見輸入框上的 oninput,反向同步回主表單)。
+  document.getElementById('cartOrderNote').value = document.getElementById('orderNote').value;
 }
 
 // 按購物車裡的「Order more / 繼續訂貨」:回到訂貨頁面繼續調整數量,草稿(orderQtyDraft)保留不變。
@@ -6833,8 +7176,18 @@ function renderOrders(){
         ${isExpanded ? `
           <div class="order-items">${itemsHtml}</div>
           ${remarkHtml}
+          ${o.signedAt && o.signInfo ? `
+          <div class="section-title" style="font-size:13px;margin-top:10px;" data-i18n="secSignInfo">簽收資訊</div>
+          <div style="font-size:12.5px;color:var(--ink);">
+            ${o.signInfo.type === 'warehouse'
+              ? `${tf('signedByNameLabel', { name: o.signInfo.signerName || '' })}<br/>
+                 <img src="${o.signInfo.signatureUrl}" onclick="openSignatureViewModal('${o.signInfo.signatureUrl}')" style="max-width:160px;max-height:80px;border:1px solid var(--line);border-radius:4px;background:#fff;margin-top:4px;cursor:pointer;" />`
+              : tf('signedByUsernameLabel', { name: o.signInfo.username || '' })}
+          </div>
+          ` : ''}
           <div class="order-card-actions">
             ${(o.deleted || o.signedAt) ? '' : `<button class="btn ghost" onclick="editOrderViaRegister('${o.id}', 'completed')">${t('btnEdit')}</button>`}
+            ${(o.deleted || o.signedAt) ? '' : `<button class="btn ghost" onclick="openWarehouseSignModal('${o.id}')">${t('btnWarehouseSign')}</button>`}
             ${hasHistory ? `<button class="btn ghost" onclick="openOrderHistoryModal('${o.id}')">${t('btnViewHistory')}</button>` : ''}
             <button class="btn ghost" onclick="exportSingleOrderSheet('${o.id}')">${t('btnExportThisOrder')}</button>
             <button class="btn ghost" onclick="printCompletedOrder('${o.id}')">${t('btnPrintOrder')}</button>
@@ -7257,6 +7610,7 @@ function printOrderDocument(orderId, opts){
   h1{ font-size:18px; margin:0 0 4px; }
   h2{ font-size:12.5px; font-weight:700; letter-spacing:1.5px; text-transform:uppercase; color:#B23B2E; margin:0 0 14px; }
   .meta{ font-size:13px; color:#333; margin-bottom:3px; }
+  .note-after-table{ font-size:16px; font-weight:600; color:#111; margin-top:16px; }
   table{ border-collapse:collapse; width:100%; margin-top:14px; }
   th, td{ padding:7px 10px; border:1px solid #999; font-size:13px; text-align:left; }
   th{ background:#eee; }
@@ -7269,11 +7623,12 @@ function printOrderDocument(orderId, opts){
   <h1>${escapeHtmlForPrint('Order #')} ${escapeHtmlForPrint(order.orderNo || orderId)}</h1>
   <div class="meta">${escapeHtmlForPrint('Date')}: ${order.date || ''}</div>
   <div class="meta">${escapeHtmlForPrint('Customer')}: ${escapeHtmlForPrint(order.partyName)}</div>
-  ${order.note ? `<div class="meta">${escapeHtmlForPrint('Note')}: ${escapeHtmlForPrint(order.note)}</div>` : ''}
+  ${(order.note && !includeCheck) ? `<div class="meta">${escapeHtmlForPrint('Note')}: ${escapeHtmlForPrint(order.note)}</div>` : ''}
   <table>
     <thead><tr>${checkTh}${skuTh}<th>${escapeHtmlForPrint('Product Name')}</th><th>${escapeHtmlForPrint('Qty')}</th><th>${escapeHtmlForPrint('Unit')}</th></tr></thead>
     <tbody>${rowsHtml}</tbody>
   </table>
+  ${(order.note && includeCheck) ? `<div class="note-after-table">${escapeHtmlForPrint('Note')}: ${escapeHtmlForPrint(order.note)}</div>` : ''}
 </body>
 </html>`;
   const printWindow = window.open('', '_blank');
@@ -7993,11 +8348,14 @@ function signOrderHistory(orderId){
   if(!order || order.deleted || orderStatus(order) !== 'confirmed' || order.signedAt) return;
   showConfirmModal(tf('confirmSignOrder', { orderNo: order.orderNo || orderId }), async () => {
     const prevSignedAt = order.signedAt;
+    const prevSignInfo = order.signInfo;
     order.signedAt = new Date().toISOString();
+    order.signInfo = { type: 'customer', username: (currentUser && currentUser.username) || '' };
     try{
       await upsertOrders([order]);
     } catch(e){
       order.signedAt = prevSignedAt;
+      order.signInfo = prevSignInfo;
       showInfoModal('⚠ 簽收失敗,請重新整理頁面再試一次。');
       return;
     }
@@ -8495,6 +8853,7 @@ function openProductEditModal(id){
   const p = products.find(x => x.id === id);
   if(!p) return;
   editingProductId = id;
+  editingProductPhotoUrl = p.photoUrl || null;
   addingChildParentId = null;
   pendingTotalStockBasisChoice = null;
   document.getElementById('productEditModalTitle').textContent = `${t('btnEdit')} — ${p.name}`;
@@ -8509,6 +8868,7 @@ function openAddChildModal(parentId){
   const parent = products.find(x => x.id === parentId);
   if(!parent) return;
   editingProductId = null;
+  editingProductPhotoUrl = null;
   addingChildParentId = parentId;
   const draft = { sku: parent.sku ? guessNextChildSku(parent) : '', name: '', unit: parent.unit || '', category: parent.category, manualAvg: null, safetyStock: null, note: '', childWeight: null, parentId };
   document.getElementById('productEditModalTitle').textContent = `新增批量商品 — ${parent.name}`;
@@ -8561,6 +8921,15 @@ function renderProductEditModalBody(p, opts){
     <div class="field-block">
       <label>${t('fieldUnit')}</label>
       <input type="text" id="editProdUnit" value="${p.unit||''}" placeholder="單位" style="width:100%;" />
+    </div>
+    <div class="field-block">
+      <label>${t('fieldProductPhoto')}</label>
+      <div id="editProdPhotoPreviewWrap" style="margin-bottom:8px;${editingProductPhotoUrl ? '' : 'display:none;'}">
+        <img id="editProdPhotoPreview" src="${editingProductPhotoUrl || ''}" style="max-width:120px;max-height:120px;border-radius:4px;border:1px solid var(--line);display:block;" />
+        <span class="del-link" onclick="removeProductPhoto()" style="display:inline-block;margin-top:4px;">${t('btnRemovePhoto')}</span>
+      </div>
+      <input type="file" id="editProdPhotoInput" accept="image/*" onchange="handleProductPhotoUpload(this)" />
+      <div id="editProdPhotoUploadMsg" style="font-size:11.5px;margin-top:4px;"></div>
     </div>
     ${isChild ? `
     <div class="field-block">
@@ -8658,6 +9027,59 @@ function closeProductEditModal(){
   document.getElementById('productEditModalOverlay').style.display = 'none';
 }
 
+// 商品照片上傳:選好檔案就立刻上傳到 Supabase Storage(product-photos bucket),不用等按整個
+// 表單的「儲存」——這樣上傳成功/失敗當下就有回饋,不用等儲存整張表單才知道結果。上傳完拿到的
+// 公開網址先存在 editingProductPhotoUrl 這個暫存變數裡,真正寫進商品資料要等按「儲存」時才會
+// 套用(見 saveProductEditModal)。
+async function handleProductPhotoUpload(inputEl){
+  const file = inputEl.files && inputEl.files[0];
+  if(!file) return;
+  const msgEl = document.getElementById('editProdPhotoUploadMsg');
+  if(!file.type.startsWith('image/')){
+    msgEl.style.color = 'var(--crit)';
+    msgEl.textContent = t('errPhotoMustBeImage');
+    inputEl.value = '';
+    return;
+  }
+  const maxBytes = 5 * 1024 * 1024; // 5MB——單純避免有人選到超大原始檔拖慢上傳/日後載入速度
+  if(file.size > maxBytes){
+    msgEl.style.color = 'var(--crit)';
+    msgEl.textContent = t('errPhotoTooLarge');
+    inputEl.value = '';
+    return;
+  }
+  msgEl.style.color = 'var(--ink-soft)';
+  msgEl.textContent = t('uploadingPhotoMsg');
+  const ext = (file.name.split('.').pop() || 'jpg').toLowerCase().replace(/[^a-z0-9]/g, '') || 'jpg';
+  const path = `${genId()}.${ext}`;
+  try{
+    const { error } = await sb.storage.from('product-photos').upload(path, file, { upsert: true });
+    if(error) throw error;
+    const { data } = sb.storage.from('product-photos').getPublicUrl(path);
+    editingProductPhotoUrl = data.publicUrl;
+    document.getElementById('editProdPhotoPreview').src = editingProductPhotoUrl;
+    document.getElementById('editProdPhotoPreviewWrap').style.display = '';
+    msgEl.style.color = 'var(--safe)';
+    msgEl.textContent = t('photoUploadedMsg');
+  } catch(e){
+    console.error('上傳商品照片失敗', e);
+    msgEl.style.color = 'var(--crit)';
+    msgEl.textContent = t('errPhotoUploadFailed');
+  }
+  inputEl.value = '';
+}
+
+// 移除照片:只是把暫存的網址清掉、預覽藏起來,實際上不會去刪 Storage 裡的檔案(留著也無妨,
+// 不影響任何功能,避免「不小心點到移除又要重新上傳一次」的麻煩,也不用處理刪除失敗的情況)。
+// 真正生效(這個商品不再有照片)一樣要等按「儲存」。
+function removeProductPhoto(){
+  editingProductPhotoUrl = null;
+  const wrap = document.getElementById('editProdPhotoPreviewWrap');
+  if(wrap) wrap.style.display = 'none';
+  const msgEl = document.getElementById('editProdPhotoUploadMsg');
+  if(msgEl) msgEl.textContent = '';
+}
+
 async function saveProductEditModal(){
   const id = editingProductId;
   const isNewChild = !!addingChildParentId;
@@ -8705,6 +9127,7 @@ async function saveProductEditModal(){
       note, orderable: false, parentId: parent.id, childWeight: weightVal,
       orderPageRemark: orderPageRemark || undefined,
       barcode: barcode || undefined,
+      photoUrl: editingProductPhotoUrl || undefined,
       boxLengthCm: boxLengthCm !== null && !isNaN(boxLengthCm) ? boxLengthCm : undefined,
       boxWidthCm: boxWidthCm !== null && !isNaN(boxWidthCm) ? boxWidthCm : undefined,
       boxHeightCm: boxHeightCm !== null && !isNaN(boxHeightCm) ? boxHeightCm : undefined
@@ -8725,6 +9148,7 @@ async function saveProductEditModal(){
     p.note = note;
     p.orderPageRemark = orderPageRemark || undefined;
     p.barcode = barcode || undefined;
+    p.photoUrl = editingProductPhotoUrl || undefined;
     p.boxLengthCm = boxLengthCm !== null && !isNaN(boxLengthCm) ? boxLengthCm : undefined;
     p.boxWidthCm = boxWidthCm !== null && !isNaN(boxWidthCm) ? boxWidthCm : undefined;
     p.boxHeightCm = boxHeightCm !== null && !isNaN(boxHeightCm) ? boxHeightCm : undefined;
@@ -9022,63 +9446,45 @@ function getConversionRecords(){
     .sort((a, b) => b.sortKey - a.sortKey);
 }
 
-function openConvertHistoryWindow(){
-  convertHistoryWindowRef = window.open('', '_blank');
-  renderConvertHistoryWindow();
-}
-
-function renderConvertHistoryWindow(){
-  if(!convertHistoryWindowRef || convertHistoryWindowRef.closed) return;
+// 之前是開獨立彈出視窗顯示,現在改成嵌在「歷史紀錄 → 切換紀錄」子分頁裡直接顯示,復原按鈕
+// 也改成直接呼叫 undoConversion(...),不用再透過 window.opener 跨視窗呼叫。
+function renderConvertHistoryTable(){
+  const container = document.getElementById('convertHistoryTable');
+  if(!container) return;
   const records = getConversionRecords();
-  const rowsHtml = records.length === 0
-    ? `<p style="color:#68675F;font-family:Inter,sans-serif;font-size:13px;">${t('noConvertHistory')}</p>`
-    : `<table style="width:100%;border-collapse:collapse;font-family:'IBM Plex Mono',monospace;font-size:12.5px;">
-        <thead><tr style="text-align:left;border-bottom:2px solid #1E1E1B;">
-          <th style="padding:8px;">${t('colDate')}</th>
-          <th style="padding:8px;">${t('convertFromLabel')}</th>
-          <th style="padding:8px;">${t('convertToLabel')}</th>
-          <th style="padding:8px;"></th>
-        </tr></thead>
-        <tbody>
-          ${records.map(r => `
-            <tr style="border-bottom:1px solid #D6D0BE;">
-              <td style="padding:8px;white-space:nowrap;">${r.date}${r.time ? ` ${r.time}` : ''}</td>
-              <td style="padding:8px;">${r.fromName} −${r.fromQty} ${r.fromUnit}</td>
-              <td style="padding:8px;">${r.toName} +${r.toQty} ${r.toUnit}</td>
-              <td style="padding:8px;"><button onclick="window.opener.undoConversion('${r.conversionId}')" style="cursor:pointer;border:1px solid #B5453B;background:#F3DFDB;color:#B5453B;border-radius:2px;padding:5px 10px;font-family:Inter,sans-serif;font-size:11.5px;font-weight:600;">${t('btnUndoConversion')}</button></td>
-            </tr>
-          `).join('')}
-        </tbody>
-      </table>`;
-  const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>${t('convertHistoryTitle')}</title></head>
-    <body style="margin:0;padding:24px;background:#EBE8E0;font-family:Inter,sans-serif;color:#1E1E1B;">
-      <h2 style="margin:0 0 4px;font-size:18px;">${t('convertHistoryTitle')}</h2>
-      <p style="color:#68675F;font-size:12.5px;margin:0 0 16px;">${t('convertHistoryDesc')}</p>
-      ${rowsHtml}
-    </body></html>`;
-  convertHistoryWindowRef.document.open();
-  convertHistoryWindowRef.document.write(html);
-  convertHistoryWindowRef.document.close();
+  if(records.length === 0){
+    container.innerHTML = `<div class="empty-note">${t('noConvertHistory')}</div>`;
+    return;
+  }
+  container.innerHTML = `<table class="stock-table">
+      <thead><tr>
+        <th>${t('colDate')}</th>
+        <th>${t('convertFromLabel')}</th>
+        <th>${t('convertToLabel')}</th>
+        <th></th>
+      </tr></thead>
+      <tbody>
+        ${records.map(r => `
+          <tr>
+            <td style="white-space:nowrap;">${r.date}${r.time ? ` ${r.time}` : ''}</td>
+            <td>${r.fromName} −${r.fromQty} ${r.fromUnit}</td>
+            <td>${r.toName} +${r.toQty} ${r.toUnit}</td>
+            <td><span class="del-link" onclick="undoConversion('${r.conversionId}')">${t('btnUndoConversion')}</span></td>
+          </tr>
+        `).join('')}
+      </tbody>
+    </table>`;
 }
 
-// 復原一組切換紀錄:把配對的兩筆交易一起刪除。這個 function 是給「切換紀錄」分頁(window.opener)呼叫的,
-// 所以定義在最上層(全域),讓另一個分頁可以透過 window.opener.undoConversion(...) 呼叫到。
+// 復原一組切換紀錄:把配對的兩筆交易一起刪除。由「歷史紀錄 → 切換紀錄」子分頁裡的「復原」
+// 按鈕直接呼叫。
 // 復原前要先檢查:這兩筆交易裡,「type 是 in(切換當下新增進去的那筆)」如果被移除,會不會讓那個
 // 商品現在的庫存變成負的——如果切換之後那個商品又被出貨掉了(不管是透過訂單還是登記進出貨),
 // 庫存可能已經不夠讓這筆切換完整復原,這種情況要擋下來並清楚告知是哪個商品、目前只剩多少庫存。
 // 「type 是 out(切換當下扣掉的那筆)」復原時是把庫存加回去,不會有變負的風險,不用檢查。
-// 這個警示要顯示在「切換紀錄」那個彈出視窗裡,不是主視窗——因為使用者按「復原」的時候,
-// 注意力跟滑鼠焦點都在切換紀錄那個彈出視窗上,如果用 showInfoModal() 彈在主視窗,使用者根本
-// 看不到(除非剛好切回主視窗分頁才會發現),等於沒有真的示警到。彈出視窗是純手刻的極簡 HTML,
-// 沒有主視窗那一整套彈窗 UI 可以用,所以直接用瀏覽器原生的 alert() 顯示在那個視窗上最直接可靠。
 async function undoConversion(conversionId){
   const pair = transactions.filter(tx => tx.conversionId === conversionId);
   if(pair.length === 0) return;
-
-  const alertInPopup = (message) => {
-    if(convertHistoryWindowRef && !convertHistoryWindowRef.closed) convertHistoryWindowRef.alert(message);
-    else showInfoModal(message);
-  };
 
   for(const tx of pair){
     if(tx.type !== 'in') continue;
@@ -9086,7 +9492,7 @@ async function undoConversion(conversionId){
     const afterRevert = currentStock - tx.qty;
     if(afterRevert < 0){
       const p = products.find(x => x.id === tx.productId);
-      alertInPopup(tf('errUndoConversionWouldGoNegative', {
+      showInfoModal(tf('errUndoConversionWouldGoNegative', {
         name: p ? p.name : tx.productId,
         stock: currentStock,
         unit: p ? p.unit : '',
@@ -9100,7 +9506,7 @@ async function undoConversion(conversionId){
   await deleteTransactions(pair);
   logInventoryAction('conversion_undo', `Reverted conversion (id ${conversionId})`, null);
   renderAll();
-  renderConvertHistoryWindow();
+  renderConvertHistoryTable();
 }
 
 // 併入「已完成訂單」(會真的扣/加庫存):針對這批品項各自建一筆進出貨紀錄(連結這張訂單的
@@ -9169,6 +9575,10 @@ async function submitTxBatch(action){
   const msg = document.getElementById('txMsg');
   const date = document.getElementById('txDate').value;
 
+  if(currentTxType === 'adjustment'){
+    return submitAdjustmentFlow(date, msg);
+  }
+
   if(currentTxType !== 'out'){
     return submitTxBatchSimple(date, msg);
   }
@@ -9182,7 +9592,6 @@ async function submitTxBatch(action){
   if(registerOutFlowType === 'new-order') return submitNewOrderFlow(action, date, msg);
   if(registerOutFlowType === 'load-pending') return submitLoadPendingFlow(action, msg);
   if(registerOutFlowType === 'load-completed') return submitLoadCompletedFlow(date, msg);
-  if(registerOutFlowType === 'adjustment') return submitAdjustmentFlow(date, msg);
 }
 
 // 進貨/入庫維持原本邏輯,不受出貨這次改版影響:一批共用同一個類型/日期/對象/備註,
@@ -9219,7 +9628,7 @@ async function saveDeliveryNote(){
   const isUpdate = !!registerLoadedDeliveryNoteId;
   const note = isUpdate
     ? Object.assign(deliveryNotes.find(n => n.id === registerLoadedDeliveryNoteId), draft.data)
-    : { id: genId(), createdAt: new Date().toISOString(), ...draft.data };
+    : { id: genId(), createdAt: new Date().toISOString(), status: 'pending', ...draft.data };
 
   try{
     await upsertDeliveryNotes([note]);
@@ -9295,18 +9704,27 @@ async function printDeliveryNote(){
     printWindow.print();
   };
 
-  // 「載入」模式下列印,代表這張 Delivery Note 已經真的送出去、完成任務了,不需要再留著讓人
-  // 之後又載入一次——直接從資料庫移除。「新增」模式下列印本來就沒有存進資料庫過,沒有東西
-  // 需要刪除,這裡的判斷式(registerLoadedDeliveryNoteId 有值)天然就只會在「載入」模式下觸發。
+  // 「載入」模式下列印,代表這張 Delivery Note 已經真的送出去、完成任務了——之前是直接從資料庫
+  // 刪除,現在改成標記 status:'completed' 並保留下來,這樣「歷史紀錄 → Delivery Note紀錄」才能
+  // 顯示這筆的完整歷史(已完成/待處理)。「載入」的下拉選單只會列出還沒完成的 Note(見
+  // setTxDeliveryFlowType),所以這裡標記完成後不會再被找出來繼續編輯。「新增」模式下列印
+  // 本來就沒有存進資料庫過,這裡的判斷式(registerLoadedDeliveryNoteId 有值)天然就只會在
+  // 「載入」模式下觸發,「新增」模式列印維持原樣、完全不會留下任何紀錄。
   if(registerLoadedDeliveryNoteId){
-    const noteIdToRemove = registerLoadedDeliveryNoteId;
+    const noteId = registerLoadedDeliveryNoteId;
+    const existingNote = deliveryNotes.find(n => n.id === noteId);
+    const prevSnapshot = existingNote ? { ...existingNote } : null;
     try{
-      await deleteDeliveryNoteRow(noteIdToRemove);
-      const idx = deliveryNotes.findIndex(n => n.id === noteIdToRemove);
-      if(idx >= 0) deliveryNotes.splice(idx, 1);
-      logInventoryAction('delivery_note', `Printed and removed Delivery Note (${data.date}, ${data.note}) - considered fulfilled`, null);
+      if(existingNote){
+        Object.assign(existingNote, data); // 存進去的是實際列印出來的最新內容,不是載入當下的舊資料
+        existingNote.status = 'completed';
+        existingNote.completedAt = new Date().toISOString();
+        await upsertDeliveryNotes([existingNote]);
+      }
+      logInventoryAction('delivery_note', `Printed Delivery Note (${data.date}, ${data.note}) - marked as completed`, null);
     } catch(e){
-      console.error('列印後移除 Delivery Note 失敗', e);
+      console.error('標記 Delivery Note 完成失敗', e);
+      if(existingNote && prevSnapshot) Object.assign(existingNote, prevSnapshot); // 存失敗就整份退回原本的樣子
       showInfoModal(t('errDeliveryNotePrintedButNotRemoved'));
     }
     registerDeliveryFlowType = '';
@@ -9321,6 +9739,7 @@ async function printDeliveryNote(){
 async function submitTxBatchSimple(date, msg){
   const party = document.getElementById('txParty').value.trim();
   const note = document.getElementById('txNote').value.trim();
+  const invoiceNo = currentTxType === 'in' ? document.getElementById('txInvoiceNo').value.trim() : '';
 
   if(txBatchItems.length === 0){ msg.className='msg error'; msg.textContent='請先把至少一項商品加入清單'; return; }
   if(!date){ msg.className='msg error'; msg.textContent='請選擇日期'; return; }
@@ -9348,11 +9767,11 @@ async function submitTxBatchSimple(date, msg){
       const parent = products.find(pp => pp.id === p.parentId);
       const weight = p.childWeight || 1;
       return {
-        id: genId(), productId: p.parentId, type: 'in', qty: it.qty * weight, date, party,
+        id: genId(), productId: p.parentId, type: 'in', qty: it.qty * weight, date, party, invoiceNo,
         note: note ? `${tf('autoConvertStockInNote', { name: p.name, qty: it.qty, unit: p.unit })}${note ? '、' + note : ''}` : tf('autoConvertStockInNote', { name: p.name, qty: it.qty, unit: p.unit })
       };
     }
-    return { id: genId(), productId: it.productId, type: currentTxType, qty: it.qty, date, party, note };
+    return { id: genId(), productId: it.productId, type: currentTxType, qty: it.qty, date, party, note, invoiceNo };
   });
   transactions.push(...newTxs);
 
@@ -9376,6 +9795,7 @@ async function submitTxBatchSimple(date, msg){
   if(currentTxType === 'restock'){ document.getElementById('txParty').value = 'Opulent Imports'; }
   else { document.getElementById('txParty').value = ''; }
   document.getElementById('txNote').value = '';
+  document.getElementById('txInvoiceNo').value = '';
   msg.className='msg ok';
   msg.textContent = `✓ 已提交 ${count} 項商品`;
   renderAll();
@@ -9832,9 +10252,11 @@ async function submitAdjustmentFlow(date, msg){
     }
     logInventoryAction('tx_out', `Logged stock adjustment: ${txBatchItems.length} item(s) — ${note}`, null);
     const count = txBatchItems.length;
+    // 提交完之後留在「庫存調整」這個頂層類型上,方便連續登記好幾筆調整——只清空這次的品項清單
+    // 跟備註,不去動出貨方欄位隱藏/兩欄版面這些跟「庫存調整」綁在一起的畫面設定(那些是
+    // setTxType('adjustment') 負責的,不需要在這裡重複呼叫或退回舊的出貨流程邏輯)。renderAll()
+    // 本身就會重新渲染 txSubmitArea/txBatchList/productSelect,不用在這裡另外呼叫。
     txBatchItems = [];
-    resetRegisterOutFlow();
-    setTxOutFlowType('');
     document.getElementById('txNote').value = '';
     msg.className='msg ok'; msg.textContent = `✓ 已提交庫存調整,共 ${count} 項商品`;
     renderAll();
@@ -10876,6 +11298,7 @@ function renderLog(){
               <td class="col-qty">${tx.qty}${p ? ' ' + p.unit : ''}</td>
               <td class="col-party">${tx.party || '—'}</td>
               <td colspan="2">
+                ${tx.invoiceNo ? `<div style="color:var(--ink-soft);font-size:11.5px;">${tf('invoiceNoInline', {no: tx.invoiceNo.replace(/</g,'&lt;')})}</div>` : ''}
                 ${tx.note ? `<div style="color:var(--ink-soft);font-size:11.5px;white-space:pre-wrap;margin-bottom:4px;">${tx.note.replace(/</g,'&lt;')}</div>` : ''}
                 <input type="text" id="appendNoteInput" placeholder="${t('appendNotePlaceholder')}" style="width:100%;" />
                 <span class="del-link" onclick="saveAppendNoteToTx('${tx.id}')" style="color:var(--safe);margin-right:8px;">${t('btnSave')}</span>
@@ -10891,9 +11314,9 @@ function renderLog(){
             <td class="col-type"><span class="type-pill ${tx.type}">${tx.type === 'in' ? t('typeIn') : (tx.type === 'restock' ? t('typeRestock') : t('typeOut'))}</span></td>
             <td class="col-qty">${tx.qty}${p ? ' ' + p.unit : ''}</td>
             <td class="col-party">${tx.party || '—'}</td>
-            <td class="col-note">${tx.note
+            <td class="col-note">${tx.invoiceNo ? `<span style="color:var(--ink-soft);">${tf('invoiceNoInline', {no: tx.invoiceNo.replace(/</g,'&lt;')})}</span>${tx.note ? ' ' : ''}` : ''}${tx.note
               ? `<span class="tx-note-text" onclick="toggleTxNoteDisplay(this)" title="${t('btnViewNoteTitle')}">${tx.note.replace(/</g,'&lt;')}</span>`
-              : '—'}</td>
+              : (tx.invoiceNo ? '' : '—')}</td>
             <td class="col-actions" style="white-space:nowrap;">
               <span class="del-link action-text-edit" onclick="startAppendNoteToTx('${tx.id}')">${t('btnAddNote')}</span>
               <span class="del-link action-icon-edit" onclick="startAppendNoteToTx('${tx.id}')" title="${t('btnAddNote')}">➕</span>
@@ -10933,6 +11356,42 @@ function clearInventoryLogFilters(){
 async function refreshInventoryLog(){
   await loadInventoryLog();
   renderInventoryLog();
+}
+
+// Delivery Note紀錄:列出所有 Delivery Note(不分狀態),依日期排序(最新在最上面)。
+// 已經列印過(status:'completed')的顯示「已完成」,還沒列印的顯示「待處理」——沿用訂單那邊
+// 現成的狀態小標籤樣式(order-status-pill),不用另外做一套。
+function renderDeliveryNoteLog(){
+  const container = document.getElementById('deliveryNoteLogTable');
+  if(!container) return;
+  if(deliveryNotes.length === 0){
+    container.innerHTML = `<div class="empty-note">${t('noRecordsYet')}</div>`;
+    return;
+  }
+  const sorted = deliveryNotes.slice().sort((a,b) => (b.date || '').localeCompare(a.date || ''));
+  container.innerHTML = `<table class="stock-table">
+      <thead><tr>
+        <th>${t('colDate')}</th>
+        <th>${t('lblPartyGeneric')}</th>
+        <th>${t('colItemNote')}</th>
+        <th>${t('lblProduct')}</th>
+        <th></th>
+      </tr></thead>
+      <tbody>
+        ${sorted.map(n => {
+          const isCompleted = n.status === 'completed';
+          const itemsSummary = (n.items || []).map(it => `${it.name} ${it.qty} ${it.unit}`).join(', ');
+          return `
+          <tr>
+            <td style="white-space:nowrap;">${n.date || ''}</td>
+            <td>${n.partyName ? n.partyName.replace(/</g,'&lt;') : t('partyUnspecified')}</td>
+            <td>${(n.note || '').replace(/</g,'&lt;')}</td>
+            <td>${itemsSummary.replace(/</g,'&lt;')}</td>
+            <td><span class="order-status-pill ${isCompleted ? 'confirmed' : 'pending'}">${isCompleted ? t('statusCompleted') : t('statusPending')}</span></td>
+          </tr>`;
+        }).join('')}
+      </tbody>
+    </table>`;
 }
 
 function renderInventoryLog(){
@@ -11213,6 +11672,10 @@ function exportShipmentSheet(){
     return;
   }
 
+  if(type === 'in'){
+    return exportStockInSheet(rows, productMap, dateFrom, dateTo, msg);
+  }
+
   // aggregate: same party + same product within the selected period gets summed into one line
   const groups = {};
   rows.forEach(t => {
@@ -11300,6 +11763,66 @@ function exportShipmentSheet(){
   msg.textContent = `✓ 已匯出 ${aggregated.length} 筆彙總品項(來自 ${rows.length} 筆原始紀錄):${filename}`;
 }
 
+// 進貨(type='in')專用的匯出——跟出貨/入庫共用的那套「Shop:/Date: 表頭 + 依商品彙總數量」邏輯
+// 不一樣,原因是:(1) 進貨方本來就不是「Shop」,用同一套表頭措辭不準確;(2) 匯出一段時間的進貨
+// 紀錄時,同一個商品在不同時間點可能是跟不同的供應商、不同的 Invoice 進的貨,彙總成一筆會把
+// 這些細節混在一起、也沒辦法各自對應到一個 Invoice 號碼——所以這裡完全不彙總,每一筆進貨
+// 交易紀錄各自佔一列,各自帶自己的進貨方/Invoice號/日期。
+function exportStockInSheet(rows, productMap, dateFrom, dateTo, msg){
+  const sorted = rows.slice().sort((a, b) => {
+    if(a.date !== b.date) return (a.date || '').localeCompare(b.date || '');
+    const pa = productMap[a.productId], pb = productMap[b.productId];
+    return (pa ? pa.name : '').localeCompare(pb ? pb.name : '');
+  });
+
+  const aoa = [];
+  aoa.push(['SKU', 'Name', 'Qty', 'Unit', 'Supplier', 'Invoice No.', 'Date']);
+  sorted.forEach(t => {
+    const p = productMap[t.productId];
+    aoa.push([
+      p && p.sku ? p.sku : '',
+      p ? p.name : '(deleted product)',
+      t.qty,
+      p ? p.unit : '',
+      t.party || '',
+      t.invoiceNo || '',
+      t.date || ''
+    ]);
+  });
+
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
+  ws['!cols'] = [
+    {wch:10}, // SKU
+    {wch:32}, // Name
+    {wch:8},  // Qty
+    {wch:10}, // Unit
+    {wch:18}, // Supplier
+    {wch:16}, // Invoice No.
+    {wch:12}  // Date
+  ];
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Stock In');
+
+  // 檔名格式:「Opulent - Stock in 日期」,單日只顯示那一天,區間就寫成 "date1 to date2";
+  // 兩個日期篩選都沒填(匯出全部進貨紀錄)的話,用資料裡實際最早/最晚的日期組成區間,
+  // 確保檔名還是能反映實際涵蓋的期間,不會什麼日期資訊都沒有。
+  let dateForFilename;
+  if(dateFrom && dateTo){
+    dateForFilename = dateFrom === dateTo ? dateFrom : `${dateFrom} to ${dateTo}`;
+  } else if(dateFrom || dateTo){
+    dateForFilename = dateFrom || dateTo;
+  } else {
+    const allDates = sorted.map(t => t.date).filter(Boolean).sort();
+    const earliest = allDates[0], latest = allDates[allDates.length - 1];
+    dateForFilename = (earliest && latest) ? (earliest === latest ? earliest : `${earliest} to ${latest}`) : todayISO();
+  }
+  const filename = `Opulent - Stock in ${dateForFilename}.xlsx`;
+
+  XLSX.writeFile(wb, filename);
+  msg.className = 'msg ok';
+  msg.textContent = `✓ 已匯出 ${sorted.length} 筆進貨紀錄:${filename}`;
+}
+
 async function startApp(){
   document.getElementById('txDate').value = todayISO();
   document.getElementById('txImportDate').value = todayISO();
@@ -11357,6 +11880,14 @@ function isUserActivelyEditing(){
   const anyModalOpen = [...document.querySelectorAll('.modal-overlay')]
     .some(el => el.style.display && el.style.display !== 'none');
   if(anyModalOpen) return true;
+  // 除了下面這幾個具名的「正在編輯」狀態,再加一個通用判斷:只要現在正焦點在某個
+  // input/select/textarea 上,就算是「使用者正在操作」——訂貨頁面商品清單的數量輸入框
+  // 就是這種情況,它沒有對應到任何一個具名狀態變數,原本完全不會被這個函式擋下來,導致打字
+  // 打到一半,背景同步(每 10 秒一次)重畫整個商品清單,把游標整個踢出輸入框。與其每次
+  // 遇到一個新的輸入情境就再加一個變數,不如直接用「有沒有東西被聚焦」這個更通用、更不容易
+  // 漏掉的判斷方式。
+  const activeTag = document.activeElement && document.activeElement.tagName;
+  if(activeTag === 'INPUT' || activeTag === 'SELECT' || activeTag === 'TEXTAREA') return true;
   return !!(appendingNoteTxId || editingProductId || editingPartyId || editingOrderItemKey ||
     editingOrderRemarkId || editingUserModalId || editingOrderPartyId ||
     addingItemsToOrderId || registerOutFlowType);
