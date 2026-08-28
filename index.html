@@ -471,14 +471,15 @@
   .modal-box{
     background:var(--panel); max-width:420px; width:90%; min-width:0;
     padding:24px; border-radius:4px; box-shadow:0 10px 40px rgba(0,0,0,0.3);
+    max-height:85vh; overflow-y:auto; box-sizing:border-box;
   }
   .modal-box.modal-box-wide{ max-width:640px; max-height:85vh; overflow-y:auto; }
   .modal-box-wide .field-block{ margin-bottom:18px; }
   .modal-box-wide .field-block > label{ display:block; font-size:12.5px; font-weight:600; color:var(--ink); margin-bottom:6px; }
   .modal-box-wide .field-hint{ font-size:11px; color:var(--ink-soft); margin:2px 0 8px; line-height:1.5; }
   .modal-box-wide select#modalUserRole{ width:100%; padding:8px; }
-  .modal-box p{ font-size:14px; color:var(--ink); line-height:1.6; margin:0 0 20px; white-space:pre-wrap; overflow-wrap:anywhere; word-break:break-word; }
-  .modal-actions{ display:flex; justify-content:flex-end; gap:10px; }
+  .modal-box p{ font-size:12.5px; color:var(--ink); line-height:1.55; margin:0 0 20px; white-space:pre-wrap; overflow-wrap:anywhere; word-break:break-word; }
+  .modal-actions{ display:flex; justify-content:flex-end; gap:10px; position:sticky; bottom:0; background:var(--panel); padding-top:8px; }
 
   .preview-table{ width:100%; border-collapse:collapse; font-family:'IBM Plex Mono',monospace; font-size:12.5px; margin-top:16px; }
   .preview-table thead th{
@@ -2334,6 +2335,8 @@ const I18N = {
     errQtyExceedsAvailableOrder: '「{name}」訂貨數量({qty})超過目前可訂數量({stock},已扣除其他人尚未核對的訂單)',
     errNoItemsSelectedOrder: '請至少填寫一項商品的訂貨數量。',
     errOrderSubmitFailedPrefix: '訂貨失敗:',
+    checkingLatestStockMsg: '確認最新庫存中…',
+    errRefreshBeforeSubmitFailed: '⚠ 無法確認最新庫存,請檢查網路連線後再試一次。',
     errEnterValidQty: '請輸入有效的數量',
     errQtyMustBeInteger: '數量必須是整數,不能有小數。',
     orderItemQtyChangedNote: '訂單 {orderNo} 調整數量:{name} {oldQty}→{newQty} {unit}',
@@ -2345,6 +2348,7 @@ const I18N = {
     managePartiesDesc: '這裡新增/編輯的出貨方,會直接出現在「訂貨」分頁的「出貨方」下拉選單裡。每個出貨方預設可以看到所有可訂貨的商品,可以點「設定可訂購商品」再個別調整。',
     fieldPartyName: '出貨方名稱', fieldPartyContact: '聯絡方式(選填)',
     btnAddParty: '➕ 新增出貨方', colPartyContact: '聯絡方式',
+    colOrderFrequency: '出貨頻率', freqWeekly: 'Weekly(每週)', freqFortnight: 'Fortnight(兩週)', freqMonthly: 'Monthly(每月)',
     btnSetOrderableProducts: '設定可訂購商品', btnCollapseProductList: '收合商品清單',
     deletePartyTitle: '刪除出貨方', deleteProductTitle: '刪除商品',
     btnDeleteProduct: '🗑 刪除這個商品', confirmDeleteProductSimple: '確定要刪除這個商品嗎?',
@@ -2753,6 +2757,8 @@ const I18N = {
     errQtyExceedsAvailableOrder: '"{name}" order quantity ({qty}) exceeds the currently available quantity ({stock}, after deducting other unverified pending orders)',
     errNoItemsSelectedOrder: 'Please enter a quantity for at least one product.',
     errOrderSubmitFailedPrefix: 'Order failed: ',
+    checkingLatestStockMsg: 'Checking latest stock…',
+    errRefreshBeforeSubmitFailed: '⚠ Could not confirm latest stock. Please check your connection and try again.',
     errEnterValidQty: 'Please enter a valid quantity',
     errQtyMustBeInteger: 'Quantity must be a whole number, no decimals.',
     orderItemQtyChangedNote: 'Order {orderNo} qty changed: {name} {oldQty}→{newQty} {unit}',
@@ -2764,6 +2770,7 @@ const I18N = {
     managePartiesDesc: 'Customers added/edited here appear directly in the "Customer" dropdown on the Order tab. Each customer can see all orderable products by default — click "Set Orderable Products" to fine-tune this per customer.',
     fieldPartyName: 'Customer Name', fieldPartyContact: 'Contact (optional)',
     btnAddParty: '➕ Add Customer', colPartyContact: 'Contact',
+    colOrderFrequency: 'Order Frequency', freqWeekly: 'Weekly', freqFortnight: 'Fortnight', freqMonthly: 'Monthly',
     btnSetOrderableProducts: 'Set Orderable Products', btnCollapseProductList: 'Collapse Product List',
     deletePartyTitle: 'Delete Customer', deleteProductTitle: 'Delete Product',
     btnDeleteProduct: '🗑 Delete This Product', confirmDeleteProductSimple: 'Delete this product?',
@@ -6644,34 +6651,59 @@ function getOrderableProductsForParty(partyObj){
   return products.filter(p => p.orderable && !p.hidden && !hiddenForParty.includes(p.id));
 }
 
-// 以「這個出貨方」最近三個月的出貨紀錄,算「每次訂貨平均用量」:
-// 直接抓最近三個月(從現在往前推 91 天,固定的滑動區間,不分階段)的出貨紀錄,
-// 平均用量 = 這段期間的出貨總量 ÷ 出貨筆數(不看出貨間隔、不換算成週期,單純算「平均一次出多少」)。
+// 以「這個出貨方」最近 13 週(約三個月)的出貨紀錄,算「每次訂貨平均用量」:
+// 1. 抓最近 13 週(91 天,固定的滑動區間)這個商品、這個出貨方的出貨紀錄。
+// 2. 週平均 = 這段期間的出貨總量 ÷ 週數。週數預設是 13,但如果這個商品+這個出貨方最早的
+//    出貨紀錄是在這 13 週「之內」才開始的(表示這個組合的歷史比 13 週短),改用「從那筆最早
+//    紀錄到今天」實際經過的週數當分母——不然明明只有 5 週的資料,却硬要除以 13,平均會被
+//    嚴重低估。「開始用」是指這個商品+這個出貨方各自最早的出貨紀錄日期,不是看整個系統/
+//    資料庫最早的紀錄(不同商品、不同出貨方各自獨立計算)。
+// 3. 出貨頻率(shippingParty.orderFrequency,預設 'weekly')決定最後怎麼從週平均換算成
+//    「每次訂貨」該抓多少量:weekly 就是週平均本身;fortnight(兩週訂一次)是週平均 x2;
+//    monthly(一個月訂一次)是週平均 x4。
 // 出貨紀錄本身排除「切換」(子商品⇄主商品互轉,buildWeightedOutSeries 內建一定會排除)、還有
 // 「Excel 匯入商品主檔」時自動產生的庫存調整紀錄(excludeMasterImportAdjustment)——這種調整紀錄
 // 算庫存校正,不是一筆一筆出貨給客人,不該拿來算「每次訂貨平均用量」。訂單(不管是客人在「訂貨」
 // 下的,還是 Excel 匯入出貨單併成待處理訂單、核對送出的)一經確認扣庫存,一律算數,不排除。
-// 沒選出貨方,或該出貨方在這段期間沒有這項商品的紀錄時,退回用整體出貨紀錄計算,供參考。
-const RECENT_AVG_WINDOW_DAYS = 91; // 約三個月(30.44 天 x 3)
+// 沒選出貨方,或該出貨方在這段期間沒有這項商品的紀錄時,退回用整體出貨紀錄計算,供參考
+// (退回時一律當作 weekly 頻率,因為這時候已經不是針對特定出貨方的計算了)。
+const RECENT_AVG_WINDOW_DAYS = 91; // 13 週 x 7 天
+const RECENT_AVG_WINDOW_WEEKS = 13;
+const ORDER_FREQUENCY_MULTIPLIER = { weekly: 1, fortnight: 2, monthly: 4 };
 
-function computePerOrderAvgForParty(productId, partyName, now){
+function weeklyAvgFromSeries(windowTx, allTx, now, windowStart){
+  if(windowTx.length === 0) return 0;
+  const totalQty = windowTx.reduce((s,t) => s + t.qty, 0);
+  // 「這個組合開始使用的時間」要看全部歷史紀錄裡最早的一筆(allTx),不能只看 91 天窗口內
+  // (windowTx)最早的一筆——不然窗口內剛好第一週沒出貨,會被誤判成「這個組合只有 12 週歷史」,
+  // 即使它實際上已經出貨超過 13 週,只是那一週剛好沒訂單而已。真的是最近才開始出貨(allTx
+  // 最早那筆也落在窗口內)的組合,才會用比較短的實際週數當分母。
+  const earliestOverallTime = allTx.reduce((min, t) => Math.min(min, new Date(t.date).getTime()), now.getTime());
+  const effectiveStartTime = Math.max(earliestOverallTime, windowStart.getTime());
+  const weeksElapsed = Math.max(1, (now.getTime() - effectiveStartTime) / (7*24*60*60*1000));
+  const weeks = Math.min(RECENT_AVG_WINDOW_WEEKS, weeksElapsed);
+  return totalQty / weeks;
+}
+
+function computePerOrderAvgForParty(productId, partyObj, now){
   const windowStart = new Date(now.getTime() - RECENT_AVG_WINDOW_DAYS*24*60*60*1000);
+  const partyName = partyObj ? partyObj.name : '';
 
   // 主商品的話,這份序列已經把批量商品的加權出貨量合併進來了(切換紀錄不算),
   // 同一天主商品+批量商品都有出貨會合併成一筆。
   if(partyName){
-    const tx = buildWeightedOutSeries(productId, { onlyParty: partyName, excludeMasterImportAdjustment: true })
-      .filter(t => new Date(t.date) >= windowStart && new Date(t.date) <= now);
+    const allTx = buildWeightedOutSeries(productId, { onlyParty: partyName, excludeMasterImportAdjustment: true });
+    const tx = allTx.filter(t => new Date(t.date) >= windowStart && new Date(t.date) <= now);
     if(tx.length >= 1){
-      const avgQtyPerShipment = tx.reduce((s,t) => s + t.qty, 0) / tx.length;
-      return { avg: avgQtyPerShipment, isPartySpecific: true };
+      const weeklyAvg = weeklyAvgFromSeries(tx, allTx, now, windowStart);
+      const multiplier = ORDER_FREQUENCY_MULTIPLIER[partyObj.orderFrequency] || 1;
+      return { avg: weeklyAvg * multiplier, isPartySpecific: true };
     }
   }
-  const tx2 = buildWeightedOutSeries(productId, { excludeMasterImportAdjustment: true })
-    .filter(t => new Date(t.date) >= windowStart && new Date(t.date) <= now);
+  const allTx2 = buildWeightedOutSeries(productId, { excludeMasterImportAdjustment: true });
+  const tx2 = allTx2.filter(t => new Date(t.date) >= windowStart && new Date(t.date) <= now);
   if(tx2.length === 0) return { avg: 0, isPartySpecific: false };
-  const avgQtyPerShipment2 = tx2.reduce((s,t) => s + t.qty, 0) / tx2.length;
-  return { avg: avgQtyPerShipment2, isPartySpecific: false };
+  return { avg: weeklyAvgFromSeries(tx2, allTx2, now, windowStart), isPartySpecific: false };
 }
 
 
@@ -6725,7 +6757,7 @@ function renderOrderItemsTable(){
     const isChildProduct = !!p.parentId; // 這個商品本身是不是 multipack 商品(不管有沒有縮排都要標 ⧉)
     const stock = Math.max(0, computeAvailableForOrder(p.id));
     const outOfStock = stock <= 0;
-    const w = computePerOrderAvgForParty(p.id, partyObj ? partyObj.name : '', now);
+    const w = computePerOrderAvgForParty(p.id, partyObj, now);
     const avgTitle = partyObj
       ? (w.isPartySpecific ? tf('avgTitlePartySpecific', {name: partyObj.name}) : tf('avgTitlePartyFallback', {name: partyObj.name}))
       : t('avgTitleNoParty');
@@ -6984,6 +7016,26 @@ function parseInsufficientStockError(error){
 
 async function confirmOrderFromCart(){
   const msg = document.getElementById('cartMsg');
+
+  // 送出前一定要先強制重新抓一次最新的訂單/交易/庫存資料,不能只看記憶體裡現有的——背景自動
+  // 同步平常每 10 秒跑一次,但只要使用者正在任何輸入框打字(填訂貨數量整個過程幾乎都是這個
+  // 狀態),就會被跳過(見 isUserActivelyEditing),導致這裡看到的 orders 可能是好幾分鐘前的
+  // 舊資料。如果不在這裡強制刷新,即使 computeAvailableForOrder/computePendingReserved 本身
+  // 邏輯正確,也會因為拿到的是舊資料而算出錯的可用庫存,造成不同人可以訂到同一批貨——這正是
+  // 之前庫存超賣問題的根本原因。
+  msg.className = 'msg';
+  msg.textContent = t('checkingLatestStockMsg');
+  try{
+    await Promise.all([loadTransactions(), loadProductStock(), loadOrders()]);
+  } catch(e){
+    console.error('送出訂單前重新整理資料失敗', e);
+    msg.className = 'msg error';
+    msg.textContent = t('errRefreshBeforeSubmitFailed');
+    return;
+  }
+  msg.textContent = '';
+  renderOrderItemsTable(); // 剛剛抓到的最新庫存,順便讓畫面上顯示的可訂數量也跟著更新
+
   const { dateVal, noteVal, partyId, partyObj, partyName, items, errors } = collectOrderItems();
 
   if(errors.length > 0){
@@ -8766,10 +8818,12 @@ async function saveEditParty(id){
   const name = document.getElementById('editPartyName').value.trim();
   const contact = document.getElementById('editPartyContact').value.trim();
   const note = document.getElementById('editPartyNote').value.trim();
+  const orderFrequencyEl = document.getElementById('editPartyOrderFrequency');
+  const orderFrequency = orderFrequencyEl ? orderFrequencyEl.value : (sp.orderFrequency || 'weekly');
   if(!name){ showInfoModal('出貨方名稱不能空白'); return; }
   if(shippingParties.some(x => x.id !== id && x.name === name)){ showInfoModal('已經有另一個出貨方叫這個名字了'); return; }
 
-  sp.name = name; sp.contact = contact; sp.note = note;
+  sp.name = name; sp.contact = contact; sp.note = note; sp.orderFrequency = orderFrequency;
   editingPartyId = null;
   await saveShippingParties();
   renderPartiesTable();
@@ -8816,6 +8870,14 @@ function renderPartiesTable(){
             <span class="mini-label">${t('colNote')}</span>
             <input type="text" id="editPartyNote" value="${sp.note ? sp.note.replace(/"/g,'&quot;') : ''}" style="width:100%;" />
           </td>
+          <td>
+            <span class="mini-label">${t('colOrderFrequency')}</span>
+            <select id="editPartyOrderFrequency" style="width:100%;">
+              <option value="weekly" ${(!sp.orderFrequency || sp.orderFrequency === 'weekly') ? 'selected' : ''}>${t('freqWeekly')}</option>
+              <option value="fortnight" ${sp.orderFrequency === 'fortnight' ? 'selected' : ''}>${t('freqFortnight')}</option>
+              <option value="monthly" ${sp.orderFrequency === 'monthly' ? 'selected' : ''}>${t('freqMonthly')}</option>
+            </select>
+          </td>
           <td style="white-space:nowrap;">
             <span class="del-link" onclick="saveEditParty('${sp.id}')" style="color:var(--safe);margin-right:8px;">${t('btnSave')}</span>
             <span class="del-link" onclick="cancelEditParty()">${t('btnCancel')}</span>
@@ -8828,18 +8890,19 @@ function renderPartiesTable(){
         <td class="row-name">${sp.name}</td>
         <td>${sp.contact || '—'}</td>
         <td class="row-note">${sp.note || '—'}</td>
+        <td>${t(sp.orderFrequency === 'fortnight' ? 'freqFortnight' : (sp.orderFrequency === 'monthly' ? 'freqMonthly' : 'freqWeekly'))}</td>
         <td class="row-action" style="white-space:nowrap;">
           <span class="del-link" onclick="startEditParty('${sp.id}')" style="margin-right:6px;">${t('btnEdit')}</span>
           <span class="del-link" onclick="togglePartyProductPanel('${sp.id}')" style="margin-right:6px;">${openPartyProductPanelId === sp.id ? t('btnCollapseProductList') : t('btnSetOrderableProducts')}</span>
           <button onclick="deleteParty('${sp.id}')" title="${t('deletePartyTitle')}">✕</button>
         </td>
       </tr>
-      ${openPartyProductPanelId === sp.id ? `<tr><td colspan="4">${renderPartyProductPanelHtml(sp)}</td></tr>` : ''}
+      ${openPartyProductPanelId === sp.id ? `<tr><td colspan="5">${renderPartyProductPanelHtml(sp)}</td></tr>` : ''}
     `;
   }).join('');
   container.innerHTML = `
     <table class="stock-table">
-      <thead><tr><th>${t('fieldPartyName')}</th><th>${t('colPartyContact')}</th><th>${t('colNote')}</th><th></th></tr></thead>
+      <thead><tr><th>${t('fieldPartyName')}</th><th>${t('colPartyContact')}</th><th>${t('colNote')}</th><th>${t('colOrderFrequency')}</th><th></th></tr></thead>
       <tbody>${rows}</tbody>
     </table>
   `;
