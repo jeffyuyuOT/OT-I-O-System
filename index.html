@@ -7761,8 +7761,8 @@ function printOrderDocument(orderId, opts){
   // 「箱數參考」只有主商品(不是批量商品本身)才會計算:找這個主商品名下「當作庫存總量基準」
   // 的那個批量商品(getBasisMultipackChild,跟「訂貨數量達到加權數自動轉換」用的是同一個判斷
   // 依據),如果這次訂貨數量到達一整箱的加權數,就換算成「幾箱 + 剩餘幾瓶」;數量不夠一整箱的話
-  // 這欄就留空,不特別顯示「0 箱」這種沒意義的資訊。箱數單位用那個批量商品自己填的單位
-  // (不是寫死「CTN」),剩餘數量的單位則是主商品自己的單位。
+  // 這欄就留空,不特別顯示「0 箱」這種沒意義的資訊。箱子固定顯示「CTN」(不管那個批量商品自己
+  // 填的單位是什麼),剩餘數量的單位則是主商品自己的單位。
   function cartonRefFor(it){
     if(!includeCheck || !it.productId) return '';
     const p = products.find(x => x.id === it.productId);
@@ -7770,7 +7770,7 @@ function printOrderDocument(orderId, opts){
     if(!child || !(it.qty >= child.childWeight)) return '';
     const cartons = Math.floor(it.qty / child.childWeight);
     const remainder = it.qty - cartons * child.childWeight;
-    const cartonPart = `${cartons} ${escapeHtmlForPrint(child.unit)}`;
+    const cartonPart = `${cartons} CTN`;
     return remainder > 0 ? `${cartonPart} & ${remainder} ${escapeHtmlForPrint(it.unit)}` : cartonPart;
   }
   function remarkFor(it){
@@ -7783,8 +7783,8 @@ function printOrderDocument(orderId, opts){
     <tr>
       ${includeSku ? `<td class="sku-col">${escapeHtmlForPrint(it.sku)}</td>` : ''}
       <td>${escapeHtmlForPrint(it.name)}</td>
-      <td style="text-align:right;">${it.qty}</td>
-      <td>${escapeHtmlForPrint(it.unit)}</td>
+      <td class="qty-col" style="text-align:right;">${it.qty}</td>
+      <td class="unit-col">${escapeHtmlForPrint(it.unit)}</td>
       ${includeCheck ? `<td class="check-col"></td>` : ''}
       ${includeCheck ? `<td class="borderless-col">${remarkFor(it)}</td>` : ''}
       ${includeCheck ? `<td class="borderless-col">${cartonRefFor(it)}</td>` : ''}
@@ -7800,7 +7800,8 @@ function printOrderDocument(orderId, opts){
 <meta charset="UTF-8">
 <title>${escapeHtmlForPrint(order.orderNo || orderId)}</title>
 <style>
-  body{ font-family:'Microsoft JhengHei', Arial, sans-serif; padding:24px; color:#111; }
+  @page{ margin-left:0.1in; margin-right:0.1in; }
+  body{ font-family:'Microsoft JhengHei', Arial, sans-serif; padding:24px 0.1in; color:#111; }
   h1{ font-size:18px; margin:0 0 4px; }
   h2{ font-size:12.5px; font-weight:700; letter-spacing:1.5px; text-transform:uppercase; color:#B23B2E; margin:0 0 14px; }
   .meta{ font-size:13px; color:#333; margin-bottom:3px; }
@@ -7809,8 +7810,10 @@ function printOrderDocument(orderId, opts){
   th, td{ padding:7px 10px; border:1px solid #999; font-size:13px; text-align:left; }
   th{ background:#eee; }
   .sku-col{ width:1%; white-space:nowrap; }
+  .qty-col{ width:1%; white-space:nowrap; }
+  .unit-col{ width:1%; white-space:nowrap; }
   .check-col{ width:44px; text-align:center; }
-  .borderless-col{ border:none; font-size:12px; color:#555; }
+  .borderless-col{ border:none; font-size:12px; color:#555; width:1%; white-space:nowrap; }
 </style>
 </head>
 <body>
@@ -7820,7 +7823,7 @@ function printOrderDocument(orderId, opts){
   <div class="meta">${escapeHtmlForPrint('Customer')}: ${escapeHtmlForPrint(order.partyName)}</div>
   ${(order.note && !includeCheck) ? `<div class="meta">${escapeHtmlForPrint('Note')}: ${escapeHtmlForPrint(order.note)}</div>` : ''}
   <table>
-    <thead><tr>${skuTh}<th>${escapeHtmlForPrint('Product Name')}</th><th>${escapeHtmlForPrint('Qty')}</th><th>${escapeHtmlForPrint('Unit')}</th>${checkTh}${borderlessThs}</tr></thead>
+    <thead><tr>${skuTh}<th>${escapeHtmlForPrint('Product Name')}</th><th class="qty-col">${escapeHtmlForPrint('Qty')}</th><th class="unit-col">${escapeHtmlForPrint('Unit')}</th>${checkTh}${borderlessThs}</tr></thead>
     <tbody>${rowsHtml}</tbody>
   </table>
   ${(order.note && includeCheck) ? `<div class="note-after-table">${escapeHtmlForPrint('Note')}: ${escapeHtmlForPrint(order.note)}</div>` : ''}
