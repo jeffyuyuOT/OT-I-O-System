@@ -2222,7 +2222,7 @@ const I18N = {
     btnAddItemNote: '+ 新增備註',
     btnBackToTop: '▲ To the top',
     avgTitlePartySpecific: '以「{name}」最近三個月的出貨紀錄計算',
-    avgTitlePartyFallback: '「{name}」最近三個月沒有這項商品的出貨紀錄,顯示整體最近三個月平均值供參考',
+    avgTitlePartyFallback: '「{name}」最近三個月沒有這項商品的出貨紀錄',
     avgTitleNoParty: '目前沒有選出貨方,顯示整體最近三個月平均值供參考',
 
     secOrderAdmin: '訂貨後台管理',
@@ -2644,7 +2644,7 @@ const I18N = {
     btnAddItemNote: '+ Add Note',
     btnBackToTop: '▲ To the top',
     avgTitlePartySpecific: 'Calculated from "{name}"\'s shipments over the last three months',
-    avgTitlePartyFallback: '"{name}" has no shipment history for this product in the last three months — showing the overall 3-month average for reference',
+    avgTitlePartyFallback: '"{name}" has no shipment history for this product in the last three months',
     avgTitleNoParty: 'No supplier selected — showing the overall 3-month average for reference',
 
     secOrderAdmin: 'Order Management',
@@ -6737,13 +6737,16 @@ function computePerOrderAvgForParty(productId, partyObj, now){
     if(tx.length >= 1){
       const weeklyAvg = weeklyAvgFromSeries(tx, allTx, now, windowStart);
       const multiplier = ORDER_FREQUENCY_MULTIPLIER[partyObj.orderFrequency] || 1;
-      return { avg: weeklyAvg * multiplier, isPartySpecific: true };
+      return { avg: weeklyAvg * multiplier, isPartySpecific: true, hasData: true };
     }
+    // 這個出貨方最近三個月完全沒訂過這項商品:不再退回顯示「整體平均」當參考值——那樣會讓沒訂過
+    // 的店看起來跟唯一有在訂的店數字一模一樣,容易誤導。改成直接標示「沒有資料」,畫面上顯示「-」。
+    return { avg: 0, isPartySpecific: true, hasData: false };
   }
   const allTx2 = buildWeightedOutSeries(productId, { excludeMasterImportAdjustment: true });
   const tx2 = allTx2.filter(t => new Date(t.date) >= windowStart && new Date(t.date) <= now);
-  if(tx2.length === 0) return { avg: 0, isPartySpecific: false };
-  return { avg: weeklyAvgFromSeries(tx2, allTx2, now, windowStart), isPartySpecific: false };
+  if(tx2.length === 0) return { avg: 0, isPartySpecific: false, hasData: false };
+  return { avg: weeklyAvgFromSeries(tx2, allTx2, now, windowStart), isPartySpecific: false, hasData: true };
 }
 
 
@@ -6815,9 +6818,9 @@ function renderOrderItemsTable(){
           ${orderItemNoteDraft[p.id]
             ? `<span class="del-link" style="font-style:italic;" onclick="openOrderItemNoteModal('${p.id}')">${t('noteLabelPrefix')}${orderItemNoteDraft[p.id].replace(/</g,'&lt;')}</span>`
             : `<span class="del-link" onclick="openOrderItemNoteModal('${p.id}')">${t('btnAddItemNote')}</span>`}
-          <span class="show-mobile-only avg-usage-mobile" title="${avgTitle}">${t('avgUsageMobileLabel')}${isChildProduct ? ' —' : ` ${w.avg.toFixed(1)} ${p.unit}`}</span>
+          <span class="show-mobile-only avg-usage-mobile" title="${avgTitle}">${t('avgUsageMobileLabel')}${isChildProduct ? ' —' : (w.hasData ? ` ${w.avg.toFixed(1)} ${p.unit}` : ' —')}</span>
         </td>
-        <td class="row-num hide-mobile" ${isChildProduct ? '' : `title="${avgTitle}"`}>${isChildProduct ? '—' : `${w.avg.toFixed(1)} ${p.unit}`}</td>
+        <td class="row-num hide-mobile" ${isChildProduct ? '' : `title="${avgTitle}"`}>${isChildProduct ? '—' : (w.hasData ? `${w.avg.toFixed(1)} ${p.unit}` : '—')}</td>
         <td class="row-num row-qty qty-col-data">
           <span class="td-mobile-label">${t('colOrderQty')}</span>
           <div class="qty-cell-inner">
