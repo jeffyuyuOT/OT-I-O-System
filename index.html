@@ -136,6 +136,23 @@
     background:var(--yellow); color:var(--ink); font-size:11px; border-radius:3px;
   }
 
+  /* 系統設置頁面的功能區塊卡片:用左側色條+底色跟其他區塊區分開,取代原本用 <hr> 分隔的方式 */
+  .settings-card{
+    background:#fff; border:1px solid var(--line); border-left:4px solid var(--yellow);
+    border-radius:3px; padding:20px 24px; margin-bottom:16px;
+  }
+  .settings-card:last-child{ margin-bottom:0; }
+  .settings-card .section-title{ margin-bottom:10px; }
+  .settings-card.settings-card-danger{
+    background:var(--crit-bg); border-left-color:var(--crit); border-color:#E0C4BF;
+  }
+  .settings-card.settings-card-warn{
+    background:var(--warn-bg); border-left-color:var(--warn); border-color:#E8D3AE;
+  }
+  @media(max-width:768px){
+    .settings-card{ padding:16px 18px; }
+  }
+
   .form-grid{ display:grid; grid-template-columns:2fr 1fr auto; gap:12px; align-items:end; }
   .form-grid.tx{ grid-template-columns:1.6fr 1fr 1fr 1fr 1.4fr auto; }
   .field label{ display:block; font-size:11px; color:var(--ink-soft); margin-bottom:5px; font-weight:600; text-transform:uppercase; letter-spacing:0.3px; }
@@ -901,80 +918,72 @@
       </div>
 
       <div id="subtab-sys-settings" class="subtab-content">
-        <div class="toolbar">
-          <div class="section-title" style="margin:0;" data-i18n="secTabOrder">分頁排序</div>
-          <button class="btn ghost" onclick="toggleTabOrderPanel()" data-i18n="btnAdjustTabOrder">調整分頁順序</button>
-        </div>
-        <p style="font-size:12.5px;color:var(--ink-soft);margin:8px 0 0;" data-i18n="tabOrderSectionDesc">調整上方分頁列(系統管理、庫存管理…等)顯示的先後順序。</p>
-        <div id="tabOrderPanel" style="display:none;margin-top:10px;"></div>
-
-        <hr class="divider" />
-
-        <div class="section-title" style="margin-bottom:8px;" data-i18n="secMultipackSettings">Multipack 商品設定</div>
-        <div style="display:flex;align-items:center;gap:8px;margin:0 0 6px;">
-          <input type="checkbox" id="autoConvertMultipackToggle" onchange="toggleAutoConvertMultipack(this.checked)" style="width:16px;height:16px;cursor:pointer;" />
-          <label for="autoConvertMultipackToggle" style="font-size:12.5px;color:var(--ink);font-weight:600;cursor:pointer;" data-i18n="autoConvertMultipackLabel">訂貨數量達到 multipack 商品的加權數時,自動轉換成該 multipack 商品</label>
-        </div>
-        <p style="font-size:11.5px;color:var(--ink-soft);margin:0 0 12px;" data-i18n="autoConvertMultipackHint">
-          只有主商品「剛好只有一種 multipack 商品」,或已經在編輯商品畫面勾選「顯示於總庫存量」指定某個 multipack 商品時才會生效;數量不足整數倍的部分,仍會用主商品下單。
-        </p>
-
-        <hr class="divider" />
-
-        <div class="section-title" style="margin-bottom:8px;" data-i18n="secOrderVerifySettings">訂單核對設定</div>
-        <div style="display:flex;align-items:center;gap:8px;margin:0 0 6px;">
-          <input type="checkbox" id="disableDirectVerifyToggle" onchange="toggleDisableDirectVerify(this.checked)" style="width:16px;height:16px;cursor:pointer;" />
-          <label for="disableDirectVerifyToggle" style="font-size:12.5px;color:var(--ink);font-weight:600;cursor:pointer;" data-i18n="disableDirectVerifyLabel">取消直接核對功能</label>
-        </div>
-        <p style="font-size:11.5px;color:var(--ink-soft);margin:0 0 12px;" data-i18n="disableDirectVerifyHint">
-          勾選後,「登記進出貨 → 出貨 → 載入現有待處理訂單」下面的「直接核對」選項會隱藏,只能用「載入訂單核對頁面」的方式核對(需要先比對實際點貨內容才能確認)。
-        </p>
-
-        <hr class="divider" />
-
-        <div class="section-title" style="margin-bottom:8px;" data-i18n="secProductSortSettings">商品排序</div>
-        <p style="font-size:11.5px;color:var(--ink-soft);margin:0 0 8px;" data-i18n="productSortHint">
-          決定庫存總覽(沒有手動點欄位排序時)、訂貨頁面裡,同一個分類底下的商品要怎麼排序。分類本身的先後順序另外在庫存總覽用「調整分類順序」設定。
-        </p>
-        <div class="field" style="max-width:280px;margin-bottom:12px;">
-          <select id="productSortModeSelect" onchange="changeProductSortMode(this.value)">
-            <option value="import" data-i18n="productSortImport">依照匯入商品主檔順序</option>
-            <option value="name" data-i18n="productSortName">依照商品名稱</option>
-            <option value="sku" data-i18n="productSortSku">依照SKU code</option>
-          </select>
-        </div>
-        <div style="display:flex;align-items:center;gap:8px;margin:0 0 6px;">
-          <input type="checkbox" id="hideMultipackIconToggle" onchange="toggleHideMultipackIcon(this.checked)" style="width:16px;height:16px;cursor:pointer;" />
-          <label for="hideMultipackIconToggle" style="font-size:12.5px;color:var(--ink);font-weight:600;cursor:pointer;" data-i18n="hideMultipackIconLabel">訂貨頁面隱藏Multipack圖示</label>
-        </div>
-        <p style="font-size:11.5px;color:var(--ink-soft);margin:0 0 12px;" data-i18n="hideMultipackIconHint">
-          勾選後,訂貨頁面 multipack 商品名稱前面的「⧉」圖示不顯示,商品名稱直接往前對齊,跟其他一般商品的名稱起始位置一致。
-        </p>
-
-        <hr class="divider" />
-
-        <div class="section-title" style="margin-bottom:8px;" data-i18n="secCompletedExportFormat">已完成訂單匯出格式</div>
-        <p style="font-size:11.5px;color:var(--ink-soft);margin:0 0 8px;" data-i18n="completedExportFormatHint">
-          決定已完成訂單匯出 Excel 時,商品清單要怎麼列。
-        </p>
-        <div class="field" style="max-width:280px;margin-bottom:12px;">
-          <select id="completedExportFormatSelect" onchange="changeCompletedExportFormat(this.value)">
-            <option value="recordsOnly" data-i18n="exportFormatRecordsOnly">僅匯出有紀錄的商品</option>
-            <option value="fullCatalog" data-i18n="exportFormatFullCatalog">匯出庫存總覽所有商品</option>
-          </select>
+        <div class="settings-card">
+          <div class="toolbar" style="margin:0 0 0;">
+            <div class="section-title" style="margin:0;" data-i18n="secTabOrder">分頁排序</div>
+            <button class="btn ghost" onclick="toggleTabOrderPanel()" data-i18n="btnAdjustTabOrder">調整分頁順序</button>
+          </div>
+          <p style="font-size:12.5px;color:var(--ink-soft);margin:8px 0 0;" data-i18n="tabOrderSectionDesc">調整上方分頁列(系統管理、庫存管理…等)顯示的先後順序。</p>
+          <div id="tabOrderPanel" style="display:none;margin-top:10px;"></div>
         </div>
 
-        <hr class="divider" />
+        <div class="settings-card">
+          <div class="section-title" data-i18n="secMultipackSettings">Multipack 商品設定</div>
+          <div style="display:flex;align-items:center;gap:8px;margin:0 0 6px;">
+            <input type="checkbox" id="autoConvertMultipackToggle" onchange="toggleAutoConvertMultipack(this.checked)" style="width:16px;height:16px;cursor:pointer;" />
+            <label for="autoConvertMultipackToggle" style="font-size:12.5px;color:var(--ink);font-weight:600;cursor:pointer;" data-i18n="autoConvertMultipackLabel">訂貨數量達到 multipack 商品的加權數時,自動轉換成該 multipack 商品</label>
+          </div>
+          <p style="font-size:11.5px;color:var(--ink-soft);margin:0;" data-i18n="autoConvertMultipackHint">
+            只有主商品「剛好只有一種 multipack 商品」,或已經在編輯商品畫面勾選「顯示於總庫存量」指定某個 multipack 商品時才會生效;數量不足整數倍的部分,仍會用主商品下單。
+          </p>
+        </div>
 
-        <div class="section-title" style="margin-bottom:8px;color:var(--crit);" data-i18n="secRestoreDefault">還原預設</div>
-        <p style="font-size:12.5px;color:var(--ink-soft);margin:0 0 12px;" data-i18n="restoreDefaultDesc">
-          清空資料回到初始狀態,動作無法復原,執行前建議先於下方「完整資料備份」匯出完整備份。
-        </p>
-        <button class="btn ghost" style="border-color:var(--crit);color:var(--crit);" onclick="openRestoreDefaultModal()" data-i18n="btnRestoreDefault">還原預設 / Restore Default</button>
+        <div class="settings-card">
+          <div class="section-title" data-i18n="secOrderVerifySettings">訂單核對設定</div>
+          <div style="display:flex;align-items:center;gap:8px;margin:0 0 6px;">
+            <input type="checkbox" id="disableDirectVerifyToggle" onchange="toggleDisableDirectVerify(this.checked)" style="width:16px;height:16px;cursor:pointer;" />
+            <label for="disableDirectVerifyToggle" style="font-size:12.5px;color:var(--ink);font-weight:600;cursor:pointer;" data-i18n="disableDirectVerifyLabel">取消直接核對功能</label>
+          </div>
+          <p style="font-size:11.5px;color:var(--ink-soft);margin:0;" data-i18n="disableDirectVerifyHint">
+            勾選後,「登記進出貨 → 出貨 → 載入現有待處理訂單」下面的「直接核對」選項會隱藏,只能用「載入訂單核對頁面」的方式核對(需要先比對實際點貨內容才能確認)。
+          </p>
+        </div>
 
-        <hr class="divider" />
+        <div class="settings-card">
+          <div class="section-title" data-i18n="secProductSortSettings">商品排序</div>
+          <p style="font-size:11.5px;color:var(--ink-soft);margin:0 0 8px;" data-i18n="productSortHint">
+            決定庫存總覽(沒有手動點欄位排序時)、訂貨頁面裡,同一個分類底下的商品要怎麼排序。分類本身的先後順序另外在庫存總覽用「調整分類順序」設定。
+          </p>
+          <div class="field" style="max-width:280px;margin-bottom:12px;">
+            <select id="productSortModeSelect" onchange="changeProductSortMode(this.value)">
+              <option value="import" data-i18n="productSortImport">依照匯入商品主檔順序</option>
+              <option value="name" data-i18n="productSortName">依照商品名稱</option>
+              <option value="sku" data-i18n="productSortSku">依照SKU code</option>
+            </select>
+          </div>
+          <div style="display:flex;align-items:center;gap:8px;margin:0 0 6px;">
+            <input type="checkbox" id="hideMultipackIconToggle" onchange="toggleHideMultipackIcon(this.checked)" style="width:16px;height:16px;cursor:pointer;" />
+            <label for="hideMultipackIconToggle" style="font-size:12.5px;color:var(--ink);font-weight:600;cursor:pointer;" data-i18n="hideMultipackIconLabel">訂貨頁面隱藏Multipack圖示</label>
+          </div>
+          <p style="font-size:11.5px;color:var(--ink-soft);margin:0;" data-i18n="hideMultipackIconHint">
+            勾選後,訂貨頁面 multipack 商品名稱前面的「⧉」圖示不顯示,商品名稱直接往前對齊,跟其他一般商品的名稱起始位置一致。
+          </p>
+        </div>
 
-        <div id="emptyDataBanner" class="section" style="display:none;background:#fff8e1;border-color:#e6c200;padding:16px;margin-bottom:16px;">
+        <div class="settings-card">
+          <div class="section-title" data-i18n="secCompletedExportFormat">已完成訂單匯出格式</div>
+          <p style="font-size:11.5px;color:var(--ink-soft);margin:0 0 8px;" data-i18n="completedExportFormatHint">
+            決定已完成訂單匯出 Excel 時,商品清單要怎麼列。
+          </p>
+          <div class="field" style="max-width:280px;margin:0;">
+            <select id="completedExportFormatSelect" onchange="changeCompletedExportFormat(this.value)">
+              <option value="recordsOnly" data-i18n="exportFormatRecordsOnly">僅匯出有紀錄的商品</option>
+              <option value="fullCatalog" data-i18n="exportFormatFullCatalog">匯出庫存總覽所有商品</option>
+            </select>
+          </div>
+        </div>
+
+        <div id="emptyDataBanner" class="settings-card settings-card-warn" style="display:none;">
           <div class="section-title" style="color:#8a6d00;" data-i18n="emptyDataBannerTitle">⚠️ 目前沒有任何商品或進出貨資料</div>
           <p style="font-size:12.5px;color:#5c4a00;margin:0 0 12px;" data-i18n="emptyDataBannerDesc">
             如果你電腦裡有之前自動備份的資料夾,可以點下面按鈕讀取最新的一份直接還原,不用手動找檔案。
@@ -982,39 +991,49 @@
           <button class="btn ghost" onclick="restoreFromBackupFolder()" data-i18n="emptyDataRestoreBtn">📥 從備份資料夾還原</button>
         </div>
 
-        <div class="section-title" data-i18n="secFullBackup">完整資料備份</div>
-        <p style="font-size:12.5px;color:var(--ink-soft);margin:0 0 12px;" data-i18n="fullBackupDesc">
-          匯出目前 App 裡的所有資料(商品主檔、進出貨紀錄、分類順序)成一個備份檔。如果之後資料不見或想換裝置,直接匯入這個檔案就能完整還原,包括所有進出貨紀錄。
-        </p>
-        <button class="btn" onclick="exportFullBackup()" data-i18n="btnExportFullBackup">📦 匯出完整備份檔</button>
+        <div class="settings-card">
+          <div class="section-title" data-i18n="secFullBackup">完整資料備份</div>
+          <p style="font-size:12.5px;color:var(--ink-soft);margin:0 0 12px;" data-i18n="fullBackupDesc">
+            匯出目前 App 裡的所有資料(商品主檔、進出貨紀錄、分類順序)成一個備份檔。如果之後資料不見或想換裝置,直接匯入這個檔案就能完整還原,包括所有進出貨紀錄。
+          </p>
+          <button class="btn" onclick="exportFullBackup()" data-i18n="btnExportFullBackup">📦 匯出完整備份檔</button>
 
-        <div style="display:flex;align-items:center;gap:8px;margin:16px 0 4px;">
-          <input type="checkbox" id="autoBackupToggle" checked onchange="toggleAutoBackup(this.checked)" style="width:16px;height:16px;cursor:pointer;" />
-          <label for="autoBackupToggle" style="font-size:12.5px;color:var(--ink);font-weight:600;cursor:pointer;" data-i18n="autoBackupLabel">資料異動時自動備份(每日覆蓋一份)</label>
-        </div>
-        <div style="display:flex;align-items:center;gap:8px;margin:0 0 8px;">
-          <button class="btn ghost" style="padding:6px 12px;font-size:12px;" onclick="chooseBackupFolder()" data-i18n="btnChooseBackupFolder">📁 選擇自動備份資料夾</button>
-        </div>
-        <p id="autoBackupStatus" style="font-size:11.5px;color:var(--ink-soft);margin:0 0 12px;" data-i18n="autoBackupNotSetYet">尚未設定。</p>
-
-        <hr class="divider" />
-
-        <div class="section-title" style="margin-bottom:8px;" data-i18n="secRestoreBackup">還原備份</div>
-        <p style="font-size:12.5px;color:var(--ink-soft);margin:0 0 12px;">
-          <span style="color:var(--crit);" data-i18n="restoreBackupWarning">注意:還原會完全覆蓋目前 App 裡的資料,建議先匯出目前的資料備份再還原。</span>
-        </p>
-        <div class="form-grid" style="grid-template-columns:1fr auto;">
-          <div class="field">
-            <label data-i18n="fieldChooseBackupFile">選擇備份檔(.json)</label>
-            <input type="file" id="backupImportFile" accept=".json,application/json" style="border:1px solid var(--line);background:#fff;border-radius:2px;padding:8px;font-family:'IBM Plex Mono',monospace;font-size:12px;width:100%;" />
+          <div style="display:flex;align-items:center;gap:8px;margin:16px 0 4px;">
+            <input type="checkbox" id="autoBackupToggle" checked onchange="toggleAutoBackup(this.checked)" style="width:16px;height:16px;cursor:pointer;" />
+            <label for="autoBackupToggle" style="font-size:12.5px;color:var(--ink);font-weight:600;cursor:pointer;" data-i18n="autoBackupLabel">資料異動時自動備份(每日覆蓋一份)</label>
           </div>
-          <button class="btn ghost" onclick="importFullBackup()" data-i18n="btnRestoreBackup">還原這個備份</button>
+          <div style="display:flex;align-items:center;gap:8px;margin:0 0 8px;">
+            <button class="btn ghost" style="padding:6px 12px;font-size:12px;" onclick="chooseBackupFolder()" data-i18n="btnChooseBackupFolder">📁 選擇自動備份資料夾</button>
+          </div>
+          <p id="autoBackupStatus" style="font-size:11.5px;color:var(--ink-soft);margin:0;" data-i18n="autoBackupNotSetYet">尚未設定。</p>
         </div>
-        <div style="margin:10px 0 4px;">
-          <button class="btn ghost" onclick="restoreFromBackupFolder()" data-i18n="btnRestoreFromFolder">📥 從資料夾讀取最新備份並還原</button>
-          <span style="font-size:11px;color:var(--ink-soft);margin-left:8px;" data-i18n="restoreFromFolderHint">會挑資料夾裡日期最新的一份 stock_ledger_backup_*.json</span>
+
+        <div class="settings-card">
+          <div class="section-title" data-i18n="secRestoreBackup">還原備份</div>
+          <p style="font-size:12.5px;color:var(--ink-soft);margin:0 0 12px;">
+            <span style="color:var(--crit);" data-i18n="restoreBackupWarning">注意:還原會完全覆蓋目前 App 裡的資料,建議先匯出目前的資料備份再還原。</span>
+          </p>
+          <div class="form-grid" style="grid-template-columns:1fr auto;">
+            <div class="field">
+              <label data-i18n="fieldChooseBackupFile">選擇備份檔(.json)</label>
+              <input type="file" id="backupImportFile" accept=".json,application/json" style="border:1px solid var(--line);background:#fff;border-radius:2px;padding:8px;font-family:'IBM Plex Mono',monospace;font-size:12px;width:100%;" />
+            </div>
+            <button class="btn ghost" onclick="importFullBackup()" data-i18n="btnRestoreBackup">還原這個備份</button>
+          </div>
+          <div style="margin:10px 0 4px;">
+            <button class="btn ghost" onclick="restoreFromBackupFolder()" data-i18n="btnRestoreFromFolder">📥 從資料夾讀取最新備份並還原</button>
+            <span style="font-size:11px;color:var(--ink-soft);margin-left:8px;" data-i18n="restoreFromFolderHint">會挑資料夾裡日期最新的一份 stock_ledger_backup_*.json</span>
+          </div>
+          <div id="backupMsg" class="msg"></div>
         </div>
-        <div id="backupMsg" class="msg"></div>
+
+        <div class="settings-card settings-card-danger">
+          <div class="section-title" style="color:var(--crit);" data-i18n="secRestoreDefault">還原預設</div>
+          <p style="font-size:12.5px;color:var(--ink-soft);margin:0 0 12px;" data-i18n="restoreDefaultDesc">
+            清空資料回到初始狀態,動作無法復原,執行前建議先於上方「完整資料備份」匯出完整備份。
+          </p>
+          <button class="btn ghost" style="border-color:var(--crit);color:var(--crit);" onclick="openRestoreDefaultModal()" data-i18n="btnRestoreDefault">還原預設 / Restore Default</button>
+        </div>
       </div>
 
       <div id="subtab-sys-product" class="subtab-content">
@@ -4288,6 +4307,21 @@ async function loadOrders(){
 // load their own supplier's rows in the first place (loadOrders above),
 // so this can never touch another supplier's orders even though the code
 // itself doesn't do any manual filtering.
+//
+// 正因為上面這條限制,本地端的 orders 陣列在「限定出貨方權限」的帳號手上永遠是不完整的,
+// computePendingReserved()/computeAvailableForOrder() 只拿這份陣列算出來的「可訂數量」對
+// 這種帳號來說可能是錯的(看不到別家出貨方訂走的量)。這支函式呼叫 pending_reserved_qty_rpc_
+// migration.sql 建立的 security definer 函式,繞過該限制拿到「全系統、不分出貨方」的權威預訂
+// 總量(只有商品 ID + 數量,不含任何出貨方細節),送出訂單前一定要再用這份資料驗證一次,
+// 不能只信任本地端 collectOrderItems() 那次檢查——這正是之前庫存超賣問題的根本原因:
+// 兩個出貨方權限沒有交集的使用者,彼此的預訂量互相看不到。
+async function fetchGlobalReservedQty(){
+  const { data, error } = await sb.rpc('get_pending_reserved_qty');
+  if(error) throw error;
+  const map = {};
+  (data || []).forEach(row => { map[row.product_id] = parseFloat(row.reserved_qty) || 0; });
+  return map;
+}
 
 // 平常新增/軟刪除訂單一律用這個:只 upsert 傳進來的那幾筆訂單,不會去比對「本地陣列裡沒有的,
 // 就當作要從資料庫刪除」——上一版的 saveOrders() 是整批比對本地 vs 遠端、刪掉本地沒有的,如果
@@ -7043,6 +7077,40 @@ async function confirmOrderFromCart(){
     return;
   }
 
+  // 最後一道防線,跟上面 collectOrderItems() 的本地檢查分開、一定會執行:即使上面沒抓到問題,
+  // 本地端 orders 陣列仍然可能因為「限定出貨方權限」的帳號看不到其他出貨方的預訂量而是不完整
+  // 的(見 fetchGlobalReservedQty 的說明)。這裡改用跨出貨方、權威性的全系統預訂總量重新驗證
+  // 一次每個品項的數量,不管購物車頁面當下有沒有因為庫存不夠擋下來,送出前都會再檢查這一次。
+  msg.className = 'msg';
+  msg.textContent = t('checkingLatestStockMsg');
+  let globalReserved;
+  try{
+    globalReserved = await fetchGlobalReservedQty();
+  } catch(e){
+    console.error('送出訂單前的全系統庫存檢查失敗', e);
+    msg.className = 'msg error';
+    msg.textContent = t('errRefreshBeforeSubmitFailed');
+    return;
+  }
+  msg.textContent = '';
+
+  const qtyByProduct = {};
+  items.forEach(it => { qtyByProduct[it.productId] = (qtyByProduct[it.productId] || 0) + it.qty; });
+  const oversellErrors = [];
+  Object.keys(qtyByProduct).forEach(productId => {
+    const p = products.find(pp => pp.id === productId);
+    if(!p) return;
+    const trueAvailable = Math.max(0, computeTotalStock(productId) - (globalReserved[productId] || 0));
+    if(qtyByProduct[productId] > trueAvailable){
+      oversellErrors.push(tf('errQtyExceedsAvailableOrder', { name: p.name, qty: qtyByProduct[productId], stock: trueAvailable }));
+    }
+  });
+  if(oversellErrors.length > 0){
+    showInfoModal(`⚠ ${t('errOrderSubmitFailedPrefix')}${oversellErrors.join('; ')}`);
+    renderOrderItemsTable();
+    return;
+  }
+
   // 送出前先跳出確認視窗,把送貨日期跟出貨方明確列出來,避免手滑選錯日期/出貨方沒發現就送出去了。
   const partyLabel = partyName || t('partyUnspecified');
   const confirmMsg = tf('confirmSubmitOrderMsg', { date: dateVal, party: partyLabel });
@@ -7762,7 +7830,12 @@ function printOrderDocument(orderId, opts){
   // 的那個批量商品(getBasisMultipackChild,跟「訂貨數量達到加權數自動轉換」用的是同一個判斷
   // 依據),如果這次訂貨數量到達一整箱的加權數,就換算成「幾箱 + 剩餘幾瓶」;數量不夠一整箱的話
   // 這欄就留空,不特別顯示「0 箱」這種沒意義的資訊。箱子固定顯示「CTN」(不管那個批量商品自己
-  // 填的單位是什麼),剩餘數量的單位則是主商品自己的單位。
+  // 填的單位是什麼);剩餘數量的散裝單位改用字首縮寫(例如 Bottle→B、Box→B、PCS→P),不寫全名,
+  // 讓這欄可以再窄一點,把版面讓給商品名跟 SKU 欄。
+  function unitInitial(unit){
+    const u = (unit || '').trim();
+    return u ? u.charAt(0).toUpperCase() : '';
+  }
   function cartonRefFor(it){
     if(!includeCheck || !it.productId) return '';
     const p = products.find(x => x.id === it.productId);
@@ -7771,7 +7844,7 @@ function printOrderDocument(orderId, opts){
     const cartons = Math.floor(it.qty / child.childWeight);
     const remainder = it.qty - cartons * child.childWeight;
     const cartonPart = `${cartons} CTN`;
-    return remainder > 0 ? `${cartonPart} & ${remainder} ${escapeHtmlForPrint(it.unit)}` : cartonPart;
+    return remainder > 0 ? `${cartonPart} & ${remainder}${unitInitial(it.unit)}` : cartonPart;
   }
   function remarkFor(it){
     if(!includeCheck || !it.productId) return '';
