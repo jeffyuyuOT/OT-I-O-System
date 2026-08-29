@@ -6196,23 +6196,28 @@ async function runStockImportCore(items, skippedRows, clearBlanksMode, dryRun){
     if(item.orderPageRemark !== null && item.orderPageRemark !== undefined && existing.orderPageRemark !== item.orderPageRemark){ changedFields.push(tf('importFieldChangeLine', {field: t('fieldOrderPageRemark'), from: existing.orderPageRemark || '(空白)', to: item.orderPageRemark})); existing.orderPageRemark = item.orderPageRemark; changed = true; }
     else if(clearBlanksMode && (item.orderPageRemark === null || item.orderPageRemark === undefined) && existing.orderPageRemark){ changedFields.push(tf('importFieldChangeLine', {field: t('fieldOrderPageRemark'), from: existing.orderPageRemark, to: '(空白)'})); existing.orderPageRemark = undefined; changed = true; }
 
-    const currentStock = computeStock(existing.id);
-    const diff = item.qty - currentStock;
-    if(Math.abs(diff) >= 0.01){
-      changedFields.push(tf('importStockChangeLine', {from: currentStock, to: item.qty, unit: existing.unit}));
-      const tx = {
-        id: genId(),
-        productId: existing.id,
-        type: diff > 0 ? 'in' : 'out',
-        qty: Math.abs(diff),
-        date: today,
-        note: `Excel Import - Stock Adjusted (sheet updated to ${item.qty}${existing.unit})`,
-        system: true,
-        masterImportAdjustment: true
-      };
-      transactions.push(tx);
-      newTxs.push(tx);
-      changed = true;
+    // 庫存量欄位是選填:表格上這一列如果沒填庫存量(item.qty 是 null),完全不去比對/調整這個
+    // 商品的庫存,只更新其他有填的欄位——這樣才能支援「只更新商品資料、不重新盤點庫存」的匯入,
+    // 不會因為沒填庫存量就順便把庫存改掉或跳過整列。
+    if(item.qty !== null && item.qty !== undefined){
+      const currentStock = computeStock(existing.id);
+      const diff = item.qty - currentStock;
+      if(Math.abs(diff) >= 0.01){
+        changedFields.push(tf('importStockChangeLine', {from: currentStock, to: item.qty, unit: existing.unit}));
+        const tx = {
+          id: genId(),
+          productId: existing.id,
+          type: diff > 0 ? 'in' : 'out',
+          qty: Math.abs(diff),
+          date: today,
+          note: `Excel Import - Stock Adjusted (sheet updated to ${item.qty}${existing.unit})`,
+          system: true,
+          masterImportAdjustment: true
+        };
+        transactions.push(tx);
+        newTxs.push(tx);
+        changed = true;
+      }
     }
     if(changed) updateDetails.push({ sku: item.sku, name: existing.name, fields: changedFields });
 
@@ -6268,7 +6273,7 @@ async function runStockImportCore(items, skippedRows, clearBlanksMode, dryRun){
   // 之後最終顯示的結果訊息一致,不會有「預覽說會怎樣,結果實際跑出來的不一樣」這種落差。
   const parts = [];
   if(added > 0) parts.push(`新增 ${added} 項商品`);
-  if(updated > 0) parts.push(`更新 ${updated} 項現有商品(庫存量/分類/平均值/安全庫存/備註,商品名稱維持不變)`);
+  if(updated > 0) parts.push(`更新 ${updated} 項現有商品(庫存量/分類/平均值/安全庫存/備註/訂貨頁面附註…等,商品名稱維持不變;庫存量欄位空白的話不會動庫存)`);
   if(unchanged > 0) parts.push(`${unchanged} 項沒有變化`);
   if(linked > 0) parts.push(`設定 ${linked} 項為批量商品(已連結主商品/加權數)`);
   if(skippedNoSku > 0) parts.push(`略過 ${skippedNoSku} 項沒有 SKU 的資料列`);
@@ -6498,22 +6503,23 @@ function parseMasterExcelFile(){
             skippedRows.push({ file: file.name, row: excelRowNo, identifier: rowIdentifier, reason: t('importSkipReasonNoName') });
             continue;
           }
-          const qtyVal = row[colQty];
-          if(qtyVal === null || qtyVal === undefined || String(qtyVal).trim() === ''){
-            skippedRows.push({ file: file.name, row: excelRowNo, identifier: rowIdentifier || String(rowNameVal).trim(), reason: t('importSkipReasonNoStock') });
-            continue;
-          }
           const skuVal = row[colSku];
           if(skuVal === null || skuVal === undefined || String(skuVal).trim() === ''){
             skippedRows.push({ file: file.name, row: excelRowNo, identifier: String(rowNameVal).trim(), reason: t('importSkipReasonNoSku') });
             continue;
           }
+          // 庫存量欄位改成選填:有填才會拿來對照、調整庫存(跟原本行為一樣);空白的話這一整列
+          // 不再被整個跳過——只是「不動庫存」,其他欄位(分類、平均值、安全庫存、備註、訂貨頁面
+          // 附註、箱子尺寸…)照常比對更新。這是為了支援「只更新商品資料、不重新盤點庫存」這種
+          // 匯入情境,之前的邏輯只要庫存量空白就整列略過,會連帶讓其他欄位的更新也一起不見。
+          const qtyVal = row[colQty];
+          const parsedQty = parseNumericCell(qtyVal);
 
           allItems.push({
             sku: String(skuVal).trim(),
             name: String(row[colName]).trim(),
             unit: colUnit !== -1 && row[colUnit] ? String(row[colUnit]).trim() : null,
-            qty: parseNumericCell(qtyVal) || 0,
+            qty: parsedQty, // null 代表這一列沒填庫存量,匯入時完全不動這個商品的庫存
             avg: colAvg !== -1 ? parseNumericCell(row[colAvg]) : null,
             category: colCategory !== -1 && row[colCategory] ? String(row[colCategory]).trim() : null,
             safetyStock: colSafety !== -1 ? parseNumericCell(row[colSafety]) : null,
