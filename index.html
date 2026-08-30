@@ -7819,7 +7819,7 @@ function escapeHtmlForPrint(str){
 // 待處理訂單、已完成訂單的「匯出」「列印」共用:一律只看目前有效的品項、用目前的最終數量,
 // 不顯示 qtyHistory 那些異動紀錄(那是給管理畫面自己看的,匯出/列印給外部用的單子只要看結果就好)。
 function buildOrderExportRows(order){
-  return order.items.filter(it => !it.deleted).map(it => ({ sku: it.sku || '', name: it.name, qty: it.qty, unit: it.unit, productId: it.productId }));
+  return order.items.filter(it => !it.deleted).map(it => ({ sku: it.sku || '', name: it.name, qty: it.qty, unit: it.unit, productId: it.productId, note: it.note || '' }));
 }
 
 // 列印(待處理訂單、已完成訂單共用):opts.includeCheckColumn 待處理訂單才會有(給撿貨的人拿筆
@@ -7860,21 +7860,41 @@ function printOrderDocument(orderId, opts){
     const p = products.find(x => x.id === it.productId);
     return (p && p.orderPageRemark) ? escapeHtmlForPrint(p.orderPageRemark) : '';
   }
+  // 對個別商品的備註(訂貨時「新增附註」加的那個,不是商品主檔的「訂貨頁面附註」):picking slip
+  // 用原本印「訂貨頁面附註」的那個欄位來印(訂貨頁面附註現在改印在商品名稱欄後面的小字括號裡,
+  // 空出這一欄);已完成訂單本來沒有這種備註欄,加在最右邊。兩邊都是「整張單子完全沒有任何一項
+  // 商品有備註」才整欄隱藏,不是逐列判斷──某一列沒有備註,那一列的儲存格照樣印出來(空白),
+  // 只是整欄的表頭/欄位在沒人填的時候才不出現。
+  function itemNoteFor(it){
+    return it.note ? escapeHtmlForPrint(it.note) : '';
+  }
+  const hasAnyNote = items.some(it => itemNoteFor(it));
 
-  const rowsHtml = items.map(it => `
+  const rowsHtml = items.map(it => {
+    // 訂貨頁面附註跟商品名稱印在同一欄:字型縮小、用括號接在名稱後面,只有 picking slip
+    // (includeCheck)才會有,已完成訂單維持原樣不印訂貨頁面附註。
+    const remark = remarkFor(it);
+    const nameCell = `${escapeHtmlForPrint(it.name)}${remark ? ` <span style="font-size:11px;color:#666;">(${remark})</span>` : ''}`;
+    const pickingNoteTd = (includeCheck && hasAnyNote) ? `<td class="borderless-col">${itemNoteFor(it)}</td>` : '';
+    const completedNoteTd = (!includeCheck && hasAnyNote) ? `<td>${itemNoteFor(it)}</td>` : '';
+    return `
     <tr>
       ${includeSku ? `<td class="sku-col">${escapeHtmlForPrint(it.sku)}</td>` : ''}
-      <td>${escapeHtmlForPrint(it.name)}</td>
+      <td>${nameCell}</td>
       <td class="qty-col" style="text-align:right;">${it.qty}</td>
       <td class="unit-col">${escapeHtmlForPrint(it.unit)}</td>
       ${includeCheck ? `<td class="check-col"></td>` : ''}
-      ${includeCheck ? `<td class="borderless-col">${remarkFor(it)}</td>` : ''}
+      ${pickingNoteTd}
       ${includeCheck ? `<td class="borderless-col">${cartonRefFor(it)}</td>` : ''}
+      ${completedNoteTd}
     </tr>
-  `).join('');
+  `;
+  }).join('');
   const checkTh = includeCheck ? `<th class="check-col">${escapeHtmlForPrint('Check')}</th>` : '';
   const skuTh = includeSku ? `<th class="sku-col">${escapeHtmlForPrint('SKU')}</th>` : '';
-  const borderlessThs = includeCheck ? `<th class="borderless-col"></th><th class="borderless-col"></th>` : '';
+  const pickingNoteTh = (includeCheck && hasAnyNote) ? `<th class="borderless-col"></th>` : '';
+  const cartonTh = includeCheck ? `<th class="borderless-col"></th>` : '';
+  const completedNoteTh = (!includeCheck && hasAnyNote) ? `<th>${escapeHtmlForPrint('Note')}</th>` : '';
 
   const html = `<!DOCTYPE html>
 <html>
@@ -7905,7 +7925,7 @@ function printOrderDocument(orderId, opts){
   <div class="meta">${escapeHtmlForPrint('Customer')}: ${escapeHtmlForPrint(order.partyName)}</div>
   ${(order.note && !includeCheck) ? `<div class="meta">${escapeHtmlForPrint('Note')}: ${escapeHtmlForPrint(order.note)}</div>` : ''}
   <table>
-    <thead><tr>${skuTh}<th>${escapeHtmlForPrint('Product Name')}</th><th class="qty-col">${escapeHtmlForPrint('Qty')}</th><th class="unit-col">${escapeHtmlForPrint('Unit')}</th>${checkTh}${borderlessThs}</tr></thead>
+    <thead><tr>${skuTh}<th>${escapeHtmlForPrint('Product Name')}</th><th class="qty-col">${escapeHtmlForPrint('Qty')}</th><th class="unit-col">${escapeHtmlForPrint('Unit')}</th>${checkTh}${pickingNoteTh}${cartonTh}${completedNoteTh}</tr></thead>
     <tbody>${rowsHtml}</tbody>
   </table>
   ${(order.note && includeCheck) ? `<div class="note-after-table">${escapeHtmlForPrint('Note')}: ${escapeHtmlForPrint(order.note)}</div>` : ''}
