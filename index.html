@@ -1191,6 +1191,15 @@
           <input id="txNote" type="text" placeholder="例如:客戶訂單 #123" />
         </div>
       </div>
+      <div id="purchaseReceiptWrap" style="display:none;margin-top:10px;">
+        <label style="display:block;font-size:12.5px;font-weight:600;color:var(--ink);margin-bottom:4px;" data-i18n="fieldPurchaseReceipt">收據/發票附件(選填,圖片或 PDF)</label>
+        <input type="file" id="purchaseReceiptInput" accept="image/*,application/pdf" onchange="handlePurchaseReceiptUpload(this)" style="border:1px solid var(--line);background:#fff;border-radius:2px;padding:8px;font-family:'IBM Plex Mono',monospace;font-size:12px;" />
+        <div id="purchaseReceiptUploadMsg" style="font-size:11.5px;margin-top:4px;"></div>
+        <div id="purchaseReceiptPreviewWrap" style="display:none;margin-top:8px;align-items:center;gap:10px;">
+          <a id="purchaseReceiptPreviewLink" href="#" target="_blank" style="font-size:12.5px;" data-i18n="linkViewUploadedReceipt">📎 查看已上傳的附件</a>
+          <span class="del-link" onclick="removePurchaseReceipt()" data-i18n="btnRemoveFile">移除附件</span>
+        </div>
+      </div>
       <div id="txExistingItemsSection" style="display:none;margin-top:14px;">
         <div class="section-title" style="font-size:13px;" data-i18n="secExistingOrderItems">訂單內原有商品</div>
         <div id="txExistingItemsList"></div>
@@ -1622,6 +1631,7 @@
   <div id="tab-log" class="tab-content">
     <div class="subtab-bar">
       <button class="subtab-btn active" onclick="switchLogSubTab('subtab-log-tx')" id="btn-subtab-log-tx" data-i18n="subtabLogTx">進出貨紀錄</button>
+      <button class="subtab-btn" onclick="switchLogSubTab('subtab-log-purchases')" id="btn-subtab-log-purchases" data-i18n="secPurchaseLog">進貨單</button>
       <button class="subtab-btn" onclick="switchLogSubTab('subtab-log-convert')" id="btn-subtab-log-convert" data-i18n="subtabLogConvert">切換紀錄</button>
       <button class="subtab-btn" onclick="switchLogSubTab('subtab-log-inventory')" id="btn-subtab-log-inventory" data-i18n="subtabLogInventory">後台紀錄</button>
     </div>
@@ -1672,6 +1682,36 @@
         </div>
 
         <div id="logTable"><div class="empty-note" data-i18n="noRecordsYet">尚無紀錄</div></div>
+      </div>
+    </div>
+
+    <div id="subtab-log-purchases" class="subtab-content">
+      <div class="section">
+        <div class="toolbar">
+          <div class="section-title" style="margin:0;" data-i18n="secPurchaseLog">進貨單</div>
+        </div>
+        <p style="font-size:12.5px;color:var(--ink-soft);margin:0 0 12px;" data-i18n="purchaseLogDesc">
+          列出所有進貨單,依日期排序。點一筆可以看品項明細跟收據附件,匯出也是針對單一張進貨單。
+        </p>
+        <div class="filter-row">
+          <div class="field">
+            <label data-i18n="lblFromDate">從日期</label>
+            <input type="date" id="purchaseLogDateFrom" onchange="renderPurchaseLog()" />
+          </div>
+          <div class="field">
+            <label data-i18n="lblToDate">到日期</label>
+            <input type="date" id="purchaseLogDateTo" onchange="renderPurchaseLog()" />
+          </div>
+          <div class="field">
+            <label data-i18n="lblPartyGeneric">對象</label>
+            <select id="purchaseLogPartyFilter" onchange="renderPurchaseLog()">
+              <option value="" data-i18n="logPartyAll">全部對象</option>
+            </select>
+          </div>
+          <button class="btn ghost" onclick="clearPurchaseLogFilters()" data-i18n="btnClearFilter">清除篩選</button>
+        </div>
+        <div id="purchaseLogExportMsg" class="msg"></div>
+        <div id="purchaseLogTable"><div class="empty-note" data-i18n="noPurchasesYet">尚無進貨單紀錄</div></div>
       </div>
     </div>
 
@@ -1905,7 +1945,8 @@ function txToRow(tx){
     order_id: tx.orderId || null,
     conversion: !!tx.conversion,
     conversion_id: tx.conversionId || null,
-    master_import_adjustment: !!tx.masterImportAdjustment
+    master_import_adjustment: !!tx.masterImportAdjustment,
+    purchase_id: tx.purchaseId || null
   };
 }
 function rowToTx(row){
@@ -1916,6 +1957,7 @@ function rowToTx(row){
   if(row.conversion) tx.conversion = true;
   if(row.conversion_id) tx.conversionId = row.conversion_id;
   if(row.master_import_adjustment) tx.masterImportAdjustment = true;
+  if(row.purchase_id) tx.purchaseId = row.purchase_id;
   return tx;
 }
 function txStockDelta(tx){ return tx.type === 'out' ? -tx.qty : tx.qty; }
@@ -1997,8 +2039,12 @@ let products = [];
 let transactions = [];
 let orders = [];
 let deliveryNotes = []; // Delivery Note 清單——純文件記錄,結構比照 orders(id/date/partyId/partyName/note/items),但完全不影響庫存,也沒有 status/orderNo 這些欄位
+let purchases = []; // 進貨單清單:{id, date, partyId/partyName, invoiceNo, items:[{productId,sku,name,qty,unit}], receiptUrl, createdAt}。
+                     // 不記單價/金額——用收據附件取代手動輸入金額。提交進貨單時,底下還是會照樣
+                     // 產生 type='in' 的 transactions(purchaseId 指回這張單),庫存計算邏輯不變。
 let shippingParties = [];
 let currentTxType = 'in';
+let pendingPurchaseReceiptUrl = null; // 進貨單收據附件:上傳成功後的公開網址,submitTxBatchSimple() 送出進貨單時會用到,送出後清空
 let storageReady = false;
 let autoBackupEnabled = true;
 let autoBackupTimer = null;
@@ -2520,6 +2566,13 @@ const I18N = {
     fieldProductPhoto: '商品照片', btnRemovePhoto: '移除照片',
     errPhotoMustBeImage: '請選擇圖片檔案', errPhotoTooLarge: '圖片檔案太大,請壓縮到 5MB 以下',
     uploadingPhotoMsg: '上傳中…', photoUploadedMsg: '✓ 已上傳', errPhotoUploadFailed: '上傳失敗,請重新整理頁面再試一次',
+    fieldPurchaseReceipt: '收據/發票附件(選填,圖片或 PDF)', linkViewUploadedReceipt: '📎 查看已上傳的附件', btnRemoveFile: '移除附件',
+    errReceiptFileType: '請選擇圖片或 PDF 檔案', errReceiptTooLarge: '檔案太大,請壓縮到 10MB 以下',
+    uploadingReceiptMsg: '上傳中…', receiptUploadedMsg: '✓ 已上傳', errReceiptUploadFailed: '上傳失敗,請重新整理頁面再試一次',
+    secPurchaseLog: '進貨單', purchaseLogDesc: '列出所有進貨單,依日期排序。點一筆可以看品項明細跟收據附件,匯出也是針對單一張進貨單。',
+    colPurchaseDate: '日期', colPurchaseParty: '進貨方', colPurchaseInvoiceNo: 'Invoice',
+    noPurchasesYet: '尚無進貨單紀錄', purchaseItemsLabel: '品項', purchaseNoReceiptLabel: '(沒有附件)',
+    btnExportPurchaseLog: '📤 匯出這張進貨單',
     btnViewPhoto: '📷 觀看照片',
     fieldAutoConvertStockInHint: '— 勾選後,登記進出貨的「進貨」如果是這個批量商品,會直接依加權數換算成主商品的數量、加進主商品的庫存,不會加進這個批量商品自己的庫存。',
     fieldHideFromCompletedExport: '已完成訂單匯出不顯示',
@@ -2942,6 +2995,13 @@ const I18N = {
     fieldProductPhoto: 'Product Photo', btnRemovePhoto: 'Remove Photo',
     errPhotoMustBeImage: 'Please select an image file', errPhotoTooLarge: 'Image is too large, please compress it under 5MB',
     uploadingPhotoMsg: 'Uploading…', photoUploadedMsg: '✓ Uploaded', errPhotoUploadFailed: 'Upload failed, please refresh and try again',
+    fieldPurchaseReceipt: 'Receipt/Invoice Attachment (optional, image or PDF)', linkViewUploadedReceipt: '📎 View uploaded attachment', btnRemoveFile: 'Remove attachment',
+    errReceiptFileType: 'Please select an image or PDF file', errReceiptTooLarge: 'File is too large, please compress it under 10MB',
+    uploadingReceiptMsg: 'Uploading…', receiptUploadedMsg: '✓ Uploaded', errReceiptUploadFailed: 'Upload failed, please refresh and try again',
+    secPurchaseLog: 'Purchases', purchaseLogDesc: 'Lists all purchase documents, sorted by date. Click one to see item details and the receipt attachment; export is per document too.',
+    colPurchaseDate: 'Date', colPurchaseParty: 'Supplier', colPurchaseInvoiceNo: 'Invoice',
+    noPurchasesYet: 'No purchase records yet', purchaseItemsLabel: 'Items', purchaseNoReceiptLabel: '(no attachment)',
+    btnExportPurchaseLog: '📤 Export this purchase',
     btnViewPhoto: '📷 View Photo',
     fieldAutoConvertStockInHint: '— When checked, logging a "Stock In" for this multipack product will automatically convert it (using the weight) directly into the main product\'s stock, instead of adding to this multipack product\'s own stock.',
     fieldHideFromCompletedExport: 'Hide from Completed Order Export',
@@ -3923,6 +3983,7 @@ function switchLogSubTab(subtabId){
   container.querySelectorAll('.subtab-content').forEach(el => el.classList.remove('active-subtab'));
   container.querySelectorAll('.subtab-btn').forEach(el => el.classList.remove('active'));
   if(subtabId === 'subtab-log-tx'){ renderLog(); }
+  if(subtabId === 'subtab-log-purchases'){ renderPurchaseLog(); }
   if(subtabId === 'subtab-log-convert'){ renderConvertHistoryTable(); }
   if(subtabId === 'subtab-log-inventory'){ loadInventoryLog().then(renderInventoryLog); }
   document.getElementById(subtabId).classList.add('active-subtab');
@@ -4230,6 +4291,7 @@ async function loadData(){
   await loadProductStock();
   await loadOrders();
   await loadDeliveryNotes();
+  await loadPurchases();
   try{
     const counterResult = await dbGet('orderCounter');
     orderCounter = counterResult ? (parseInt(counterResult.value, 10) || 0) : 0;
@@ -4360,6 +4422,21 @@ async function upsertDeliveryNotes(noteList){
   scheduleAutoBackup();
 }
 
+async function loadPurchases(){
+  try{
+    const { data, error } = await sb.from('purchases').select('payload');
+    if(error) throw error;
+    purchases = (data || []).map(r => r.payload);
+  } catch(e){ console.error('讀取進貨單失敗', e); purchases = []; }
+}
+
+async function upsertPurchase(p){
+  const row = { id: p.id, party_id: p.partyId || null, payload: p, updated_at: new Date().toISOString() };
+  const { error } = await sb.from('purchases').upsert(row);
+  if(error){ console.error('儲存進貨單失敗', error); throw error; }
+  scheduleAutoBackup();
+}
+
 async function deleteDeliveryNoteRow(id){
   const { error } = await sb.from('delivery_notes').delete().eq('id', id);
   if(error){ console.error('刪除 Delivery Note 失敗', error); throw error; }
@@ -4372,6 +4449,11 @@ async function deleteDeliveryNoteRow(id){
 async function clearAllDeliveryNotes(){
   const { error } = await sb.from('delivery_notes').delete().not('id', 'is', null);
   if(error){ console.error('清空 Delivery Note 失敗', error); throw error; }
+}
+
+async function clearAllPurchases(){
+  const { error } = await sb.from('purchases').delete().not('id', 'is', null);
+  if(error){ console.error('清空進貨單失敗', error); throw error; }
 }
 
 // 只有「還原備份」這個明確、具破壞性的動作才會整批覆蓋(先清空 orders 表,再整批寫回本地陣列的內容)。
@@ -4507,6 +4589,7 @@ async function clearAllData(){
     await replaceAllTransactions([]);      // 清空 transactions 表 + 重建庫存快取為空
     await replaceAllOrders([]);            // 清空 orders 表
     await clearAllDeliveryNotes();         // 清空 delivery_notes 表(訂單都清空了,留著也是孤兒資料)
+    await clearAllPurchases();             // 清空 purchases 表(進出貨紀錄都清空了,留著也是孤兒資料)
 
     products = [];
     await saveProducts();
@@ -4519,6 +4602,7 @@ async function clearAllData(){
     transactions = [];
     orders = [];
     deliveryNotes = [];
+    purchases = [];
     productStockMap = {};
 
     await loadInventoryLog();  // 重新從資料庫讀一次,確認真的清空了(而不是只清本地變數自欺欺人)
@@ -4883,6 +4967,9 @@ function setTxType(type){
   if(invoiceFieldWrap) invoiceFieldWrap.style.display = 'none';
   if(mainGridEl) mainGridEl.style.gridTemplateColumns = '1fr 1fr 1.4fr';
   if(deliveryViewSection) deliveryViewSection.style.display = 'none';
+  const receiptWrap = document.getElementById('purchaseReceiptWrap');
+  if(receiptWrap && type !== 'in') receiptWrap.style.display = 'none';
+  if(type !== 'in') removePurchaseReceipt(); // 切走「進貨」類型的話,暫存的收據附件狀態一併清掉,避免殘留到下次填別種類型的表單
   if(type === 'in'){
     partyLabel.textContent = t('partyLabelIn');
     partyInput.placeholder = t('partyPlaceholderIn');
@@ -4895,6 +4982,7 @@ function setTxType(type){
     // 它之後才套用,不然會被蓋掉。
     if(invoiceFieldWrap) invoiceFieldWrap.style.display = '';
     if(mainGridEl) mainGridEl.style.gridTemplateColumns = '1fr 1fr 1fr 1.2fr';
+    if(receiptWrap) receiptWrap.style.display = '';
     showTxMainFormArea(true);
   } else if(type === 'out'){
     partyLabel.textContent = t('partyLabelOut');
@@ -9392,6 +9480,55 @@ function removeProductPhoto(){
   if(msgEl) msgEl.textContent = '';
 }
 
+// 進貨單的收據/發票附件上傳:跟商品照片上傳同一套模式,差別是這裡接受圖片「或」PDF,
+// 檔案大小上限放寬到 10MB(收據掃描檔常常比商品照片大)。上傳成功後存進
+// pendingPurchaseReceiptUrl,真正送出進貨單(submitTxBatchSimple)時才會用到、寫進那張單。
+async function handlePurchaseReceiptUpload(inputEl){
+  const file = inputEl.files && inputEl.files[0];
+  if(!file) return;
+  const msgEl = document.getElementById('purchaseReceiptUploadMsg');
+  if(!file.type.startsWith('image/') && file.type !== 'application/pdf'){
+    msgEl.style.color = 'var(--crit)';
+    msgEl.textContent = t('errReceiptFileType');
+    inputEl.value = '';
+    return;
+  }
+  const maxBytes = 10 * 1024 * 1024;
+  if(file.size > maxBytes){
+    msgEl.style.color = 'var(--crit)';
+    msgEl.textContent = t('errReceiptTooLarge');
+    inputEl.value = '';
+    return;
+  }
+  msgEl.style.color = 'var(--ink-soft)';
+  msgEl.textContent = t('uploadingReceiptMsg');
+  const ext = (file.name.split('.').pop() || (file.type === 'application/pdf' ? 'pdf' : 'jpg')).toLowerCase().replace(/[^a-z0-9]/g, '') || 'jpg';
+  const path = `${genId()}.${ext}`;
+  try{
+    const { error } = await sb.storage.from('purchase-receipts').upload(path, file, { upsert: true });
+    if(error) throw error;
+    const { data } = sb.storage.from('purchase-receipts').getPublicUrl(path);
+    pendingPurchaseReceiptUrl = data.publicUrl;
+    document.getElementById('purchaseReceiptPreviewLink').href = pendingPurchaseReceiptUrl;
+    document.getElementById('purchaseReceiptPreviewWrap').style.display = 'flex';
+    msgEl.style.color = 'var(--safe)';
+    msgEl.textContent = t('receiptUploadedMsg');
+  } catch(e){
+    console.error('上傳進貨單收據失敗', e);
+    msgEl.style.color = 'var(--crit)';
+    msgEl.textContent = t('errReceiptUploadFailed');
+  }
+  inputEl.value = '';
+}
+
+function removePurchaseReceipt(){
+  pendingPurchaseReceiptUrl = null;
+  const wrap = document.getElementById('purchaseReceiptPreviewWrap');
+  if(wrap) wrap.style.display = 'none';
+  const msgEl = document.getElementById('purchaseReceiptUploadMsg');
+  if(msgEl) msgEl.textContent = '';
+}
+
 async function saveProductEditModal(){
   const id = editingProductId;
   const isNewChild = !!addingChildParentId;
@@ -9758,8 +9895,123 @@ function getConversionRecords(){
     .sort((a, b) => b.sortKey - a.sortKey);
 }
 
-// 之前是開獨立彈出視窗顯示,現在改成嵌在「歷史紀錄 → 切換紀錄」子分頁裡直接顯示,復原按鈕
-// 也改成直接呼叫 undoConversion(...),不用再透過 window.opener 跨視窗呼叫。
+// 進貨單清單(歷史紀錄 → 進貨單):依日期新到舊排序,每一列顯示日期/進貨方/Invoice,
+// 點一列展開/收合明細(品項清單 + 收據附件連結,沒附件就顯示「(沒有附件)」)。支援日期區間跟
+// 進貨方下拉篩選(比照「進出貨紀錄」子分頁的篩選列)。匯出是針對「單一張進貨單」,不是整份清單
+// (每張單通常對應同一張收據/同一個進貨方,合併匯出反而不好用)。
+let expandedPurchaseId = null;
+function togglePurchaseDetail(id){
+  expandedPurchaseId = (expandedPurchaseId === id) ? null : id;
+  renderPurchaseLog();
+}
+function clearPurchaseLogFilters(){
+  document.getElementById('purchaseLogDateFrom').value = '';
+  document.getElementById('purchaseLogDateTo').value = '';
+  document.getElementById('purchaseLogPartyFilter').value = '';
+  renderPurchaseLog();
+}
+function renderPurchaseLog(){
+  const container = document.getElementById('purchaseLogTable');
+  if(!container) return;
+
+  // 進貨方下拉篩選的選項,依目前所有進貨單裡實際出現過的進貨方動態產生,並保留使用者原本選的值
+  // (如果篩選後那個進貨方已經不在清單裡,才會被重設成「全部對象」)。
+  const partySel = document.getElementById('purchaseLogPartyFilter');
+  const prevParty = partySel.value;
+  const distinctParties = [...new Set(purchases.map(p => p.partyName || p.partyId || '').filter(Boolean))].sort();
+  partySel.innerHTML = `<option value="">${t('logPartyAll')}</option>` + distinctParties.map(p => `<option value="${p.replace(/"/g,'&quot;')}">${p}</option>`).join('');
+  if(distinctParties.includes(prevParty)) partySel.value = prevParty;
+
+  const dateFrom = document.getElementById('purchaseLogDateFrom').value;
+  const dateTo = document.getElementById('purchaseLogDateTo').value;
+  const partyFilter = partySel.value;
+
+  let filtered = purchases.slice();
+  if(dateFrom) filtered = filtered.filter(p => (p.date || '') >= dateFrom);
+  if(dateTo) filtered = filtered.filter(p => (p.date || '') <= dateTo);
+  if(partyFilter) filtered = filtered.filter(p => (p.partyName || p.partyId || '') === partyFilter);
+
+  if(filtered.length === 0){
+    container.innerHTML = `<div class="empty-note">${t('noPurchasesYet')}</div>`;
+    return;
+  }
+  const sorted = filtered.sort((a, b) => (b.date || '').localeCompare(a.date || '') || (b.createdAt || '').localeCompare(a.createdAt || ''));
+  container.innerHTML = `<table class="stock-table">
+      <thead><tr>
+        <th>${t('colPurchaseDate')}</th>
+        <th>${t('colPurchaseParty')}</th>
+        <th>${t('colPurchaseInvoiceNo')}</th>
+        <th></th>
+      </tr></thead>
+      <tbody>
+        ${sorted.map(p => `
+          <tr>
+            <td style="cursor:pointer;white-space:nowrap;" onclick="togglePurchaseDetail('${p.id}')">${escapeHtmlForPrint(p.date || '')}</td>
+            <td style="cursor:pointer;" onclick="togglePurchaseDetail('${p.id}')">${escapeHtmlForPrint(p.partyName || p.partyId || '')}</td>
+            <td style="cursor:pointer;" onclick="togglePurchaseDetail('${p.id}')">${escapeHtmlForPrint(p.invoiceNo || '')}</td>
+            <td><span class="del-link" onclick="exportSinglePurchase('${p.id}')">${t('btnExportPurchaseLog')}</span></td>
+          </tr>
+          ${expandedPurchaseId === p.id ? `
+          <tr>
+            <td colspan="4" style="background:var(--panel);">
+              <table class="stock-table" style="margin:6px 0;">
+                <thead><tr><th>${t('colProduct')}</th><th class="num">${t('colQty')}</th></tr></thead>
+                <tbody>
+                  ${(p.items || []).map(it => `<tr><td>${escapeHtmlForPrint(it.name)}</td><td class="num">${it.qty} ${escapeHtmlForPrint(it.unit || '')}</td></tr>`).join('')}
+                </tbody>
+              </table>
+              ${p.receiptUrl ? `<a href="${p.receiptUrl}" target="_blank" style="font-size:12.5px;">${t('linkViewUploadedReceipt')}</a>` : `<span style="font-size:12.5px;color:var(--ink-soft);">${t('purchaseNoReceiptLabel')}</span>`}
+            </td>
+          </tr>
+          ` : ''}
+        `).join('')}
+      </tbody>
+    </table>`;
+}
+
+// 匯出「單一張」進貨單:格式跟資料維護「匯出進貨」用的欄位不太一樣——一張進貨單通常對應同一天、
+// 同一個進貨方、同一張收據,所以日期/進貨方/Invoice No. 都不重複印在每一列,而是整份檔案開頭
+// 一個標題列,底下就是這張單的品項列(只有 SKU/Name/Qty/Unit)。
+function exportSinglePurchase(purchaseId){
+  const msg = document.getElementById('purchaseLogExportMsg');
+  if(typeof XLSX === 'undefined'){ msg.className='msg error'; msg.textContent='Excel 套件載入失敗,請重新整理頁面再試一次'; return; }
+  const p = purchases.find(x => x.id === purchaseId);
+  if(!p){ msg.className='msg error'; msg.textContent='找不到這張進貨單,請重新整理頁面再試一次。'; return; }
+
+  const productMap = Object.fromEntries(products.map(pp => [pp.id, pp]));
+  const supplier = p.partyName || p.partyId || '';
+
+  const aoa = [];
+  aoa.push([`Supplier: ${supplier}`, `Invoice No.: ${p.invoiceNo || ''}`]);
+  aoa.push([`Date: ${p.date || ''}`]);
+  aoa.push(['SKU', 'Name', 'Qty', 'Unit']);
+  (p.items || []).forEach(it => {
+    const prod = productMap[it.productId];
+    aoa.push([
+      prod && prod.sku ? prod.sku : (it.sku || ''),
+      prod ? prod.name : (it.name || '(deleted product)'),
+      it.qty,
+      prod ? prod.unit : (it.unit || '')
+    ]);
+  });
+
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
+  ws['!cols'] = [
+    {wch:10}, // SKU
+    {wch:32}, // Name
+    {wch:8},  // Qty
+    {wch:10}  // Unit
+  ];
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Purchase');
+
+  const filename = `Opulent - Stock in ${p.date || todayISO()}.xlsx`;
+
+  XLSX.writeFile(wb, filename);
+  msg.className = 'msg ok';
+  msg.textContent = `✓ 已匯出:${filename}`;
+}
+
 function renderConvertHistoryTable(){
   const container = document.getElementById('convertHistoryTable');
   if(!container) return;
@@ -10073,17 +10325,18 @@ async function submitTxBatchSimple(date, msg){
     }
   }
 
+  const purchaseId = currentTxType === 'in' ? genId() : null; // 一整批進貨(不管品項有幾個)共用同一個進貨單 ID
   const newTxs = txBatchItems.map(it => {
     const p = products.find(pp => pp.id === it.productId);
     if(currentTxType === 'in' && p && p.parentId && p.autoConvertOnStockIn){
       const parent = products.find(pp => pp.id === p.parentId);
       const weight = p.childWeight || 1;
       return {
-        id: genId(), productId: p.parentId, type: 'in', qty: it.qty * weight, date, party, invoiceNo,
+        id: genId(), productId: p.parentId, type: 'in', qty: it.qty * weight, date, party, invoiceNo, purchaseId,
         note: note ? `${tf('autoConvertStockInNote', { name: p.name, qty: it.qty, unit: p.unit })}${note ? '、' + note : ''}` : tf('autoConvertStockInNote', { name: p.name, qty: it.qty, unit: p.unit })
       };
     }
-    return { id: genId(), productId: it.productId, type: currentTxType, qty: it.qty, date, party, note, invoiceNo };
+    return { id: genId(), productId: it.productId, type: currentTxType, qty: it.qty, date, party, note, invoiceNo, purchaseId };
   });
   transactions.push(...newTxs);
 
@@ -10093,6 +10346,22 @@ async function submitTxBatchSimple(date, msg){
     newTxs.forEach(tx => { const i = transactions.indexOf(tx); if(i >= 0) transactions.splice(i, 1); });
     msg.className='msg error'; msg.textContent = '⚠ 提交失敗,請重新整理頁面再試一次。';
     return;
+  }
+
+  // 進貨(type='in')的話,除了上面照常產生的 transactions(維持庫存計算邏輯不變),同時建立一張
+  // 進貨單(purchases)——把這批品項、收據附件包成一份正式文件,不記單價/金額(見收據附件說明)。
+  if(currentTxType === 'in'){
+    const purchase = {
+      id: purchaseId,
+      date, partyId: party, partyName: party, invoiceNo,
+      items: txBatchItems.map(it => ({ productId: it.productId, sku: it.sku || '', name: it.name, unit: it.unit, qty: it.qty })),
+      receiptUrl: pendingPurchaseReceiptUrl || null,
+      createdAt: new Date().toISOString()
+    };
+    try{ await upsertPurchase(purchase); purchases.push(purchase); }
+    catch(e){ console.error('儲存進貨單失敗', e); }
+    pendingPurchaseReceiptUrl = null;
+    removePurchaseReceipt();
   }
 
   const count = txBatchItems.length;
@@ -11869,14 +12138,15 @@ function downloadFile(filename, content, mimeType){
 async function exportFullBackup(){
   const backup = {
     exportedAt: new Date().toISOString(),
-    version: 5,
+    version: 6,
     products,
     transactions,
     orders,
     shippingParties,
     categoryOrder,
     inventoryLogs,
-    deliveryNotes
+    deliveryNotes,
+    purchases
   };
   const filename = `stock_ledger_backup_${todayISO()}.json`;
   const content = JSON.stringify(backup, null, 2);
@@ -11968,8 +12238,13 @@ function importFullBackup(){
           try{ await upsertDeliveryNotes(backup.deliveryNotes); }
           catch(e){ console.error('還原 Delivery Note 失敗', e); }
         }
+        if(Array.isArray(backup.purchases) && backup.purchases.length > 0){
+          try{ for(const p of backup.purchases) await upsertPurchase(p); }
+          catch(e){ console.error('還原進貨單失敗', e); }
+        }
         await loadInventoryLog();
         await loadDeliveryNotes();
+        await loadPurchases();
         const seqSynced = await syncOrderNoSequenceAfterRestore(orders);
         msg.className = seqSynced ? 'msg ok' : 'msg error';
         msg.textContent = tf('restoredBackupMsg', { products: products.length, transactions: transactions.length, orders: orders.length })
