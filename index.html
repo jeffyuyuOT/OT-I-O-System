@@ -11147,12 +11147,30 @@ function computeAvgMonthlyOut(productId, now){
   return { avg: null, historyDays, hasRealData: true, monthsWithRecords: rawMonths, outQtyAll };
 }
 
+// 找這個「主商品」實際要用的初始估計值:主商品自己有填「平均使用量」就直接用;自己沒填的話,
+// 去看看目前「顯示於總庫存量」勾選的那個 multipack 子商品有沒有填——使用者常常是直接在那個
+// 子商品的編輯畫面填估計值(因為那個子商品才是庫存總覽實際顯示、可以編輯的那一列),但計算
+// 平均出貨時原本只認主商品自己的 manualAvg,子商品填的那個值完全沒被用到,等於憑空消失。
+// 這裡找到的話要乘上子商品的加權數,換算回主商品自己單位下的估計值,才能拿去跟主商品單位的
+// 出貨紀錄一起計算。
+function resolveFamilyManualAvg(product){
+  if(product.manualAvg !== null && product.manualAvg !== undefined) return product.manualAvg;
+  if(product.parentId) return null; // 子商品不會反過來去借主商品或其他兄弟子商品的估計值
+  const basisChild = getTotalStockBasisProduct(product);
+  if(basisChild && basisChild.id !== product.id && basisChild.manualAvg !== null && basisChild.manualAvg !== undefined){
+    const w = getBasisWeight(basisChild, product);
+    return basisChild.manualAvg * w;
+  }
+  return null;
+}
+
 function getEffectiveAvg(product, now){
   const computed = computeAvgMonthlyOut(product.id, now);
-  const hasManual = (product.manualAvg !== null && product.manualAvg !== undefined);
+  const resolvedManual = resolveFamilyManualAvg(product);
+  const hasManual = (resolvedManual !== null && resolvedManual !== undefined);
 
   if(!computed.hasRealData){
-    if(hasManual) return { avg: product.manualAvg, source: 'manual' };
+    if(hasManual) return { avg: resolvedManual, source: 'manual' };
     return { avg: 0, source: 'none' };
   }
 
@@ -11160,7 +11178,7 @@ function getEffectiveAvg(product, now){
     return { avg: computed.avg, source: 'log' };
   }
 
-  const manualVal = hasManual ? product.manualAvg : 0;
+  const manualVal = hasManual ? resolvedManual : 0;
   const monthsRemaining = 12 - computed.monthsWithRecords;
   const blended = (manualVal * monthsRemaining + computed.outQtyAll) / 12;
   return { avg: blended, source: 'blended', monthsWithRecords: computed.monthsWithRecords };
