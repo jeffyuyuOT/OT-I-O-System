@@ -11423,7 +11423,10 @@ function renderProductSelect(){
 
   const sel = document.getElementById('txProduct');
   const prevVal = sel.value;
-  let filteredProducts = catFilterVal ? products.filter(p => (p.category || '未分類') === catFilterVal) : products;
+  // 庫存總覽設定隱藏的商品,登記進出貨新增商品時的下拉選單一律不顯示(不管是進貨/出貨/庫存調整
+  // 或任何其他模式)——隱藏通常代表這項商品已經停用/不再進貨,不應該還讓人選到去登記異動。
+  let filteredProducts = (catFilterVal ? products.filter(p => (p.category || '未分類') === catFilterVal) : products)
+    .filter(p => !p.hidden);
 
   // load-pending/load-completed 新增商品的下拉選單:預設只顯示這個出貨方訂貨時實際看得到的商品
   // (跟訂貨頁面同一套篩選邏輯:orderable、沒有全域隱藏、也沒有針對這個出貨方個別隱藏),
