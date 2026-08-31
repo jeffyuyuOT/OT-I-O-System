@@ -9980,12 +9980,10 @@ function exportSinglePurchase(purchaseId){
 
   const productMap = Object.fromEntries(products.map(pp => [pp.id, pp]));
   const supplier = p.partyName || p.partyId || '';
-  const headerParts = [`Date: ${p.date || ''}`];
-  if(supplier) headerParts.push(`Supplier: ${supplier}`);
-  if(p.invoiceNo) headerParts.push(`Invoice No.: ${p.invoiceNo}`);
 
   const aoa = [];
-  aoa.push([headerParts.join('   ')]);
+  aoa.push([`Supplier: ${supplier}`, `Invoice No.: ${p.invoiceNo || ''}`]);
+  aoa.push([`Date: ${p.date || ''}`]);
   aoa.push(['SKU', 'Name', 'Qty', 'Unit']);
   (p.items || []).forEach(it => {
     const prod = productMap[it.productId];
@@ -10007,8 +10005,7 @@ function exportSinglePurchase(purchaseId){
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Purchase');
 
-  const invoicePart = p.invoiceNo ? ` ${p.invoiceNo.replace(/[\\/:*?"<>|]/g, '-')}` : '';
-  const filename = `Opulent - Purchase ${p.date || todayISO()}${invoicePart}.xlsx`;
+  const filename = `Opulent - Stock in ${p.date || todayISO()}.xlsx`;
 
   XLSX.writeFile(wb, filename);
   msg.className = 'msg ok';
