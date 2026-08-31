@@ -11148,18 +11148,23 @@ function computeAvgMonthlyOut(productId, now){
 }
 
 // 找這個「主商品」實際要用的初始估計值:主商品自己有填「平均使用量」就直接用;自己沒填的話,
-// 去看看目前「顯示於總庫存量」勾選的那個 multipack 子商品有沒有填——使用者常常是直接在那個
-// 子商品的編輯畫面填估計值(因為那個子商品才是庫存總覽實際顯示、可以編輯的那一列),但計算
-// 平均出貨時原本只認主商品自己的 manualAvg,子商品填的那個值完全沒被用到,等於憑空消失。
-// 這裡找到的話要乘上子商品的加權數,換算回主商品自己單位下的估計值,才能拿去跟主商品單位的
-// 出貨紀錄一起計算。
+// 去看這個商品家族底下的 multipack 子商品有沒有填——使用者常常是直接在子商品的編輯畫面填
+// 估計值(因為那個子商品才是庫存總覽實際顯示、可以編輯的那一列),但計算平均出貨時原本只認
+// 主商品自己的 manualAvg,子商品填的那個值完全沒被用到,等於憑空消失。找到的話要乘上子商品的
+// 加權數,換算回主商品自己單位下的估計值,才能拿去跟主商品單位的出貨紀錄一起計算。
+// 這裡故意「掃描所有子商品」,不是只看「顯示於總庫存量」目前選的是哪一個(getTotalStockBasisProduct)
+// ——那個是使用者隨時可能切換的畫面顯示設定,如果拿它來決定要借用哪個估計值,會導致同一個商品
+// 家族的整體消耗量,單純因為使用者切換了代表列就跟著變動,兩邊數字就對不起來了。用掃描的方式,
+// 不管使用者目前把哪個設成代表列,借用到的都是同一個值,算出來的家族整體消耗量才會穩定一致。
 function resolveFamilyManualAvg(product){
   if(product.manualAvg !== null && product.manualAvg !== undefined) return product.manualAvg;
   if(product.parentId) return null; // 子商品不會反過來去借主商品或其他兄弟子商品的估計值
-  const basisChild = getTotalStockBasisProduct(product);
-  if(basisChild && basisChild.id !== product.id && basisChild.manualAvg !== null && basisChild.manualAvg !== undefined){
-    const w = getBasisWeight(basisChild, product);
-    return basisChild.manualAvg * w;
+  const children = getChildProducts(product.id);
+  for(const c of children){
+    if(c.manualAvg !== null && c.manualAvg !== undefined){
+      const w = getBasisWeight(c, product);
+      return c.manualAvg * w;
+    }
   }
   return null;
 }
