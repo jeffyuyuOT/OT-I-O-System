@@ -11460,49 +11460,63 @@ function renderStockCards(){
     opts = opts || {};
     const isSubRow = !!opts.isSubRow;
     const basisParent = opts.basisFor || null; // 這一列如果是代表某個家族的主列,這裡是那個家族真正的主商品
+    const trueParent = opts.trueParent || null; // 這一列如果是子列,這裡是那個家族真正的主商品
+    const familyParent = basisParent || trueParent; // 不管這一列是代表列還是子列,只要屬於某個商品家族,這裡都會是真正的主商品
     const stock = computeStock(p.id);
 
     let totalStock = null, totalStockDisplay = '—';
-    let avgSourceProduct = p, weight = 1, gaugeStock = stock, safetyStockRaw = p.safetyStock;
+    let gaugeStock = stock, safetyStockRaw = p.safetyStock;
 
     if(!isSubRow && basisParent){
       // 代表列:「總庫存量」永遠用真正主商品的家族總量計算(在主商品自己的單位下),
-      // 「平均出貨」也用主商品的加總序列(已經把所有 multipack 子商品的加權出貨量併進去了);
-      // 如果代表的是某個 multipack 子商品,才把這兩個數字跟安全庫存一起除以它的加權數換算顯示。
-      weight = getBasisWeight(p, basisParent);
+      // 如果代表的是某個 multipack 子商品,才把這個數字跟安全庫存一起除以它的加權數換算顯示。
       totalStock = computeTotalStock(basisParent.id);
-      totalStockDisplay = weight === 1 ? String(totalStock) : formatMultipackQty(totalStock / weight);
-      avgSourceProduct = basisParent;
       safetyStockRaw = basisParent.safetyStock;
       gaugeStock = totalStock; // 燈號/天數估算一律用未換算的原始庫存量判斷,不受顯示換算影響
+    }
+
+    // 平均出貨:不管這一列是代表列還是展開後的子列,一律用「真正主商品」的家族合計序列去算
+    // (已經把所有 multipack 子商品的加權出貨量併進去了),再用這一列自己的加權數換算回它自己
+    // 的單位顯示——這樣不管使用者把哪個成員設成代表、或展開哪個子列,看到的都是「這個商品家族
+    // 整體」的消耗速度,只是分別用各自的單位表示,彼此換算後數字會一致,不會有子列只看得到自己
+    // 片面資料、數字對不起來的問題。
+    const weight = familyParent ? getBasisWeight(p, familyParent) : 1;
+    const avgSourceProduct = familyParent || p;
+    if(!isSubRow && basisParent){
+      totalStockDisplay = weight === 1 ? String(totalStock) : formatMultipackQty(totalStock / weight);
     }
 
     const effAvg = getEffectiveAvg(avgSourceProduct, now);
     const { avg, source } = effAvg;
     const avgDisplayValue = weight === 1 ? avg : avg / weight;
-    const remain = daysRemaining(gaugeStock, avg);
+    // 代表列的 gaugeStock(家族總量)本來就是跟 avg 同一個「真正主商品」的單位基準,兩者直接算
+    // 天數沒問題(換算成任何單位結果都一樣,分子分母同除以加權數不影響天數)。子列的 gaugeStock
+    // 是這一列自己的庫存(自己的單位),但 avg 現在是家族合計、單位基準是真正主商品的,兩者單位
+    // 對不起來——子列要改用已經換算回自己單位的 avgDisplayValue,才能跟自己的庫存量一起算天數。
+    const avgForGauge = isSubRow ? avgDisplayValue : avg;
+    const remain = daysRemaining(gaugeStock, avgForGauge);
     const gauge = gaugeInfo(remain);
 
     let avgLabel, avgTitle = '';
     const avgBaseSuffix = t('avgSuffixMonth');
     if(source === 'log'){
-      avgLabel = `${avgDisplayValue.toFixed(weight === 1 ? 1 : 2)}${avgBaseSuffix}`;
+      avgLabel = `${avgDisplayValue.toFixed(weight === 1 ? 1 : 2)} ${p.unit}${avgBaseSuffix}`;
     } else if(source === 'blended'){
-      avgLabel = `${avgDisplayValue.toFixed(weight === 1 ? 1 : 2)}${avgBaseSuffix}<span class="avg-qualifier">${t('avgQualifierMixed')}</span>`;
+      avgLabel = `${avgDisplayValue.toFixed(weight === 1 ? 1 : 2)} ${p.unit}${avgBaseSuffix}`;
       avgTitle = tn('avgTitleTransition', effAvg.monthsWithRecords.toFixed(1));
     } else if(source === 'manual'){
-      avgLabel = `${avgDisplayValue.toFixed(weight === 1 ? 1 : 2)}${avgBaseSuffix}<span class="avg-qualifier">${t('avgQualifierEst')}</span>`;
+      avgLabel = `${avgDisplayValue.toFixed(weight === 1 ? 1 : 2)} ${p.unit}${avgBaseSuffix}`;
       avgTitle = t('avgTitleEstOnly');
     } else {
       avgLabel = '—';
     }
 
-    const belowSafety = (safetyStockRaw !== null && safetyStockRaw !== undefined && !isNaN(safetyStockRaw) && gaugeStock < safetyStockRaw * avg);
+    const belowSafety = (safetyStockRaw !== null && safetyStockRaw !== undefined && !isNaN(safetyStockRaw) && gaugeStock < safetyStockRaw * avgForGauge);
     const safetyStockQty = (safetyStockRaw !== null && safetyStockRaw !== undefined && !isNaN(safetyStockRaw))
-      ? safetyStockRaw * avg
+      ? safetyStockRaw * avgForGauge
       : null;
     const safetyDisplayValue = (safetyStockQty !== null)
-      ? (weight === 1 ? safetyStockQty : safetyStockQty / weight)
+      ? (isSubRow || weight === 1 ? safetyStockQty : safetyStockQty / weight)
       : null;
     const safetyText = safetyDisplayValue !== null
       ? (weight === 1 ? safetyDisplayValue.toFixed(1) : formatMultipackQty(safetyDisplayValue))
@@ -11594,7 +11608,7 @@ function renderStockCards(){
         visibleSub.forEach(c => visibleProductIds.add(c.id));
         if(expandedParentIds.has(p.id)){
           visibleSub.slice().sort(compareProductsBySortMode).forEach(c => {
-            bodyHtml += rowHtml(c, { isSubRow: true });
+            bodyHtml += rowHtml(c, { isSubRow: true, trueParent: p });
           });
         }
       }
