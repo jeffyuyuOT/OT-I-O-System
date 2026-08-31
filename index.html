@@ -6235,7 +6235,8 @@ async function runStockImportCore(items, skippedRows, clearBlanksMode, dryRun){
         boxWidthCm: (item.boxWidthCm !== null && item.boxWidthCm !== undefined && !isNaN(item.boxWidthCm)) ? item.boxWidthCm : undefined,
         boxHeightCm: (item.boxHeightCm !== null && item.boxHeightCm !== undefined && !isNaN(item.boxHeightCm)) ? item.boxHeightCm : undefined,
         hidden: item.hidden === true,
-        orderPageRemark: item.orderPageRemark || undefined
+        orderPageRemark: item.orderPageRemark || undefined,
+        barcode: item.barcode || undefined
       });
       if(item.qty > 0){
         const tx = {
@@ -6283,6 +6284,8 @@ async function runStockImportCore(items, skippedRows, clearBlanksMode, dryRun){
     if(item.autoConvertOnStockIn !== null && item.autoConvertOnStockIn !== undefined && existing.autoConvertOnStockIn !== item.autoConvertOnStockIn){ changedFields.push(tf('importFieldChangeLine', {field: t('fieldAutoConvertStockIn'), from: existing.autoConvertOnStockIn, to: item.autoConvertOnStockIn})); existing.autoConvertOnStockIn = item.autoConvertOnStockIn; changed = true; }
     if(item.orderPageRemark !== null && item.orderPageRemark !== undefined && existing.orderPageRemark !== item.orderPageRemark){ changedFields.push(tf('importFieldChangeLine', {field: t('fieldOrderPageRemark'), from: existing.orderPageRemark || '(空白)', to: item.orderPageRemark})); existing.orderPageRemark = item.orderPageRemark; changed = true; }
     else if(clearBlanksMode && (item.orderPageRemark === null || item.orderPageRemark === undefined) && existing.orderPageRemark){ changedFields.push(tf('importFieldChangeLine', {field: t('fieldOrderPageRemark'), from: existing.orderPageRemark, to: '(空白)'})); existing.orderPageRemark = undefined; changed = true; }
+    if(item.barcode !== null && item.barcode !== undefined && existing.barcode !== item.barcode){ changedFields.push(tf('importFieldChangeLine', {field: t('fieldBarcode'), from: existing.barcode || '(空白)', to: item.barcode})); existing.barcode = item.barcode; changed = true; }
+    else if(clearBlanksMode && (item.barcode === null || item.barcode === undefined) && existing.barcode){ changedFields.push(tf('importFieldChangeLine', {field: t('fieldBarcode'), from: existing.barcode, to: '(空白)'})); existing.barcode = undefined; changed = true; }
 
     // 庫存量欄位是選填:表格上這一列如果沒填庫存量(item.qty 是 null),完全不去比對/調整這個
     // 商品的庫存,只更新其他有填的欄位——這樣才能支援「只更新商品資料、不重新盤點庫存」的匯入,
@@ -6424,7 +6427,8 @@ const MASTER_COLUMN_ALIASES = {
   boxHeight: ['boxheight','height','高','箱高','高度cm','heightcm','高(cm)'],
   hidden: ['hidden','隱藏','ishidden','是否隱藏'],
   autoConvertOnStockIn: ['autoconvert','autoconvertonstockin','自動切換','進貨自動切換'],
-  orderPageRemark: ['orderpageremark','訂貨頁面附註','訂貨附註','orderremark']
+  orderPageRemark: ['orderpageremark','訂貨頁面附註','訂貨附註','orderremark'],
+  barcode: ['barcode','條碼','商品條碼','barcodenumber']
 };
 
 // Excel 儲存格裡的「是否隱藏」欄位,可能是真的布林值(true/false)、文字(TRUE/FALSE、Y/N、是/否),
@@ -6568,6 +6572,7 @@ function parseMasterExcelFile(){
         const colHidden = findColumnIndex(headerRow, MASTER_COLUMN_ALIASES.hidden);
         const colAutoConvert = findColumnIndex(headerRow, MASTER_COLUMN_ALIASES.autoConvertOnStockIn);
         const colOrderPageRemark = findColumnIndex(headerRow, MASTER_COLUMN_ALIASES.orderPageRemark);
+        const colBarcode = findColumnIndex(headerRow, MASTER_COLUMN_ALIASES.barcode);
 
         if(colName === -1 || colQty === -1){
           fileErrors.push(`${file.name}:找不到「Name/品名」或「Stock/庫存量」欄位`);
@@ -6620,6 +6625,7 @@ function parseMasterExcelFile(){
             hidden: colHidden !== -1 && row[colHidden] !== null && row[colHidden] !== undefined && row[colHidden] !== '' ? parseBoolLikeCell(row[colHidden]) : null,
             autoConvertOnStockIn: colAutoConvert !== -1 && row[colAutoConvert] !== null && row[colAutoConvert] !== undefined && row[colAutoConvert] !== '' ? parseBoolLikeCell(row[colAutoConvert]) : null,
             orderPageRemark: colOrderPageRemark !== -1 && row[colOrderPageRemark] !== null && row[colOrderPageRemark] !== undefined && String(row[colOrderPageRemark]).trim() !== '' ? String(row[colOrderPageRemark]).trim() : null,
+            barcode: colBarcode !== -1 && row[colBarcode] !== null && row[colBarcode] !== undefined && String(row[colBarcode]).trim() !== '' ? String(row[colBarcode]).trim() : null,
             _sourceFile: file.name, _sourceRow: excelRowNo
           });
         }
