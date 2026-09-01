@@ -1212,7 +1212,7 @@
         </div>
         <div class="field">
           <label id="txNoteLabel" data-i18n="txNoteSharedLabel">備註(選填)</label>
-          <input id="txNote" type="text" placeholder="例如:客戶訂單 #123" />
+          <input id="txNote" type="text" placeholder="例如:客戶訂單 #123" data-i18n-placeholder="txNotePlaceholderExample" />
         </div>
       </div>
       <div id="purchaseReceiptWrap" style="display:none;margin-top:10px;">
@@ -1242,7 +1242,7 @@
       <div class="form-grid" style="grid-template-columns:1fr 1.3fr 1fr auto;margin-top:6px;">
         <div class="field">
           <label data-i18n="fieldFilterByCategory">依分類篩選商品</label>
-          <select id="txProductCategoryFilter" onchange="renderProductSelect()"></select>
+          <select id="txProductCategoryFilter" onchange="resetSearchableSelect('txProduct'); renderProductSelect();"></select>
         </div>
         <div class="field">
           <label data-i18n="lblProduct">商品</label>
@@ -1283,10 +1283,10 @@
               <span data-i18n="browseAllProductsLabel">瀏覽所有商品(不勾選:只顯示這個出貨方訂貨時看得到的商品;勾選:顯示庫存總覽裡所有商品,隱藏商品除外)</span>
             </label>
           </div>
-          <div class="form-grid" style="grid-template-columns:1fr 1fr auto;">
+          <div class="form-grid" style="grid-template-columns:0.9fr 1.7fr 62px;">
             <div class="field">
               <label data-i18n="fieldFilterByCategory">依分類篩選商品</label>
-              <select id="verifyPageCategoryFilter" onchange="renderVerifyPageProductSelect()"></select>
+              <select id="verifyPageCategoryFilter" onchange="resetSearchableSelect('verifyPageProductSelect'); renderVerifyPageProductSelect();"></select>
             </div>
             <div class="field">
               <label data-i18n="lblProduct">商品</label>
@@ -1294,7 +1294,7 @@
             </div>
             <div class="field">
               <label data-i18n="lblQty">數量</label>
-              <input id="verifyPageQtyInput" type="number" min="0" step="1" placeholder="0" />
+              <input id="verifyPageQtyInput" type="number" min="0" step="1" placeholder="0" style="padding-left:6px;padding-right:2px;" />
             </div>
           </div>
           <button class="btn ghost" style="margin-top:8px;" onclick="addVerifyPageItem()" data-i18n="btnAddToBatch">+ 加入清單</button>
@@ -2238,6 +2238,7 @@ const I18N = {
     thStockUnit: '單位', thNoData: '還沒有商品資料,先在上方新增一個商品試試看。',
     tabOrderBtn: '調整分類順序', catFilterAll: '全部分類', logFilterAll: '全部商品', logTypeAll: '全部類型', logPartyAll: '全部對象',
     chkShowAllCatalog: '顯示 all catalog 商品',
+    txNotePlaceholderExample: '例如:客戶訂單 #123',
     searchOrSelectPlaceholder: 'Search or select', searchNoMatch: '沒有符合的商品',
     selectedProducts: '已選取 {n} 項商品', selectedTx: '已選取 {n} 筆',
     btnApplyCatToSelected: '套用分類到已選取', btnDeleteSelectedProducts: '刪除已選取的商品',
@@ -2670,6 +2671,7 @@ const I18N = {
     thStockUnit: 'Unit', thNoData: 'No products yet — add one above to get started.',
     tabOrderBtn: 'Reorder Categories', catFilterAll: 'All Categories', logFilterAll: 'All Products', logTypeAll: 'All Types', logPartyAll: 'All Parties',
     chkShowAllCatalog: 'Show all catalog products',
+    txNotePlaceholderExample: 'e.g. Customer Order #123',
     searchOrSelectPlaceholder: 'Search or select', searchNoMatch: 'No matching products',
     selectedProducts: '{n} products selected', selectedTx: '{n} records selected',
     btnApplyCatToSelected: 'Apply Category to Selected', btnDeleteSelectedProducts: 'Delete Selected Products',
@@ -4333,12 +4335,10 @@ function makeSelectSearchable(selectId){
       ).join('');
     }
     list.style.display = 'block';
-    arrow.style.display = 'none';
   }
 
   function closeList(){
     list.style.display = 'none';
-    arrow.style.display = '';
     syncInputFromSelect();
   }
 
@@ -4364,6 +4364,16 @@ function makeSelectSearchable(selectId){
   });
 
   syncInputFromSelect();
+}
+
+// 把一個可搜尋下拉選單重設回「還沒選擇任何東西」的清空狀態(搜尋框顯示 placeholder,不是某個
+// 商品名稱)。加完商品到清單、或換了分類篩選之後呼叫,避免搜尋框一直卡著上次選的商品名稱。
+// 前提是這個 select 的選項清單裡,第一個(或某一個)要有 value="" 的空白選項可以選,不然 select.value
+// 設成空字串時瀏覽器只會退回選第一個「有值」的選項,達不到真正清空的效果。
+function resetSearchableSelect(selectId){
+  const select = document.getElementById(selectId);
+  if(!select) return;
+  select.value = '';
 }
 
 // genId() 產生的 id 開頭其實是「建立當下時間」的 36 進位編碼(後面 5 碼才是隨機亂數),
@@ -5485,7 +5495,7 @@ function populateTxPartySelect(){
   const partySelect = document.getElementById('txPartySelect');
   if(!partySelect) return;
   const prev = partySelect.value;
-  partySelect.innerHTML = '<option value="">未指定</option>' +
+  partySelect.innerHTML = `<option value="">${t('optUnspecified')}</option>` +
     (shippingParties || []).map(sp => `<option value="${sp.id}">${sp.name.replace(/</g,'&lt;')}</option>`).join('');
   if([...partySelect.options].some(o => o.value === prev)) partySelect.value = prev;
 }
@@ -5645,6 +5655,7 @@ function addToTxBatch(){
   if(existing) existing.qty += qty;
   else txBatchItems.push({ productId, sku: p.sku || '', name: p.name, unit: p.unit, qty });
   qtyInput.value = '';
+  resetSearchableSelect('txProduct');
   msg.className = 'msg'; msg.textContent = '';
   renderTxBatchList();
 }
@@ -8533,7 +8544,7 @@ function renderVerifyPageProductSelect(){
   }
 
   filtered = filtered.slice().sort(compareProductsBySortMode);
-  sel.innerHTML = filtered.map(p => `<option value="${p.id}">${p.sku ? p.sku + ' — ' : ''}${p.parentId ? '⧉ ' : ''}${p.name}(${p.unit})</option>`).join('');
+  sel.innerHTML = '<option value=""></option>' + filtered.map(p => `<option value="${p.id}">${p.sku ? p.sku + ' — ' : ''}${p.parentId ? '⧉ ' : ''}${p.name}(${p.unit})</option>`).join('');
   if(filtered.some(p => p.id === prevProd)) sel.value = prevProd;
   makeSelectSearchable('verifyPageProductSelect');
 }
@@ -8551,6 +8562,7 @@ function addVerifyPageItem(){
   if(existing) existing.qty += qty;
   else verifyPageRightItems.push({ productId: p.id, sku: p.sku || '', name: p.name, unit: p.unit, qty });
   qtyInput.value = '';
+  resetSearchableSelect('verifyPageProductSelect');
   msg.className = 'msg'; msg.textContent = '';
   renderVerifyPageRightItems();
 }
@@ -8972,7 +8984,8 @@ function buildOrderSheetAoa(list, partyLabel, dateLabel){
 
   const aoa = [];
   const hiddenRows = new Set(); // 0-based row indices into `aoa` that should be hidden in the final sheet
-  aoa.push(['Customer:', partyLabel]);
+  const orderNos = list.map(o => o.orderNo).filter(Boolean);
+  aoa.push(['Customer:', partyLabel, 'Orders:', orderNos.map(n => '#' + n).join(', ')]);
   aoa.push(['Period:', dateLabel]);
   aoa.push([]);
   aoa.push(['SKU','Product Name','Qty','Unit','Remarks']);
@@ -9008,11 +9021,6 @@ function buildOrderSheetAoa(list, partyLabel, dateLabel){
         if(!g) hiddenRows.add(rowIdx);
       });
   });
-
-  // 最下面附註這份檔案實際包含哪幾張訂單的編號,方便日後對照/追查是哪幾張訂單的資料被匯出。
-  aoa.push([]);
-  const orderNos = list.map(o => o.orderNo).filter(Boolean);
-  aoa.push([`This file includes the following orders: ${orderNos.join(', ')}`]);
 
   return { aoa, aggregated, hiddenRows };
 }
@@ -9094,7 +9102,7 @@ function populatePartySelect(){
       const allowedParties = shippingParties.filter(sp => restrictedIds.includes(sp.id));
       sel.innerHTML = allowedParties.length
         ? allowedParties.map(sp => `<option value="${sp.id}">${sp.name.replace(/"/g,'&quot;')}</option>`).join('')
-        : '<option value="">未指定</option>';
+        : `<option value="">${t('optUnspecified')}</option>`;
       if(allowedParties.some(sp => sp.id === prev)){
         sel.value = prev;
       } else if(allowedParties.length > 0){
@@ -9104,7 +9112,7 @@ function populatePartySelect(){
       sel.disabled = allowedParties.length === 1;
     } else {
       sel.disabled = false;
-      sel.innerHTML = '<option value="">未指定</option>' +
+      sel.innerHTML = `<option value="">${t('optUnspecified')}</option>` +
         shippingParties.map(sp => `<option value="${sp.id}">${sp.name.replace(/"/g,'&quot;')}</option>`).join('');
       if(shippingParties.some(sp => sp.id === prev)) sel.value = prev;
     }
@@ -11612,7 +11620,7 @@ function renderProductSelect(){
     }
   }
 
-  sel.innerHTML = filteredProducts.slice().sort(compareProductsBySortMode).map(p => `<option value="${p.id}">${p.parentId ? '⧉ ' : ''}${p.name}(${p.unit})</option>`).join('');
+  sel.innerHTML = '<option value=""></option>' + filteredProducts.slice().sort(compareProductsBySortMode).map(p => `<option value="${p.id}">${p.parentId ? '⧉ ' : ''}${p.name}(${p.unit})</option>`).join('');
   if(filteredProducts.some(p => p.id === prevVal)) sel.value = prevVal;
 
   const browseAllRow = document.getElementById('txBrowseAllProductsRow');
@@ -12590,6 +12598,18 @@ function exportShipmentSheet(){
       });
     aoa.push([null, null, null, null, null, null, null, null, null]);
   });
+
+  // 底下註明這份彙總報表實際包含哪幾張訂單(訂單編號),方便日後對帳時回頭查是哪幾張訂單
+  // 貢獻了這些數字——只收集真的有帶 orderId、而且那張訂單目前還查得到的紀錄,系統自動產生、
+  // 跟訂單無關的紀錄(不會出現在 rows 裡,前面已經篩掉了)不會被算進去。
+  const orderNos = [...new Set(
+    rows.map(t => t.orderId).filter(Boolean)
+      .map(oid => { const o = orders.find(x => x.id === oid); return o ? o.orderNo : null; })
+      .filter(Boolean)
+  )].sort();
+  if(orderNos.length > 0){
+    aoa.push([`This file includes the following orders: ${orderNos.map(n => '#' + n).join(', ')}`]);
+  }
 
   const ws = XLSX.utils.aoa_to_sheet(aoa);
   ws['!cols'] = [
