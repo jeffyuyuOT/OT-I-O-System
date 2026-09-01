@@ -162,6 +162,30 @@
   }
   .field input:focus, .field select:focus{ border-color:var(--ink); }
 
+  /* 可搜尋的下拉選單(makeSelectSearchable 用):外觀模仿一般的 input/select,點了或打字會在
+     下面浮出符合搜尋字串的選項清單;搜尋中間箭頭圖示會消失,讓使用者專心打字。 */
+  .searchable-select-wrap{ position:relative; width:100%; }
+  .searchable-select-input{
+    width:100%; border:1px solid var(--line); background:#fff; border-radius:2px; padding:9px 30px 9px 10px;
+    font-family:'IBM Plex Mono',monospace; font-size:13.5px; color:var(--ink); outline:none; box-sizing:border-box;
+  }
+  .searchable-select-input:focus{ border-color:var(--ink); }
+  .searchable-select-arrow{
+    position:absolute; right:10px; top:50%; transform:translateY(-50%);
+    font-size:11px; color:var(--ink-soft); pointer-events:none;
+  }
+  .searchable-select-list{
+    position:absolute; top:100%; left:0; right:0; z-index:40; margin-top:2px;
+    background:#fff; border:1px solid var(--ink); border-radius:2px; max-height:260px; overflow-y:auto;
+    box-shadow:0 4px 12px rgba(0,0,0,0.15);
+  }
+  .searchable-select-item{
+    padding:8px 10px; font-size:13px; cursor:pointer; border-bottom:1px solid var(--line);
+  }
+  .searchable-select-item:last-child{ border-bottom:none; }
+  .searchable-select-item:hover, .searchable-select-item.active{ background:var(--yellow); }
+  .searchable-select-empty{ padding:10px; font-size:12.5px; color:var(--ink-soft); font-style:italic; }
+
   .radio-row{ display:flex; gap:8px; }
   .radio-row label{
     flex:1; text-align:center; border:1px solid var(--line); border-radius:2px; padding:9px 6px;
@@ -1678,6 +1702,12 @@
             <label data-i18n="lblToDate">到日期</label>
             <input type="date" id="logDateTo" onchange="renderLog()" />
           </div>
+          <div class="field" style="justify-content:flex-end;">
+            <label style="display:flex;align-items:center;gap:6px;font-weight:600;color:var(--ink);cursor:pointer;font-size:12.5px;text-transform:none;">
+              <input type="checkbox" id="logShowAllCatalog" onchange="renderLog()" style="width:15px;height:15px;cursor:pointer;" />
+              <span data-i18n="chkShowAllCatalog">顯示 all catalog 商品</span>
+            </label>
+          </div>
           <button class="btn ghost" onclick="clearLogFilters()" data-i18n="btnClearFilter">清除篩選</button>
         </div>
 
@@ -2207,6 +2237,8 @@ const I18N = {
     typeIn: '進貨', typeOut: '出貨', typeRestock: '入庫',
     thStockUnit: '單位', thNoData: '還沒有商品資料,先在上方新增一個商品試試看。',
     tabOrderBtn: '調整分類順序', catFilterAll: '全部分類', logFilterAll: '全部商品', logTypeAll: '全部類型', logPartyAll: '全部對象',
+    chkShowAllCatalog: '顯示 all catalog 商品',
+    searchOrSelectPlaceholder: 'Search or select', searchNoMatch: '沒有符合的商品',
     selectedProducts: '已選取 {n} 項商品', selectedTx: '已選取 {n} 筆',
     btnApplyCatToSelected: '套用分類到已選取', btnDeleteSelectedProducts: '刪除已選取的商品',
     btnDeleteSelectedTx: '刪除已選取的紀錄', btnClearSelection: '取消選取', btnDeleteBatch: '刪除這批全部紀錄',
@@ -2576,7 +2608,8 @@ const I18N = {
     btnViewPhoto: '📷 觀看照片',
     fieldAutoConvertStockInHint: '— 勾選後,登記進出貨的「進貨」如果是這個批量商品,會直接依加權數換算成主商品的數量、加進主商品的庫存,不會加進這個批量商品自己的庫存。',
     fieldHideFromCompletedExport: '已完成訂單匯出不顯示',
-    fieldHideFromCompletedExportHint: '— 勾選後,已完成訂單匯出時不會列出這個主商品;如果在訂單核對頁面把批量商品切換成這個主商品,切換用的批量商品跟數量會顯示在匯出檔案裡。',
+    fieldHideFromCompletedExportHint: '勾選後,已完成訂單匯出時不會列出這個主商品;如果在訂單核對頁面把批量商品切換成這個主商品,切換用的批量商品跟數量會顯示在匯出檔案裡。',
+    hideExportModeSwitchOnly: '僅顯示切換的批量商品數量', hideExportModeWholeFamily: '整個家族商品都不顯示',
     autoConvertStockInNote: '自動切換自「{name}」× {qty} {unit}',
     fieldShowInTotalStockHint: '— 勾選後,庫存總覽的清單會用這個商品(而不是主商品)代表整個商品家族,總庫存量/平均出貨/安全庫存都會依它的加權數換算顯示。同一個商品家族(主商品+底下所有 multipack 商品)只能勾選一個,勾了別的,這裡會自動取消。',
     fieldShowInTotalStockHiddenHint: '— 這個商品目前是隱藏狀態,不能設定為顯示於庫存總覽的代表商品,請先取消隱藏。',
@@ -2636,6 +2669,8 @@ const I18N = {
     typeIn: 'In', typeOut: 'Out', typeRestock: 'Restock',
     thStockUnit: 'Unit', thNoData: 'No products yet — add one above to get started.',
     tabOrderBtn: 'Reorder Categories', catFilterAll: 'All Categories', logFilterAll: 'All Products', logTypeAll: 'All Types', logPartyAll: 'All Parties',
+    chkShowAllCatalog: 'Show all catalog products',
+    searchOrSelectPlaceholder: 'Search or select', searchNoMatch: 'No matching products',
     selectedProducts: '{n} products selected', selectedTx: '{n} records selected',
     btnApplyCatToSelected: 'Apply Category to Selected', btnDeleteSelectedProducts: 'Delete Selected Products',
     btnDeleteSelectedTx: 'Delete Selected Records', btnClearSelection: 'Clear Selection', btnDeleteBatch: 'Delete This Batch',
@@ -3005,7 +3040,8 @@ const I18N = {
     btnViewPhoto: '📷 View Photo',
     fieldAutoConvertStockInHint: '— When checked, logging a "Stock In" for this multipack product will automatically convert it (using the weight) directly into the main product\'s stock, instead of adding to this multipack product\'s own stock.',
     fieldHideFromCompletedExport: 'Hide from Completed Order Export',
-    fieldHideFromCompletedExportHint: '— When checked, this main product won\'t be listed when exporting completed orders; if a multipack product is switched to this main product on the Order Verification page, the multipack product and quantity used will appear in the export instead.',
+    fieldHideFromCompletedExportHint: 'When checked, this main product won\'t be listed when exporting completed orders; if a multipack product is switched to this main product on the Order Verification page, the multipack product and quantity used will appear in the export instead.',
+    hideExportModeSwitchOnly: 'Only show the switched multipack quantity', hideExportModeWholeFamily: 'Hide the whole family',
     autoConvertStockInNote: 'Auto-converted from "{name}" × {qty} {unit}',
     fieldShowInTotalStockHint: '— when checked, the Stock Overview list represents this whole product family using this product (instead of the main product), converting Total Stock/Avg Usage/Safety Stock by its weight. Only one member of a product family (main product + all its multi-packs) can be checked at a time; checking another one here automatically unchecks this.',
     fieldShowInTotalStockHiddenHint: '— this product is currently hidden and can\'t be set as the family\'s Stock Overview representative. Unhide it first.',
@@ -3215,6 +3251,7 @@ function clearLogFilters(){
   document.getElementById('logPartyFilter').value = '';
   document.getElementById('logDateFrom').value = '';
   document.getElementById('logDateTo').value = '';
+  document.getElementById('logShowAllCatalog').checked = false;
   renderLog();
 }
 
@@ -4236,6 +4273,98 @@ async function confirmModalYes(){
 }
 
 function genId(){ return Date.now().toString(36) + Math.random().toString(36).slice(2,7); }
+
+// 把一個現有的 <select id="X"> 轉成可以搜尋的下拉選單。設計原則:保留原本的 <select> 當作
+// 唯一的「資料來源」——value 還是讀這個 select 的 value,選了東西也還是觸發這個 select 的
+// change 事件,所以任何原本讀取/監聽這個 select 的既有程式碼完全不用改。外觀上把它藏起來,
+// 換成一個文字輸入框:點一下或打字,下面會浮出符合搜尋字串的選項清單,點選項才會真的把值寫回
+// 隱藏的 select 並觸發 change;搜尋輸入框裡打字的時候,原本的下拉箭頭圖示會消失。
+// 因為程式裡很多地方是直接寫 select.value = 'xxx' 來改變選取值(不是透過使用者操作 UI),
+// 這裡改寫 select 的 value 屬性(用 Object.defineProperty 蓋掉原生的 setter),讓不管是使用者
+// 從搜尋清單選,還是程式碼直接指定 value,搜尋框顯示的文字都會跟著同步更新,不用去改任何
+// 既有的「setValue」呼叫端程式碼。
+// 呼叫這個函式是安全、可以重複呼叫的(例如每次重新 render 下拉選單內容之後都呼叫一次也沒關係)
+// ——已經轉換過的 select 會被標記,第二次呼叫直接跳過,只有底下的選項內容本身還是會照舊被
+// 呼叫端的程式碼正常更新、reflect 到搜尋清單裡。
+function makeSelectSearchable(selectId){
+  const select = document.getElementById(selectId);
+  if(!select || select.dataset.searchified) return;
+  select.dataset.searchified = '1';
+  select.style.display = 'none';
+
+  const wrap = document.createElement('div');
+  wrap.className = 'searchable-select-wrap';
+  select.parentNode.insertBefore(wrap, select);
+  wrap.appendChild(select);
+
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.className = 'searchable-select-input';
+  input.placeholder = t('searchOrSelectPlaceholder');
+  input.autocomplete = 'off';
+  input.spellcheck = false;
+
+  const arrow = document.createElement('span');
+  arrow.className = 'searchable-select-arrow';
+  arrow.textContent = '▾';
+
+  const list = document.createElement('div');
+  list.className = 'searchable-select-list';
+  list.style.display = 'none';
+
+  wrap.appendChild(input);
+  wrap.appendChild(arrow);
+  wrap.appendChild(list);
+
+  function syncInputFromSelect(){
+    const opt = select.options[select.selectedIndex];
+    input.value = opt ? opt.textContent : '';
+  }
+
+  function renderList(filterText){
+    const opts = Array.from(select.options);
+    const ft = filterText.trim().toLowerCase();
+    const filtered = ft ? opts.filter(o => o.textContent.toLowerCase().includes(ft)) : opts;
+    if(filtered.length === 0){
+      list.innerHTML = `<div class="searchable-select-empty">${t('searchNoMatch')}</div>`;
+    } else {
+      list.innerHTML = filtered.map(o =>
+        `<div class="searchable-select-item" data-value="${String(o.value).replace(/"/g,'&quot;')}">${o.textContent}</div>`
+      ).join('');
+    }
+    list.style.display = 'block';
+    arrow.style.display = 'none';
+  }
+
+  function closeList(){
+    list.style.display = 'none';
+    arrow.style.display = '';
+    syncInputFromSelect();
+  }
+
+  input.addEventListener('focus', () => { input.select(); renderList(''); });
+  input.addEventListener('input', () => { renderList(input.value); });
+  input.addEventListener('blur', () => { setTimeout(closeList, 150); });
+  input.addEventListener('keydown', (e) => { if(e.key === 'Escape'){ input.blur(); } });
+
+  list.addEventListener('mousedown', (e) => {
+    const item = e.target.closest('.searchable-select-item');
+    if(!item) return;
+    e.preventDefault();
+    select.value = item.dataset.value;
+    select.dispatchEvent(new Event('change', { bubbles: true }));
+    closeList();
+  });
+
+  const nativeDesc = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value');
+  Object.defineProperty(select, 'value', {
+    get(){ return nativeDesc.get.call(select); },
+    set(v){ nativeDesc.set.call(select, v); syncInputFromSelect(); },
+    configurable: true
+  });
+
+  syncInputFromSelect();
+}
 
 // genId() 產生的 id 開頭其實是「建立當下時間」的 36 進位編碼(後面 5 碼才是隨機亂數),
 // 這裡把它解回時間,拿來在進出貨紀錄顯示「幾點幾分」用,不需要另外存欄位。
@@ -6732,7 +6861,7 @@ function exportStockQuantitySheet(){
     else g.items.push(r);
   });
 
-  const headerRow = ['Product Name','Stock Qty','Total Stock Qty','Unit'];
+  const headerRow = ['SKU','Product Name','Stock Qty','Total Stock Qty','Unit'];
   const aoa = [];
   const hiddenRows = new Set(); // 0-based row indices into aoa that should be hidden in the final sheet
   aoa.push(['Date:', dateStr]);
@@ -6754,13 +6883,13 @@ function exportStockQuantitySheet(){
       const name = r.isChild ? `⧉ ${r.p.name}` : r.p.name;
       const totalStockCell = r.isChild ? '—' : r.totalStock;
       const rowIdx = aoa.length;
-      aoa.push([name, r.stock, totalStockCell, r.p.unit]); // 不含分類欄
+      aoa.push([r.p.sku || '', name, r.stock, totalStockCell, r.p.unit]); // 不含分類欄
       if(r.p.hidden) hiddenRows.add(rowIdx);
     });
   });
 
   const ws = XLSX.utils.aoa_to_sheet(aoa);
-  ws['!cols'] = [{wch:30},{wch:10},{wch:10},{wch:8}];
+  ws['!cols'] = [{wch:14},{wch:30},{wch:10},{wch:10},{wch:8}];
   ws['!pageSetup'] = { orientation: 'portrait', fitToWidth: 1, fitToHeight: 0, paperSize: 9 }; // paperSize 9 = A4
   ws['!margins'] = { left:0.5, right:0.5, top:0.6, bottom:0.6, header:0.3, footer:0.3 };
   if(hiddenRows.size > 0){
@@ -8406,6 +8535,7 @@ function renderVerifyPageProductSelect(){
   filtered = filtered.slice().sort(compareProductsBySortMode);
   sel.innerHTML = filtered.map(p => `<option value="${p.id}">${p.sku ? p.sku + ' — ' : ''}${p.parentId ? '⧉ ' : ''}${p.name}(${p.unit})</option>`).join('');
   if(filtered.some(p => p.id === prevProd)) sel.value = prevProd;
+  makeSelectSearchable('verifyPageProductSelect');
 }
 
 function addVerifyPageItem(){
@@ -8763,6 +8893,15 @@ function signOrderHistory(orderId){
 // 把一批訂單彙總成「依分類分組」的資料,供匯出訂貨單使用(共用給批次匯出跟單筆訂單匯出)。
 function buildOrderAggregation(list){
   const productMap = Object.fromEntries(products.map(p => [p.id, p]));
+  // 「整個家族商品都不顯示」模式的主商品:把自己跟底下所有 multipack 子商品的 id 都收集起來,
+  // 不管是主商品自己被訂、還是子商品被訂(不管有沒有經過切換),整個家族在匯出檔案裡完全不出現。
+  const wholeFamilyHiddenIds = new Set();
+  products.forEach(p => {
+    if(!p.parentId && p.hideFromCompletedOrderExport && p.hideFromCompletedOrderExportMode === 'wholeFamily'){
+      wholeFamilyHiddenIds.add(p.id);
+      getChildProducts(p.id).forEach(c => wholeFamilyHiddenIds.add(c.id));
+    }
+  });
   const groups = {};
   function addToGroup(productId, qty, unit, name){
     if(!groups[productId]) groups[productId] = { productId, qty: 0, unit, name };
@@ -8771,15 +8910,20 @@ function buildOrderAggregation(list){
   list.forEach(o => {
     o.items.filter(it => !it.deleted).forEach(it => {
       const p = productMap[it.productId];
-      // 這個商品如果設定了「已完成訂單匯出不顯示」,主商品本身完全不會出現在匯出裡——但如果
-      // 在訂單核對時有把批量商品切換成這個主商品(fulfilledViaSwitch),切換用掉的那些批量商品
-      // 數量,改成算在批量商品自己的行裡顯示,不會整個消失看不到到底是怎麼出貨的。切換之外、
-      // 這個品項本身沒被切換掉的剩餘數量,則完全不顯示(既不算在主商品身上、也沒有對應的批量
-      // 商品可以歸類)。
+      if(wholeFamilyHiddenIds.has(it.productId)) return; // 整個家族都不顯示:這個品項完全跳過
+      // 這個商品如果設定了「已完成訂單匯出不顯示」(預設模式/「僅顯示切換的批量商品數量」),
+      // 主商品本身完全不會出現在匯出裡——但如果在訂單核對時有把批量商品切換成這個主商品
+      // (fulfilledViaSwitch),切換用掉的那些批量商品數量,改成算在批量商品自己的行裡顯示,
+      // 不會整個消失看不到到底是怎麼出貨的。切換之外、這個品項本身沒被切換掉的剩餘數量,則完全
+      // 不顯示(既不算在主商品身上、也沒有對應的批量商品可以歸類)。這個「借用切換數量」的行為
+      // 只適用於主商品自己(子商品即使個別被設定不顯示,也不會有 fulfilledViaSwitch 這種東西)。
       if(p && p.hideFromCompletedOrderExport){
-        (it.fulfilledViaSwitch || []).forEach(sw => {
-          addToGroup(sw.childId, sw.childQty, sw.childUnit, sw.childName);
-        });
+        if(!p.parentId){
+          (it.fulfilledViaSwitch || []).forEach(sw => {
+            if(wholeFamilyHiddenIds.has(sw.childId)) return;
+            addToGroup(sw.childId, sw.childQty, sw.childUnit, sw.childName);
+          });
+        }
         return;
       }
       addToGroup(it.productId, it.qty, it.unit, it.name);
@@ -9305,10 +9449,11 @@ function renderProductEditModalBody(p, opts){
   const familyParent = isChild ? parent : p;
   const showBasisToggle = !opts.isNew && !!familyParent && (isChild || getChildProducts(p.id).length > 0);
   const currentBasisId = familyParent ? (familyParent.totalStockBasisId || familyParent.id) : null;
-  // 「已完成訂單匯出不顯示」勾選框:只有「主商品自己」而且底下確實有 multipack 子商品的情況下
-  // 才顯示——子商品本身不需要這個設定(匯出的時候本來就是看主商品要不要顯示,子商品的顯示與否
-  // 是切換紀錄決定的,不是這裡設的)。
-  const showHideFromExportToggle = !opts.isNew && !isChild && getChildProducts(p.id).length > 0;
+  // 「已完成訂單匯出不顯示」勾選框:現在所有商品(不管主商品、子商品、有沒有 multipack 家族)
+  // 都可以個別設定,預設不勾。如果是「有 multipack 子商品的主商品」,勾選之後還會多一個下拉選單,
+  // 選擇整個家族都不顯示、還是維持原本「僅顯示切換的批量商品數量」的行為。
+  const showHideFromExportToggle = !opts.isNew;
+  const hasChildrenForExportMode = !isChild && getChildProducts(p.id).length > 0;
   return `
     ${isChild && parent ? `
     <div class="field-block">
@@ -9408,9 +9553,18 @@ function renderProductEditModalBody(p, opts){
     ${showHideFromExportToggle ? `
     <div class="field-block">
       <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-weight:400;">
-        <input type="checkbox" id="editProdHideFromExport" ${p.hideFromCompletedOrderExport ? 'checked' : ''} />
-        <span>${t('fieldHideFromCompletedExport')}<span style="color:var(--ink-soft);font-weight:400;"> ${t('fieldHideFromCompletedExportHint')}</span></span>
+        <input type="checkbox" id="editProdHideFromExport" ${p.hideFromCompletedOrderExport ? 'checked' : ''} onchange="toggleHideFromExportModeVisibility(this)" />
+        <span>${t('fieldHideFromCompletedExport')}</span>
       </label>
+      ${hasChildrenForExportMode ? `
+      <div id="hideFromExportModeWrap" style="display:${p.hideFromCompletedOrderExport ? 'block' : 'none'};margin:8px 0 0 22px;">
+        <select id="editProdHideFromExportMode" onchange="toggleHideFromExportHintVisibility(this)">
+          <option value="switchOnly" ${(!p.hideFromCompletedOrderExportMode || p.hideFromCompletedOrderExportMode === 'switchOnly') ? 'selected' : ''}>${t('hideExportModeSwitchOnly')}</option>
+          <option value="wholeFamily" ${p.hideFromCompletedOrderExportMode === 'wholeFamily' ? 'selected' : ''}>${t('hideExportModeWholeFamily')}</option>
+        </select>
+        <p id="hideFromExportHint" style="display:${(!p.hideFromCompletedOrderExportMode || p.hideFromCompletedOrderExportMode === 'switchOnly') ? 'block' : 'none'};font-size:11.5px;color:var(--ink-soft);margin:6px 0 0;">${t('fieldHideFromCompletedExportHint')}</p>
+      </div>
+      ` : ''}
     </div>
     ` : ''}
     ${!isChild && !opts.isNew ? `
@@ -9612,7 +9766,11 @@ async function saveProductEditModal(){
     const showInTotalEl = document.getElementById('editProdShowInTotal');
     if(showInTotalEl) applyTotalStockBasisChoice(p, showInTotalEl.checked);
     const hideFromExportEl = document.getElementById('editProdHideFromExport');
-    if(hideFromExportEl) p.hideFromCompletedOrderExport = hideFromExportEl.checked;
+    if(hideFromExportEl){
+      p.hideFromCompletedOrderExport = hideFromExportEl.checked;
+      const modeEl = document.getElementById('editProdHideFromExportMode');
+      if(modeEl) p.hideFromCompletedOrderExportMode = modeEl.value;
+    }
   }
 
   await saveProducts();
@@ -11020,6 +11178,15 @@ function handleShowInTotalToggle(checkboxEl, productId){
   openShowInTotalPickerModal(checkboxEl, visibleCandidates);
 }
 
+function toggleHideFromExportModeVisibility(checkboxEl){
+  const wrap = document.getElementById('hideFromExportModeWrap');
+  if(wrap) wrap.style.display = checkboxEl.checked ? 'block' : 'none';
+}
+function toggleHideFromExportHintVisibility(selectEl){
+  const hint = document.getElementById('hideFromExportHint');
+  if(hint) hint.style.display = selectEl.value === 'switchOnly' ? 'block' : 'none';
+}
+
 function openShowInTotalPickerModal(checkboxEl, candidates){
   showInTotalPickerCheckboxEl = checkboxEl;
   const body = document.getElementById('showInTotalPickerBody');
@@ -11451,6 +11618,7 @@ function renderProductSelect(){
   const browseAllRow = document.getElementById('txBrowseAllProductsRow');
   if(browseAllRow) browseAllRow.style.display = (registerOutFlowType === 'load-pending' || registerOutFlowType === 'load-completed') ? '' : 'none';
 
+  makeSelectSearchable('txProduct');
   populateCategoryDropdowns();
 }
 
@@ -11858,10 +12026,13 @@ function renderLog(){
 
   const logFilterSel = document.getElementById('logFilter');
   const prevProduct = logFilterSel.value;
-  const productsForLog = catFilterVal ? products.filter(p => (p.category || '未分類') === catFilterVal) : products;
+  const showAllCatalog = document.getElementById('logShowAllCatalog').checked;
+  let productsForLog = catFilterVal ? products.filter(p => (p.category || '未分類') === catFilterVal) : products;
+  if(!showAllCatalog) productsForLog = productsForLog.filter(p => !p.hidden);
   logFilterSel.innerHTML = `<option value="">${t('logFilterAll')}</option>` +
     productsForLog.map(p => `<option value="${p.id}">${p.parentId ? '⧉ ' : ''}${p.name}</option>`).join('');
   if(productsForLog.some(p => p.id === prevProduct)) logFilterSel.value = prevProduct;
+  makeSelectSearchable('logFilter');
 
   const filterId = logFilterSel.value;
   const typeFilter = document.getElementById('logTypeFilter').value;
