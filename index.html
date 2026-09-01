@@ -12608,12 +12608,14 @@ function exportShipmentSheet(){
       .filter(Boolean)
   )].sort();
   if(orderNos.length > 0){
-    aoa.push([`This file includes the following orders: ${orderNos.map(n => '#' + n).join(', ')}`]);
+    // 這一列要放進「Name」欄(第 4 欄,index 3)——不能放第 1 欄,因為 SKU 那欄整欄都設成
+    // hidden,放在那裡的話文字雖然真的有寫進檔案裡,但整欄被隱藏,使用者根本看不到。
+    aoa.push([null, null, null, `This file includes the following orders: ${orderNos.map(n => '#' + n).join(', ')}`]);
   }
 
   const ws = XLSX.utils.aoa_to_sheet(aoa);
   ws['!cols'] = [
-    {wch:8, hidden:true},   // SKU
+    {wch:16},                // SKU
     {wch:8},                // QTY
     {wch:8},                // Unit
     {wch:32},               // Name
