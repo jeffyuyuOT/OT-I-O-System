@@ -952,6 +952,16 @@
         </div>
 
         <div class="settings-card">
+          <div class="section-title" data-i18n="secAccountingEmail">會計 Email</div>
+          <p style="font-size:11.5px;color:var(--ink-soft);margin:0 0 8px;" data-i18n="accountingEmailHint">
+            進貨單勾選「寄送給會計」時,預設帶入的收件人地址(送出前還是可以改成別的地址)。
+          </p>
+          <div class="field" style="max-width:320px;margin:0;">
+            <input type="email" id="accountingEmailInput" placeholder="accounting@example.com" onchange="saveAccountingEmail(this.value)" />
+          </div>
+        </div>
+
+        <div class="settings-card">
           <div class="section-title" data-i18n="secMultipackSettings">Multipack 商品設定</div>
           <div style="display:flex;align-items:center;gap:8px;margin:0 0 6px;">
             <input type="checkbox" id="autoConvertMultipackToggle" onchange="toggleAutoConvertMultipack(this.checked)" style="width:16px;height:16px;cursor:pointer;" />
@@ -1222,6 +1232,14 @@
         <div id="purchaseReceiptPreviewWrap" style="display:none;margin-top:8px;align-items:center;gap:10px;">
           <a id="purchaseReceiptPreviewLink" href="#" target="_blank" style="font-size:12.5px;" data-i18n="linkViewUploadedReceipt">📎 查看已上傳的附件</a>
           <span class="del-link" onclick="removePurchaseReceipt()" data-i18n="btnRemoveFile">移除附件</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;margin-top:12px;">
+          <input type="checkbox" id="purchaseEmailToggle" onchange="togglePurchaseEmailFieldVisibility(this)" style="width:16px;height:16px;cursor:pointer;" />
+          <label for="purchaseEmailToggle" style="font-size:12.5px;color:var(--ink);font-weight:600;cursor:pointer;" data-i18n="chkEmailToAccounting">寄送給會計</label>
+        </div>
+        <div id="purchaseEmailFieldWrap" style="display:none;margin:6px 0 0 24px;">
+          <input type="email" id="purchaseEmailAddress" placeholder="accounting@example.com" style="max-width:280px;" />
+          <p style="font-size:11.5px;color:var(--ink-soft);margin:4px 0 0;" data-i18n="purchaseEmailHint">送出進貨單時,會把這張單匯出的 Excel 檔跟收據附件(如果有上傳)一起寄到這個地址。</p>
         </div>
       </div>
       <div id="txExistingItemsSection" style="display:none;margin-top:14px;">
@@ -1847,6 +1865,21 @@
   </div>
 </div>
 
+<div id="sendPurchaseEmailModalOverlay" class="modal-overlay" style="display:none;" onclick="if(event.target===this) closeSendPurchaseEmailModal();">
+  <div class="modal-box" style="max-width:min(420px, 92vw);">
+    <div class="section-title" style="margin-bottom:12px;" data-i18n="modalSendPurchaseEmailTitle">寄送進貨單</div>
+    <div class="field-block">
+      <label data-i18n="fieldRecipientEmail">收件人 Email</label>
+      <input type="email" id="sendPurchaseEmailInput" style="width:100%;" placeholder="accounting@example.com" />
+    </div>
+    <div id="sendPurchaseEmailModalMsg" class="msg"></div>
+    <div class="modal-actions">
+      <button class="btn ghost" onclick="closeSendPurchaseEmailModal()" data-i18n="btnCancel">取消</button>
+      <button class="btn" onclick="confirmSendPurchaseEmail()" data-i18n="btnConfirmSend">確認寄送</button>
+    </div>
+  </div>
+</div>
+
 <div id="signatureViewModalOverlay" class="modal-overlay" style="display:none;" onclick="if(event.target===this) closeSignatureViewModal();">
   <div class="modal-box" style="max-width:min(480px, 90vw);text-align:center;">
     <div style="text-align:right;margin-bottom:8px;">
@@ -2083,6 +2116,7 @@ let backupDirHandle = null;
 // 系統設置裡的開關:「訂貨數量達到 multipack 加權數時自動轉換」
 let autoConvertMultipackEnabled = false;
 let disableDirectVerifyEnabled = false; // 勾選後,「登記進出貨→出貨→載入現有待處理訂單」下面的「直接核對」選項要隱藏
+let accountingEmail = ''; // 系統設置裡的「會計 Email」,進貨單勾選寄送時預設帶入的收件人
 let stockSortField = null; // null = 預設順序(分類順序 + 商品排序設置);其他值:'name' | 'stock' | 'avg' | 'safety' | 'remain'
 let stockSortDir = 'asc';
 // 系統設置裡的「商品排序」:決定同一個分類底下的商品要怎麼排——分類本身的順序是另外在
@@ -2604,6 +2638,20 @@ const I18N = {
     errReceiptFileType: '請選擇圖片或 PDF 檔案', errReceiptTooLarge: '檔案太大,請壓縮到 10MB 以下',
     uploadingReceiptMsg: '上傳中…', receiptUploadedMsg: '✓ 已上傳', errReceiptUploadFailed: '上傳失敗,請重新整理頁面再試一次',
     secPurchaseLog: '進貨單', purchaseLogDesc: '列出所有進貨單,依日期排序。點一筆可以看品項明細跟收據附件,匯出也是針對單一張進貨單。',
+    secAccountingEmail: '會計 Email',
+    accountingEmailHint: '進貨單勾選「寄送給會計」時,預設帶入的收件人地址(送出前還是可以改成別的地址)。',
+    chkEmailToAccounting: '寄送給會計',
+    purchaseEmailHint: '送出進貨單時,會把這張單匯出的 Excel 檔跟收據附件(如果有上傳)一起寄到這個地址。',
+    errInvalidEmailAddress: '請輸入正確的 email 地址',
+    sendingEmailMsg: '寄送中…',
+    errExcelUploadFailed: 'Excel 檔案上傳失敗,請重新整理頁面再試一次',
+    errEmailSendFailed: '寄送失敗——email 後端服務可能還沒設定好,請確認 Resend 網域驗證跟 Edge Function 都已經部署完成',
+    errPurchaseSavedButEmailFailed: '進貨單已經建立成功,但寄送 email 失敗——email 後端服務可能還沒設定好,可以之後在「歷史紀錄→進貨單」手動補寄',
+    emailSentMsg: '✓ 已寄出',
+    btnSendEmail: '📧 寄 Email', alreadyEmailedBadge: '✉️ 已寄',
+    modalSendPurchaseEmailTitle: '寄送進貨單', fieldRecipientEmail: '收件人 Email',
+    btnConfirmSend: '確認寄送',
+    emailedToTitle: '已寄給 {email}({when})',
     colPurchaseDate: '日期', colPurchaseParty: '進貨方', colPurchaseInvoiceNo: 'Invoice',
     noPurchasesYet: '尚無進貨單紀錄', purchaseItemsLabel: '品項', purchaseNoReceiptLabel: '(沒有附件)',
     btnExportPurchaseLog: '📤 匯出這張進貨單',
@@ -3038,6 +3086,20 @@ const I18N = {
     errReceiptFileType: 'Please select an image or PDF file', errReceiptTooLarge: 'File is too large, please compress it under 10MB',
     uploadingReceiptMsg: 'Uploading…', receiptUploadedMsg: '✓ Uploaded', errReceiptUploadFailed: 'Upload failed, please refresh and try again',
     secPurchaseLog: 'Purchases', purchaseLogDesc: 'Lists all purchase documents, sorted by date. Click one to see item details and the receipt attachment; export is per document too.',
+    secAccountingEmail: 'Accounting Email',
+    accountingEmailHint: 'Default recipient address filled in when a purchase is checked "Email to accounting" (you can still change it before sending).',
+    chkEmailToAccounting: 'Email to accounting',
+    purchaseEmailHint: 'When this purchase is submitted, the exported Excel file and receipt attachment (if uploaded) will be emailed to this address.',
+    errInvalidEmailAddress: 'Please enter a valid email address',
+    sendingEmailMsg: 'Sending…',
+    errExcelUploadFailed: 'Failed to upload the Excel file, please refresh and try again',
+    errEmailSendFailed: 'Send failed — the email backend may not be set up yet; please confirm Resend domain verification and the Edge Function are both deployed',
+    errPurchaseSavedButEmailFailed: 'The purchase was created successfully, but sending the email failed — the email backend may not be set up yet. You can resend it later from "History → Purchases"',
+    emailSentMsg: '✓ Sent',
+    btnSendEmail: '📧 Send Email', alreadyEmailedBadge: '✉️ Sent',
+    modalSendPurchaseEmailTitle: 'Send Purchase Order', fieldRecipientEmail: 'Recipient Email',
+    btnConfirmSend: 'Confirm Send',
+    emailedToTitle: 'Sent to {email} ({when})',
     colPurchaseDate: 'Date', colPurchaseParty: 'Supplier', colPurchaseInvoiceNo: 'Invoice',
     noPurchasesYet: 'No purchase records yet', purchaseItemsLabel: 'Items', purchaseNoReceiptLabel: '(no attachment)',
     btnExportPurchaseLog: '📤 Export this purchase',
@@ -4467,6 +4529,10 @@ async function loadData(){
     if(ddvResult) disableDirectVerifyEnabled = ddvResult.value === 'true';
   } catch(e){ /* no stored preference yet, keep default false */ }
   try{
+    const acctEmailResult = await dbGet('accountingEmail');
+    if(acctEmailResult) accountingEmail = acctEmailResult.value || '';
+  } catch(e){ /* no stored preference yet, keep default empty */ }
+  try{
     const psmResult = await dbGet('productSortMode');
     if(psmResult && ['import','name','sku'].includes(psmResult.value)) productSortMode = psmResult.value;
   } catch(e){ /* no stored preference yet, keep default 'sku' */ }
@@ -5011,6 +5077,14 @@ function updateMultipackSettingsUI(){
   if(cefSelect) cefSelect.value = completedExportFormat;
   const hmiBox = document.getElementById('hideMultipackIconToggle');
   if(hmiBox) hmiBox.checked = hideMultipackIconOnOrderPage;
+  const acctEmailInput = document.getElementById('accountingEmailInput');
+  if(acctEmailInput) acctEmailInput.value = accountingEmail;
+}
+
+async function saveAccountingEmail(value){
+  accountingEmail = (value || '').trim();
+  try{ await dbSet('accountingEmail', accountingEmail); }
+  catch(e){ console.error('儲存會計 Email 失敗', e); }
 }
 
 async function toggleAutoConvertMultipack(checked){
@@ -5111,6 +5185,12 @@ function setTxType(type){
   const receiptWrap = document.getElementById('purchaseReceiptWrap');
   if(receiptWrap && type !== 'in') receiptWrap.style.display = 'none';
   if(type !== 'in') removePurchaseReceipt(); // 切走「進貨」類型的話,暫存的收據附件狀態一併清掉,避免殘留到下次填別種類型的表單
+  if(type !== 'in'){
+    const emailToggle = document.getElementById('purchaseEmailToggle');
+    if(emailToggle){ emailToggle.checked = false; togglePurchaseEmailFieldVisibility(emailToggle); }
+    const emailInput = document.getElementById('purchaseEmailAddress');
+    if(emailInput) emailInput.value = '';
+  }
   if(type === 'in'){
     partyLabel.textContent = t('partyLabelIn');
     partyInput.placeholder = t('partyPlaceholderIn');
@@ -9699,6 +9779,16 @@ function removePurchaseReceipt(){
   if(msgEl) msgEl.textContent = '';
 }
 
+function togglePurchaseEmailFieldVisibility(checkboxEl){
+  const wrap = document.getElementById('purchaseEmailFieldWrap');
+  if(!wrap) return;
+  wrap.style.display = checkboxEl.checked ? 'block' : 'none';
+  if(checkboxEl.checked){
+    const emailInput = document.getElementById('purchaseEmailAddress');
+    if(emailInput && !emailInput.value) emailInput.value = accountingEmail || '';
+  }
+}
+
 async function saveProductEditModal(){
   const id = editingProductId;
   const isNewChild = !!addingChildParentId;
@@ -10123,7 +10213,12 @@ function renderPurchaseLog(){
             <td style="cursor:pointer;white-space:nowrap;" onclick="togglePurchaseDetail('${p.id}')">${escapeHtmlForPrint(p.date || '')}</td>
             <td style="cursor:pointer;" onclick="togglePurchaseDetail('${p.id}')">${escapeHtmlForPrint(p.partyName || p.partyId || '')}</td>
             <td style="cursor:pointer;" onclick="togglePurchaseDetail('${p.id}')">${escapeHtmlForPrint(p.invoiceNo || '')}</td>
-            <td><span class="del-link" onclick="exportSinglePurchase('${p.id}')">${t('btnExportPurchaseLog')}</span></td>
+            <td style="white-space:nowrap;">
+              <span class="del-link" onclick="exportSinglePurchase('${p.id}')">${t('btnExportPurchaseLog')}</span>
+              &nbsp;·&nbsp;
+              <span class="del-link" onclick="openSendPurchaseEmailModal('${p.id}')">${t('btnSendEmail')}</span>
+              ${p.emailedAt ? `<span style="margin-left:6px;color:var(--safe);font-size:12px;" title="${tf('emailedToTitle', { email: p.emailedTo || '', when: p.emailedAt })}">${t('alreadyEmailedBadge')}</span>` : ''}
+            </td>
           </tr>
           ${expandedPurchaseId === p.id ? `
           <tr>
@@ -10146,12 +10241,10 @@ function renderPurchaseLog(){
 // 匯出「單一張」進貨單:格式跟資料維護「匯出進貨」用的欄位不太一樣——一張進貨單通常對應同一天、
 // 同一個進貨方、同一張收據,所以日期/進貨方/Invoice No. 都不重複印在每一列,而是整份檔案開頭
 // 一個標題列,底下就是這張單的品項列(只有 SKU/Name/Qty/Unit)。
-function exportSinglePurchase(purchaseId){
-  const msg = document.getElementById('purchaseLogExportMsg');
-  if(typeof XLSX === 'undefined'){ msg.className='msg error'; msg.textContent='Excel 套件載入失敗,請重新整理頁面再試一次'; return; }
-  const p = purchases.find(x => x.id === purchaseId);
-  if(!p){ msg.className='msg error'; msg.textContent='找不到這張進貨單,請重新整理頁面再試一次。'; return; }
-
+// 把一張進貨單組成 Excel workbook——直接下載(exportSinglePurchase)、跟寄 email 前先上傳
+// 附件(uploadPurchaseExcelForEmail)兩邊共用同一份邏輯,不要各自重寫一次,不然兩邊格式跑掉
+// 對不起來。
+function buildPurchaseWorkbook(p){
   const productMap = Object.fromEntries(products.map(pp => [pp.id, pp]));
   const supplier = p.partyName || p.partyId || '';
 
@@ -10180,7 +10273,85 @@ function exportSinglePurchase(purchaseId){
   XLSX.utils.book_append_sheet(wb, ws, 'Purchase');
 
   const filename = `Opulent - Stock in ${p.date || todayISO()}.xlsx`;
+  return { wb, filename };
+}
 
+// 把這張進貨單寄給指定的 email 地址:先把 Excel 檔案(跟直接下載用的是同一份邏輯)上傳到
+// Storage,再呼叫後端的 Edge Function(send-purchase-email)去真正寄信——瀏覽器端的 JS 沒辦法
+// 直接寄信(沒有地方能安全存放寄信服務的金鑰),所以這一步一定要透過後端,不是這裡能完成的。
+// 在 Edge Function 真的部署、Resend 網域驗證通過之前,這裡呼叫一定會失敗,錯誤訊息會清楚地
+// 告訴使用者「email 還沒設定好」,不會讓人誤以為信已經寄出去了。寄成功後,在這張進貨單上記錄
+// emailedTo/emailedAt,歷史紀錄清單就會顯示「已寄過」的小圖示。
+async function sendPurchaseEmail(purchaseId, toEmail, msgEl){
+  const p = purchases.find(x => x.id === purchaseId);
+  if(!p) throw new Error('找不到這張進貨單');
+  if(!toEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(toEmail)) throw new Error(t('errInvalidEmailAddress'));
+
+  if(msgEl){ msgEl.className = 'msg'; msgEl.textContent = t('sendingEmailMsg'); }
+
+  const { wb } = buildPurchaseWorkbook(p);
+  const excelArrayBuffer = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+  const excelBlob = new Blob([excelArrayBuffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+  const excelPath = `${purchaseId}/${genId()}.xlsx`;
+
+  const { error: uploadError } = await sb.storage.from('purchase-exports').upload(excelPath, excelBlob, { upsert: true });
+  if(uploadError) throw new Error(t('errExcelUploadFailed'));
+  const { data: excelUrlData } = sb.storage.from('purchase-exports').getPublicUrl(excelPath);
+
+  // 後端 Edge Function 還沒部署/Resend 網域還沒驗證通過的話,這裡會丟出錯誤,呼叫端要接住
+  // 並顯示清楚的訊息,不要讓使用者以為信已經寄出去了。
+  const { error: fnError } = await sb.functions.invoke('send-purchase-email', {
+    body: {
+      purchaseId,
+      to: toEmail,
+      excelUrl: excelUrlData.publicUrl,
+      receiptUrl: p.receiptUrl || null,
+      date: p.date || '',
+      supplier: p.partyName || p.partyId || '',
+      invoiceNo: p.invoiceNo || ''
+    }
+  });
+  if(fnError) throw new Error(t('errEmailSendFailed'));
+
+  p.emailedTo = toEmail;
+  p.emailedAt = new Date().toISOString();
+  await upsertPurchase(p);
+}
+
+// 歷史紀錄裡的「寄 Email」按鈕:跳出視窗讓使用者確認/修改收件人,預設帶入會計 Email
+// (或者如果這張單之前已經寄過,帶入上次寄的那個地址,方便重寄給同一個人)。
+let sendPurchaseEmailTargetId = null;
+function openSendPurchaseEmailModal(purchaseId){
+  const p = purchases.find(x => x.id === purchaseId);
+  if(!p) return;
+  sendPurchaseEmailTargetId = purchaseId;
+  document.getElementById('sendPurchaseEmailInput').value = p.emailedTo || accountingEmail || '';
+  document.getElementById('sendPurchaseEmailModalMsg').textContent = '';
+  document.getElementById('sendPurchaseEmailModalOverlay').style.display = 'flex';
+}
+function closeSendPurchaseEmailModal(){
+  sendPurchaseEmailTargetId = null;
+  document.getElementById('sendPurchaseEmailModalOverlay').style.display = 'none';
+}
+async function confirmSendPurchaseEmail(){
+  if(!sendPurchaseEmailTargetId) return;
+  const msgEl = document.getElementById('sendPurchaseEmailModalMsg');
+  const email = (document.getElementById('sendPurchaseEmailInput').value || '').trim();
+  try{
+    await sendPurchaseEmail(sendPurchaseEmailTargetId, email, msgEl);
+    msgEl.className = 'msg ok';
+    msgEl.textContent = t('emailSentMsg');
+    renderPurchaseLog();
+    setTimeout(closeSendPurchaseEmailModal, 900);
+  } catch(e){
+    console.error('寄送進貨單 email 失敗', e);
+    msgEl.className = 'msg error';
+    msgEl.textContent = `⚠ ${e.message || t('errEmailSendFailed')}`;
+  }
+}
+
+function exportSinglePurchase(purchaseId){
+  const msg = document.getElementById('purchaseLogExportMsg');
   XLSX.writeFile(wb, filename);
   msg.className = 'msg ok';
   msg.textContent = `✓ 已匯出:${filename}`;
@@ -10536,6 +10707,22 @@ async function submitTxBatchSimple(date, msg){
     catch(e){ console.error('儲存進貨單失敗', e); }
     pendingPurchaseReceiptUrl = null;
     removePurchaseReceipt();
+
+    // 有勾選「寄送給會計」才會寄——寄信失敗不影響這張進貨單本身已經建立成功這件事,只是在畫面上
+    // 另外提示寄信失敗,讓使用者知道要去歷史紀錄手動補寄,不會讓人誤以為整張進貨單都沒送出去。
+    const emailToggleEl = document.getElementById('purchaseEmailToggle');
+    if(emailToggleEl && emailToggleEl.checked){
+      const emailAddr = (document.getElementById('purchaseEmailAddress').value || '').trim();
+      try{
+        await sendPurchaseEmail(purchase.id, emailAddr, msg);
+      } catch(e){
+        console.error('寄送進貨單 email 失敗', e);
+        msg.className = 'msg error';
+        msg.textContent = `⚠ ${t('errPurchaseSavedButEmailFailed')}`;
+      }
+      const emailToggleReset = document.getElementById('purchaseEmailToggle');
+      if(emailToggleReset){ emailToggleReset.checked = false; togglePurchaseEmailFieldVisibility(emailToggleReset); }
+    }
   }
 
   const count = txBatchItems.length;
