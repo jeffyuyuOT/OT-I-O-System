@@ -2108,6 +2108,7 @@ let purchases = []; // 進貨單清單:{id, date, partyId/partyName, invoiceNo, 
 let shippingParties = [];
 let currentTxType = 'in';
 let pendingPurchaseReceiptUrl = null; // 進貨單收據附件:上傳成功後的公開網址,submitTxBatchSimple() 送出進貨單時會用到,送出後清空
+let pendingPurchaseReceiptFilename = null; // 收據附件使用者上傳時的原始檔名——Storage 裡存的是亂數檔名,寄 email 附件時要用這個原始檔名才不會亂碼
 let storageReady = false;
 let autoBackupEnabled = true;
 let autoBackupTimer = null;
@@ -9752,13 +9753,17 @@ async function handlePurchaseReceiptUpload(inputEl){
   }
   msgEl.style.color = 'var(--ink-soft)';
   msgEl.textContent = t('uploadingReceiptMsg');
-  const ext = (file.name.split('.').pop() || (file.type === 'application/pdf' ? 'pdf' : 'jpg')).toLowerCase().replace(/[^a-z0-9]/g, '') || 'jpg';
-  const path = `${genId()}.${ext}`;
+  // 檔名保留使用者上傳時的原始檔名(不是只留副檔名的亂數檔名),這樣點連結查看/下載附件時,
+  // 瀏覽器顯示的檔名就是原本的檔名,不會是一串亂碼——前面加一個亂數資料夾當前綴,是為了避免
+  // 兩份不同的收據剛好同名(例如都叫 IMG_1234.jpg)互相覆蓋掉,不影響顯示出來的檔名本身。
+  const safeName = file.name.replace(/[\\/:*?"<>|]/g, '_');
+  const path = `${genId()}/${safeName}`;
   try{
     const { error } = await sb.storage.from('purchase-receipts').upload(path, file, { upsert: true });
     if(error) throw error;
     const { data } = sb.storage.from('purchase-receipts').getPublicUrl(path);
     pendingPurchaseReceiptUrl = data.publicUrl;
+    pendingPurchaseReceiptFilename = file.name;
     document.getElementById('purchaseReceiptPreviewLink').href = pendingPurchaseReceiptUrl;
     document.getElementById('purchaseReceiptPreviewWrap').style.display = 'flex';
     msgEl.style.color = 'var(--safe)';
@@ -9773,6 +9778,7 @@ async function handlePurchaseReceiptUpload(inputEl){
 
 function removePurchaseReceipt(){
   pendingPurchaseReceiptUrl = null;
+  pendingPurchaseReceiptFilename = null;
   const wrap = document.getElementById('purchaseReceiptPreviewWrap');
   if(wrap) wrap.style.display = 'none';
   const msgEl = document.getElementById('purchaseReceiptUploadMsg');
@@ -10289,7 +10295,7 @@ async function sendPurchaseEmail(purchaseId, toEmail, msgEl){
 
   if(msgEl){ msgEl.className = 'msg'; msgEl.textContent = t('sendingEmailMsg'); }
 
-  const { wb } = buildPurchaseWorkbook(p);
+  const { wb, filename } = buildPurchaseWorkbook(p);
   const excelArrayBuffer = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
   const excelBlob = new Blob([excelArrayBuffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
   const excelPath = `${purchaseId}/${genId()}.xlsx`;
@@ -10300,12 +10306,17 @@ async function sendPurchaseEmail(purchaseId, toEmail, msgEl){
 
   // 後端 Edge Function 還沒部署/Resend 網域還沒驗證通過的話,這裡會丟出錯誤,呼叫端要接住
   // 並顯示清楚的訊息,不要讓使用者以為信已經寄出去了。
+  // excelFilename 明確帶正確的檔名過去(跟直接匯出下載時同一個名稱,例如「Opulent - Stock in
+  // 2026-08-15.xlsx」),不要讓後端從 Storage 網址裡的隨機檔名去反推——Storage 裡存的檔名本身
+  // 是 genId() 亂數(避免同一張單重複上傳時互相覆蓋或撞名),不是給使用者看的檔名。
   const { error: fnError } = await sb.functions.invoke('send-purchase-email', {
     body: {
       purchaseId,
       to: toEmail,
       excelUrl: excelUrlData.publicUrl,
+      excelFilename: filename,
       receiptUrl: p.receiptUrl || null,
+      receiptFilename: p.receiptFilename || null,
       date: p.date || '',
       supplier: p.partyName || p.partyId || '',
       invoiceNo: p.invoiceNo || ''
@@ -10701,6 +10712,7 @@ async function submitTxBatchSimple(date, msg){
       date, partyId: party, partyName: party, invoiceNo,
       items: txBatchItems.map(it => ({ productId: it.productId, sku: it.sku || '', name: it.name, unit: it.unit, qty: it.qty })),
       receiptUrl: pendingPurchaseReceiptUrl || null,
+      receiptFilename: pendingPurchaseReceiptFilename || null,
       createdAt: new Date().toISOString()
     };
     try{ await upsertPurchase(purchase); purchases.push(purchase); }
