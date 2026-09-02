@@ -722,6 +722,28 @@
     #usersTable table.users td.u-party{ grid-area:party; }
     #usersTable table.users td.u-actions{ grid-area:actions; margin-top:6px; display:flex; gap:8px; white-space:nowrap !important; }
 
+    /* 進貨單歷史紀錄:一樣改成卡片式排版,原因跟使用者管理/後台紀錄相同——日期/進貨方/Invoice/
+       操作這幾欄橫排在小螢幕上會擠在一起、按鈕也會被壓縮到很難點。展開後的品項明細表格維持
+       原本橫向捲動的樣子(那是巢狀的另一個表格,欄位少,捲動就夠用了,不用特別處理)。 */
+    #purchaseLogTable{ overflow-x:visible; }
+    #purchaseLogTable table.purchase-log-table{ min-width:0; width:100%; }
+    #purchaseLogTable table.purchase-log-table thead{ display:none; }
+    #purchaseLogTable table.purchase-log-table, #purchaseLogTable table.purchase-log-table tbody{ display:block; width:100%; }
+    #purchaseLogTable table.purchase-log-table > tbody > tr{
+      display:grid; grid-template-columns:1fr 1fr; column-gap:10px; row-gap:4px;
+      grid-template-areas: "date invoice" "party party" "actions actions";
+      padding:12px 0; border-bottom:1px solid var(--line);
+    }
+    #purchaseLogTable table.purchase-log-table > tbody > tr > td{ border-bottom:none; padding:0 !important; white-space:normal !important; }
+    #purchaseLogTable table.purchase-log-table td.pl-date{ grid-area:date; font-weight:600; }
+    #purchaseLogTable table.purchase-log-table td.pl-party{ grid-area:party; }
+    #purchaseLogTable table.purchase-log-table td.pl-invoice{ grid-area:invoice; }
+    #purchaseLogTable table.purchase-log-table td.pl-actions{ grid-area:actions; margin-top:4px; white-space:normal !important; }
+    #purchaseLogTable table.purchase-log-table .pl-actions-br{ display:block; content:""; margin-top:4px; }
+    /* 展開後的明細列(colspan 那一整列)不是卡片欄位的一部分,維持原本橫跨整列的樣子。 */
+    #purchaseLogTable table.purchase-log-table > tbody > tr:has(> td[colspan]){ display:block; padding:0; }
+    #purchaseLogTable table.purchase-log-table > tbody > tr > td[colspan]{ display:block; padding:8px 0 !important; }
+
     /* 後台紀錄:改成卡片式排版,原因跟管理出貨方一樣——欄位一多,靠左右滑動當退路還是會超出
        螢幕寬度。這是純顯示用的紀錄表(沒有互動元件),直接把每個 td 往下堆疊就好,不用像
        進出貨紀錄那樣用 grid-area 排版。 */
@@ -2435,6 +2457,8 @@ const I18N = {
     btnUndo: '復原',
     confirmSaveOrderChangesMsg: '這次儲存有以下異動,確定要儲存嗎?\n{changes}',
     btnExportThisOrder: '📤 匯出', btnDeleteWholeOrder: '🗑 刪除整筆訂單(退回庫存)',
+    actionExport: '匯出', actionPrint: '列印', actionEmail: '寄 Email', btnRunAction: '確認執行',
+    lblAction: 'Action',
     itemDeletedLabel: '已刪除(退回庫存)', itemDeletedLabelStockedOut: '已刪除(已出庫,已入庫退回)',
     btnEditQty: '改數量', btnEditRemark: '編輯備註', orderRemarkPlaceholder: '對這張訂單做點備註⋯⋯',
     btnEditOrderParty: '指定/修改出貨方',
@@ -2883,6 +2907,8 @@ const I18N = {
     btnUndo: 'Undo',
     confirmSaveOrderChangesMsg: 'This save includes the following changes — confirm?\n{changes}',
     btnExportThisOrder: '📤 Export', btnDeleteWholeOrder: '🗑 Delete Order (Restock)',
+    actionExport: 'Export', actionPrint: 'Print', actionEmail: 'Email', btnRunAction: 'Go',
+    lblAction: 'Action',
     itemDeletedLabel: 'Deleted (Restocked)', itemDeletedLabelStockedOut: 'Deleted (was stocked out, restocked back)',
     btnEditQty: 'Edit Qty', btnEditRemark: 'Edit Note', orderRemarkPlaceholder: 'Add a note about this order…',
     btnEditOrderParty: 'Set/Change Shipping Party',
@@ -7749,8 +7775,16 @@ function renderOrders(){
             ${(o.deleted || o.signedAt) ? '' : `<button class="btn ghost" onclick="editOrderViaRegister('${o.id}', 'completed')">${t('btnEdit')}</button>`}
             ${(o.deleted || o.signedAt) ? '' : `<button class="btn ghost" onclick="openWarehouseSignModal('${o.id}')">${t('btnWarehouseSign')}</button>`}
             ${hasHistory ? `<button class="btn ghost" onclick="openOrderHistoryModal('${o.id}')">${t('btnViewHistory')}</button>` : ''}
-            <button class="btn ghost" onclick="exportSingleOrderSheet('${o.id}')">${t('btnExportThisOrder')}</button>
-            <button class="btn ghost" onclick="printCompletedOrder('${o.id}')">${t('btnPrintOrder')}</button>
+            <span style="display:inline-flex;align-items:center;gap:6px;">
+              <label style="font-size:11px;color:var(--ink-soft);font-weight:700;text-transform:uppercase;" data-i18n="lblAction">Action</label>
+              <select id="orderActionSelect_${o.id}" style="width:auto;">
+                <option value="export">${t('actionExport')}</option>
+                <option value="print">${t('actionPrint')}</option>
+                ${o.signedAt ? `<option value="email">${t('actionEmail')}</option>` : ''}
+              </select>
+              <button class="btn ghost" onclick="runOrderAction('${o.id}')">${t('btnRunAction')}</button>
+            </span>
+            ${o.emailedAt ? `<span style="margin-left:2px;color:var(--safe);font-size:12px;" title="${tf('emailedToTitle', { email: o.emailedTo || '', when: o.emailedAt })}">${t('alreadyEmailedBadge')}</span><span style="margin-left:4px;color:var(--ink-soft);font-size:10.5px;">${formatEmailedTimeShort(o.emailedAt)}</span>` : ''}
           </div>
         ` : ''}
       </div>
@@ -8287,6 +8321,18 @@ async function printPendingOrder(orderId){
 
 function printCompletedOrder(orderId){
   printOrderDocument(orderId, { includeCheckColumn: false, includeSkuColumn: false, headerLabel: 'Completed Order' });
+}
+
+// 已完成訂單卡片上的「Action」下拉選單:選好動作、按確認執行才會真的觸發——匯出/列印是既有的
+// 函式直接呼叫,email 是跳出跟進貨單共用的那個寄送確認視窗(只有已簽收的訂單才會有這個選項,
+// 下拉選單本身在畫面上就已經依簽收狀態決定要不要顯示 email 這個選項了)。
+function runOrderAction(orderId){
+  const sel = document.getElementById(`orderActionSelect_${orderId}`);
+  if(!sel) return;
+  const action = sel.value;
+  if(action === 'export') exportSingleOrderSheet(orderId);
+  else if(action === 'print') printCompletedOrder(orderId);
+  else if(action === 'email') openSendOrderEmailModal(orderId);
 }
 
 // 待處理訂單裡刪除單一品項:訂單根本還沒核對、還沒扣庫存,沒有任何進出貨紀錄要處理,
@@ -9108,7 +9154,7 @@ function buildOrderSheetAoa(list, partyLabel, dateLabel){
   return { aoa, aggregated, hiddenRows };
 }
 
-function downloadOrderSheetXlsx(aoa, filename, hiddenRows){
+function buildOrderSheetWorkbook(aoa, hiddenRows){
   const ws = XLSX.utils.aoa_to_sheet(aoa);
   ws['!cols'] = [{wch:14},{wch:28},{wch:8},{wch:8},{wch:16}];
   if(hiddenRows && hiddenRows.size > 0){
@@ -9118,6 +9164,10 @@ function downloadOrderSheetXlsx(aoa, filename, hiddenRows){
   }
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Order Sheet');
+  return wb;
+}
+function downloadOrderSheetXlsx(aoa, filename, hiddenRows){
+  const wb = buildOrderSheetWorkbook(aoa, hiddenRows);
   XLSX.writeFile(wb, filename);
 }
 
@@ -10180,6 +10230,16 @@ function clearPurchaseLogFilters(){
   document.getElementById('purchaseLogPartyFilter').value = '';
   renderPurchaseLog();
 }
+// 「已寄過 email」小圖示旁邊顯示的簡短時間文字——一張單可能補寄過好幾次(每次寄送都會覆蓋
+// emailedAt),這裡顯示的一律是「最後一次」寄送的時間,不會列出全部歷史。
+function formatEmailedTimeShort(iso){
+  if(!iso) return '';
+  try{
+    const d = new Date(iso);
+    return d.toLocaleString(lang === 'en' ? 'en-AU' : 'zh-TW', { year:'numeric', month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit' });
+  } catch(e){ return ''; }
+}
+
 function renderPurchaseLog(){
   const container = document.getElementById('purchaseLogTable');
   if(!container) return;
@@ -10206,7 +10266,7 @@ function renderPurchaseLog(){
     return;
   }
   const sorted = filtered.sort((a, b) => (b.date || '').localeCompare(a.date || '') || (b.createdAt || '').localeCompare(a.createdAt || ''));
-  container.innerHTML = `<table class="stock-table">
+  container.innerHTML = `<table class="stock-table purchase-log-table">
       <thead><tr>
         <th>${t('colPurchaseDate')}</th>
         <th>${t('colPurchaseParty')}</th>
@@ -10216,14 +10276,14 @@ function renderPurchaseLog(){
       <tbody>
         ${sorted.map(p => `
           <tr>
-            <td style="cursor:pointer;white-space:nowrap;" onclick="togglePurchaseDetail('${p.id}')">${escapeHtmlForPrint(p.date || '')}</td>
-            <td style="cursor:pointer;" onclick="togglePurchaseDetail('${p.id}')">${escapeHtmlForPrint(p.partyName || p.partyId || '')}</td>
-            <td style="cursor:pointer;" onclick="togglePurchaseDetail('${p.id}')">${escapeHtmlForPrint(p.invoiceNo || '')}</td>
-            <td style="white-space:nowrap;">
+            <td class="pl-date" style="cursor:pointer;white-space:nowrap;" onclick="togglePurchaseDetail('${p.id}')"><span class="td-mobile-label">${t('colPurchaseDate')}</span>${escapeHtmlForPrint(p.date || '')}</td>
+            <td class="pl-party" style="cursor:pointer;" onclick="togglePurchaseDetail('${p.id}')"><span class="td-mobile-label">${t('colPurchaseParty')}</span>${escapeHtmlForPrint(p.partyName || p.partyId || '')}</td>
+            <td class="pl-invoice" style="cursor:pointer;" onclick="togglePurchaseDetail('${p.id}')"><span class="td-mobile-label">${t('colPurchaseInvoiceNo')}</span>${escapeHtmlForPrint(p.invoiceNo || '')}</td>
+            <td class="pl-actions" style="white-space:nowrap;">
               <span class="del-link" onclick="exportSinglePurchase('${p.id}')">${t('btnExportPurchaseLog')}</span>
               &nbsp;·&nbsp;
               <span class="del-link" onclick="openSendPurchaseEmailModal('${p.id}')">${t('btnSendEmail')}</span>
-              ${p.emailedAt ? `<span style="margin-left:6px;color:var(--safe);font-size:12px;" title="${tf('emailedToTitle', { email: p.emailedTo || '', when: p.emailedAt })}">${t('alreadyEmailedBadge')}</span>` : ''}
+              ${p.emailedAt ? `<br class="pl-actions-br"><span style="color:var(--safe);font-size:12px;" title="${tf('emailedToTitle', { email: p.emailedTo || '', when: p.emailedAt })}">${t('alreadyEmailedBadge')}</span><span style="margin-left:4px;color:var(--ink-soft);font-size:10.5px;">${formatEmailedTimeShort(p.emailedAt)}</span>` : ''}
             </td>
           </tr>
           ${expandedPurchaseId === p.id ? `
@@ -10329,14 +10389,75 @@ async function sendPurchaseEmail(purchaseId, toEmail, msgEl){
   await upsertPurchase(p);
 }
 
-// 歷史紀錄裡的「寄 Email」按鈕:跳出視窗讓使用者確認/修改收件人,預設帶入會計 Email
-// (或者如果這張單之前已經寄過,帶入上次寄的那個地址,方便重寄給同一個人)。
+// 已完成訂單的「寄 Email」:邏輯跟 sendPurchaseEmail 幾乎一樣,差別是這裡沒有收據附件、
+// Excel 內容用的是訂單匯出那份格式(buildOrderSheetAoa),存放暫存 Excel 附件用的還是同一個
+// purchase-exports bucket(單純是「寄信前暫存附件」用途,不是真的只限進貨單使用,不用另外
+//開一個 bucket)。Edge Function 那邊 invoiceNo 這個欄位借來放訂單編號,信件內文標籤是通用的
+// 「Reference No.」,不是寫死「Invoice No.」,兩種情境共用同一支函式不會顯示錯欄位名稱。
+async function sendOrderEmail(orderId, toEmail, msgEl){
+  const order = orders.find(o => o.id === orderId);
+  if(!order) throw new Error('找不到這張訂單');
+  if(!toEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(toEmail)) throw new Error(t('errInvalidEmailAddress'));
+
+  if(msgEl){ msgEl.className = 'msg'; msgEl.textContent = t('sendingEmailMsg'); }
+
+  const partyLabel = order.partyName || 'Unspecified';
+  const dateLabel = order.date;
+  const { aoa, hiddenRows } = buildOrderSheetAoa([order], partyLabel, dateLabel);
+  const wb = buildOrderSheetWorkbook(aoa, hiddenRows);
+  const excelArrayBuffer = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+  const excelBlob = new Blob([excelArrayBuffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+
+  const safeParty = (order.partyName || 'Order').replace(/[^a-zA-Z0-9\u4e00-\u9fa5]/g, '') || 'Order';
+  const noPart = order.orderNo ? `${order.orderNo.replace('#','')}_` : '';
+  const filename = `order_sheet_${noPart}${safeParty}_${order.date}.xlsx`;
+  const excelPath = `${orderId}/${genId()}.xlsx`;
+
+  const { error: uploadError } = await sb.storage.from('purchase-exports').upload(excelPath, excelBlob, { upsert: true });
+  if(uploadError) throw new Error(t('errExcelUploadFailed'));
+  const { data: excelUrlData } = sb.storage.from('purchase-exports').getPublicUrl(excelPath);
+
+  const { error: fnError } = await sb.functions.invoke('send-purchase-email', {
+    body: {
+      purchaseId: orderId,
+      to: toEmail,
+      excelUrl: excelUrlData.publicUrl,
+      excelFilename: filename,
+      receiptUrl: null,
+      receiptFilename: null,
+      date: order.date || '',
+      supplier: order.partyName || '',
+      invoiceNo: order.orderNo || ''
+    }
+  });
+  if(fnError) throw new Error(t('errEmailSendFailed'));
+
+  order.emailedTo = toEmail;
+  order.emailedAt = new Date().toISOString();
+  await upsertOrders([order]);
+}
+
+// 歷史紀錄/已完成訂單的「寄 Email」:跳出同一個視窗讓使用者確認/修改收件人,預設帶入會計 Email
+// (或者如果這張單/訂單之前已經寄過,帶入上次寄的那個地址,方便重寄給同一個人)。進貨單、
+// 已完成訂單共用同一個彈出視窗,用 sendEmailTargetType 分辨現在是哪一種、要呼叫哪個寄送函式,
+// 不用做兩份幾乎一樣的 modal HTML。
 let sendPurchaseEmailTargetId = null;
+let sendEmailTargetType = 'purchase'; // 'purchase' 或 'order'
 function openSendPurchaseEmailModal(purchaseId){
   const p = purchases.find(x => x.id === purchaseId);
   if(!p) return;
+  sendEmailTargetType = 'purchase';
   sendPurchaseEmailTargetId = purchaseId;
   document.getElementById('sendPurchaseEmailInput').value = p.emailedTo || accountingEmail || '';
+  document.getElementById('sendPurchaseEmailModalMsg').textContent = '';
+  document.getElementById('sendPurchaseEmailModalOverlay').style.display = 'flex';
+}
+function openSendOrderEmailModal(orderId){
+  const order = orders.find(o => o.id === orderId);
+  if(!order) return;
+  sendEmailTargetType = 'order';
+  sendPurchaseEmailTargetId = orderId;
+  document.getElementById('sendPurchaseEmailInput').value = order.emailedTo || accountingEmail || '';
   document.getElementById('sendPurchaseEmailModalMsg').textContent = '';
   document.getElementById('sendPurchaseEmailModalOverlay').style.display = 'flex';
 }
@@ -10349,13 +10470,18 @@ async function confirmSendPurchaseEmail(){
   const msgEl = document.getElementById('sendPurchaseEmailModalMsg');
   const email = (document.getElementById('sendPurchaseEmailInput').value || '').trim();
   try{
-    await sendPurchaseEmail(sendPurchaseEmailTargetId, email, msgEl);
+    if(sendEmailTargetType === 'order'){
+      await sendOrderEmail(sendPurchaseEmailTargetId, email, msgEl);
+      renderOrders();
+    } else {
+      await sendPurchaseEmail(sendPurchaseEmailTargetId, email, msgEl);
+      renderPurchaseLog();
+    }
     msgEl.className = 'msg ok';
     msgEl.textContent = t('emailSentMsg');
-    renderPurchaseLog();
     setTimeout(closeSendPurchaseEmailModal, 900);
   } catch(e){
-    console.error('寄送進貨單 email 失敗', e);
+    console.error('寄送 email 失敗', e);
     msgEl.className = 'msg error';
     msgEl.textContent = `⚠ ${e.message || t('errEmailSendFailed')}`;
   }
@@ -10363,6 +10489,11 @@ async function confirmSendPurchaseEmail(){
 
 function exportSinglePurchase(purchaseId){
   const msg = document.getElementById('purchaseLogExportMsg');
+  if(typeof XLSX === 'undefined'){ msg.className='msg error'; msg.textContent='Excel 套件載入失敗,請重新整理頁面再試一次'; return; }
+  const p = purchases.find(x => x.id === purchaseId);
+  if(!p){ msg.className='msg error'; msg.textContent='找不到這張進貨單,請重新整理頁面再試一次。'; return; }
+
+  const { wb, filename } = buildPurchaseWorkbook(p);
   XLSX.writeFile(wb, filename);
   msg.className = 'msg ok';
   msg.textContent = `✓ 已匯出:${filename}`;
