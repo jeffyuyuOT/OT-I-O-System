@@ -1917,6 +1917,10 @@
       <input type="text" id="editPurchaseInvoiceInput" style="width:100%;" placeholder="例如:INV-00123" data-i18n-placeholder="txInvoiceNoPlaceholderExample" />
     </div>
     <div class="field-block">
+      <label data-i18n="txNoteSharedLabel">備註(選填)</label>
+      <input type="text" id="editPurchaseNoteInput" style="width:100%;" placeholder="例如:客戶訂單 #123" data-i18n-placeholder="txNotePlaceholderExample" />
+    </div>
+    <div class="field-block">
       <label data-i18n="fieldPurchaseReceipt">收據/發票附件(選填,圖片或 PDF,可選取多個檔案)</label>
       <div id="editPurchaseReceiptExistingWrap" style="display:flex;flex-direction:column;gap:4px;margin-bottom:8px;"></div>
       <input type="file" id="editPurchaseReceiptInput" accept="image/*,application/pdf" multiple onchange="handleEditPurchaseReceiptUpload(this)" style="border:1px solid var(--line);background:#fff;border-radius:2px;padding:8px;font-family:'IBM Plex Mono',monospace;font-size:12px;width:100%;box-sizing:border-box;" />
@@ -2708,6 +2712,7 @@ const I18N = {
     emailedToTitle: '已寄給 {email}({when})',
     colPurchaseDate: '日期', colPurchaseParty: '進貨方', colPurchaseInvoiceNo: 'Invoice',
     noPurchasesYet: '尚無進貨單紀錄', purchaseItemsLabel: '品項', purchaseNoReceiptLabel: '(沒有附件)',
+    purchaseNoteLabel: '備註:{note}',
     btnExportPurchaseLog: '📤 匯出這張進貨單',
     btnViewPhoto: '📷 觀看照片',
     fieldAutoConvertStockInHint: '— 勾選後,登記進出貨的「進貨」如果是這個批量商品,會直接依加權數換算成主商品的數量、加進主商品的庫存,不會加進這個批量商品自己的庫存。',
@@ -3160,6 +3165,7 @@ const I18N = {
     emailedToTitle: 'Sent to {email} ({when})',
     colPurchaseDate: 'Date', colPurchaseParty: 'Supplier', colPurchaseInvoiceNo: 'Invoice',
     noPurchasesYet: 'No purchase records yet', purchaseItemsLabel: 'Items', purchaseNoReceiptLabel: '(no attachment)',
+    purchaseNoteLabel: 'Note: {note}',
     btnExportPurchaseLog: '📤 Export this purchase',
     btnViewPhoto: '📷 View Photo',
     fieldAutoConvertStockInHint: '— When checked, logging a "Stock In" for this multipack product will automatically convert it (using the weight) directly into the main product\'s stock, instead of adding to this multipack product\'s own stock.',
@@ -10358,6 +10364,7 @@ function renderPurchaseLog(){
                   ${(p.items || []).map(it => `<tr><td>${escapeHtmlForPrint(it.name)}</td><td class="num">${it.qty} ${escapeHtmlForPrint(it.unit || '')}</td></tr>`).join('')}
                 </tbody>
               </table>
+              ${p.note ? `<p style="font-size:12.5px;color:var(--ink);margin:0 0 8px;">${tf('purchaseNoteLabel', { note: escapeHtmlForPrint(p.note) })}</p>` : ''}
               ${getPurchaseReceiptFileList(p).length > 0
                 ? getPurchaseReceiptFileList(p).map(f => `<a href="${f.url}" target="_blank" style="font-size:12.5px;display:block;">📎 ${escapeHtmlForPrint(f.filename || t('linkViewUploadedReceipt'))}</a>`).join('')
                 : `<span style="font-size:12.5px;color:var(--ink-soft);">${t('purchaseNoReceiptLabel')}</span>`}
@@ -10575,6 +10582,7 @@ function openEditPurchaseModal(purchaseId){
   document.getElementById('editPurchaseDateInput').value = p.date || '';
   document.getElementById('editPurchasePartyInput').value = p.partyName || p.partyId || '';
   document.getElementById('editPurchaseInvoiceInput').value = p.invoiceNo || '';
+  document.getElementById('editPurchaseNoteInput').value = p.note || '';
   document.getElementById('editPurchaseReceiptUploadMsg').textContent = '';
   document.getElementById('editPurchaseModalMsg').textContent = '';
   renderEditPurchaseReceiptList();
@@ -10644,32 +10652,35 @@ async function confirmEditPurchase(){
   const dateVal = document.getElementById('editPurchaseDateInput').value;
   const partyVal = document.getElementById('editPurchasePartyInput').value.trim();
   const invoiceVal = document.getElementById('editPurchaseInvoiceInput').value.trim();
+  const noteVal = document.getElementById('editPurchaseNoteInput').value.trim();
   if(!dateVal){ msgEl.className = 'msg error'; msgEl.textContent = t('errSelectOrderDate'); return; }
 
   msgEl.className = 'msg'; msgEl.textContent = t('savingMsg');
-  const oldDate = p.date, oldParty = p.partyName, oldInvoice = p.invoiceNo;
+  const oldDate = p.date, oldParty = p.partyName, oldInvoice = p.invoiceNo, oldNote = p.note;
   p.date = dateVal;
   p.partyName = partyVal;
   p.partyId = partyVal;
   p.invoiceNo = invoiceVal;
+  p.note = noteVal;
   p.receiptFiles = editPurchaseWorkingReceiptFiles.slice();
   delete p.receiptUrl; // 舊格式欄位一旦編輯過就統一改用新的 receiptFiles 陣列,不留舊欄位造成混淆
   delete p.receiptFilename;
   try{
     await upsertPurchase(p);
-    // 進貨單的日期/進貨方/Invoice Number 改了的話,連動更新當初送出這張進貨單時一起建立的那幾筆
-    // 庫存異動紀錄(transactions,用 purchaseId 連回這張單)——那些紀錄自己也各自存了一份
-    // party/invoiceNo/date,不是即時參照進貨單,不連動更新的話,「歷史紀錄→進出貨紀錄」看到的
-    // 會是編輯前的舊資料,跟進貨單本身顯示的對不起來。庫存數量/商品完全不受影響,只同步這三個
+    // 進貨單的日期/進貨方/Invoice Number/備註改了的話,連動更新當初送出這張進貨單時一起建立的
+    // 那幾筆庫存異動紀錄(transactions,用 purchaseId 連回這張單)——那些紀錄自己也各自存了一份
+    // party/invoiceNo/date/note,不是即時參照進貨單,不連動更新的話,「歷史紀錄→進出貨紀錄」看到
+    // 的會是編輯前的舊資料,跟進貨單本身顯示的對不起來。庫存數量/商品完全不受影響,只同步這四個
     // 純文字欄位。
-    if(dateVal !== oldDate || partyVal !== oldParty || invoiceVal !== oldInvoice){
+    if(dateVal !== oldDate || partyVal !== oldParty || invoiceVal !== oldInvoice || noteVal !== (oldNote || '')){
       const linkedTxs = transactions.filter(t => t.purchaseId === p.id);
       for(const tx of linkedTxs){
         tx.date = dateVal;
         tx.party = partyVal;
+        tx.note = noteVal;
         if(invoiceVal) tx.invoiceNo = invoiceVal; else delete tx.invoiceNo;
         try{
-          const { error } = await sb.from('transactions').update({ date: dateVal, party: partyVal || null, invoice_no: invoiceVal || null }).eq('id', tx.id);
+          const { error } = await sb.from('transactions').update({ date: dateVal, party: partyVal || null, note: noteVal || null, invoice_no: invoiceVal || null }).eq('id', tx.id);
           if(error) throw error;
         } catch(e){ console.error('同步更新進出貨紀錄失敗', e); }
       }
@@ -11036,7 +11047,7 @@ async function submitTxBatchSimple(date, msg){
   if(currentTxType === 'in'){
     const purchase = {
       id: purchaseId,
-      date, partyId: party, partyName: party, invoiceNo,
+      date, partyId: party, partyName: party, invoiceNo, note,
       items: txBatchItems.map(it => ({ productId: it.productId, sku: it.sku || '', name: it.name, unit: it.unit, qty: it.qty })),
       receiptFiles: pendingPurchaseReceiptFiles.slice(),
       createdAt: new Date().toISOString()
