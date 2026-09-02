@@ -9151,7 +9151,7 @@ function buildOrderSheetAoa(list, partyLabel, dateLabel){
   const aoa = [];
   const hiddenRows = new Set(); // 0-based row indices into `aoa` that should be hidden in the final sheet
   const orderNos = list.map(o => o.orderNo).filter(Boolean);
-  aoa.push(['Customer:', partyLabel, 'Orders:', orderNos.map(n => '#' + n).join(', ')]);
+  aoa.push(['Customer:', partyLabel, 'Orders:', orderNos.join(', ')]);
   aoa.push(['Period:', dateLabel]);
   aoa.push([]);
   aoa.push(['SKU','Product Name','Qty','Unit','Remarks']);
@@ -13182,7 +13182,9 @@ function exportShipmentSheet(){
   if(orderNos.length > 0){
     // 這一列要放進「Name」欄(第 4 欄,index 3)——不能放第 1 欄,因為 SKU 那欄整欄都設成
     // hidden,放在那裡的話文字雖然真的有寫進檔案裡,但整欄被隱藏,使用者根本看不到。
-    aoa.push([null, null, null, `This file includes the following orders: ${orderNos.map(n => '#' + n).join(', ')}`]);
+    // orderNo 本身(formatOrderNo 產生的)就已經帶有 # 開頭了,這裡不能再加一次 #,
+    // 不然會變成 ##000001 這種重複的雙井字號。
+    aoa.push([null, null, null, `This file includes the following orders: ${orderNos.join(', ')}`]);
   }
 
   const ws = XLSX.utils.aoa_to_sheet(aoa);
