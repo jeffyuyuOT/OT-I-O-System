@@ -1248,13 +1248,10 @@
         </div>
       </div>
       <div id="purchaseReceiptWrap" style="display:none;margin-top:10px;">
-        <label style="display:block;font-size:12.5px;font-weight:600;color:var(--ink);margin-bottom:4px;" data-i18n="fieldPurchaseReceipt">收據/發票附件(選填,圖片或 PDF)</label>
-        <input type="file" id="purchaseReceiptInput" accept="image/*,application/pdf" onchange="handlePurchaseReceiptUpload(this)" style="border:1px solid var(--line);background:#fff;border-radius:2px;padding:8px;font-family:'IBM Plex Mono',monospace;font-size:12px;" />
+        <label style="display:block;font-size:12.5px;font-weight:600;color:var(--ink);margin-bottom:4px;" data-i18n="fieldPurchaseReceipt">收據/發票附件(選填,圖片或 PDF,可選取多個檔案)</label>
+        <input type="file" id="purchaseReceiptInput" accept="image/*,application/pdf" multiple onchange="handlePurchaseReceiptUpload(this)" style="border:1px solid var(--line);background:#fff;border-radius:2px;padding:8px;font-family:'IBM Plex Mono',monospace;font-size:12px;" />
         <div id="purchaseReceiptUploadMsg" style="font-size:11.5px;margin-top:4px;"></div>
-        <div id="purchaseReceiptPreviewWrap" style="display:none;margin-top:8px;align-items:center;gap:10px;">
-          <a id="purchaseReceiptPreviewLink" href="#" target="_blank" style="font-size:12.5px;" data-i18n="linkViewUploadedReceipt">📎 查看已上傳的附件</a>
-          <span class="del-link" onclick="removePurchaseReceipt()" data-i18n="btnRemoveFile">移除附件</span>
-        </div>
+        <div id="purchaseReceiptPreviewWrap" style="display:none;margin-top:8px;flex-direction:column;gap:4px;"></div>
         <div style="display:flex;align-items:center;gap:8px;margin-top:12px;">
           <input type="checkbox" id="purchaseEmailToggle" onchange="togglePurchaseEmailFieldVisibility(this)" style="width:16px;height:16px;cursor:pointer;" />
           <label for="purchaseEmailToggle" style="font-size:12.5px;color:var(--ink);font-weight:600;cursor:pointer;" data-i18n="chkEmailToAccounting">寄送給會計</label>
@@ -2129,8 +2126,7 @@ let purchases = []; // 進貨單清單:{id, date, partyId/partyName, invoiceNo, 
                      // 產生 type='in' 的 transactions(purchaseId 指回這張單),庫存計算邏輯不變。
 let shippingParties = [];
 let currentTxType = 'in';
-let pendingPurchaseReceiptUrl = null; // 進貨單收據附件:上傳成功後的公開網址,submitTxBatchSimple() 送出進貨單時會用到,送出後清空
-let pendingPurchaseReceiptFilename = null; // 收據附件使用者上傳時的原始檔名——Storage 裡存的是亂數檔名,寄 email 附件時要用這個原始檔名才不會亂碼
+let pendingPurchaseReceiptFiles = []; // 進貨單收據附件(支援多檔案):[{url, filename}, ...],submitTxBatchSimple() 送出進貨單時會用到,送出後清空
 let storageReady = false;
 let autoBackupEnabled = true;
 let autoBackupTimer = null;
@@ -2662,6 +2658,7 @@ const I18N = {
     fieldPurchaseReceipt: '收據/發票附件(選填,圖片或 PDF)', linkViewUploadedReceipt: '📎 查看已上傳的附件', btnRemoveFile: '移除附件',
     errReceiptFileType: '請選擇圖片或 PDF 檔案', errReceiptTooLarge: '檔案太大,請壓縮到 10MB 以下',
     uploadingReceiptMsg: '上傳中…', receiptUploadedMsg: '✓ 已上傳', errReceiptUploadFailed: '上傳失敗,請重新整理頁面再試一次',
+    uploadingReceiptMsgWithName: '上傳中…{name}', receiptUploadedPartialMsg: '✓ 已上傳 {success} 個檔案,{fail} 個失敗(可能是檔案格式或大小不符)',
     secPurchaseLog: '進貨單', purchaseLogDesc: '列出所有進貨單,依日期排序。點一筆可以看品項明細跟收據附件,匯出也是針對單一張進貨單。',
     secAccountingEmail: '會計 Email',
     accountingEmailHint: '進貨單勾選「寄送給會計」時,預設帶入的收件人地址(送出前還是可以改成別的地址)。',
@@ -3112,6 +3109,7 @@ const I18N = {
     fieldPurchaseReceipt: 'Receipt/Invoice Attachment (optional, image or PDF)', linkViewUploadedReceipt: '📎 View uploaded attachment', btnRemoveFile: 'Remove attachment',
     errReceiptFileType: 'Please select an image or PDF file', errReceiptTooLarge: 'File is too large, please compress it under 10MB',
     uploadingReceiptMsg: 'Uploading…', receiptUploadedMsg: '✓ Uploaded', errReceiptUploadFailed: 'Upload failed, please refresh and try again',
+    uploadingReceiptMsgWithName: 'Uploading… {name}', receiptUploadedPartialMsg: '✓ {success} file(s) uploaded, {fail} failed (check file type/size)',
     secPurchaseLog: 'Purchases', purchaseLogDesc: 'Lists all purchase documents, sorted by date. Click one to see item details and the receipt attachment; export is per document too.',
     secAccountingEmail: 'Accounting Email',
     accountingEmailHint: 'Default recipient address filled in when a purchase is checked "Email to accounting" (you can still change it before sending).',
@@ -9782,55 +9780,85 @@ function removeProductPhoto(){
 }
 
 // 進貨單的收據/發票附件上傳:跟商品照片上傳同一套模式,差別是這裡接受圖片「或」PDF,
-// 檔案大小上限放寬到 10MB(收據掃描檔常常比商品照片大)。上傳成功後存進
-// pendingPurchaseReceiptUrl,真正送出進貨單(submitTxBatchSimple)時才會用到、寫進那張單。
+// 檔案大小上限放寬到 10MB(收據掃描檔常常比商品照片大),而且支援一次選取多個檔案——逐一
+// 上傳、逐一加進 pendingPurchaseReceiptFiles 這個陣列,其中一個檔案上傳失敗不影響其他已經
+// 上傳成功的檔案。真正送出進貨單(submitTxBatchSimple)時才會用到、寫進那張單。
 async function handlePurchaseReceiptUpload(inputEl){
-  const file = inputEl.files && inputEl.files[0];
-  if(!file) return;
+  const files = inputEl.files ? Array.from(inputEl.files) : [];
+  if(files.length === 0) return;
   const msgEl = document.getElementById('purchaseReceiptUploadMsg');
-  if(!file.type.startsWith('image/') && file.type !== 'application/pdf'){
-    msgEl.style.color = 'var(--crit)';
-    msgEl.textContent = t('errReceiptFileType');
-    inputEl.value = '';
-    return;
-  }
   const maxBytes = 10 * 1024 * 1024;
-  if(file.size > maxBytes){
-    msgEl.style.color = 'var(--crit)';
-    msgEl.textContent = t('errReceiptTooLarge');
-    inputEl.value = '';
-    return;
+  let successCount = 0;
+  let failCount = 0;
+
+  for(const file of files){
+    if(!file.type.startsWith('image/') && file.type !== 'application/pdf'){
+      failCount++;
+      continue;
+    }
+    if(file.size > maxBytes){
+      failCount++;
+      continue;
+    }
+    msgEl.style.color = 'var(--ink-soft)';
+    msgEl.textContent = tf('uploadingReceiptMsgWithName', { name: file.name });
+    // 檔名保留使用者上傳時的原始檔名(不是只留副檔名的亂數檔名),這樣點連結查看/下載附件時,
+    // 瀏覽器顯示的檔名就是原本的檔名,不會是一串亂碼——前面加一個亂數資料夾當前綴,是為了避免
+    // 不同收據剛好同名(例如都叫 IMG_1234.jpg)互相覆蓋掉,不影響顯示出來的檔名本身。
+    const safeName = file.name.replace(/[\\/:*?"<>|]/g, '_');
+    const path = `${genId()}/${safeName}`;
+    try{
+      const { error } = await sb.storage.from('purchase-receipts').upload(path, file, { upsert: true });
+      if(error) throw error;
+      const { data } = sb.storage.from('purchase-receipts').getPublicUrl(path);
+      pendingPurchaseReceiptFiles.push({ url: data.publicUrl, filename: file.name });
+      successCount++;
+    } catch(e){
+      console.error('上傳進貨單收據失敗', e);
+      failCount++;
+    }
   }
-  msgEl.style.color = 'var(--ink-soft)';
-  msgEl.textContent = t('uploadingReceiptMsg');
-  // 檔名保留使用者上傳時的原始檔名(不是只留副檔名的亂數檔名),這樣點連結查看/下載附件時,
-  // 瀏覽器顯示的檔名就是原本的檔名,不會是一串亂碼——前面加一個亂數資料夾當前綴,是為了避免
-  // 兩份不同的收據剛好同名(例如都叫 IMG_1234.jpg)互相覆蓋掉,不影響顯示出來的檔名本身。
-  const safeName = file.name.replace(/[\\/:*?"<>|]/g, '_');
-  const path = `${genId()}/${safeName}`;
-  try{
-    const { error } = await sb.storage.from('purchase-receipts').upload(path, file, { upsert: true });
-    if(error) throw error;
-    const { data } = sb.storage.from('purchase-receipts').getPublicUrl(path);
-    pendingPurchaseReceiptUrl = data.publicUrl;
-    pendingPurchaseReceiptFilename = file.name;
-    document.getElementById('purchaseReceiptPreviewLink').href = pendingPurchaseReceiptUrl;
-    document.getElementById('purchaseReceiptPreviewWrap').style.display = 'flex';
+
+  renderPurchaseReceiptPreviewList();
+  if(failCount === 0){
     msgEl.style.color = 'var(--safe)';
     msgEl.textContent = t('receiptUploadedMsg');
-  } catch(e){
-    console.error('上傳進貨單收據失敗', e);
+  } else if(successCount === 0){
     msgEl.style.color = 'var(--crit)';
     msgEl.textContent = t('errReceiptUploadFailed');
+  } else {
+    msgEl.style.color = 'var(--warn)';
+    msgEl.textContent = tf('receiptUploadedPartialMsg', { success: successCount, fail: failCount });
   }
   inputEl.value = '';
 }
 
-function removePurchaseReceipt(){
-  pendingPurchaseReceiptUrl = null;
-  pendingPurchaseReceiptFilename = null;
+function renderPurchaseReceiptPreviewList(){
   const wrap = document.getElementById('purchaseReceiptPreviewWrap');
-  if(wrap) wrap.style.display = 'none';
+  if(!wrap) return;
+  if(pendingPurchaseReceiptFiles.length === 0){
+    wrap.style.display = 'none';
+    wrap.innerHTML = '';
+    return;
+  }
+  wrap.style.display = 'flex';
+  wrap.innerHTML = pendingPurchaseReceiptFiles.map((f, i) => `
+    <div style="display:flex;align-items:center;gap:10px;">
+      <a href="${f.url}" target="_blank" style="font-size:12.5px;">📎 ${escapeHtmlForPrint(f.filename)}</a>
+      <span class="del-link" onclick="removePurchaseReceiptFile(${i})">${t('btnRemoveFile')}</span>
+    </div>
+  `).join('');
+}
+
+function removePurchaseReceiptFile(index){
+  pendingPurchaseReceiptFiles.splice(index, 1);
+  renderPurchaseReceiptPreviewList();
+}
+
+function removePurchaseReceipt(){
+  pendingPurchaseReceiptFiles = [];
+  const wrap = document.getElementById('purchaseReceiptPreviewWrap');
+  if(wrap){ wrap.style.display = 'none'; wrap.innerHTML = ''; }
   const msgEl = document.getElementById('purchaseReceiptUploadMsg');
   if(msgEl) msgEl.textContent = '';
 }
@@ -10295,7 +10323,9 @@ function renderPurchaseLog(){
                   ${(p.items || []).map(it => `<tr><td>${escapeHtmlForPrint(it.name)}</td><td class="num">${it.qty} ${escapeHtmlForPrint(it.unit || '')}</td></tr>`).join('')}
                 </tbody>
               </table>
-              ${p.receiptUrl ? `<a href="${p.receiptUrl}" target="_blank" style="font-size:12.5px;">${t('linkViewUploadedReceipt')}</a>` : `<span style="font-size:12.5px;color:var(--ink-soft);">${t('purchaseNoReceiptLabel')}</span>`}
+              ${getPurchaseReceiptFileList(p).length > 0
+                ? getPurchaseReceiptFileList(p).map(f => `<a href="${f.url}" target="_blank" style="font-size:12.5px;display:block;">📎 ${escapeHtmlForPrint(f.filename || t('linkViewUploadedReceipt'))}</a>`).join('')
+                : `<span style="font-size:12.5px;color:var(--ink-soft);">${t('purchaseNoReceiptLabel')}</span>`}
             </td>
           </tr>
           ` : ''}
@@ -10310,6 +10340,15 @@ function renderPurchaseLog(){
 // 把一張進貨單組成 Excel workbook——直接下載(exportSinglePurchase)、跟寄 email 前先上傳
 // 附件(uploadPurchaseExcelForEmail)兩邊共用同一份邏輯,不要各自重寫一次,不然兩邊格式跑掉
 // 對不起來。
+// 統一取得一張進貨單的收據附件清單:新的進貨單存的是 receiptFiles(陣列,支援多檔案);
+// 舊資料(這個功能改成多檔案之前建立的進貨單)存的是單一的 receiptUrl/receiptFilename,這裡
+// 一併轉成同樣的陣列格式,畫面顯示、寄 email 附件都共用這個函式,不用到處寫 if 判斷新舊格式。
+function getPurchaseReceiptFileList(p){
+  if(Array.isArray(p.receiptFiles) && p.receiptFiles.length > 0) return p.receiptFiles;
+  if(p.receiptUrl) return [{ url: p.receiptUrl, filename: p.receiptFilename || '' }];
+  return [];
+}
+
 function buildPurchaseWorkbook(p){
   const productMap = Object.fromEntries(products.map(pp => [pp.id, pp]));
   const supplier = p.partyName || p.partyId || '';
@@ -10369,14 +10408,15 @@ async function sendPurchaseEmail(purchaseId, toEmail, msgEl){
   // excelFilename 明確帶正確的檔名過去(跟直接匯出下載時同一個名稱,例如「Opulent - Stock in
   // 2026-08-15.xlsx」),不要讓後端從 Storage 網址裡的隨機檔名去反推——Storage 裡存的檔名本身
   // 是 genId() 亂數(避免同一張單重複上傳時互相覆蓋或撞名),不是給使用者看的檔名。
+  // receiptFiles 現在是陣列(支援多檔案附件),用 getPurchaseReceiptFileList() 統一處理
+  // 新舊兩種資料格式。
   const { error: fnError } = await sb.functions.invoke('send-purchase-email', {
     body: {
       purchaseId,
       to: toEmail,
       excelUrl: excelUrlData.publicUrl,
       excelFilename: filename,
-      receiptUrl: p.receiptUrl || null,
-      receiptFilename: p.receiptFilename || null,
+      receiptFiles: getPurchaseReceiptFileList(p),
       date: p.date || '',
       supplier: p.partyName || p.partyId || '',
       invoiceNo: p.invoiceNo || ''
@@ -10423,8 +10463,7 @@ async function sendOrderEmail(orderId, toEmail, msgEl){
       to: toEmail,
       excelUrl: excelUrlData.publicUrl,
       excelFilename: filename,
-      receiptUrl: null,
-      receiptFilename: null,
+      receiptFiles: [],
       date: order.date || '',
       supplier: order.partyName || '',
       invoiceNo: order.orderNo || ''
@@ -10842,13 +10881,11 @@ async function submitTxBatchSimple(date, msg){
       id: purchaseId,
       date, partyId: party, partyName: party, invoiceNo,
       items: txBatchItems.map(it => ({ productId: it.productId, sku: it.sku || '', name: it.name, unit: it.unit, qty: it.qty })),
-      receiptUrl: pendingPurchaseReceiptUrl || null,
-      receiptFilename: pendingPurchaseReceiptFilename || null,
+      receiptFiles: pendingPurchaseReceiptFiles.slice(),
       createdAt: new Date().toISOString()
     };
     try{ await upsertPurchase(purchase); purchases.push(purchase); }
     catch(e){ console.error('儲存進貨單失敗', e); }
-    pendingPurchaseReceiptUrl = null;
     removePurchaseReceipt();
 
     // 有勾選「寄送給會計」才會寄——寄信失敗不影響這張進貨單本身已經建立成功這件事,只是在畫面上
@@ -12870,13 +12907,48 @@ function exportShipmentSheet(){
   }
 
   // aggregate: same party + same product within the selected period gets summed into one line
-  const groups = {};
-  rows.forEach(t => {
-    const key = (t.party || '') + '||' + t.productId;
-    if(!groups[key]){
-      groups[key] = { party: t.party || '', productId: t.productId, qty: 0 };
+  //
+  // 商品如果勾選了「已完成訂單匯出不顯示」,這裡的行為要跟已完成訂單匯出一致——但只套用在
+  // 「跟訂單有關」的紀錄上(t.orderId 有值),跟訂單無關的手動登記出貨(沒有 orderId)不受這個
+  // 設定影響,因為那些本來就不是「已完成訂單」的出貨。
+  //   ·「僅顯示切換的批量商品數量」(預設模式):這筆紀錄不算在主商品自己身上,改成去查對應
+  //     訂單品項的 fulfilledViaSwitch,把切換用掉的批量商品數量算在批量商品自己身上——用
+  //     processedSwitchKeys 記錄「這張訂單的這個商品」是否已經處理過,避免同一張訂單如果被拆成
+  //     好幾筆交易紀錄(例如原始出貨+後續修改),同一筆切換紀錄被重複算好幾次。
+  //   ·「整個家族商品都不顯示」:這筆紀錄整個跳過,不出現在報表裡任何地方。
+  const wholeFamilyHiddenIdsForShipment = new Set();
+  products.forEach(p => {
+    if(!p.parentId && p.hideFromCompletedOrderExport && p.hideFromCompletedOrderExportMode === 'wholeFamily'){
+      wholeFamilyHiddenIdsForShipment.add(p.id);
+      getChildProducts(p.id).forEach(c => wholeFamilyHiddenIdsForShipment.add(c.id));
     }
-    groups[key].qty += t.qty;
+  });
+  const processedSwitchKeys = new Set();
+  const groups = {};
+  function addToShipmentGroup(partyVal, productId, qty){
+    const key = (partyVal || '') + '||' + productId;
+    if(!groups[key]) groups[key] = { party: partyVal || '', productId, qty: 0 };
+    groups[key].qty += qty;
+  }
+  rows.forEach(t => {
+    const p = productMap[t.productId];
+    if(wholeFamilyHiddenIdsForShipment.has(t.productId)) return; // 整個家族都不顯示
+
+    if(type === 'out' && t.orderId && p && p.hideFromCompletedOrderExport && !p.parentId){
+      const switchKey = t.orderId + '||' + t.productId;
+      if(!processedSwitchKeys.has(switchKey)){
+        processedSwitchKeys.add(switchKey);
+        const order = orders.find(o => o.id === t.orderId);
+        const orderItem = order ? order.items.find(it => it.productId === t.productId) : null;
+        (orderItem && orderItem.fulfilledViaSwitch || []).forEach(sw => {
+          if(wholeFamilyHiddenIdsForShipment.has(sw.childId)) return;
+          addToShipmentGroup(t.party, sw.childId, sw.childQty);
+        });
+      }
+      return; // 主商品自己完全不計入,不管切換紀錄有沒有找到
+    }
+
+    addToShipmentGroup(t.party, t.productId, t.qty);
   });
   const aggregated = Object.values(groups);
 
