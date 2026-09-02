@@ -13141,8 +13141,8 @@ function exportShipmentSheet(){
 
   const aoa = [];
   aoa.push(['SKU','QTY','Unit','Name','Unit/CTN',meta.partyCol,'Date','Category','Note']);
-  aoa.push([null,'Shop:', shopLabel, null, null, null, null, null, null]);
-  aoa.push([null,'Date:', dateLabel, null, null, null, null, null, null]);
+  aoa.push(['Shop:', shopLabel, null, null, null, null, null, null, null]);
+  aoa.push(['Date:', dateLabel, null, null, null, null, null, null, null]);
   aoa.push([null, null, null, null, null, null, null, null, null]);
 
   catList.forEach(cat => {
