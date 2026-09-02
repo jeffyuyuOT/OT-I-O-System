@@ -1899,6 +1899,37 @@
   </div>
 </div>
 
+<div id="editPurchaseModalOverlay" class="modal-overlay" style="display:none;" onclick="if(event.target===this) closeEditPurchaseModal();">
+  <div class="modal-box" style="max-width:min(460px, 92vw);">
+    <div class="section-title" style="margin-bottom:12px;" data-i18n="modalEditPurchaseTitle">編輯進貨單</div>
+    <div class="form-grid" style="grid-template-columns:1fr 1fr;margin-bottom:0;">
+      <div class="field">
+        <label data-i18n="colPurchaseDate">日期</label>
+        <input type="date" id="editPurchaseDateInput" style="width:100%;" />
+      </div>
+      <div class="field">
+        <label data-i18n="colPurchaseParty">進貨方</label>
+        <input type="text" id="editPurchasePartyInput" style="width:100%;" />
+      </div>
+    </div>
+    <div class="field-block">
+      <label data-i18n="colPurchaseInvoiceNo">Invoice Number</label>
+      <input type="text" id="editPurchaseInvoiceInput" style="width:100%;" placeholder="例如:INV-00123" data-i18n-placeholder="txInvoiceNoPlaceholderExample" />
+    </div>
+    <div class="field-block">
+      <label data-i18n="fieldPurchaseReceipt">收據/發票附件(選填,圖片或 PDF,可選取多個檔案)</label>
+      <div id="editPurchaseReceiptExistingWrap" style="display:flex;flex-direction:column;gap:4px;margin-bottom:8px;"></div>
+      <input type="file" id="editPurchaseReceiptInput" accept="image/*,application/pdf" multiple onchange="handleEditPurchaseReceiptUpload(this)" style="border:1px solid var(--line);background:#fff;border-radius:2px;padding:8px;font-family:'IBM Plex Mono',monospace;font-size:12px;width:100%;box-sizing:border-box;" />
+      <div id="editPurchaseReceiptUploadMsg" style="font-size:11.5px;margin-top:4px;"></div>
+    </div>
+    <div id="editPurchaseModalMsg" class="msg"></div>
+    <div class="modal-actions">
+      <button class="btn ghost" onclick="closeEditPurchaseModal()" data-i18n="btnCancel">取消</button>
+      <button class="btn" onclick="confirmEditPurchase()" data-i18n="btnSave">儲存</button>
+    </div>
+  </div>
+</div>
+
 <div id="signatureViewModalOverlay" class="modal-overlay" style="display:none;" onclick="if(event.target===this) closeSignatureViewModal();">
   <div class="modal-box" style="max-width:min(480px, 90vw);text-align:center;">
     <div style="text-align:right;margin-bottom:8px;">
@@ -2673,6 +2704,7 @@ const I18N = {
     btnSendEmail: '📧 寄 Email', alreadyEmailedBadge: '✉️ 已寄',
     modalSendPurchaseEmailTitle: '寄送進貨單', fieldRecipientEmail: '收件人 Email',
     btnConfirmSend: '確認寄送',
+    modalEditPurchaseTitle: '編輯進貨單', savingMsg: '儲存中…',
     emailedToTitle: '已寄給 {email}({when})',
     colPurchaseDate: '日期', colPurchaseParty: '進貨方', colPurchaseInvoiceNo: 'Invoice',
     noPurchasesYet: '尚無進貨單紀錄', purchaseItemsLabel: '品項', purchaseNoReceiptLabel: '(沒有附件)',
@@ -3124,6 +3156,7 @@ const I18N = {
     btnSendEmail: '📧 Send Email', alreadyEmailedBadge: '✉️ Sent',
     modalSendPurchaseEmailTitle: 'Send Purchase Order', fieldRecipientEmail: 'Recipient Email',
     btnConfirmSend: 'Confirm Send',
+    modalEditPurchaseTitle: 'Edit Purchase', savingMsg: 'Saving…',
     emailedToTitle: 'Sent to {email} ({when})',
     colPurchaseDate: 'Date', colPurchaseParty: 'Supplier', colPurchaseInvoiceNo: 'Invoice',
     noPurchasesYet: 'No purchase records yet', purchaseItemsLabel: 'Items', purchaseNoReceiptLabel: '(no attachment)',
@@ -10308,6 +10341,8 @@ function renderPurchaseLog(){
             <td class="pl-party" style="cursor:pointer;" onclick="togglePurchaseDetail('${p.id}')"><span class="td-mobile-label">${t('colPurchaseParty')}</span>${escapeHtmlForPrint(p.partyName || p.partyId || '')}</td>
             <td class="pl-invoice" style="cursor:pointer;" onclick="togglePurchaseDetail('${p.id}')"><span class="td-mobile-label">${t('colPurchaseInvoiceNo')}</span>${escapeHtmlForPrint(p.invoiceNo || '')}</td>
             <td class="pl-actions" style="white-space:nowrap;">
+              <span class="del-link" onclick="openEditPurchaseModal('${p.id}')">${t('btnEdit')}</span>
+              &nbsp;·&nbsp;
               <span class="del-link" onclick="exportSinglePurchase('${p.id}')">${t('btnExportPurchaseLog')}</span>
               &nbsp;·&nbsp;
               <span class="del-link" onclick="openSendPurchaseEmailModal('${p.id}')">${t('btnSendEmail')}</span>
@@ -10523,6 +10558,128 @@ async function confirmSendPurchaseEmail(){
     console.error('寄送 email 失敗', e);
     msgEl.className = 'msg error';
     msgEl.textContent = `⚠ ${e.message || t('errEmailSendFailed')}`;
+  }
+}
+
+// 歷史紀錄裡編輯一張進貨單:主要是給補資料用的(當初建立進貨單時 Invoice Number 還沒拿到手、
+// 收據還沒補齊,等資料齊全了再回頭補上)——只能改日期/進貨方/Invoice Number/收據附件這幾樣
+// 單據層級的資訊,不會動到品項清單或已經記錄的庫存異動(那些是實際庫存數字的依據,改了會跟
+// 已經發生的進出貨紀錄對不起來,不開放在這裡編輯)。
+let editPurchaseTargetId = null;
+let editPurchaseWorkingReceiptFiles = []; // 編輯中的收據附件清單(工作副本),按「取消」不會影響到原本存的資料,只有按「儲存」才會真的寫回去
+function openEditPurchaseModal(purchaseId){
+  const p = purchases.find(x => x.id === purchaseId);
+  if(!p) return;
+  editPurchaseTargetId = purchaseId;
+  editPurchaseWorkingReceiptFiles = getPurchaseReceiptFileList(p).slice();
+  document.getElementById('editPurchaseDateInput').value = p.date || '';
+  document.getElementById('editPurchasePartyInput').value = p.partyName || p.partyId || '';
+  document.getElementById('editPurchaseInvoiceInput').value = p.invoiceNo || '';
+  document.getElementById('editPurchaseReceiptUploadMsg').textContent = '';
+  document.getElementById('editPurchaseModalMsg').textContent = '';
+  renderEditPurchaseReceiptList();
+  document.getElementById('editPurchaseModalOverlay').style.display = 'flex';
+}
+function closeEditPurchaseModal(){
+  editPurchaseTargetId = null;
+  editPurchaseWorkingReceiptFiles = [];
+  document.getElementById('editPurchaseModalOverlay').style.display = 'none';
+}
+function renderEditPurchaseReceiptList(){
+  const wrap = document.getElementById('editPurchaseReceiptExistingWrap');
+  if(!wrap) return;
+  if(editPurchaseWorkingReceiptFiles.length === 0){
+    wrap.innerHTML = `<span style="font-size:12px;color:var(--ink-soft);">${t('purchaseNoReceiptLabel')}</span>`;
+    return;
+  }
+  wrap.innerHTML = editPurchaseWorkingReceiptFiles.map((f, i) => `
+    <div style="display:flex;align-items:center;gap:10px;">
+      <a href="${f.url}" target="_blank" style="font-size:12.5px;">📎 ${escapeHtmlForPrint(f.filename || '')}</a>
+      <span class="del-link" onclick="removeEditPurchaseReceiptFile(${i})">${t('btnRemoveFile')}</span>
+    </div>
+  `).join('');
+}
+function removeEditPurchaseReceiptFile(index){
+  editPurchaseWorkingReceiptFiles.splice(index, 1);
+  renderEditPurchaseReceiptList();
+}
+async function handleEditPurchaseReceiptUpload(inputEl){
+  const files = inputEl.files ? Array.from(inputEl.files) : [];
+  if(files.length === 0) return;
+  const msgEl = document.getElementById('editPurchaseReceiptUploadMsg');
+  const maxBytes = 10 * 1024 * 1024;
+  let successCount = 0, failCount = 0;
+  for(const file of files){
+    if((!file.type.startsWith('image/') && file.type !== 'application/pdf') || file.size > maxBytes){
+      failCount++;
+      continue;
+    }
+    msgEl.style.color = 'var(--ink-soft)';
+    msgEl.textContent = tf('uploadingReceiptMsgWithName', { name: file.name });
+    const safeName = file.name.replace(/[\\/:*?"<>|]/g, '_');
+    const path = `${genId()}/${safeName}`;
+    try{
+      const { error } = await sb.storage.from('purchase-receipts').upload(path, file, { upsert: true });
+      if(error) throw error;
+      const { data } = sb.storage.from('purchase-receipts').getPublicUrl(path);
+      editPurchaseWorkingReceiptFiles.push({ url: data.publicUrl, filename: file.name });
+      successCount++;
+    } catch(e){
+      console.error('上傳收據失敗', e);
+      failCount++;
+    }
+  }
+  renderEditPurchaseReceiptList();
+  if(failCount === 0){ msgEl.style.color = 'var(--safe)'; msgEl.textContent = t('receiptUploadedMsg'); }
+  else if(successCount === 0){ msgEl.style.color = 'var(--crit)'; msgEl.textContent = t('errReceiptUploadFailed'); }
+  else { msgEl.style.color = 'var(--warn)'; msgEl.textContent = tf('receiptUploadedPartialMsg', { success: successCount, fail: failCount }); }
+  inputEl.value = '';
+}
+async function confirmEditPurchase(){
+  if(!editPurchaseTargetId) return;
+  const p = purchases.find(x => x.id === editPurchaseTargetId);
+  const msgEl = document.getElementById('editPurchaseModalMsg');
+  if(!p){ msgEl.className = 'msg error'; msgEl.textContent = '找不到這張進貨單,請重新整理頁面再試一次。'; return; }
+
+  const dateVal = document.getElementById('editPurchaseDateInput').value;
+  const partyVal = document.getElementById('editPurchasePartyInput').value.trim();
+  const invoiceVal = document.getElementById('editPurchaseInvoiceInput').value.trim();
+  if(!dateVal){ msgEl.className = 'msg error'; msgEl.textContent = t('errSelectOrderDate'); return; }
+
+  msgEl.className = 'msg'; msgEl.textContent = t('savingMsg');
+  const oldDate = p.date, oldParty = p.partyName, oldInvoice = p.invoiceNo;
+  p.date = dateVal;
+  p.partyName = partyVal;
+  p.partyId = partyVal;
+  p.invoiceNo = invoiceVal;
+  p.receiptFiles = editPurchaseWorkingReceiptFiles.slice();
+  delete p.receiptUrl; // 舊格式欄位一旦編輯過就統一改用新的 receiptFiles 陣列,不留舊欄位造成混淆
+  delete p.receiptFilename;
+  try{
+    await upsertPurchase(p);
+    // 進貨單的日期/進貨方/Invoice Number 改了的話,連動更新當初送出這張進貨單時一起建立的那幾筆
+    // 庫存異動紀錄(transactions,用 purchaseId 連回這張單)——那些紀錄自己也各自存了一份
+    // party/invoiceNo/date,不是即時參照進貨單,不連動更新的話,「歷史紀錄→進出貨紀錄」看到的
+    // 會是編輯前的舊資料,跟進貨單本身顯示的對不起來。庫存數量/商品完全不受影響,只同步這三個
+    // 純文字欄位。
+    if(dateVal !== oldDate || partyVal !== oldParty || invoiceVal !== oldInvoice){
+      const linkedTxs = transactions.filter(t => t.purchaseId === p.id);
+      for(const tx of linkedTxs){
+        tx.date = dateVal;
+        tx.party = partyVal;
+        if(invoiceVal) tx.invoiceNo = invoiceVal; else delete tx.invoiceNo;
+        try{
+          const { error } = await sb.from('transactions').update({ date: dateVal, party: partyVal || null, invoice_no: invoiceVal || null }).eq('id', tx.id);
+          if(error) throw error;
+        } catch(e){ console.error('同步更新進出貨紀錄失敗', e); }
+      }
+    }
+    renderPurchaseLog();
+    closeEditPurchaseModal();
+  } catch(e){
+    console.error('儲存進貨單失敗', e);
+    msgEl.className = 'msg error';
+    msgEl.textContent = '⚠ 儲存失敗,請重新整理頁面再試一次。';
   }
 }
 
