@@ -984,6 +984,19 @@
         </div>
 
         <div class="settings-card">
+          <div class="section-title" data-i18n="secStockLocationMode">Stock Location</div>
+          <p style="font-size:11.5px;color:var(--ink-soft);margin:0 0 8px;" data-i18n="stockLocationModeHint">
+            決定「庫存分布」頁面新增/編輯位置時,要怎麼填位置資訊。標準模式強制照 Zone-Aisle-Bay-Level-Bin 分開填寫(例如 A03-12-02-1);自訂模式可以自己輸入整串位置文字。
+          </p>
+          <div class="field" style="max-width:280px;margin:0;">
+            <select id="stockLocationModeSelect" onchange="saveStockLocationMode(this.value)">
+              <option value="standard" data-i18n="stockLocationModeStandard">標準模式(Zone-Aisle-Bay-Level-Bin)</option>
+              <option value="custom" data-i18n="stockLocationModeCustom">自訂</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="settings-card">
           <div class="section-title" data-i18n="secMultipackSettings">Multipack 商品設定</div>
           <div style="display:flex;align-items:center;gap:8px;margin:0 0 6px;">
             <input type="checkbox" id="autoConvertMultipackToggle" onchange="toggleAutoConvertMultipack(this.checked)" style="width:16px;height:16px;cursor:pointer;" />
@@ -1484,6 +1497,12 @@
   </div>
 
   <div id="tab-overview" class="tab-content">
+    <div class="subtab-bar">
+      <button class="subtab-btn active" onclick="switchOverviewSubTab('subtab-overview-summary')" id="btn-subtab-overview-summary" data-i18n="subtabOverviewSummary">庫存統計</button>
+      <button class="subtab-btn" onclick="switchOverviewSubTab('subtab-overview-location')" id="btn-subtab-overview-location" data-i18n="subtabOverviewLocation">庫存分布</button>
+    </div>
+
+    <div id="subtab-overview-summary" class="subtab-content active-subtab">
     <div class="section">
       <div class="toolbar">
         <div class="section-title" style="margin:0;"><span data-i18n="secStockOverview">庫存總覽</span></div>
@@ -1512,6 +1531,29 @@
       <div id="stockCards">
         <div class="empty-note">還沒有商品資料,先在上方新增一個商品試試看。</div>
       </div>
+    </div>
+    </div>
+
+    <div id="subtab-overview-location" class="subtab-content">
+    <div class="section">
+      <div class="toolbar">
+        <div class="section-title" style="margin:0;" data-i18n="secStockLocation">庫存分布</div>
+      </div>
+      <p style="font-size:12.5px;color:var(--ink-soft);margin:0 0 12px;" data-i18n="stockLocationDesc">
+        搜尋一項商品,查看它目前分布在哪些位置、各自有多少數量。
+      </p>
+      <div class="filter-row">
+        <div class="field">
+          <label data-i18n="fieldFilterByCategory">依分類篩選商品</label>
+          <select id="stockLocationCategoryFilter" onchange="resetSearchableSelect('stockLocationProductSelect'); renderStockLocationProductSelect();"></select>
+        </div>
+        <div class="field" style="min-width:260px;">
+          <label data-i18n="lblProduct">商品</label>
+          <select id="stockLocationProductSelect" onchange="renderStockLocationDetail()"></select>
+        </div>
+      </div>
+      <div id="stockLocationDetail"></div>
+    </div>
     </div>
   </div>
 
@@ -1934,6 +1976,51 @@
   </div>
 </div>
 
+<div id="locationEditModalOverlay" class="modal-overlay" style="display:none;" onclick="if(event.target===this) closeLocationEditModal();">
+  <div class="modal-box" style="max-width:min(460px, 92vw);">
+    <div class="section-title" style="margin-bottom:4px;" data-i18n="modalLocationEditTitle">編輯位置</div>
+    <p id="locationEditCurrentInfo" style="font-size:12.5px;color:var(--ink-soft);margin:0 0 12px;"></p>
+
+    <div id="locationEditPhotoSection" style="display:none;margin-bottom:14px;">
+      <label style="display:block;font-size:12.5px;font-weight:600;color:var(--ink);margin-bottom:4px;" data-i18n="fieldLocationPhoto">位置照片(選填)</label>
+      <div id="locationEditPhotoPreviewWrap" style="display:none;margin-bottom:8px;"></div>
+      <input type="file" id="locationEditPhotoInput" accept="image/*" onchange="handleLocationPhotoUpload(this)" style="border:1px solid var(--line);background:#fff;border-radius:2px;padding:8px;font-family:'IBM Plex Mono',monospace;font-size:12px;width:100%;box-sizing:border-box;" />
+      <div id="locationEditPhotoMsg" style="font-size:11.5px;margin-top:4px;"></div>
+    </div>
+
+    <div class="section-title" style="font-size:13px;margin-bottom:8px;" data-i18n="secTransferLocation">轉移</div>
+    <div class="field-block">
+      <label data-i18n="fieldTransferQty">轉移數量</label>
+      <input type="number" id="locationTransferQtyInput" min="0" step="1" style="width:100%;" />
+    </div>
+    <div id="locationStandardFieldsWrap" class="form-grid" style="grid-template-columns:1fr 1fr 1fr 1fr 1fr;margin-bottom:0;">
+      <div class="field"><label>Zone</label><input type="text" id="locationZoneInput" style="width:100%;" /></div>
+      <div class="field"><label>Aisle</label><input type="text" id="locationAisleInput" style="width:100%;" /></div>
+      <div class="field"><label>Bay</label><input type="text" id="locationBayInput" style="width:100%;" /></div>
+      <div class="field"><label>Level</label><input type="text" id="locationLevelInput" style="width:100%;" /></div>
+      <div class="field"><label>Bin</label><input type="text" id="locationBinInput" style="width:100%;" /></div>
+    </div>
+    <div id="locationCustomFieldWrap" class="field-block" style="display:none;">
+      <label data-i18n="fieldLocationCode">位置</label>
+      <input type="text" id="locationCustomCodeInput" style="width:100%;" />
+    </div>
+    <div id="locationEditModalMsg" class="msg"></div>
+    <div class="modal-actions">
+      <button class="btn ghost" onclick="closeLocationEditModal()" data-i18n="btnCancel">取消</button>
+      <button class="btn" onclick="confirmLocationTransfer()" data-i18n="btnConfirmTransfer">確認轉移</button>
+    </div>
+  </div>
+</div>
+
+<div id="locationPhotoViewModalOverlay" class="modal-overlay" style="display:none;" onclick="if(event.target===this) closeLocationPhotoViewModal();">
+  <div class="modal-box" style="max-width:min(480px, 90vw);text-align:center;">
+    <div style="text-align:right;margin-bottom:8px;">
+      <span class="del-link" onclick="closeLocationPhotoViewModal()" data-i18n="btnClose">關閉</span>
+    </div>
+    <img id="locationPhotoViewImg" src="" style="max-width:100%;max-height:70vh;border-radius:2px;" />
+  </div>
+</div>
+
 <div id="signatureViewModalOverlay" class="modal-overlay" style="display:none;" onclick="if(event.target===this) closeSignatureViewModal();">
   <div class="modal-box" style="max-width:min(480px, 90vw);text-align:center;">
     <div style="text-align:right;margin-bottom:8px;">
@@ -2159,6 +2246,9 @@ let deliveryNotes = []; // Delivery Note 清單——純文件記錄,結構比�
 let purchases = []; // 進貨單清單:{id, date, partyId/partyName, invoiceNo, items:[{productId,sku,name,qty,unit}], receiptUrl, createdAt}。
                      // 不記單價/金額——用收據附件取代手動輸入金額。提交進貨單時,底下還是會照樣
                      // 產生 type='in' 的 transactions(purchaseId 指回這張單),庫存計算邏輯不變。
+let productLocations = []; // 庫存分布:{id, productId, zone, aisle, bay, level, bin, locationCode, qty, photoUrl}。
+                            // 「未分布」不是這裡的一筆資料,是用「商品總庫存 - 這裡所有位置的數量總和」即時算出來的,見 computeUnassignedQty()。
+let stockLocationMode = 'standard'; // 系統設置「Stock Location」:'standard'(強制照 Zone-Aisle-Bay-Level-Bin 分開填) | 'custom'(自由輸入整串位置文字)
 let shippingParties = [];
 let currentTxType = 'in';
 let pendingPurchaseReceiptFiles = []; // 進貨單收據附件(支援多檔案):[{url, filename}, ...],submitTxBatchSimple() 送出進貨單時會用到,送出後清空
@@ -2293,6 +2383,8 @@ const I18N = {
     appTitleSubtitle: 'Inventory & Order Hub', appTitleSubtitleOrderOnly: 'Order Hub',
     appLoadingText: '載入中…',
     tabMaster: '系統管理', tabTx: '庫存管理', tabOverview: '庫存總覽', tabLog: '歷史紀錄',
+    subtabOverviewSummary: '庫存統計', subtabOverviewLocation: '庫存分布',
+    secStockLocation: '庫存分布', stockLocationDesc: '搜尋一項商品,查看它目前分布在哪些位置、各自有多少數量。',
     subtabLogTx: '進出貨紀錄', subtabLogConvert: '切換紀錄', subtabLogInventory: '後台紀錄',
     secInventoryLog: '後台紀錄',
     deliveryNoteLogDesc: '列出所有 Delivery Note,依日期排序。列印過的顯示「已完成」,還沒列印的顯示「待處理」。',
@@ -2697,6 +2789,19 @@ const I18N = {
     secPurchaseLog: '進貨單', purchaseLogDesc: '列出所有進貨單,依日期排序。點一筆可以看品項明細跟收據附件,匯出也是針對單一張進貨單。',
     secAccountingEmail: '會計 Email',
     accountingEmailHint: '進貨單勾選「寄送給會計」時,預設帶入的收件人地址(送出前還是可以改成別的地址)。',
+    secStockLocationMode: 'Stock Location',
+    stockLocationModeHint: '決定「庫存分布」頁面新增/編輯位置時,要怎麼填位置資訊。標準模式強制照 Zone-Aisle-Bay-Level-Bin 分開填寫(例如 A03-12-02-1);自訂模式可以自己輸入整串位置文字。',
+    stockLocationModeStandard: '標準模式(Zone-Aisle-Bay-Level-Bin)', stockLocationModeCustom: '自訂',
+    stockLocationSelectProductHint: '選一項商品,查看它的位置分布。',
+    lblTotalStock: '總庫存', colLocation: '位置', unassignedLocationLabel: '未分布',
+    btnAssignLocation: '指派位置', clickToViewPhoto: '點擊查看照片',
+    modalLocationEditTitle: '編輯位置', fieldLocationPhoto: '位置照片(選填)',
+    secTransferLocation: '轉移', fieldTransferQty: '轉移數量', fieldLocationCode: '位置',
+    btnConfirmTransfer: '確認轉移',
+    locationEditCurrentInfoText: '目前位置:{code}(數量:{qty} {unit})',
+    locationAssignFromUnassignedText: '從「未分布」指派——目前未分布數量:{qty} {unit}',
+    errEnterLocationCode: '請填寫位置資訊', errTransferSameLocation: '轉移的目的地不能跟原本的位置一樣',
+    errTransferQtyExceeds: '轉移數量不能超過這個位置目前的數量({available})',
     chkEmailToAccounting: '寄送給會計',
     purchaseEmailHint: '送出進貨單時,會把這張單匯出的 Excel 檔跟收據附件(如果有上傳)一起寄到這個地址。',
     errInvalidEmailAddress: '請輸入正確的 email 地址',
@@ -2746,6 +2851,8 @@ const I18N = {
     appTitleSubtitle: 'Inventory & Order Hub', appTitleSubtitleOrderOnly: 'Order Hub',
     appLoadingText: 'Loading…',
     tabMaster: 'System Admin', tabTx: 'Inventory Management', tabOverview: 'Stock Overview', tabLog: 'History',
+    subtabOverviewSummary: 'Stock Summary', subtabOverviewLocation: 'Stock Location',
+    secStockLocation: 'Stock Location', stockLocationDesc: 'Search for a product to see which locations it\'s stored in and how much is at each.',
     subtabLogTx: 'Stock In/Out Log', subtabLogConvert: 'Conversion History', subtabLogInventory: 'Inventory Log',
     secInventoryLog: 'Inventory Log',
     deliveryNoteLogDesc: 'Lists all Delivery Notes, sorted by date. Ones already printed show "Completed"; ones not yet printed show "Pending".',
@@ -3150,6 +3257,19 @@ const I18N = {
     secPurchaseLog: 'Purchases', purchaseLogDesc: 'Lists all purchase documents, sorted by date. Click one to see item details and the receipt attachment; export is per document too.',
     secAccountingEmail: 'Accounting Email',
     accountingEmailHint: 'Default recipient address filled in when a purchase is checked "Email to accounting" (you can still change it before sending).',
+    secStockLocationMode: 'Stock Location',
+    stockLocationModeHint: 'Controls how location info is entered when adding/editing a location on the Stock Location page. Standard mode enforces separate Zone-Aisle-Bay-Level-Bin fields (e.g. A03-12-02-1); Custom mode lets you type the whole location string freely.',
+    stockLocationModeStandard: 'Standard (Zone-Aisle-Bay-Level-Bin)', stockLocationModeCustom: 'Custom',
+    stockLocationSelectProductHint: 'Select a product to see its location breakdown.',
+    lblTotalStock: 'Total Stock', colLocation: 'Location', unassignedLocationLabel: 'Unassigned',
+    btnAssignLocation: 'Assign Location', clickToViewPhoto: 'Click to view photo',
+    modalLocationEditTitle: 'Edit Location', fieldLocationPhoto: 'Location Photo (optional)',
+    secTransferLocation: 'Transfer', fieldTransferQty: 'Transfer Quantity', fieldLocationCode: 'Location',
+    btnConfirmTransfer: 'Confirm Transfer',
+    locationEditCurrentInfoText: 'Current location: {code} (Qty: {qty} {unit})',
+    locationAssignFromUnassignedText: 'Assigning from Unassigned — currently unassigned: {qty} {unit}',
+    errEnterLocationCode: 'Please fill in the location', errTransferSameLocation: 'The destination can\'t be the same as the current location',
+    errTransferQtyExceeds: 'Transfer quantity can\'t exceed this location\'s current quantity ({available})',
     chkEmailToAccounting: 'Email to accounting',
     purchaseEmailHint: 'When this purchase is submitted, the exported Excel file and receipt attachment (if uploaded) will be emailed to this address.',
     errInvalidEmailAddress: 'Please enter a valid email address',
@@ -4159,6 +4279,20 @@ function switchLogSubTab(subtabId){
 
 // 訂貨分頁(tab-order)自己的子分頁切換(訂貨 / 訂購記錄),只在它自己的容器裡找
 // .subtab-content/.subtab-btn,不會動到其他分頁那幾組子分頁的顯示狀態。
+function switchOverviewSubTab(subtabId){
+  const container = document.getElementById('tab-overview');
+  if(!container) return;
+  document.body.classList.remove('mobile-subtab-menu-active');
+  document.body.classList.add('mobile-subtab-content-active');
+  container.querySelectorAll('.subtab-content').forEach(el => el.classList.remove('active-subtab'));
+  container.querySelectorAll('.subtab-btn').forEach(el => el.classList.remove('active'));
+  document.getElementById(subtabId).classList.add('active-subtab');
+  document.getElementById('btn-' + subtabId).classList.add('active');
+  if(subtabId === 'subtab-overview-location'){
+    renderStockLocationProductSelect();
+  }
+}
+
 function switchOrderSubTab(subtabId){
   const container = document.getElementById('tab-order');
   if(!container) return;
@@ -4559,6 +4693,7 @@ async function loadData(){
   await loadOrders();
   await loadDeliveryNotes();
   await loadPurchases();
+  await loadProductLocations();
   try{
     const counterResult = await dbGet('orderCounter');
     orderCounter = counterResult ? (parseInt(counterResult.value, 10) || 0) : 0;
@@ -4596,6 +4731,10 @@ async function loadData(){
     const acctEmailResult = await dbGet('accountingEmail');
     if(acctEmailResult) accountingEmail = acctEmailResult.value || '';
   } catch(e){ /* no stored preference yet, keep default empty */ }
+  try{
+    const slmResult = await dbGet('stockLocationMode');
+    if(slmResult && ['standard','custom'].includes(slmResult.value)) stockLocationMode = slmResult.value;
+  } catch(e){ /* no stored preference yet, keep default 'standard' */ }
   try{
     const psmResult = await dbGet('productSortMode');
     if(psmResult && ['import','name','sku'].includes(psmResult.value)) productSortMode = psmResult.value;
@@ -4706,6 +4845,47 @@ async function upsertPurchase(p){
   const { error } = await sb.from('purchases').upsert(row);
   if(error){ console.error('儲存進貨單失敗', error); throw error; }
   scheduleAutoBackup();
+}
+
+function locationToRow(loc){
+  return {
+    id: loc.id, product_id: loc.productId,
+    zone: loc.zone || null, aisle: loc.aisle || null, bay: loc.bay || null, level: loc.level || null, bin: loc.bin || null,
+    location_code: loc.locationCode, qty: loc.qty, photo_url: loc.photoUrl || null,
+    updated_at: new Date().toISOString()
+  };
+}
+function rowToLocation(row){
+  return {
+    id: row.id, productId: row.product_id,
+    zone: row.zone || '', aisle: row.aisle || '', bay: row.bay || '', level: row.level || '', bin: row.bin || '',
+    locationCode: row.location_code, qty: Number(row.qty), photoUrl: row.photo_url || null
+  };
+}
+async function loadProductLocations(){
+  try{
+    const { data, error } = await sb.from('product_locations').select('*');
+    if(error) throw error;
+    productLocations = (data || []).map(rowToLocation);
+  } catch(e){ console.error('讀取庫存分布失敗', e); productLocations = []; }
+}
+async function upsertProductLocation(loc){
+  const { error } = await sb.from('product_locations').upsert(locationToRow(loc));
+  if(error){ console.error('儲存庫存分布失敗', error); throw error; }
+  scheduleAutoBackup();
+}
+async function deleteProductLocationRow(id){
+  const { error } = await sb.from('product_locations').delete().eq('id', id);
+  if(error){ console.error('刪除庫存分布紀錄失敗', error); throw error; }
+}
+
+// 這個商品目前「未分布」的數量:總庫存(既有的 computeTotalStock 邏輯不變)減掉這個商品在
+// product_locations 裡所有位置的數量總和。不會是負數(理論上不該發生,但庫存分布資料如果因為
+// 某些原因比實際總庫存還多,顯示 0 比顯示負數合理)。
+function computeUnassignedQty(productId){
+  const totalStock = computeTotalStock(productId);
+  const assigned = productLocations.filter(l => l.productId === productId).reduce((sum, l) => sum + l.qty, 0);
+  return Math.max(0, totalStock - assigned);
 }
 
 async function deleteDeliveryNoteRow(id){
@@ -5143,12 +5323,20 @@ function updateMultipackSettingsUI(){
   if(hmiBox) hmiBox.checked = hideMultipackIconOnOrderPage;
   const acctEmailInput = document.getElementById('accountingEmailInput');
   if(acctEmailInput) acctEmailInput.value = accountingEmail;
+  const slmSelect = document.getElementById('stockLocationModeSelect');
+  if(slmSelect) slmSelect.value = stockLocationMode;
 }
 
 async function saveAccountingEmail(value){
   accountingEmail = (value || '').trim();
   try{ await dbSet('accountingEmail', accountingEmail); }
   catch(e){ console.error('儲存會計 Email 失敗', e); }
+}
+
+async function saveStockLocationMode(value){
+  stockLocationMode = value;
+  try{ await dbSet('stockLocationMode', value); }
+  catch(e){ console.error('儲存 Stock Location 模式失敗', e); }
 }
 
 async function toggleAutoConvertMultipack(checked){
@@ -12167,6 +12355,264 @@ function renderProductSelect(){
   populateCategoryDropdowns();
 }
 
+// 庫存分布頁面:商品下拉選單(可依分類篩選、支援搜尋),選了商品之後畫出這個商品目前分布在
+// 哪些位置、各自的數量,加上「未分布」那一列(用 computeUnassignedQty 即時算,不是存在資料庫
+// 裡的一筆資料)。
+function renderStockLocationProductSelect(){
+  syncCategoryOrder();
+  const catSel = document.getElementById('stockLocationCategoryFilter');
+  const prevCat = catSel.value;
+  const usedCats = categoryOrder.filter(c => products.some(p => (p.category || '未分類') === c));
+  catSel.innerHTML = `<option value="">${t('catFilterAll')}</option>` +
+    usedCats.map(c => `<option value="${c}">${catLabel(c)}</option>`).join('');
+  if(usedCats.includes(prevCat)) catSel.value = prevCat;
+  const catFilterVal = catSel.value;
+
+  const sel = document.getElementById('stockLocationProductSelect');
+  const prevVal = sel.value;
+  const filteredProducts = (catFilterVal ? products.filter(p => (p.category || '未分類') === catFilterVal) : products)
+    .filter(p => !p.hidden);
+  sel.innerHTML = '<option value=""></option>' + filteredProducts.slice().sort(compareProductsBySortMode).map(p => `<option value="${p.id}">${p.sku ? p.sku + ' — ' : ''}${p.parentId ? '⧉ ' : ''}${p.name}(${p.unit})</option>`).join('');
+  if(filteredProducts.some(p => p.id === prevVal)) sel.value = prevVal;
+
+  makeSelectSearchable('stockLocationProductSelect');
+  renderStockLocationDetail();
+}
+
+// 掃碼槍在庫存分布頁面掃到商品時呼叫:直接跳去顯示這個商品的位置分布,不用手動搜尋。
+function jumpToProductInStockLocation(p){
+  const catSel = document.getElementById('stockLocationCategoryFilter');
+  if(catSel) catSel.value = '';
+  renderStockLocationProductSelect();
+  const sel = document.getElementById('stockLocationProductSelect');
+  if(sel) sel.value = p.id;
+  renderStockLocationDetail();
+}
+
+function renderStockLocationDetail(){
+  const container = document.getElementById('stockLocationDetail');
+  if(!container) return;
+  const sel = document.getElementById('stockLocationProductSelect');
+  const productId = sel ? sel.value : '';
+  if(!productId){
+    container.innerHTML = `<div class="empty-note">${t('stockLocationSelectProductHint')}</div>`;
+    return;
+  }
+  const p = products.find(x => x.id === productId);
+  if(!p){ container.innerHTML = ''; return; }
+
+  const totalStock = computeTotalStock(productId);
+  const locs = productLocations.filter(l => l.productId === productId).sort((a,b) => a.locationCode.localeCompare(b.locationCode));
+  const unassigned = computeUnassignedQty(productId);
+
+  const rowsHtml = locs.map(l => `
+    <tr>
+      <td ${l.photoUrl ? `style="cursor:pointer;color:var(--ink);" onclick="viewLocationPhoto('${l.id}')" title="${t('clickToViewPhoto')}"` : ''}>${l.photoUrl ? '📷 ' : ''}${escapeHtmlForPrint(l.locationCode)}</td>
+      <td class="num">${l.qty} ${escapeHtmlForPrint(p.unit)}</td>
+      <td><span class="del-link" onclick="openLocationEditModal('${l.id}')">${t('btnEdit')}</span></td>
+    </tr>
+  `).join('');
+  const unassignedRow = `
+    <tr>
+      <td style="color:var(--ink-soft);font-style:italic;">${t('unassignedLocationLabel')}</td>
+      <td class="num">${unassigned} ${escapeHtmlForPrint(p.unit)}</td>
+      <td>${unassigned > 0 ? `<span class="del-link" onclick="openLocationEditModal(null, '${productId}')">${t('btnAssignLocation')}</span>` : ''}</td>
+    </tr>
+  `;
+
+  container.innerHTML = `
+    <div class="section" style="margin-top:14px;padding:16px 20px;">
+      <div style="display:flex;gap:24px;flex-wrap:wrap;margin-bottom:14px;">
+        <div><span style="font-size:11px;color:var(--ink-soft);text-transform:uppercase;font-weight:700;">SKU</span><br>${escapeHtmlForPrint(p.sku || '—')}</div>
+        <div><span style="font-size:11px;color:var(--ink-soft);text-transform:uppercase;font-weight:700;">${t('lblProduct')}</span><br>${escapeHtmlForPrint(p.name)}</div>
+        <div><span style="font-size:11px;color:var(--ink-soft);text-transform:uppercase;font-weight:700;">${t('lblTotalStock')}</span><br>${totalStock} ${escapeHtmlForPrint(p.unit)}</div>
+      </div>
+      <table class="stock-table">
+        <thead><tr><th>${t('colLocation')}</th><th class="num">${t('colQty')}</th><th></th></tr></thead>
+        <tbody>${rowsHtml}${unassignedRow}</tbody>
+      </table>
+    </div>
+  `;
+}
+
+// 位置的「編輯」視窗:同一個視窗處理兩種情境——(1) 編輯一個已經存在的位置(locationId 有值):
+// 可以看目前的位置/數量、可以上傳這個位置的照片、也可以把這個位置的部分或全部數量轉移到別的
+// 位置。(2) 從「未分布」指派到某個位置(locationId 是 null、只給 productId):未分布不是真的一筆
+// 資料,沒有照片可以傳,直接問要轉移(指派)多少數量到哪個新位置。
+let locationEditTargetId = null;
+let locationEditProductId = null;
+let pendingLocationPhotoUrl = null;
+
+function buildLocationCode(){
+  if(stockLocationMode === 'custom'){
+    return document.getElementById('locationCustomCodeInput').value.trim();
+  }
+  const zone = document.getElementById('locationZoneInput').value.trim();
+  const aisle = document.getElementById('locationAisleInput').value.trim();
+  const bay = document.getElementById('locationBayInput').value.trim();
+  const level = document.getElementById('locationLevelInput').value.trim();
+  const bin = document.getElementById('locationBinInput').value.trim();
+  return [zone, aisle, bay, level, bin].filter(Boolean).join('-');
+}
+
+function openLocationEditModal(locationId, productIdIfNew){
+  locationEditTargetId = locationId || null;
+  locationEditProductId = locationId ? (productLocations.find(l => l.id === locationId) || {}).productId : productIdIfNew;
+  pendingLocationPhotoUrl = null;
+
+  const photoSection = document.getElementById('locationEditPhotoSection');
+  const photoPreviewWrap = document.getElementById('locationEditPhotoPreviewWrap');
+  const photoMsg = document.getElementById('locationEditPhotoMsg');
+  photoMsg.textContent = '';
+  document.getElementById('locationEditModalMsg').textContent = '';
+  document.getElementById('locationTransferQtyInput').value = '';
+  ['locationZoneInput','locationAisleInput','locationBayInput','locationLevelInput','locationBinInput','locationCustomCodeInput'].forEach(id => {
+    document.getElementById(id).value = '';
+  });
+
+  const standardWrap = document.getElementById('locationStandardFieldsWrap');
+  const customWrap = document.getElementById('locationCustomFieldWrap');
+  standardWrap.style.display = stockLocationMode === 'custom' ? 'none' : 'grid';
+  customWrap.style.display = stockLocationMode === 'custom' ? 'block' : 'none';
+
+  if(locationId){
+    const loc = productLocations.find(l => l.id === locationId);
+    const p = products.find(x => x.id === loc.productId);
+    document.getElementById('locationEditCurrentInfo').textContent = tf('locationEditCurrentInfoText', { code: loc.locationCode, qty: loc.qty, unit: p ? p.unit : '' });
+    photoSection.style.display = 'block';
+    if(loc.photoUrl){
+      pendingLocationPhotoUrl = loc.photoUrl;
+      photoPreviewWrap.innerHTML = `<a href="${loc.photoUrl}" target="_blank" style="font-size:12.5px;">📎 ${t('linkViewUploadedReceipt')}</a>`;
+      photoPreviewWrap.style.display = 'block';
+    } else {
+      photoPreviewWrap.style.display = 'none';
+      photoPreviewWrap.innerHTML = '';
+    }
+  } else {
+    const unassigned = computeUnassignedQty(productIdIfNew);
+    const p = products.find(x => x.id === productIdIfNew);
+    document.getElementById('locationEditCurrentInfo').textContent = tf('locationAssignFromUnassignedText', { qty: unassigned, unit: p ? p.unit : '' });
+    photoSection.style.display = 'none';
+    photoPreviewWrap.style.display = 'none';
+    photoPreviewWrap.innerHTML = '';
+  }
+
+  document.getElementById('locationEditModalOverlay').style.display = 'flex';
+}
+
+function closeLocationEditModal(){
+  locationEditTargetId = null;
+  locationEditProductId = null;
+  pendingLocationPhotoUrl = null;
+  document.getElementById('locationEditModalOverlay').style.display = 'none';
+}
+
+async function handleLocationPhotoUpload(inputEl){
+  const file = inputEl.files && inputEl.files[0];
+  if(!file || !locationEditTargetId) return;
+  const msgEl = document.getElementById('locationEditPhotoMsg');
+  if(!file.type.startsWith('image/')){
+    msgEl.style.color = 'var(--crit)'; msgEl.textContent = t('errPhotoMustBeImage'); inputEl.value = ''; return;
+  }
+  if(file.size > 5 * 1024 * 1024){
+    msgEl.style.color = 'var(--crit)'; msgEl.textContent = t('errPhotoTooLarge'); inputEl.value = ''; return;
+  }
+  msgEl.style.color = 'var(--ink-soft)'; msgEl.textContent = t('uploadingPhotoMsg');
+  const ext = (file.name.split('.').pop() || 'jpg').toLowerCase().replace(/[^a-z0-9]/g, '') || 'jpg';
+  const path = `${locationEditTargetId}/${genId()}.${ext}`;
+  try{
+    const { error } = await sb.storage.from('location-photos').upload(path, file, { upsert: true });
+    if(error) throw error;
+    const { data } = sb.storage.from('location-photos').getPublicUrl(path);
+    pendingLocationPhotoUrl = data.publicUrl;
+    const loc = productLocations.find(l => l.id === locationEditTargetId);
+    if(loc){ loc.photoUrl = pendingLocationPhotoUrl; await upsertProductLocation(loc); }
+    document.getElementById('locationEditPhotoPreviewWrap').innerHTML = `<a href="${pendingLocationPhotoUrl}" target="_blank" style="font-size:12.5px;">📎 ${t('linkViewUploadedReceipt')}</a>`;
+    document.getElementById('locationEditPhotoPreviewWrap').style.display = 'block';
+    msgEl.style.color = 'var(--safe)'; msgEl.textContent = t('receiptUploadedMsg');
+    renderStockLocationDetail();
+  } catch(e){
+    console.error('上傳位置照片失敗', e);
+    msgEl.style.color = 'var(--crit)'; msgEl.textContent = t('errReceiptUploadFailed');
+  }
+  inputEl.value = '';
+}
+
+function viewLocationPhoto(locationId){
+  const loc = productLocations.find(l => l.id === locationId);
+  if(!loc || !loc.photoUrl) return;
+  document.getElementById('locationPhotoViewImg').src = loc.photoUrl;
+  document.getElementById('locationPhotoViewModalOverlay').style.display = 'flex';
+}
+function closeLocationPhotoViewModal(){
+  document.getElementById('locationPhotoViewModalOverlay').style.display = 'none';
+  document.getElementById('locationPhotoViewImg').src = '';
+}
+
+// 轉移(或從未分布指派)的核心邏輯:來源如果是「已存在的位置」,轉移掉的數量要從那個位置扣掉
+// (扣到 0 就直接把那筆位置紀錄刪掉,不留 qty=0 的空位置紀錄);來源如果是「未分布」,因為那不是
+// 真的一筆資料,轉移出去之後不用扣什麼、也不用刪什麼,少掉的量會自動反映在下次算未分布數量
+// (computeUnassignedQty)的時候。目的地位置如果原本就存在同樣的位置代碼,直接把數量加上去,
+// 不會產生兩筆同樣位置的紀錄。
+async function confirmLocationTransfer(){
+  const msgEl = document.getElementById('locationEditModalMsg');
+  const productId = locationEditProductId;
+  const qty = parseFloat(document.getElementById('locationTransferQtyInput').value);
+  const newCode = buildLocationCode();
+
+  if(!newCode){ msgEl.className = 'msg error'; msgEl.textContent = t('errEnterLocationCode'); return; }
+  if(isNaN(qty) || qty <= 0){ msgEl.className = 'msg error'; msgEl.textContent = t('errEnterPositiveQty'); return; }
+
+  let sourceLoc = null;
+  let availableQty;
+  if(locationEditTargetId){
+    sourceLoc = productLocations.find(l => l.id === locationEditTargetId);
+    if(!sourceLoc){ msgEl.className = 'msg error'; msgEl.textContent = '找不到這個位置紀錄,請重新整理頁面再試一次。'; return; }
+    availableQty = sourceLoc.qty;
+    if(sourceLoc.locationCode === newCode){ msgEl.className = 'msg error'; msgEl.textContent = t('errTransferSameLocation'); return; }
+  } else {
+    availableQty = computeUnassignedQty(productId);
+  }
+  if(qty > availableQty){ msgEl.className = 'msg error'; msgEl.textContent = tf('errTransferQtyExceeds', { available: availableQty }); return; }
+
+  msgEl.className = 'msg'; msgEl.textContent = t('savingMsg');
+  try{
+    // 先處理目的地:同一個商品、同一個位置代碼已經有紀錄的話,直接加上去;沒有的話新增一筆。
+    let destLoc = productLocations.find(l => l.productId === productId && l.locationCode === newCode);
+    if(destLoc){
+      destLoc.qty += qty;
+      await upsertProductLocation(destLoc);
+    } else {
+      const zone = document.getElementById('locationZoneInput').value.trim();
+      const aisle = document.getElementById('locationAisleInput').value.trim();
+      const bay = document.getElementById('locationBayInput').value.trim();
+      const level = document.getElementById('locationLevelInput').value.trim();
+      const bin = document.getElementById('locationBinInput').value.trim();
+      destLoc = { id: genId(), productId, zone, aisle, bay, level, bin, locationCode: newCode, qty, photoUrl: null };
+      productLocations.push(destLoc);
+      await upsertProductLocation(destLoc);
+    }
+
+    // 再處理來源:已存在的位置要扣掉轉移走的量,扣到 0 就整筆刪掉;未分布不用做任何事。
+    if(sourceLoc){
+      sourceLoc.qty -= qty;
+      if(sourceLoc.qty <= 0){
+        await deleteProductLocationRow(sourceLoc.id);
+        productLocations = productLocations.filter(l => l.id !== sourceLoc.id);
+      } else {
+        await upsertProductLocation(sourceLoc);
+      }
+    }
+
+    renderStockLocationDetail();
+    closeLocationEditModal();
+  } catch(e){
+    console.error('轉移位置失敗', e);
+    msgEl.className = 'msg error';
+    msgEl.textContent = '⚠ 儲存失敗,請重新整理頁面再試一次。';
+  }
+}
+
 function renderStockCards(){
   const container = document.getElementById('stockCards');
   if(products.length === 0){
@@ -13432,6 +13878,8 @@ function processBarcodeScan(code){
   const verifySubtabActive = isTxTabActive && !!(verifyEl && verifyEl.classList.contains('active-subtab'));
   const overviewTab = document.getElementById('tab-overview');
   const isOverviewActive = !!(overviewTab && overviewTab.classList.contains('active-tab'));
+  const locationEl = document.getElementById('subtab-overview-location');
+  const locationSubtabActive = isOverviewActive && !!(locationEl && locationEl.classList.contains('active-subtab'));
 
   if(!product){
     if(registerSubtabActive || verifySubtabActive || isOverviewActive){
@@ -13446,6 +13894,8 @@ function processBarcodeScan(code){
   } else if(verifySubtabActive){
     addScannedProductToVerifyPage(product);
     showScanToast(tf('scanAddedToList', { name: product.name }), false);
+  } else if(locationSubtabActive){
+    jumpToProductInStockLocation(product);
   } else if(isOverviewActive){
     jumpToProductInStockOverview(product);
   }
