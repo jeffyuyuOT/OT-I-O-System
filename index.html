@@ -12416,7 +12416,7 @@ function renderStockLocationDetail(){
     <tr>
       <td style="color:var(--ink-soft);font-style:italic;">${t('unassignedLocationLabel')}</td>
       <td class="num">${unassigned} ${escapeHtmlForPrint(p.unit)}</td>
-      <td>${unassigned > 0 ? `<span class="del-link" onclick="openLocationEditModal(null, '${productId}')">${t('btnAssignLocation')}</span>` : ''}</td>
+      <td><span class="del-link" onclick="openLocationEditModal(null, '${productId}')">${t('btnEdit')}</span></td>
     </tr>
   `;
 
@@ -12479,6 +12479,7 @@ function openLocationEditModal(locationId, productIdIfNew){
     const loc = productLocations.find(l => l.id === locationId);
     const p = products.find(x => x.id === loc.productId);
     document.getElementById('locationEditCurrentInfo').textContent = tf('locationEditCurrentInfoText', { code: loc.locationCode, qty: loc.qty, unit: p ? p.unit : '' });
+    document.getElementById('locationTransferQtyInput').value = loc.qty; // 預設整批轉移,使用者要部分轉移的話自己改小
     photoSection.style.display = 'block';
     if(loc.photoUrl){
       pendingLocationPhotoUrl = loc.photoUrl;
@@ -12492,7 +12493,10 @@ function openLocationEditModal(locationId, productIdIfNew){
     const unassigned = computeUnassignedQty(productIdIfNew);
     const p = products.find(x => x.id === productIdIfNew);
     document.getElementById('locationEditCurrentInfo').textContent = tf('locationAssignFromUnassignedText', { qty: unassigned, unit: p ? p.unit : '' });
-    photoSection.style.display = 'none';
+    document.getElementById('locationTransferQtyInput').value = unassigned; // 預設把未分布的全部數量都指派出去
+    // 未分布不是真的一筆位置資料,還沒有位置可以掛照片——這裡上傳的照片先暫存,等按下「確認轉移」
+    // 真的建立/更新目的地位置的時候,才會把這張照片存到那個位置上(見 confirmLocationTransfer)。
+    photoSection.style.display = 'block';
     photoPreviewWrap.style.display = 'none';
     photoPreviewWrap.innerHTML = '';
   }
@@ -12509,7 +12513,7 @@ function closeLocationEditModal(){
 
 async function handleLocationPhotoUpload(inputEl){
   const file = inputEl.files && inputEl.files[0];
-  if(!file || !locationEditTargetId) return;
+  if(!file) return;
   const msgEl = document.getElementById('locationEditPhotoMsg');
   if(!file.type.startsWith('image/')){
     msgEl.style.color = 'var(--crit)'; msgEl.textContent = t('errPhotoMustBeImage'); inputEl.value = ''; return;
@@ -12519,18 +12523,22 @@ async function handleLocationPhotoUpload(inputEl){
   }
   msgEl.style.color = 'var(--ink-soft)'; msgEl.textContent = t('uploadingPhotoMsg');
   const ext = (file.name.split('.').pop() || 'jpg').toLowerCase().replace(/[^a-z0-9]/g, '') || 'jpg';
-  const path = `${locationEditTargetId}/${genId()}.${ext}`;
+  // 未分布(locationEditTargetId 是 null)還沒有位置可以掛,先存到一個以商品 id 開頭的暫存路徑,
+  // 等按下「確認轉移」真的建立/更新目的地位置的時候,才會把這張照片指定的網址存進那個位置。
+  const path = `${locationEditTargetId || 'unassigned_' + locationEditProductId}/${genId()}.${ext}`;
   try{
     const { error } = await sb.storage.from('location-photos').upload(path, file, { upsert: true });
     if(error) throw error;
     const { data } = sb.storage.from('location-photos').getPublicUrl(path);
     pendingLocationPhotoUrl = data.publicUrl;
-    const loc = productLocations.find(l => l.id === locationEditTargetId);
-    if(loc){ loc.photoUrl = pendingLocationPhotoUrl; await upsertProductLocation(loc); }
+    if(locationEditTargetId){
+      const loc = productLocations.find(l => l.id === locationEditTargetId);
+      if(loc){ loc.photoUrl = pendingLocationPhotoUrl; await upsertProductLocation(loc); }
+      renderStockLocationDetail();
+    }
     document.getElementById('locationEditPhotoPreviewWrap').innerHTML = `<a href="${pendingLocationPhotoUrl}" target="_blank" style="font-size:12.5px;">📎 ${t('linkViewUploadedReceipt')}</a>`;
     document.getElementById('locationEditPhotoPreviewWrap').style.display = 'block';
     msgEl.style.color = 'var(--safe)'; msgEl.textContent = t('receiptUploadedMsg');
-    renderStockLocationDetail();
   } catch(e){
     console.error('上傳位置照片失敗', e);
     msgEl.style.color = 'var(--crit)'; msgEl.textContent = t('errReceiptUploadFailed');
@@ -12578,9 +12586,12 @@ async function confirmLocationTransfer(){
   msgEl.className = 'msg'; msgEl.textContent = t('savingMsg');
   try{
     // 先處理目的地:同一個商品、同一個位置代碼已經有紀錄的話,直接加上去;沒有的話新增一筆。
+    // 如果是從「未分布」轉移過來(沒有 sourceLoc),而且剛才有先上傳照片(存在 pendingLocationPhotoUrl
+    // 裡、還沒真的掛在任何位置上),這裡順便把那張照片指定給目的地位置。
     let destLoc = productLocations.find(l => l.productId === productId && l.locationCode === newCode);
     if(destLoc){
       destLoc.qty += qty;
+      if(!sourceLoc && pendingLocationPhotoUrl) destLoc.photoUrl = pendingLocationPhotoUrl;
       await upsertProductLocation(destLoc);
     } else {
       const zone = document.getElementById('locationZoneInput').value.trim();
@@ -12588,7 +12599,8 @@ async function confirmLocationTransfer(){
       const bay = document.getElementById('locationBayInput').value.trim();
       const level = document.getElementById('locationLevelInput').value.trim();
       const bin = document.getElementById('locationBinInput').value.trim();
-      destLoc = { id: genId(), productId, zone, aisle, bay, level, bin, locationCode: newCode, qty, photoUrl: null };
+      const destPhotoUrl = (!sourceLoc && pendingLocationPhotoUrl) ? pendingLocationPhotoUrl : null;
+      destLoc = { id: genId(), productId, zone, aisle, bay, level, bin, locationCode: newCode, qty, photoUrl: destPhotoUrl };
       productLocations.push(destLoc);
       await upsertProductLocation(destLoc);
     }
