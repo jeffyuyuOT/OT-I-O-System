@@ -1993,7 +1993,11 @@
       <label data-i18n="fieldTransferQty">轉移數量</label>
       <input type="number" id="locationTransferQtyInput" min="0" step="1" style="width:100%;" />
     </div>
-    <div id="locationStandardFieldsWrap" class="form-grid" style="grid-template-columns:1fr 1fr 1fr 1fr 1fr;margin-bottom:0;">
+    <div class="field-block">
+      <label data-i18n="fieldTransferTarget">轉移到</label>
+      <select id="locationTargetSelect" onchange="onLocationTargetSelectChange()" style="width:100%;"></select>
+    </div>
+    <div id="locationStandardFieldsWrap" class="form-grid" style="display:none;grid-template-columns:1fr 1fr 1fr 1fr 1fr;margin-bottom:0;">
       <div class="field"><label>Zone</label><input type="text" id="locationZoneInput" style="width:100%;" /></div>
       <div class="field"><label>Aisle</label><input type="text" id="locationAisleInput" style="width:100%;" /></div>
       <div class="field"><label>Bay</label><input type="text" id="locationBayInput" style="width:100%;" /></div>
@@ -2808,9 +2812,11 @@ const I18N = {
     btnAssignLocation: '指派位置', clickToViewPhoto: '點擊查看照片',
     modalLocationEditTitle: '編輯位置', fieldLocationPhoto: '位置照片(選填)',
     secTransferLocation: '轉移', fieldTransferQty: '轉移數量', fieldLocationCode: '位置',
+    fieldTransferTarget: '轉移到', optAddNewLocation: '+ 新增位置',
     btnConfirmTransfer: '確認轉移',
     modalLocationChoiceTitle: '從哪個位置扣取?',
     locationChoiceProductInfoText: '{name}——這次要扣 {qty} {unit},商品分布在多個位置,請選擇要從哪裡扣取:',
+    primaryLocationBadge: '主要位置',
     locationEditCurrentInfoText: '目前位置:{code}(數量:{qty} {unit})',
     locationAssignFromUnassignedText: '從「未分布」指派——目前未分布數量:{qty} {unit}',
     errEnterLocationCode: '請填寫位置資訊', errTransferSameLocation: '轉移的目的地不能跟原本的位置一樣',
@@ -3278,9 +3284,11 @@ const I18N = {
     btnAssignLocation: 'Assign Location', clickToViewPhoto: 'Click to view photo',
     modalLocationEditTitle: 'Edit Location', fieldLocationPhoto: 'Location Photo (optional)',
     secTransferLocation: 'Transfer', fieldTransferQty: 'Transfer Quantity', fieldLocationCode: 'Location',
+    fieldTransferTarget: 'Transfer To', optAddNewLocation: '+ Add New Location',
     btnConfirmTransfer: 'Confirm Transfer',
     modalLocationChoiceTitle: 'Which location to take from?',
     locationChoiceProductInfoText: '{name} — need {qty} {unit} this time. This product is spread across multiple locations, please choose where to take it from:',
+    primaryLocationBadge: 'Primary',
     locationEditCurrentInfoText: 'Current location: {code} (Qty: {qty} {unit})',
     locationAssignFromUnassignedText: 'Assigning from Unassigned — currently unassigned: {qty} {unit}',
     errEnterLocationCode: 'Please fill in the location', errTransferSameLocation: 'The destination can\'t be the same as the current location',
@@ -4901,6 +4909,21 @@ function computeUnassignedQty(productId){
   const totalStock = computeTotalStock(productId);
   const assigned = productLocations.filter(l => l.productId === productId).reduce((sum, l) => sum + l.qty, 0);
   return Math.max(0, totalStock - assigned);
+}
+
+// 這個商品所有「有庫存的位置」,按數量由多到少排序——數量最多的那個是「主要位置」。
+// 未分布不算是位置(這個 function 只回傳真正的位置資料,不含未分布),呼叫端如果要含未分布,
+// 自己另外加在最後面(未分布規定永遠排最後,不能被當成主要位置)。
+function getSortedLocationsForProduct(productId){
+  return productLocations
+    .filter(l => l.productId === productId && l.qty > 0)
+    .sort((a, b) => b.qty - a.qty);
+}
+// 這個商品目前的「主要位置」:庫存最多的那個真正的位置。未分布不算數,就算未分布數量比任何
+// 位置都多,也不會被當成主要位置——完全沒有任何真正的位置資料時回傳 null。
+function getPrimaryLocation(productId){
+  const sorted = getSortedLocationsForProduct(productId);
+  return sorted.length > 0 ? sorted[0] : null;
 }
 
 async function deleteDeliveryNoteRow(id){
@@ -12430,12 +12453,13 @@ function renderStockLocationDetail(){
   if(!p){ container.innerHTML = ''; return; }
 
   const totalStock = computeTotalStock(productId);
-  const locs = productLocations.filter(l => l.productId === productId).sort((a,b) => a.locationCode.localeCompare(b.locationCode));
+  const locs = getSortedLocationsForProduct(productId);
+  const primaryId = locs.length > 0 ? locs[0].id : null;
   const unassigned = computeUnassignedQty(productId);
 
   const rowsHtml = locs.map(l => `
     <tr>
-      <td ${l.photoUrl ? `style="cursor:pointer;color:var(--ink);" onclick="viewLocationPhoto('${l.id}')" title="${t('clickToViewPhoto')}"` : ''}>${l.photoUrl ? '📷 ' : ''}${escapeHtmlForPrint(l.locationCode)}</td>
+      <td ${l.photoUrl ? `style="cursor:pointer;color:var(--ink);" onclick="viewLocationPhoto('${l.id}')" title="${t('clickToViewPhoto')}"` : ''}>${l.photoUrl ? '📷 ' : ''}${escapeHtmlForPrint(l.locationCode)}${l.id === primaryId ? ` <span style="font-size:10.5px;color:var(--ink-soft);text-transform:uppercase;font-weight:700;">${t('primaryLocationBadge')}</span>` : ''}</td>
       <td class="num">${l.qty} ${escapeHtmlForPrint(p.unit)}</td>
       <td><span class="del-link" onclick="openLocationEditModal('${l.id}')">${t('btnEdit')}</span></td>
     </tr>
@@ -12471,6 +12495,32 @@ let locationEditTargetId = null;
 let locationEditProductId = null;
 let pendingLocationPhotoUrl = null;
 
+// 轉移目的地下拉選單的選項:這個商品現有的位置(照數量由多到少排序,主要位置有標記)放最前面、
+// 「未指派」固定放中間、「+ 新增位置」固定放最後。source(如果是編輯一個已存在的位置)自己
+// 不會出現在選項裡——不能轉移到自己身上。
+function buildLocationTargetOptions(productId, excludeLocationId){
+  const locs = getSortedLocationsForProduct(productId).filter(l => l.id !== excludeLocationId);
+  const options = locs.map(l => ({ value: 'loc:' + l.id, label: `${l.locationCode}${l === locs[0] ? ` (${t('primaryLocationBadge')})` : ''} — ${l.qty}` }));
+  options.push({ value: 'unassigned', label: t('unassignedLocationLabel') });
+  options.push({ value: 'new', label: t('optAddNewLocation') });
+  return options;
+}
+function populateLocationTargetSelect(productId, excludeLocationId, defaultValue){
+  const sel = document.getElementById('locationTargetSelect');
+  const options = buildLocationTargetOptions(productId, excludeLocationId);
+  sel.innerHTML = options.map(o => `<option value="${o.value}">${escapeHtmlForPrint(o.label)}</option>`).join('');
+  sel.value = defaultValue;
+  onLocationTargetSelectChange();
+}
+function onLocationTargetSelectChange(){
+  const sel = document.getElementById('locationTargetSelect');
+  const isNew = sel.value === 'new';
+  const standardWrap = document.getElementById('locationStandardFieldsWrap');
+  const customWrap = document.getElementById('locationCustomFieldWrap');
+  standardWrap.style.display = (isNew && stockLocationMode !== 'custom') ? 'grid' : 'none';
+  customWrap.style.display = (isNew && stockLocationMode === 'custom') ? 'block' : 'none';
+}
+
 function buildLocationCode(){
   if(stockLocationMode === 'custom'){
     return document.getElementById('locationCustomCodeInput').value.trim();
@@ -12498,10 +12548,12 @@ function openLocationEditModal(locationId, productIdIfNew){
     document.getElementById(id).value = '';
   });
 
-  const standardWrap = document.getElementById('locationStandardFieldsWrap');
-  const customWrap = document.getElementById('locationCustomFieldWrap');
-  standardWrap.style.display = stockLocationMode === 'custom' ? 'none' : 'grid';
-  customWrap.style.display = stockLocationMode === 'custom' ? 'block' : 'none';
+  // 預設選項一律是「主要位置」(除非主要位置剛好就是正在編輯的來源本身,那樣就沒得選了,
+  // 改預設成「+ 新增位置」);完全沒有任何位置資料的商品,直接預設「+ 新增位置」。
+  const primary = getPrimaryLocation(locationEditProductId);
+  let defaultTarget = 'new';
+  if(primary && primary.id !== locationId) defaultTarget = 'loc:' + primary.id;
+  populateLocationTargetSelect(locationEditProductId, locationId, defaultTarget);
 
   if(locationId){
     const loc = productLocations.find(l => l.id === locationId);
@@ -12677,9 +12729,8 @@ async function confirmLocationTransfer(){
   const msgEl = document.getElementById('locationEditModalMsg');
   const productId = locationEditProductId;
   const qty = parseFloat(document.getElementById('locationTransferQtyInput').value);
-  const newCode = buildLocationCode();
+  const targetVal = document.getElementById('locationTargetSelect').value;
 
-  if(!newCode){ msgEl.className = 'msg error'; msgEl.textContent = t('errEnterLocationCode'); return; }
   if(isNaN(qty) || qty <= 0){ msgEl.className = 'msg error'; msgEl.textContent = t('errEnterPositiveQty'); return; }
 
   let sourceLoc = null;
@@ -12688,32 +12739,50 @@ async function confirmLocationTransfer(){
     sourceLoc = productLocations.find(l => l.id === locationEditTargetId);
     if(!sourceLoc){ msgEl.className = 'msg error'; msgEl.textContent = '找不到這個位置紀錄,請重新整理頁面再試一次。'; return; }
     availableQty = sourceLoc.qty;
-    if(sourceLoc.locationCode === newCode){ msgEl.className = 'msg error'; msgEl.textContent = t('errTransferSameLocation'); return; }
   } else {
     availableQty = computeUnassignedQty(productId);
   }
   if(qty > availableQty){ msgEl.className = 'msg error'; msgEl.textContent = tf('errTransferQtyExceeds', { available: availableQty }); return; }
 
+  // 目的地是「未指派」的話,沒有真正的位置紀錄要建立/更新——只需要處理來源那邊扣掉的部分,
+  // 未分布數量會自動反映(因為未分布本來就是算出來的)。
+  let newCode = null;
+  let existingDestLoc = null;
+  if(targetVal === 'unassigned'){
+    // 不用做任何目的地相關的事
+  } else if(targetVal === 'new'){
+    newCode = buildLocationCode();
+    if(!newCode){ msgEl.className = 'msg error'; msgEl.textContent = t('errEnterLocationCode'); return; }
+    existingDestLoc = productLocations.find(l => l.productId === productId && l.locationCode === newCode);
+  } else if(targetVal.startsWith('loc:')){
+    existingDestLoc = productLocations.find(l => l.id === targetVal.slice(4));
+    if(!existingDestLoc){ msgEl.className = 'msg error'; msgEl.textContent = '找不到這個位置紀錄,請重新整理頁面再試一次。'; return; }
+    newCode = existingDestLoc.locationCode;
+  }
+  if(sourceLoc && newCode && sourceLoc.locationCode === newCode){ msgEl.className = 'msg error'; msgEl.textContent = t('errTransferSameLocation'); return; }
+
   msgEl.className = 'msg'; msgEl.textContent = t('savingMsg');
   try{
-    // 先處理目的地:同一個商品、同一個位置代碼已經有紀錄的話,直接加上去;沒有的話新增一筆。
-    // 如果是從「未分布」轉移過來(沒有 sourceLoc),而且剛才有先上傳照片(存在 pendingLocationPhotoUrl
-    // 裡、還沒真的掛在任何位置上),這裡順便把那張照片指定給目的地位置。
-    let destLoc = productLocations.find(l => l.productId === productId && l.locationCode === newCode);
-    if(destLoc){
-      destLoc.qty += qty;
-      if(!sourceLoc && pendingLocationPhotoUrl) destLoc.photoUrl = pendingLocationPhotoUrl;
-      await upsertProductLocation(destLoc);
-    } else {
-      const zone = document.getElementById('locationZoneInput').value.trim();
-      const aisle = document.getElementById('locationAisleInput').value.trim();
-      const bay = document.getElementById('locationBayInput').value.trim();
-      const level = document.getElementById('locationLevelInput').value.trim();
-      const bin = document.getElementById('locationBinInput').value.trim();
-      const destPhotoUrl = (!sourceLoc && pendingLocationPhotoUrl) ? pendingLocationPhotoUrl : null;
-      destLoc = { id: genId(), productId, zone, aisle, bay, level, bin, locationCode: newCode, qty, photoUrl: destPhotoUrl };
-      productLocations.push(destLoc);
-      await upsertProductLocation(destLoc);
+    // 先處理目的地:同一個商品、同一個位置代碼已經有紀錄的話,直接加上去;沒有的話新增一筆;
+    // 目的地是「未指派」的話完全不用處理這一段。如果是從「未分布」轉移過來(沒有 sourceLoc),
+    // 而且剛才有先上傳照片(存在 pendingLocationPhotoUrl 裡、還沒真的掛在任何位置上),這裡
+    // 順便把那張照片指定給目的地位置。
+    if(targetVal !== 'unassigned'){
+      if(existingDestLoc){
+        existingDestLoc.qty += qty;
+        if(!sourceLoc && pendingLocationPhotoUrl) existingDestLoc.photoUrl = pendingLocationPhotoUrl;
+        await upsertProductLocation(existingDestLoc);
+      } else {
+        const zone = document.getElementById('locationZoneInput').value.trim();
+        const aisle = document.getElementById('locationAisleInput').value.trim();
+        const bay = document.getElementById('locationBayInput').value.trim();
+        const level = document.getElementById('locationLevelInput').value.trim();
+        const bin = document.getElementById('locationBinInput').value.trim();
+        const destPhotoUrl = (!sourceLoc && pendingLocationPhotoUrl) ? pendingLocationPhotoUrl : null;
+        const newLoc = { id: genId(), productId, zone, aisle, bay, level, bin, locationCode: newCode, qty, photoUrl: destPhotoUrl };
+        productLocations.push(newLoc);
+        await upsertProductLocation(newLoc);
+      }
     }
 
     // 再處理來源:已存在的位置要扣掉轉移走的量,扣到 0 就整筆刪掉;未分布不用做任何事。
