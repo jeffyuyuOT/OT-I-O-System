@@ -2021,6 +2021,17 @@
   </div>
 </div>
 
+<div id="locationChoiceModalOverlay" class="modal-overlay" style="display:none;">
+  <div class="modal-box" style="max-width:min(420px, 92vw);">
+    <div class="section-title" style="margin-bottom:4px;" data-i18n="modalLocationChoiceTitle">從哪個位置扣取?</div>
+    <p id="locationChoiceProductInfo" style="font-size:12.5px;color:var(--ink-soft);margin:0 0 12px;"></p>
+    <div id="locationChoiceOptionsWrap" style="display:flex;flex-direction:column;gap:8px;"></div>
+    <div class="modal-actions">
+      <button class="btn ghost" onclick="cancelLocationChoiceSequence()" data-i18n="btnCancel">取消</button>
+    </div>
+  </div>
+</div>
+
 <div id="signatureViewModalOverlay" class="modal-overlay" style="display:none;" onclick="if(event.target===this) closeSignatureViewModal();">
   <div class="modal-box" style="max-width:min(480px, 90vw);text-align:center;">
     <div style="text-align:right;margin-bottom:8px;">
@@ -2798,6 +2809,8 @@ const I18N = {
     modalLocationEditTitle: '編輯位置', fieldLocationPhoto: '位置照片(選填)',
     secTransferLocation: '轉移', fieldTransferQty: '轉移數量', fieldLocationCode: '位置',
     btnConfirmTransfer: '確認轉移',
+    modalLocationChoiceTitle: '從哪個位置扣取?',
+    locationChoiceProductInfoText: '{name}——這次要扣 {qty} {unit},商品分布在多個位置,請選擇要從哪裡扣取:',
     locationEditCurrentInfoText: '目前位置:{code}(數量:{qty} {unit})',
     locationAssignFromUnassignedText: '從「未分布」指派——目前未分布數量:{qty} {unit}',
     errEnterLocationCode: '請填寫位置資訊', errTransferSameLocation: '轉移的目的地不能跟原本的位置一樣',
@@ -3266,6 +3279,8 @@ const I18N = {
     modalLocationEditTitle: 'Edit Location', fieldLocationPhoto: 'Location Photo (optional)',
     secTransferLocation: 'Transfer', fieldTransferQty: 'Transfer Quantity', fieldLocationCode: 'Location',
     btnConfirmTransfer: 'Confirm Transfer',
+    modalLocationChoiceTitle: 'Which location to take from?',
+    locationChoiceProductInfoText: '{name} — need {qty} {unit} this time. This product is spread across multiple locations, please choose where to take it from:',
     locationEditCurrentInfoText: 'Current location: {code} (Qty: {qty} {unit})',
     locationAssignFromUnassignedText: 'Assigning from Unassigned — currently unassigned: {qty} {unit}',
     errEnterLocationCode: 'Please fill in the location', errTransferSameLocation: 'The destination can\'t be the same as the current location',
@@ -8735,6 +8750,16 @@ async function verifyOrder(orderId){
     return;
   }
   showConfirmModal(tf('confirmVerifyOrder', {orderNo: order.orderNo || orderId, n: activeItems.length}), async () => {
+    // 扣庫存之前,先問清楚每個商品要從哪個位置扣——只有存在多個「有庫存的位置(含未分布)」的
+    // 商品才會真的跳出視窗問,只有一個來源的話會自動略過,不會无端打斷核對流程。中途按取消的話
+    // 這裡會 throw,整個核對直接中止,不會扣庫存、也不會動任何位置資料。
+    let locationChoices;
+    try{
+      locationChoices = await resolveLocationChoicesForItems(activeItems.map(it => ({ productId: it.productId, qty: it.qty })));
+    } catch(e){
+      return; // 使用者在選位置的過程中按了取消,整個核對中止
+    }
+
     const rpcItems = activeItems.map(it => ({ productId: it.productId, qty: it.qty, txId: genId() }));
     const noteText = `${order.orderNo || ''}${order.note ? '、' + order.note : ''}`;
     const confirmedAt = new Date().toISOString();
@@ -8773,6 +8798,9 @@ async function verifyOrder(orderId){
     order.status = 'confirmed';
     order.confirmedAt = confirmedAt;
     expandedOrderIds.delete(orderId);
+    // 伺服器那邊的總庫存已經確定扣成功了,這裡才去動 product_locations——如果先扣位置、
+    // RPC 才失敗,位置資料會跟實際庫存對不起來。
+    await applyLocationDeductions(locationChoices);
     logInventoryAction('order_verify', `Verified order ${order.orderNo || orderId} (${order.partyName || 'No recipient specified'}, ${activeItems.length} item(s)), stock deducted`, order.orderNo);
     renderAll();
   });
@@ -12555,6 +12583,89 @@ function viewLocationPhoto(locationId){
 function closeLocationPhotoViewModal(){
   document.getElementById('locationPhotoViewModalOverlay').style.display = 'none';
   document.getElementById('locationPhotoViewImg').src = '';
+}
+
+// ===== 訂單核對扣庫存時,問「從哪個位置扣」的邏輯 =====
+// 「直接核對」「訂單核對頁面的左右比對確認」兩條路徑最後都會呼叫同一個 verifyOrder(),用的
+// 都是訂單自己的品項(order.items),所以只要在 verifyOrder() 裡插這一段,兩條路徑就都涵蓋到了,
+// 不用在兩個地方各寫一次。
+let locationChoiceResolver = null;
+let locationChoiceRejecter = null;
+let locationChoiceCurrentOptions = [];
+
+// 這個商品目前可以扣庫存的「來源」有哪些:每個實際存在、還有庫存的位置各一個選項,加上
+// 「未分布」(如果還有未分布的庫存)一個選項。這個清單只剩 1 個選項的話代表沒有模糊空間,
+// 不用問使用者、直接用那唯一的選項。
+function getLocationChoicesForProduct(productId){
+  const choices = productLocations
+    .filter(l => l.productId === productId && l.qty > 0)
+    .map(l => ({ type: 'location', id: l.id, label: l.locationCode, qty: l.qty }));
+  const unassigned = computeUnassignedQty(productId);
+  if(unassigned > 0){
+    choices.push({ type: 'unassigned', id: null, label: t('unassignedLocationLabel'), qty: unassigned });
+  }
+  return choices;
+}
+
+function resolveLocationForItem(productId, qty){
+  const choices = getLocationChoicesForProduct(productId);
+  if(choices.length <= 1) return Promise.resolve(choices[0] || null);
+  const p = products.find(x => x.id === productId);
+  return new Promise((resolve, reject) => {
+    locationChoiceResolver = resolve;
+    locationChoiceRejecter = reject;
+    locationChoiceCurrentOptions = choices;
+    document.getElementById('locationChoiceProductInfo').textContent = tf('locationChoiceProductInfoText', { name: p ? p.name : productId, qty, unit: p ? p.unit : '' });
+    document.getElementById('locationChoiceOptionsWrap').innerHTML = choices.map((c, i) =>
+      `<button class="btn ghost" style="text-align:left;" onclick="chooseLocationOption(${i})">${escapeHtmlForPrint(c.label)} (${c.qty} ${p ? escapeHtmlForPrint(p.unit) : ''})</button>`
+    ).join('');
+    document.getElementById('locationChoiceModalOverlay').style.display = 'flex';
+  });
+}
+function chooseLocationOption(index){
+  const choice = locationChoiceCurrentOptions[index];
+  document.getElementById('locationChoiceModalOverlay').style.display = 'none';
+  const resolve = locationChoiceResolver;
+  locationChoiceResolver = null; locationChoiceRejecter = null; locationChoiceCurrentOptions = [];
+  if(resolve) resolve(choice);
+}
+function cancelLocationChoiceSequence(){
+  document.getElementById('locationChoiceModalOverlay').style.display = 'none';
+  const reject = locationChoiceRejecter;
+  locationChoiceResolver = null; locationChoiceRejecter = null; locationChoiceCurrentOptions = [];
+  if(reject) reject(new Error('cancelled'));
+}
+
+// 一次處理一整批品項的位置選擇,一個一個問(前一個選完/確定了,才會問下一個),回傳
+// [{productId, qty, choice}, ...]。中途按了取消,這個 function 會 throw,呼叫端要接住、
+// 不要繼續往下扣庫存。
+async function resolveLocationChoicesForItems(items){
+  const results = [];
+  for(const it of items){
+    const choice = await resolveLocationForItem(it.productId, it.qty);
+    results.push({ productId: it.productId, qty: it.qty, choice });
+  }
+  return results;
+}
+
+// 核對通過、伺服器那邊的庫存已經真的扣完之後,才去動 product_locations 這幾筆資料——選了哪個
+// 位置就扣哪個位置(扣到 0 就整筆刪掉);選了未分布的話不用做任何事,因為未分布本來就是用
+// 「總庫存 - 各位置總和」算出來的,伺服器那邊扣完總庫存,未分布數字自然就跟著變了。
+async function applyLocationDeductions(resolvedChoices){
+  for(const { qty, choice } of resolvedChoices){
+    if(!choice || choice.type !== 'location') continue;
+    const loc = productLocations.find(l => l.id === choice.id);
+    if(!loc) continue;
+    loc.qty -= qty;
+    try{
+      if(loc.qty <= 0){
+        await deleteProductLocationRow(loc.id);
+        productLocations = productLocations.filter(l => l.id !== loc.id);
+      } else {
+        await upsertProductLocation(loc);
+      }
+    } catch(e){ console.error('核對扣庫存後同步位置數量失敗', e); }
+  }
 }
 
 // 轉移(或從未分布指派)的核心邏輯:來源如果是「已存在的位置」,轉移掉的數量要從那個位置扣掉
