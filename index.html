@@ -8345,6 +8345,18 @@ async function saveOrderItemQty(context, orderId, productId){
   }
 
   const oldQty = item.qty;
+
+  // 數量改多代表要多扣庫存(補出貨)——商品分布在多個位置的話,先問清楚要從哪裡扣,邏輯跟訂單
+  // 核對、直接出貨共用同一套機制。數量改少(退庫存)不用問,退回的庫存一律先算未分布。
+  let qtyChangeLocationChoice = null;
+  if(newQty > oldQty){
+    try{
+      qtyChangeLocationChoice = await resolveLocationForItem(productId, newQty - oldQty);
+    } catch(e){
+      return; // 使用者取消了位置選擇,整個數量調整中止
+    }
+  }
+
   const txId = genId();
   const noteText = tf('orderItemQtyChangedNote', { orderNo: order.orderNo || '', name: item.name, oldQty, newQty, unit: item.unit });
 
@@ -8376,6 +8388,12 @@ async function saveOrderItemQty(context, orderId, productId){
   };
   transactions.push(tx);
   productStockMap[productId] = (productStockMap[productId] || 0) - qtyDelta;
+
+  // 伺服器那邊(adjust_order_item_qty RPC)已經確定扣庫存成功了,這裡才去動 product_locations,
+  // 避免庫存扣了/位置卻沒對應更新的不一致。
+  if(qtyChangeLocationChoice){
+    await applyLocationDeductions([{ productId, qty: newQty - oldQty, choice: qtyChangeLocationChoice }]);
+  }
 
   item.qty = newQty;
   if(!item.qtyHistory) item.qtyHistory = [];
