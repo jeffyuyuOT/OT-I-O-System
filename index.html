@@ -509,6 +509,21 @@
      modal(例如商品編輯視窗)蓋住,使用者當下完全看不到,要關掉那個視窗才會「突然」看到提示。
      這裡給它一個更高的 z-index,確保這個共用提示視窗永遠疊在最上面,不管當下還有哪個 modal 開著。 */
   #confirmModalOverlay{ z-index:1200; }
+  /* 系統處理中的鎖定畫面——按了「確定」之後,只要那個動作還在跑(包含中間可能還要跳出來問
+     位置這種巢狀視窗),就整個鎖住底下畫面不能按,避免使用者以為沒按到、又按第二次觸發重複
+     的操作。z-index 故意比一般的 modal-overlay(1000)低一點,這樣如果處理過程中還要跳出
+     別的視窗問問題(例如問要扣哪個位置),那個視窗還是會正常疊在最上面、可以正常互動,
+     不會被這層鎖定畫面擋住。 */
+  #processingOverlay{
+    display:none; position:fixed; inset:0; background:rgba(0,0,0,0.35); z-index:999;
+    align-items:center; justify-content:center; flex-direction:column; gap:14px;
+  }
+  #processingOverlay .spinner{
+    width:36px; height:36px; border:4px solid rgba(255,255,255,0.35); border-top-color:#fff;
+    border-radius:50%; animation:processing-spin 0.8s linear infinite;
+  }
+  #processingOverlay .processing-text{ color:#fff; font-size:13px; font-weight:600; }
+  @keyframes processing-spin{ to{ transform:rotate(360deg); } }
   .modal-box{
     background:var(--panel); max-width:420px; width:90%; min-width:0;
     padding:24px; border-radius:4px; box-shadow:0 10px 40px rgba(0,0,0,0.3);
@@ -1899,6 +1914,11 @@
 </div>
 
 
+<div id="processingOverlay">
+  <div class="spinner"></div>
+  <div class="processing-text" data-i18n="processingMsg">處理中,請稍候…</div>
+</div>
+
 <div id="confirmModalOverlay" class="modal-overlay" style="display:none;">
   <div class="modal-box">
     <p id="confirmModalText" style="white-space:pre-line;"></p>
@@ -2858,6 +2878,7 @@ const I18N = {
     modalLocationChoiceTitle: '從哪個位置扣取?',
     locationChoiceProductInfoText: '{name}——這次要扣 {qty} {unit},商品分布在多個位置,請選擇要從哪裡扣取:',
     primaryLocationBadge: '主要位置',
+    lastPrimaryBadge: 'Last Primary',
     locationEditCurrentInfoText: '目前位置:{code}(數量:{qty} {unit})',
     locationAssignFromUnassignedText: '從「未分布」指派——目前未分布數量:{qty} {unit}',
     errEnterLocationCode: '請填寫位置資訊', errTransferSameLocation: '轉移的目的地不能跟原本的位置一樣',
@@ -2874,6 +2895,7 @@ const I18N = {
     modalSendPurchaseEmailTitle: '寄送進貨單', fieldRecipientEmail: '收件人 Email',
     btnConfirmSend: '確認寄送',
     modalEditPurchaseTitle: '編輯進貨單', savingMsg: '儲存中…',
+    processingMsg: '處理中,請稍候…',
     emailedToTitle: '已寄給 {email}({when})',
     colPurchaseDate: '日期', colPurchaseParty: '進貨方', colPurchaseInvoiceNo: 'Invoice',
     noPurchasesYet: '尚無進貨單紀錄', purchaseItemsLabel: '品項', purchaseNoReceiptLabel: '(沒有附件)',
@@ -3340,6 +3362,7 @@ const I18N = {
     modalLocationChoiceTitle: 'Which location to take from?',
     locationChoiceProductInfoText: '{name} — need {qty} {unit} this time. This product is spread across multiple locations, please choose where to take it from:',
     primaryLocationBadge: 'Primary',
+    lastPrimaryBadge: 'Last Primary',
     locationEditCurrentInfoText: 'Current location: {code} (Qty: {qty} {unit})',
     locationAssignFromUnassignedText: 'Assigning from Unassigned — currently unassigned: {qty} {unit}',
     errEnterLocationCode: 'Please fill in the location', errTransferSameLocation: 'The destination can\'t be the same as the current location',
@@ -3356,6 +3379,7 @@ const I18N = {
     modalSendPurchaseEmailTitle: 'Send Purchase Order', fieldRecipientEmail: 'Recipient Email',
     btnConfirmSend: 'Confirm Send',
     modalEditPurchaseTitle: 'Edit Purchase', savingMsg: 'Saving…',
+    processingMsg: 'Processing, please wait…',
     emailedToTitle: 'Sent to {email} ({when})',
     colPurchaseDate: 'Date', colPurchaseParty: 'Supplier', colPurchaseInvoiceNo: 'Invoice',
     noPurchasesYet: 'No purchase records yet', purchaseItemsLabel: 'Items', purchaseNoReceiptLabel: '(no attachment)',
@@ -4395,7 +4419,13 @@ function switchOrderSubTab(subtabId){
 let pendingConfirmCallback = null;
 let pendingCancelCallback = null;
 
+// 有一個核心操作(按了「確定」之後、還在跑 await 的那個 callback)還沒跑完的時候,不要再開
+// 新的確認視窗——避免使用者以為上一次沒按到、又點了一次別的操作,結果兩個操作幾乎同時進行,
+// 例如對同一張訂單核對兩次、跳出「訂單已經被取消」這種奇怪的錯誤訊息。
+let criticalActionInProgress = false;
+
 function showConfirmModal(message, onConfirm, onCancel){
+  if(criticalActionInProgress) return;
   document.getElementById('confirmModalText').textContent = message;
   pendingConfirmCallback = onConfirm;
   pendingCancelCallback = onCancel || null;
@@ -4609,7 +4639,15 @@ async function confirmModalYes(){
   document.getElementById('confirmModalOverlay').style.display = 'none';
   pendingConfirmCallback = null;
   pendingCancelCallback = null; // 確定了,取消專用的 callback 不用執行,直接清掉
-  if(cb) await cb();
+  if(!cb) return;
+  criticalActionInProgress = true;
+  document.getElementById('processingOverlay').style.display = 'flex';
+  try{
+    await cb();
+  } finally {
+    criticalActionInProgress = false;
+    document.getElementById('processingOverlay').style.display = 'none';
+  }
 }
 
 function genId(){ return Date.now().toString(36) + Math.random().toString(36).slice(2,7); }
@@ -4964,6 +5002,26 @@ async function upsertProductLocation(loc){
 async function deleteProductLocationRow(id){
   const { error } = await sb.from('product_locations').delete().eq('id', id);
   if(error){ console.error('刪除庫存分布紀錄失敗', error); throw error; }
+}
+
+// 一個商品的位置紀錄被刪光(全部變成未分布)的時候,把「最後一次的主要位置」記在商品自己身上
+// (product.lastPrimaryLocation,存完整的 zone/aisle/bay/level/bin,不是只存組合完的字串)——
+// 這樣之後庫存分布頁面的下拉選單,就算這個商品目前完全沒有真正的位置資料,也能在清單最下面
+// 提示「以前通常放在哪裡」,選了直接把新增位置的欄位都幫忙填好,不用重新想一次位置編號。
+// 呼叫時機:任何一個位置被刪掉之後,如果那個商品的位置清單已經整個空了,而且剛好被刪掉的
+// 就是原本的主要位置(通常是最後剩下的那一筆),才會記錄下來。
+async function rememberLastPrimaryLocationIfNowEmpty(deletedLoc, wasPrimary){
+  if(!wasPrimary) return;
+  const stillHasLocations = productLocations.some(l => l.productId === deletedLoc.productId);
+  if(stillHasLocations) return;
+  const p = products.find(x => x.id === deletedLoc.productId);
+  if(!p || (p.lastPrimaryLocation && p.lastPrimaryLocation.locationCode === deletedLoc.locationCode)) return;
+  p.lastPrimaryLocation = {
+    zone: deletedLoc.zone || '', aisle: deletedLoc.aisle || '', bay: deletedLoc.bay || '',
+    level: deletedLoc.level || '', bin: deletedLoc.bin || '', locationCode: deletedLoc.locationCode
+  };
+  try{ await saveProducts(); }
+  catch(e){ console.error('記錄最後主要位置失敗', e); }
 }
 
 // 這個商品目前「未分布」的數量:總庫存(既有的 computeTotalStock 邏輯不變)減掉這個商品在
@@ -11861,6 +11919,21 @@ async function submitLoadCompletedFlow(date, msg){
     // (原子化、伺服器端會再驗證一次庫存)。前面已經先做過前端庫存檢查,這裡理論上不太會失敗,
     // 但還是要處理伺服器端拒絕的情況(例如同時間有其他人也在操作庫存)——一旦有一筆失敗就
     // 停下來,已經成功套用的部分維持不動(不嘗試整批復原,因為那些已經是真的寫進資料庫的操作)。
+    // 這批「暫存的改數量」裡,凡是要增加數量(等於補出貨、要多扣庫存)的品項,商品分布在多個
+    // 位置的話,送出前先一次問清楚每一筆各自要從哪裡扣——邏輯跟一般改數量、訂單核對共用同一套
+    // 機制。減少數量不用問,退回的庫存一律先算未分布。中途取消的話這裡整個 doSave 直接中止,
+    // 不會呼叫任何 RPC、也不會動任何位置或庫存資料。
+    const increaseChanges = pendingQtyChanges.filter(({ item, newQty }) => newQty > item.qty);
+    let qtyChangeAllocationsByProductId = {};
+    if(increaseChanges.length > 0){
+      try{
+        const resolved = await resolveLocationChoicesForItems(increaseChanges.map(({ item, newQty }) => ({ productId: item.productId, qty: newQty - item.qty })));
+        resolved.forEach(r => { qtyChangeAllocationsByProductId[r.productId] = r.allocations; });
+      } catch(e){
+        return; // 使用者取消了位置選擇,整個儲存動作中止
+      }
+    }
+
     for(const { item, newQty } of pendingQtyChanges){
       const oldQty = item.qty;
       const txId = genId();
@@ -11884,6 +11957,11 @@ async function submitLoadCompletedFlow(date, msg){
       const tx = { id: txId, productId: item.productId, type: qtyDelta > 0 ? 'out' : 'restock', qty: Math.abs(qtyDelta), date: todayISO(), party: order.partyName || '', note: noteText, system: true, orderId: order.id };
       transactions.push(tx);
       productStockMap[item.productId] = (productStockMap[item.productId] || 0) - qtyDelta;
+      // 伺服器那邊已經確定扣庫存成功了,這裡才去動 product_locations,避免庫存扣了/位置卻沒
+      // 對應更新的不一致。
+      if(qtyChangeAllocationsByProductId[item.productId]){
+        await applyLocationDeductions([{ productId: item.productId, qty: qtyDelta, allocations: qtyChangeAllocationsByProductId[item.productId] }]);
+      }
       item.qty = newQty;
       if(!item.qtyHistory) item.qtyHistory = [];
       const qtyChangeAt = new Date().toISOString();
@@ -12784,6 +12862,12 @@ function buildLocationTargetOptions(productId, excludeLocationId){
   const options = locs.map(l => ({ value: 'loc:' + l.id, label: `${l.locationCode}${l === locs[0] ? ` (${t('primaryLocationBadge')})` : ''} — ${l.qty}` }));
   options.push({ value: 'unassigned', label: t('unassignedLocationLabel') });
   options.push({ value: 'new', label: t('optAddNewLocation') });
+  // 這個商品目前完全沒有真正的位置資料(全部未分布)的話,如果之前記錄過「最後一次的主要
+  // 位置」,在最下面提示一個選項,選了直接把新增位置的欄位都帶入那組舊的位置資訊。
+  const p = products.find(x => x.id === productId);
+  if(locs.length === 0 && p && p.lastPrimaryLocation && p.lastPrimaryLocation.locationCode){
+    options.push({ value: 'lastPrimary', label: `${p.lastPrimaryLocation.locationCode} (${t('lastPrimaryBadge')})` });
+  }
   return options;
 }
 function populateLocationTargetSelect(productId, excludeLocationId, defaultValue){
@@ -12805,12 +12889,25 @@ function applyStockLocationFieldVisibility(idPrefix){
 
 function onLocationTargetSelectChange(){
   const sel = document.getElementById('locationTargetSelect');
-  const isNew = sel.value === 'new';
+  const isLastPrimary = sel.value === 'lastPrimary';
+  const isNew = sel.value === 'new' || isLastPrimary;
   const standardWrap = document.getElementById('locationStandardFieldsWrap');
   const customWrap = document.getElementById('locationCustomFieldWrap');
   standardWrap.style.display = (isNew && stockLocationMode !== 'custom') ? 'grid' : 'none';
   customWrap.style.display = (isNew && stockLocationMode === 'custom') ? 'block' : 'none';
   if(isNew && stockLocationMode !== 'custom') applyStockLocationFieldVisibility('location');
+  if(isLastPrimary){
+    const p = products.find(x => x.id === locationEditProductId);
+    const last = p && p.lastPrimaryLocation;
+    if(last){
+      document.getElementById('locationZoneInput').value = last.zone || '';
+      document.getElementById('locationAisleInput').value = last.aisle || '';
+      document.getElementById('locationBayInput').value = last.bay || '';
+      document.getElementById('locationLevelInput').value = last.level || '';
+      document.getElementById('locationBinInput').value = last.bin || '';
+      document.getElementById('locationCustomCodeInput').value = last.locationCode || '';
+    }
+  }
 }
 
 // 通用版的位置選擇器,給「編輯位置」以外的地方用(目前是切換商品的「指派位置」)——一樣是
@@ -12839,6 +12936,7 @@ function buildLocationPickerHtml(idPrefix, labelKey){
 function populateLocationPicker(idPrefix, productId){
   const sel = document.getElementById(idPrefix + 'Select');
   if(!sel) return;
+  sel.dataset.productId = productId;
   const options = buildLocationTargetOptions(productId, null);
   sel.innerHTML = options.map(o => `<option value="${o.value}">${escapeHtmlForPrint(o.label)}</option>`).join('');
   const primary = getPrimaryLocation(productId);
@@ -12847,10 +12945,23 @@ function populateLocationPicker(idPrefix, productId){
 }
 function onLocationPickerTargetChange(idPrefix){
   const sel = document.getElementById(idPrefix + 'Select');
-  const isNew = sel.value === 'new';
+  const isLastPrimary = sel.value === 'lastPrimary';
+  const isNew = sel.value === 'new' || isLastPrimary;
   document.getElementById(idPrefix + 'StandardWrap').style.display = (isNew && stockLocationMode !== 'custom') ? 'grid' : 'none';
   document.getElementById(idPrefix + 'CustomWrap').style.display = (isNew && stockLocationMode === 'custom') ? 'block' : 'none';
   if(isNew && stockLocationMode !== 'custom') applyStockLocationFieldVisibility(idPrefix);
+  if(isLastPrimary){
+    const p = products.find(x => x.id === sel.dataset.productId);
+    const last = p && p.lastPrimaryLocation;
+    if(last){
+      document.getElementById(idPrefix + 'Zone').value = last.zone || '';
+      document.getElementById(idPrefix + 'Aisle').value = last.aisle || '';
+      document.getElementById(idPrefix + 'Bay').value = last.bay || '';
+      document.getElementById(idPrefix + 'Level').value = last.level || '';
+      document.getElementById(idPrefix + 'Bin').value = last.bin || '';
+      document.getElementById(idPrefix + 'CustomCode').value = last.locationCode || '';
+    }
+  }
 }
 function buildLocationCodeFromPicker(idPrefix){
   if(stockLocationMode === 'custom') return document.getElementById(idPrefix + 'CustomCode').value.trim();
@@ -12874,7 +12985,7 @@ async function applyConversionLocationAssignment(idPrefix, productId, qty){
   let newCode = null;
   if(targetVal.startsWith('loc:')){
     destLoc = productLocations.find(l => l.id === targetVal.slice(4));
-  } else if(targetVal === 'new'){
+  } else if(targetVal === 'new' || targetVal === 'lastPrimary'){
     newCode = buildLocationCodeFromPicker(idPrefix);
     if(!newCode) return; // 沒填完整位置資訊,當作沒選,新庫存留在未分布
     destLoc = productLocations.find(l => l.productId === productId && l.locationCode === newCode);
@@ -13146,11 +13257,13 @@ async function applyLocationDeductions(resolvedItems){
       if(alloc.qty > loc.qty){
         console.error(`位置 ${loc.locationCode} 數量不足(現有 ${loc.qty},要扣 ${alloc.qty}),扣到 0 為止,請去庫存分布頁面確認這個商品的位置資料是否需要人工核對。`);
       }
+      const wasPrimaryBeforeDeduction = getPrimaryLocation(loc.productId) === loc;
       loc.qty = Math.max(0, loc.qty - alloc.qty);
       try{
         if(loc.qty <= 0){
           await deleteProductLocationRow(loc.id);
           productLocations = productLocations.filter(l => l.id !== loc.id);
+          await rememberLastPrimaryLocationIfNowEmpty(loc, wasPrimaryBeforeDeduction);
         } else {
           await upsertProductLocation(loc);
         }
@@ -13189,7 +13302,9 @@ async function confirmLocationTransfer(){
   let existingDestLoc = null;
   if(targetVal === 'unassigned'){
     // 不用做任何目的地相關的事
-  } else if(targetVal === 'new'){
+  } else if(targetVal === 'new' || targetVal === 'lastPrimary'){
+    // lastPrimary 選項被選到的時候,欄位已經在 onLocationTargetSelectChange 裡自動帶入
+    // 之前記錄的位置資訊了,這裡直接當「新增位置」處理即可,不用另外寫一套邏輯。
     newCode = buildLocationCode();
     if(!newCode){ msgEl.className = 'msg error'; msgEl.textContent = t('errEnterLocationCode'); return; }
     existingDestLoc = productLocations.find(l => l.productId === productId && l.locationCode === newCode);
@@ -13226,10 +13341,12 @@ async function confirmLocationTransfer(){
 
     // 再處理來源:已存在的位置要扣掉轉移走的量,扣到 0 就整筆刪掉;未分布不用做任何事。
     if(sourceLoc){
+      const wasPrimaryBeforeDeduction = getPrimaryLocation(sourceLoc.productId) === sourceLoc;
       sourceLoc.qty -= qty;
       if(sourceLoc.qty <= 0){
         await deleteProductLocationRow(sourceLoc.id);
         productLocations = productLocations.filter(l => l.id !== sourceLoc.id);
+        await rememberLastPrimaryLocationIfNowEmpty(sourceLoc, wasPrimaryBeforeDeduction);
       } else {
         await upsertProductLocation(sourceLoc);
       }
