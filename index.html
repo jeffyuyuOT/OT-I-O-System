@@ -8348,10 +8348,10 @@ async function saveOrderItemQty(context, orderId, productId){
 
   // 數量改多代表要多扣庫存(補出貨)——商品分布在多個位置的話,先問清楚要從哪裡扣,邏輯跟訂單
   // 核對、直接出貨共用同一套機制。數量改少(退庫存)不用問,退回的庫存一律先算未分布。
-  let qtyChangeLocationChoice = null;
+  let qtyChangeAllocations = null;
   if(newQty > oldQty){
     try{
-      qtyChangeLocationChoice = await resolveLocationForItem(productId, newQty - oldQty);
+      qtyChangeAllocations = await resolveLocationAllocationsForItem(productId, newQty - oldQty);
     } catch(e){
       return; // 使用者取消了位置選擇,整個數量調整中止
     }
@@ -8391,8 +8391,8 @@ async function saveOrderItemQty(context, orderId, productId){
 
   // 伺服器那邊(adjust_order_item_qty RPC)已經確定扣庫存成功了,這裡才去動 product_locations,
   // 避免庫存扣了/位置卻沒對應更新的不一致。
-  if(qtyChangeLocationChoice){
-    await applyLocationDeductions([{ productId, qty: newQty - oldQty, choice: qtyChangeLocationChoice }]);
+  if(qtyChangeAllocations){
+    await applyLocationDeductions([{ productId, qty: newQty - oldQty, allocations: qtyChangeAllocations }]);
   }
 
   item.qty = newQty;
@@ -8572,18 +8572,22 @@ async function printOrderDocument(orderId, opts){
   // 只有商品分布在多個位置(含未分布)時才會真的跳出視窗問,只有一個來源的話直接用那個,
   // 不會無端打斷列印流程。中途按取消的話,這裡直接不印(跟訂單核對按取消的行為一致)。
   //
-  // 這裡選的位置會記到訂單自己身上(order.pickedLocationChoices),之後核對這張訂單、真的要
+  // 這裡選的位置會記到訂單自己身上(order.pickedLocationAllocations),之後核對這張訂單、真的要
   // 扣庫存的時候(verifyOrder)會直接沿用,不會重複問一次——不然撿貨單上印的是這裡選的位置,
   // 核對時卻可能選到不一樣的位置,會變成「單子上寫的」跟「系統實際扣的」對不起來。
   let locationLabelByProductId = {};
   if(includeCheck && stockLocationShowOnPickingSlip){
     try{
-      const choices = await resolveLocationChoicesForItems(items.map(it => ({ productId: it.productId, qty: it.qty })));
-      choices.forEach(c => {
-        locationLabelByProductId[c.productId] = c.choice ? c.choice.label : '';
+      const resolvedItems = await resolveLocationChoicesForItems(items.map(it => ({ productId: it.productId, qty: it.qty })));
+      resolvedItems.forEach(r => {
+        // 湊數量湊到好幾個來源的話,標籤就把每個來源跟各自的量都印出來,不會只看到一個地方、
+        // 但其實還有一部分是從別的地方湊來的。
+        locationLabelByProductId[r.productId] = (r.allocations || [])
+          .map(a => r.allocations.length > 1 ? `${a.label} (${a.qty})` : a.label)
+          .join(', ');
       });
-      order.pickedLocationChoices = choices.reduce((map, c) => {
-        map[c.productId] = c.choice;
+      order.pickedLocationAllocations = resolvedItems.reduce((map, r) => {
+        map[r.productId] = r.allocations;
         return map;
       }, {});
       try{ await upsertOrders([order]); }
@@ -8927,7 +8931,7 @@ async function verifyOrder(orderId){
     return;
   }
   showConfirmModal(tf('confirmVerifyOrder', {orderNo: order.orderNo || orderId, n: activeItems.length}), async () => {
-    // 扣庫存之前,先問清楚每個商品要從哪個位置扣——如果列印撿貨單的時候已經問過(order.pickedLocationChoices)
+    // 扣庫存之前,先問清楚每個商品要從哪個位置扣——如果列印撿貨單的時候已經問過(order.pickedLocationAllocations)
     // 而且那個答案現在還有效,直接沿用不用再問一次;只有沒問過、或答案已經失效(例如位置被轉走了)
     // 的商品才會真的跳出視窗問。中途按取消的話這裡會 throw,整個核對直接中止,不會扣庫存、
     // 也不會動任何位置資料。
@@ -8935,7 +8939,7 @@ async function verifyOrder(orderId){
     try{
       locationChoices = await resolveLocationChoicesForItemsWithPreset(
         activeItems.map(it => ({ productId: it.productId, qty: it.qty })),
-        order.pickedLocationChoices
+        order.pickedLocationAllocations
       );
     } catch(e){
       return; // 使用者在選位置的過程中按了取消,整個核對中止
@@ -13012,39 +13016,37 @@ function closeLocationPhotoViewModal(){
 // 「直接核對」「訂單核對頁面的左右比對確認」兩條路徑最後都會呼叫同一個 verifyOrder(),用的
 // 都是訂單自己的品項(order.items),所以只要在 verifyOrder() 裡插這一段,兩條路徑就都涵蓋到了,
 // 不用在兩個地方各寫一次。
+//
+// 支援「湊數量」:如果選的來源不夠這次要扣的量,會把那個來源全部用完,剩下還缺的量自動繼續
+// 問(從清單裡排除掉已經用完的來源),直到湊滿為止,不用使用者自己算好每個位置各拿多少。
 let locationChoiceResolver = null;
 let locationChoiceRejecter = null;
 let locationChoiceCurrentOptions = [];
 
-// 這個商品目前可以扣庫存的「來源」有哪些:每個實際存在、還有庫存的位置各一個選項,加上
-// 「未分布」(如果還有未分布的庫存)一個選項。這個清單只剩 1 個選項的話代表沒有模糊空間,
-// 不用問使用者、直接用那唯一的選項。
-// 這個商品目前可以扣「neededQty」這個數量的「來源」有哪些——只有數量「足夠」的位置才會被列為
-// 選項(不是只要 qty > 0 就算),不然選了一個位置但那裡的庫存其實不夠這次要扣的量,硬扣下去
-// 會讓那個位置的數量變成負的、或是數字對不起來,跟總庫存脫節。未分布一樣要數量足夠才會被列入。
-function getLocationChoicesForProduct(productId, neededQty){
-  const min = neededQty || 0;
+// 這個商品「目前」有庫存的來源清單(位置+未分布),可以用 virtualQtyOverrides 蓋掉某幾個來源的
+// 即時數量——同一次「湊數量」的過程裡,選過的來源要扣掉已經拿走的量再問下一輪,不然同一個
+// 來源可能被重複算到超過它實際能提供的量。
+function getLiveLocationChoicesForProduct(productId, virtualQtyOverrides){
+  const overrides = virtualQtyOverrides || {};
   const choices = productLocations
-    .filter(l => l.productId === productId && l.qty >= min)
-    .map(l => ({ type: 'location', id: l.id, label: l.locationCode, qty: l.qty }));
-  const unassigned = computeUnassignedQty(productId);
-  if(unassigned >= min){
-    choices.push({ type: 'unassigned', id: null, label: t('unassignedLocationLabel'), qty: unassigned });
+    .filter(l => l.productId === productId)
+    .map(l => ({ type: 'location', id: l.id, label: l.locationCode, qty: (overrides[l.id] !== undefined ? overrides[l.id] : l.qty) }))
+    .filter(c => c.qty > 0);
+  const unassignedQty = overrides.unassigned !== undefined ? overrides.unassigned : computeUnassignedQty(productId);
+  if(unassignedQty > 0){
+    choices.push({ type: 'unassigned', id: null, label: t('unassignedLocationLabel'), qty: unassignedQty });
   }
   return choices;
 }
 
-function resolveLocationForItem(productId, qty){
-  const choices = getLocationChoicesForProduct(productId, qty);
-  if(choices.length <= 1) return Promise.resolve(choices[0] || null);
-  const p = products.find(x => x.id === productId);
+function promptLocationChoice(product, remainingQty, choices){
   return new Promise((resolve, reject) => {
     locationChoiceResolver = resolve;
     locationChoiceRejecter = reject;
     locationChoiceCurrentOptions = choices;
-    document.getElementById('locationChoiceProductInfo').textContent = tf('locationChoiceProductInfoText', { name: p ? p.name : productId, qty, unit: p ? p.unit : '' });
+    document.getElementById('locationChoiceProductInfo').textContent = tf('locationChoiceProductInfoText', { name: product ? product.name : '', qty: remainingQty, unit: product ? product.unit : '' });
     document.getElementById('locationChoiceOptionsWrap').innerHTML = choices.map((c, i) =>
-      `<button class="btn ghost" style="text-align:left;" onclick="chooseLocationOption(${i})">${escapeHtmlForPrint(c.label)} (${c.qty} ${p ? escapeHtmlForPrint(p.unit) : ''})</button>`
+      `<button class="btn ghost" style="text-align:left;" onclick="chooseLocationOption(${i})">${escapeHtmlForPrint(c.label)} (${c.qty} ${product ? escapeHtmlForPrint(product.unit) : ''})</button>`
     ).join('');
     document.getElementById('locationChoiceModalOverlay').style.display = 'flex';
   });
@@ -13063,72 +13065,97 @@ function cancelLocationChoiceSequence(){
   if(reject) reject(new Error('cancelled'));
 }
 
-// 一次處理一整批品項的位置選擇,一個一個問(前一個選完/確定了,才會問下一個),回傳
-// [{productId, qty, choice}, ...]。中途按了取消,這個 function 會 throw,呼叫端要接住、
+// 湊出一個商品這次要扣的數量,回傳分配清單(通常只有一筆,湊數量的情況會有好幾筆):
+// [{type, id, label, qty}, ...],加總起來一定等於 neededQty。
+// ·目前只剩一個來源可以選 → 不用問,直接整批(或剩下的部分)用那個來源
+// ·有兩個以上來源 → 跳出視窗問,選了哪個來源不夠這次剩下要扣的量,就把它整個用完,
+//   剩下還缺的量自動繼續問(排除掉這個已經用完的來源),直到湊滿為止
+async function resolveLocationAllocationsForItem(productId, neededQty){
+  const product = products.find(x => x.id === productId);
+  const virtualQty = {};
+  let remaining = neededQty;
+  const allocations = [];
+
+  while(remaining > 0){
+    const liveChoices = getLiveLocationChoicesForProduct(productId, virtualQty);
+    if(liveChoices.length === 0) break; // 理論上不該發生:代表位置資料的總和跟總庫存本身就對不起來
+
+    const picked = liveChoices.length === 1
+      ? liveChoices[0]
+      : await promptLocationChoice(product, remaining, liveChoices);
+
+    const take = Math.min(picked.qty, remaining);
+    allocations.push({ type: picked.type, id: picked.id, label: picked.label, qty: take });
+    const key = picked.id || 'unassigned';
+    virtualQty[key] = picked.qty - take;
+    remaining -= take;
+  }
+  return allocations;
+}
+
+// 一次處理一整批品項的位置分配,一個一個問(前一個湊完/確定了,才會問下一個),回傳
+// [{productId, qty, allocations}, ...]。中途按了取消,這個 function 會 throw,呼叫端要接住、
 // 不要繼續往下扣庫存。
 async function resolveLocationChoicesForItems(items){
   const results = [];
   for(const it of items){
-    const choice = await resolveLocationForItem(it.productId, it.qty);
-    results.push({ productId: it.productId, qty: it.qty, choice });
+    const allocations = await resolveLocationAllocationsForItem(it.productId, it.qty);
+    results.push({ productId: it.productId, qty: it.qty, allocations });
   }
   return results;
 }
 
-// 核對訂單時用:如果這張訂單在列印撿貨單的時候已經問過、記錄下每個商品要從哪個位置扣
-// (order.pickedLocationChoices),這裡優先沿用那個答案,不用重新問一次——避免撿貨單上印的
-// 位置跟核對時系統實際扣的位置對不起來。但沿用之前要先確認那個位置現在還有效(選的是某個
-// 真實位置的話,那個位置要還存在、庫存也要還夠;選未分布的話一定有效,因為未分布是即時算的):
-// 如果列印之後位置資料變動過、答案不再有效,還是會重新跳出視窗問這個商品,不會硬用舊答案。
+// 核對訂單時用:如果這張訂單在列印撿貨單的時候已經問過、記錄下每個商品要從哪些位置扣
+// (order.pickedLocationAllocations),這裡優先沿用那個答案,不用重新問一次——避免撿貨單上印的
+// 位置跟核對時系統實際扣的位置對不起來。但沿用之前要先確認裡面「每一筆」分配現在都還有效
+// (選的是某個真實位置的話,那個位置要還存在、庫存也要還夠那一筆分配的量;選未分布的話一定
+// 有效,因為未分布是即時算的):只要其中任何一筆已經失效,就整個放棄這組舊答案、當作沒問過,
+// 重新走一次完整的湊數量流程,不會勉強拼湊一半新一半舊的答案。
 async function resolveLocationChoicesForItemsWithPreset(items, presetMap){
   const results = [];
   for(const it of items){
     const preset = presetMap ? presetMap[it.productId] : null;
-    let choice = null;
     let presetStillValid = false;
-    if(preset){
-      if(preset.type === 'unassigned'){
-        presetStillValid = true;
-        choice = preset;
-      } else if(preset.type === 'location'){
-        const loc = productLocations.find(l => l.id === preset.id);
-        if(loc && loc.qty >= it.qty){
-          presetStillValid = true;
-          choice = { type: 'location', id: loc.id, label: loc.locationCode, qty: loc.qty };
+    if(Array.isArray(preset) && preset.length > 0){
+      const sumQty = preset.reduce((s, a) => s + a.qty, 0);
+      presetStillValid = sumQty === it.qty && preset.every(a => {
+        if(a.type === 'unassigned') return true;
+        if(a.type === 'location'){
+          const loc = productLocations.find(l => l.id === a.id);
+          return !!loc && loc.qty >= a.qty;
         }
-      }
+        return false;
+      });
     }
-    if(!presetStillValid){
-      choice = await resolveLocationForItem(it.productId, it.qty);
-    }
-    results.push({ productId: it.productId, qty: it.qty, choice });
+    const allocations = presetStillValid ? preset : await resolveLocationAllocationsForItem(it.productId, it.qty);
+    results.push({ productId: it.productId, qty: it.qty, allocations });
   }
   return results;
 }
 
-// 核對通過、伺服器那邊的庫存已經真的扣完之後,才去動 product_locations 這幾筆資料——選了哪個
-// 位置就扣哪個位置(扣到 0 就整筆刪掉);選了未分布的話不用做任何事,因為未分布本來就是用
+// 核對通過、伺服器那邊的庫存已經真的扣完之後,才去動 product_locations 這幾筆資料——每一筆
+// 分配各自扣各自的位置(扣到 0 就整筆刪掉);未分布不用做任何事,因為未分布本來就是用
 // 「總庫存 - 各位置總和」算出來的,伺服器那邊扣完總庫存,未分布數字自然就跟著變了。
-async function applyLocationDeductions(resolvedChoices){
-  for(const { qty, choice } of resolvedChoices){
-    if(!choice || choice.type !== 'location') continue;
-    const loc = productLocations.find(l => l.id === choice.id);
-    if(!loc) continue;
-    // 保險起見:就算選項清單當下給的答案後來過期了(例如兩個人幾乎同時操作、中間庫存被
-    // 別的地方動過),這裡也不會讓這個位置的數量被扣成負的——最多扣到 0,不會讓位置資料
-    // 本身變得比實際情況更離譜。
-    if(qty > loc.qty){
-      console.error(`位置 ${loc.locationCode} 數量不足(現有 ${loc.qty},要扣 ${qty}),扣到 0 為止,請去庫存分布頁面確認這個商品的位置資料是否需要人工核對。`);
-    }
-    loc.qty = Math.max(0, loc.qty - qty);
-    try{
-      if(loc.qty <= 0){
-        await deleteProductLocationRow(loc.id);
-        productLocations = productLocations.filter(l => l.id !== loc.id);
-      } else {
-        await upsertProductLocation(loc);
+async function applyLocationDeductions(resolvedItems){
+  for(const { allocations } of resolvedItems){
+    if(!Array.isArray(allocations)) continue;
+    for(const alloc of allocations){
+      if(!alloc || alloc.type !== 'location') continue;
+      const loc = productLocations.find(l => l.id === alloc.id);
+      if(!loc) continue;
+      if(alloc.qty > loc.qty){
+        console.error(`位置 ${loc.locationCode} 數量不足(現有 ${loc.qty},要扣 ${alloc.qty}),扣到 0 為止,請去庫存分布頁面確認這個商品的位置資料是否需要人工核對。`);
       }
-    } catch(e){ console.error('核對扣庫存後同步位置數量失敗', e); }
+      loc.qty = Math.max(0, loc.qty - alloc.qty);
+      try{
+        if(loc.qty <= 0){
+          await deleteProductLocationRow(loc.id);
+          productLocations = productLocations.filter(l => l.id !== loc.id);
+        } else {
+          await upsertProductLocation(loc);
+        }
+      } catch(e){ console.error('核對扣庫存後同步位置數量失敗', e); }
+    }
   }
 }
 
