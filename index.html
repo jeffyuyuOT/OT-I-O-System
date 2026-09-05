@@ -999,7 +999,9 @@
         </div>
 
         <div class="settings-card">
-          <div class="section-title" data-i18n="secStockLocationMode">Stock Location — 格式</div>
+          <div class="section-title" data-i18n="secStockLocationMode">Stock Location</div>
+
+          <div style="font-size:12.5px;font-weight:700;color:var(--ink);margin:4px 0 6px;" data-i18n="subsecStockLocationFormat">格式</div>
           <p style="font-size:11.5px;color:var(--ink-soft);margin:0 0 8px;" data-i18n="stockLocationModeHint">
             決定「庫存分布」頁面新增/編輯位置時,要怎麼填位置資訊。標準模式強制照 Zone-Aisle-Bay-Level-Bin 分開填寫(例如 A03-12-02-1);自訂模式可以自己輸入整串位置文字。
           </p>
@@ -1023,10 +1025,8 @@
           </div>
           <button class="btn" onclick="saveStockLocationSettings()" data-i18n="btnSave">儲存</button>
           <div id="stockLocationSettingsMsg" class="msg"></div>
-        </div>
 
-        <div class="settings-card">
-          <div class="section-title" data-i18n="secStockLocationPrint">Stock Location — 列印</div>
+          <div style="font-size:12.5px;font-weight:700;color:var(--ink);margin:18px 0 6px;padding-top:14px;border-top:1px solid var(--line);" data-i18n="subsecStockLocationPrint">列印</div>
           <p style="font-size:11.5px;color:var(--ink-soft);margin:0 0 8px;" data-i18n="stockLocationPrintHint">
             勾選後,Picking Slip 最前面會多印一欄「Stock Location」。如果商品有多個位置,列印之前會先跳出視窗問要從哪個位置拿取、印出那個位置。
           </p>
@@ -2858,12 +2858,12 @@ const I18N = {
     secAccountingEmail: '會計 Email',
     accountingEmailHint: '進貨單勾選「寄送給會計」時,預設帶入的收件人地址(送出前還是可以改成別的地址)。',
     secStockLocationMode: 'Stock Location',
+    subsecStockLocationFormat: '格式', subsecStockLocationPrint: '列印',
     stockLocationModeHint: '決定「庫存分布」頁面新增/編輯位置時,要怎麼填位置資訊。標準模式強制照 Zone-Aisle-Bay-Level-Bin 分開填寫(例如 A03-12-02-1);自訂模式可以自己輸入整串位置文字。',
     stockLocationModeStandard: '標準模式(Zone-Aisle-Bay-Level-Bin)', stockLocationModeCustom: '自訂',
     stockLocationSelectProductHint: '選一項商品,查看它的位置分布。',
     chkShowAllUnassigned: '列出所有未指派商品', noUnassignedProductsHint: '目前沒有未指派的商品。',
     settingsSavedMsg: '✓ 已儲存',
-    secStockLocationPrint: 'Stock Location — 列印',
     stockLocationPrintHint: '勾選後,Picking Slip 最前面會多印一欄「Stock Location」。如果商品有多個位置,列印之前會先跳出視窗問要從哪個位置拿取、印出那個位置。',
     chkShowLocationOnPickingSlip: 'Picking Slip 顯示 Stock Location',
     stockLocationFieldsHint: '標準模式底下實際要用到哪幾個欄位(不是每個倉庫都需要用滿 5 個)。',
@@ -3342,12 +3342,12 @@ const I18N = {
     secAccountingEmail: 'Accounting Email',
     accountingEmailHint: 'Default recipient address filled in when a purchase is checked "Email to accounting" (you can still change it before sending).',
     secStockLocationMode: 'Stock Location',
+    subsecStockLocationFormat: 'Format', subsecStockLocationPrint: 'Printing',
     stockLocationModeHint: 'Controls how location info is entered when adding/editing a location on the Stock Location page. Standard mode enforces separate Zone-Aisle-Bay-Level-Bin fields (e.g. A03-12-02-1); Custom mode lets you type the whole location string freely.',
     stockLocationModeStandard: 'Standard (Zone-Aisle-Bay-Level-Bin)', stockLocationModeCustom: 'Custom',
     stockLocationSelectProductHint: 'Select a product to see its location breakdown.',
     chkShowAllUnassigned: 'List all unassigned products', noUnassignedProductsHint: 'No unassigned products right now.',
     settingsSavedMsg: '✓ Saved',
-    secStockLocationPrint: 'Stock Location — Printing',
     stockLocationPrintHint: 'When checked, the Picking Slip will print a "Stock Location" column first. If a product is stored in multiple locations, a prompt will ask which location to take from before printing, and that location will be printed.',
     chkShowLocationOnPickingSlip: 'Show Stock Location on Picking Slip',
     stockLocationFieldsHint: 'Which fields Standard mode actually uses (not every warehouse needs all 5).',
@@ -8633,16 +8633,21 @@ async function printOrderDocument(orderId, opts){
   // 這裡選的位置會記到訂單自己身上(order.pickedLocationAllocations),之後核對這張訂單、真的要
   // 扣庫存的時候(verifyOrder)會直接沿用,不會重複問一次——不然撿貨單上印的是這裡選的位置,
   // 核對時卻可能選到不一樣的位置,會變成「單子上寫的」跟「系統實際扣的」對不起來。
+  //
+  // 同一張訂單如果之前已經列印過一次、問過位置了,這次再印(例如倉庫改了訂單裡其他商品,
+  // 但沒動到這個商品)——沒被改到的商品直接沿用上次選的答案,不用重新問;只有真的被改過
+  // (數量變了、或位置資料本身變得不夠用了)的商品才會重新跳出來問。
   let locationLabelByProductId = {};
+  let locationAllocationsByProductId = {};
   if(includeCheck && stockLocationShowOnPickingSlip){
     try{
-      const resolvedItems = await resolveLocationChoicesForItems(items.map(it => ({ productId: it.productId, qty: it.qty })));
+      const resolvedItems = await resolveLocationChoicesForItemsWithPreset(
+        items.map(it => ({ productId: it.productId, qty: it.qty })),
+        order.pickedLocationAllocations
+      );
       resolvedItems.forEach(r => {
-        // 湊數量湊到好幾個來源的話,標籤就把每個來源跟各自的量都印出來,不會只看到一個地方、
-        // 但其實還有一部分是從別的地方湊來的。
-        locationLabelByProductId[r.productId] = (r.allocations || [])
-          .map(a => r.allocations.length > 1 ? `${a.label} (${a.qty})` : a.label)
-          .join(', ');
+        locationAllocationsByProductId[r.productId] = r.allocations || [];
+        locationLabelByProductId[r.productId] = (r.allocations || []).map(a => a.label).join(', ');
       });
       order.pickedLocationAllocations = resolvedItems.reduce((map, r) => {
         map[r.productId] = r.allocations;
@@ -8698,19 +8703,23 @@ async function printOrderDocument(orderId, opts){
   }
   const hasAnyNote = items.some(it => itemNoteFor(it));
 
-  const rowsHtml = items.map(it => {
-    // 訂貨頁面附註跟商品名稱印在同一欄:字型縮小、用括號接在名稱後面,只有 picking slip
-    // (includeCheck)才會有,已完成訂單維持原樣不印訂貨頁面附註。
+  // 印一列的共用函式:qtyOverride/locationLabelOverride 給「一個商品拆成好幾個位置、好幾列」
+  // 的情況用——同一個商品拆成多列時,每一列各自顯示自己那個位置、自己那部分的數量,SKU/商品名/
+  // 單位這些照樣重複顯示在每一列(讓每一列自己看就懂,不用回頭對照上一列),不會擠在同一欄
+  // 位裡反而壓縮到商品名稱欄的空間。
+  function buildPrintRow(it, qtyOverride, locationLabelOverride){
     const remark = remarkFor(it);
     const nameCell = `${escapeHtmlForPrint(it.name)}${remark ? ` <span style="font-size:11px;color:#666;">(${remark})</span>` : ''}`;
     const pickingNoteTd = (includeCheck && hasAnyNote) ? `<td class="borderless-col">${itemNoteFor(it)}</td>` : '';
     const completedNoteTd = (!includeCheck && hasAnyNote) ? `<td class="fit-col">${itemNoteFor(it)}</td>` : '';
+    const displayQty = qtyOverride !== undefined ? qtyOverride : it.qty;
+    const locationCell = locationLabelOverride !== undefined ? escapeHtmlForPrint(locationLabelOverride) : locationLabelFor(it);
     return `
     <tr>
-      ${(includeCheck && stockLocationShowOnPickingSlip) ? `<td class="borderless-col">${locationLabelFor(it)}</td>` : ''}
+      ${(includeCheck && stockLocationShowOnPickingSlip) ? `<td class="borderless-col">${locationCell}</td>` : ''}
       ${includeSku ? `<td class="sku-col">${escapeHtmlForPrint(it.sku)}</td>` : ''}
       <td>${nameCell}</td>
-      <td class="qty-col" style="text-align:right;">${it.qty}</td>
+      <td class="qty-col" style="text-align:right;">${displayQty}</td>
       <td class="unit-col">${escapeHtmlForPrint(it.unit)}</td>
       ${includeCheck ? `<td class="check-col"></td>` : ''}
       ${pickingNoteTd}
@@ -8718,6 +8727,15 @@ async function printOrderDocument(orderId, opts){
       ${completedNoteTd}
     </tr>
   `;
+  }
+
+  const rowsHtml = items.map(it => {
+    const allocations = (includeCheck && stockLocationShowOnPickingSlip) ? (locationAllocationsByProductId[it.productId] || []) : [];
+    if(allocations.length > 1){
+      // 湊了好幾個位置才夠這個商品的數量:每個位置各自獨立一列,不要擠在同一列裡。
+      return allocations.map(a => buildPrintRow(it, a.qty, a.label)).join('');
+    }
+    return buildPrintRow(it);
   }).join('');
   const checkTh = includeCheck ? `<th class="check-col">${escapeHtmlForPrint('Check')}</th>` : '';
   const skuTh = includeSku ? `<th class="sku-col">${escapeHtmlForPrint('SKU')}</th>` : '';
