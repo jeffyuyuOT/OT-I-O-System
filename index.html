@@ -2944,6 +2944,7 @@ const I18N = {
     processingMsg: '處理中,請稍候…',
     emailedToTitle: '已寄給 {email}({when})',
     colPurchaseDate: '日期', colPurchaseParty: '進貨方', colPurchaseInvoiceNo: 'Invoice',
+    hasReceiptAttachedTitle: '已附收據',
     noPurchasesYet: '尚無進貨單紀錄', purchaseItemsLabel: '品項', purchaseNoReceiptLabel: '(沒有附件)',
     purchaseNoteLabel: '備註:{note}',
     btnExportPurchaseLog: '📤 匯出這張進貨單',
@@ -3436,6 +3437,7 @@ const I18N = {
     processingMsg: 'Processing, please wait…',
     emailedToTitle: 'Sent to {email} ({when})',
     colPurchaseDate: 'Date', colPurchaseParty: 'Supplier', colPurchaseInvoiceNo: 'Invoice',
+    hasReceiptAttachedTitle: 'Receipt attached',
     noPurchasesYet: 'No purchase records yet', purchaseItemsLabel: 'Items', purchaseNoReceiptLabel: '(no attachment)',
     purchaseNoteLabel: 'Note: {note}',
     btnExportPurchaseLog: '📤 Export this purchase',
@@ -11108,7 +11110,7 @@ function renderPurchaseLog(){
           <tr>
             <td class="pl-date" style="cursor:pointer;white-space:nowrap;" onclick="togglePurchaseDetail('${p.id}')"><span class="td-mobile-label">${t('colPurchaseDate')}</span>${escapeHtmlForPrint(p.date || '')}</td>
             <td class="pl-party" style="cursor:pointer;" onclick="togglePurchaseDetail('${p.id}')"><span class="td-mobile-label">${t('colPurchaseParty')}</span>${escapeHtmlForPrint(p.partyName || p.partyId || '')}</td>
-            <td class="pl-invoice" style="cursor:pointer;" onclick="togglePurchaseDetail('${p.id}')"><span class="td-mobile-label">${t('colPurchaseInvoiceNo')}</span>${escapeHtmlForPrint(p.invoiceNo || '')}</td>
+            <td class="pl-invoice" style="cursor:pointer;" onclick="togglePurchaseDetail('${p.id}')"><span class="td-mobile-label">${t('colPurchaseInvoiceNo')}</span>${escapeHtmlForPrint(p.invoiceNo || '')}${getPurchaseReceiptFileList(p).length > 0 ? ` <span title="${t('hasReceiptAttachedTitle')}">📎</span>` : ''}</td>
             <td class="pl-actions" style="white-space:nowrap;">
               <span class="del-link" onclick="openEditPurchaseModal('${p.id}')">${t('btnEdit')}</span>
               &nbsp;·&nbsp;
