@@ -21,6 +21,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.1.0/dist/tesseract.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <style>
   :root{
     --bg:#EBE8E0;
@@ -2895,6 +2896,7 @@ const I18N = {
     errReceiptScanNoImage: '請先上傳一張圖片格式的收據(目前不支援直接掃描 PDF)',
     errReceiptScanLibFailed: '掃描功能載入失敗,請重新整理頁面再試一次',
     scanningReceiptMsg: '掃描中,請稍候…', errReceiptScanNoLines: '沒有辨識出任何品項,請確認圖片清晰,或直接手動新增商品',
+    convertingPdfMsg: 'PDF 轉換中,請稍候…', errPdfConvertFailed: 'PDF 轉換失敗,請確認檔案沒有損毀,或改上傳圖片格式的收據',
     receiptScanFoundLinesMsg: '辨識到 {n} 個品項,開始逐一確認', errReceiptScanFailed: '掃描失敗,請重新整理頁面再試一次',
     receiptOcrProgressText: '還有 {remaining} 個品項待確認',
     errReceiptFileType: '請選擇圖片或 PDF 檔案', errReceiptTooLarge: '檔案太大,請壓縮到 10MB 以下',
@@ -3388,6 +3390,7 @@ const I18N = {
     errReceiptScanNoImage: 'Please upload a receipt image first (scanning a PDF directly is not supported yet)',
     errReceiptScanLibFailed: 'Failed to load the scanning feature, please refresh the page and try again',
     scanningReceiptMsg: 'Scanning, please wait…', errReceiptScanNoLines: 'No items were recognized — make sure the image is clear, or add products manually',
+    convertingPdfMsg: 'Converting PDF, please wait…', errPdfConvertFailed: 'PDF conversion failed — please check the file isn\'t corrupted, or upload an image receipt instead',
     receiptScanFoundLinesMsg: 'Recognized {n} item(s), confirming one by one', errReceiptScanFailed: 'Scan failed, please refresh the page and try again',
     receiptOcrProgressText: '{remaining} item(s) left to confirm',
     errReceiptFileType: 'Please select an image or PDF file', errReceiptTooLarge: 'File is too large, please compress it under 10MB',
@@ -10483,10 +10486,11 @@ function renderPurchaseReceiptPreviewList(){
       <span class="del-link" onclick="removePurchaseReceiptFile(${i})">${t('btnRemoveFile')}</span>
     </div>
   `).join('');
-  // 掃描功能只支援圖片格式(Tesseract.js 讀圖片辨識文字,不支援直接讀 PDF),有上傳圖片檔案
-  // 才顯示這個按鈕,只上傳 PDF 的話不顯示,不用讓使用者按了才發現不能用。
-  const hasImageFile = pendingPurchaseReceiptFiles.some(f => /\.(jpe?g|png|gif|bmp|webp)$/i.test(f.filename || f.url));
-  if(scanWrap) scanWrap.style.display = hasImageFile ? 'block' : 'none';
+  // 掃描功能支援圖片跟 PDF——PDF 的話會先在瀏覽器裡用 PDF.js 把第一頁畫成圖片,再照跟圖片
+  // 一樣的流程做文字辨識(見 scanReceiptForItems)。有上傳圖片或 PDF 檔案才顯示這個按鈕,
+  // 只上傳其他格式(理論上不該發生,上傳欄位本身就限制只能選圖片/PDF)才不顯示。
+  const hasScannableFile = pendingPurchaseReceiptFiles.some(f => /\.(jpe?g|png|gif|bmp|webp|pdf)$/i.test(f.filename || f.url));
+  if(scanWrap) scanWrap.style.display = hasScannableFile ? 'block' : 'none';
 }
 
 function removePurchaseReceiptFile(index){
@@ -10530,9 +10534,26 @@ function parseReceiptLine(rawLine){
   return { description, qty: (qty && qty > 0) ? qty : 1, amount: (amount && amount > 0) ? amount : null };
 }
 
+// PDF 收據先在瀏覽器裡用 PDF.js 把第一頁畫成一張圖片(轉成 data URL),再照跟一般圖片一樣的
+// 流程丟給 Tesseract.js 做文字辨識——多頁的 PDF 目前只處理第一頁,常見的單頁發票/收據沒問題,
+// 如果常常是好幾頁的長發票,之後可以再擴充成每頁都掃、品項合併。
+async function renderFirstPdfPageAsImageDataUrl(pdfUrl){
+  if(typeof pdfjsLib === 'undefined') throw new Error('pdfjs not loaded');
+  pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+  const pdf = await pdfjsLib.getDocument(pdfUrl).promise;
+  const page = await pdf.getPage(1);
+  const scale = 2; // 放大一點畫,辨識準確度通常會比原始 PDF 預設解析度好
+  const viewport = page.getViewport({ scale });
+  const canvas = document.createElement('canvas');
+  canvas.width = viewport.width;
+  canvas.height = viewport.height;
+  await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
+  return canvas.toDataURL('image/png');
+}
+
 async function scanReceiptForItems(){
   const msgEl = document.getElementById('purchaseReceiptScanMsg');
-  const file = pendingPurchaseReceiptFiles.find(f => /\.(jpe?g|png|gif|bmp|webp)$/i.test(f.filename || f.url));
+  const file = pendingPurchaseReceiptFiles.find(f => /\.(jpe?g|png|gif|bmp|webp|pdf)$/i.test(f.filename || f.url));
   if(!file){
     msgEl.style.color = 'var(--crit)';
     msgEl.textContent = t('errReceiptScanNoImage');
@@ -10543,15 +10564,18 @@ async function scanReceiptForItems(){
     msgEl.textContent = t('errReceiptScanLibFailed');
     return;
   }
+  const isPdf = /\.pdf$/i.test(file.filename || file.url);
   const partyInput = document.getElementById('txParty');
   receiptOcrPartyId = partyInput ? partyInput.value.trim() : null;
 
   const btn = document.getElementById('btnScanReceipt');
   btn.disabled = true;
   msgEl.style.color = 'var(--ink-soft)';
-  msgEl.textContent = t('scanningReceiptMsg');
+  msgEl.textContent = isPdf ? t('convertingPdfMsg') : t('scanningReceiptMsg');
   try{
-    const result = await Tesseract.recognize(file.url, 'eng');
+    const ocrSource = isPdf ? await renderFirstPdfPageAsImageDataUrl(file.url) : file.url;
+    if(isPdf) msgEl.textContent = t('scanningReceiptMsg');
+    const result = await Tesseract.recognize(ocrSource, 'eng');
     const rawText = result.data.text || '';
     const lines = rawText.split('\n').map(parseReceiptLine).filter(Boolean);
     if(lines.length === 0){
@@ -10566,7 +10590,7 @@ async function scanReceiptForItems(){
   } catch(e){
     console.error('收據 OCR 辨識失敗', e);
     msgEl.style.color = 'var(--crit)';
-    msgEl.textContent = t('errReceiptScanFailed');
+    msgEl.textContent = isPdf ? t('errPdfConvertFailed') : t('errReceiptScanFailed');
   } finally {
     btn.disabled = false;
   }
