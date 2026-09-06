@@ -955,6 +955,7 @@
       <div class="section-title" style="margin-bottom:12px;" data-i18n="tabMaster">系統管理</div>
       <div class="subtab-bar">
         <button class="subtab-btn active" onclick="switchSystemSubTab('subtab-sys-users')" id="btn-subtab-sys-users" data-i18n="secUserManagement">使用者管理</button>
+        <button class="subtab-btn" onclick="switchSystemSubTab('subtab-sys-purchase-mgmt')" id="btn-subtab-sys-purchase-mgmt" data-i18n="subtabPurchaseMgmt">進貨管理</button>
         <button class="subtab-btn" onclick="switchSystemSubTab('subtab-sys-settings')" id="btn-subtab-sys-settings" data-i18n="subtabSysSettings">系統設置</button>
         <button class="subtab-btn" onclick="switchSystemSubTab('subtab-sys-product')" id="btn-subtab-sys-product" data-i18n="subtabSysProduct">商品主頁</button>
       </div>
@@ -978,6 +979,42 @@
           4. <span data-i18n-html="addUserStep4">展開 User Metadata,貼上例如 <code>{"username": "tom", "role": "order"}</code>(role 可填 admin / order / inventory)</span><br>
           5. <span data-i18n="addUserStep5">存檔後,這個帳號就會自動出現在上面的清單,可再細部調整他能看到哪些分頁。</span>
         </p>
+      </div>
+
+      <div id="subtab-sys-purchase-mgmt" class="subtab-content">
+        <div class="subtab-bar" style="margin-bottom:14px;">
+          <button class="subtab-btn active" onclick="switchPurchaseMgmtSubTab('subtab-purchase-mgmt-suppliers')" id="btn-subtab-purchase-mgmt-suppliers" data-i18n="secSupplierManagement">進貨方管理</button>
+          <button class="subtab-btn" onclick="switchPurchaseMgmtSubTab('subtab-purchase-mgmt-ocrdb')" id="btn-subtab-purchase-mgmt-ocrdb" data-i18n="secReceiptOcrDb">掃描收據數據庫</button>
+        </div>
+
+        <div id="subtab-purchase-mgmt-suppliers" class="subtab-content active-subtab">
+          <div class="toolbar">
+            <div class="section-title" style="margin:0;" data-i18n="secSupplierManagement">進貨方管理</div>
+            <button class="btn" onclick="openSupplierEditModal(null)" data-i18n="btnAddSupplier">+ 新增供應商</button>
+          </div>
+          <p style="font-size:11.5px;color:var(--ink-soft);margin:0 0 12px;" data-i18n="supplierManagementDesc">
+            登記進出貨的進貨方下拉選單會依這個清單顯示(依名稱排序);刪除的供應商不會再出現在下拉選單裡,但不會影響已經建立的進貨單紀錄。
+          </p>
+          <div id="supplierManagementTable"></div>
+        </div>
+
+        <div id="subtab-purchase-mgmt-ocrdb" class="subtab-content">
+          <div class="section-title" data-i18n="secReceiptOcrDb">掃描收據數據庫</div>
+          <p style="font-size:11.5px;color:var(--ink-soft);margin:0 0 12px;" data-i18n="receiptOcrDbDesc">
+            管理收據掃描的記憶對照表。選一項商品,查看有哪些供應商、哪些 OCR 讀到的文字被記住對應到這個商品,如果之前不小心對到錯的商品,可以在這裡刪除,下次掃描到同樣文字就會重新跳出來問。
+          </p>
+          <div class="filter-row">
+            <div class="field">
+              <label data-i18n="fieldFilterByCategory">依分類篩選商品</label>
+              <select id="ocrDbCategoryFilter" onchange="resetSearchableSelect('ocrDbProductSelect'); renderOcrDbProductSelect();"></select>
+            </div>
+            <div class="field" style="min-width:260px;">
+              <label data-i18n="lblProduct">商品</label>
+              <select id="ocrDbProductSelect" onchange="renderOcrDbMappingList()"></select>
+            </div>
+          </div>
+          <div id="ocrDbMappingList"></div>
+        </div>
       </div>
 
       <div id="subtab-sys-settings" class="subtab-content">
@@ -2103,6 +2140,10 @@
       <input type="text" id="receiptOcrRawTextDisplay" style="width:100%;background:var(--bg);" disabled />
     </div>
     <div class="field-block">
+      <label data-i18n="fieldFilterByCategory">依分類篩選商品</label>
+      <select id="receiptOcrCategoryFilter" onchange="renderReceiptOcrProductOptions()" style="width:100%;"></select>
+    </div>
+    <div class="field-block">
       <label data-i18n="lblProduct">商品</label>
       <select id="receiptOcrProductSelect"></select>
     </div>
@@ -2121,6 +2162,33 @@
       <button class="btn ghost" onclick="skipReceiptOcrLine()" data-i18n="btnSkip">略過這一行</button>
       <button class="btn ghost" onclick="cancelReceiptOcrSequence()" data-i18n="btnCancel">取消全部</button>
       <button class="btn" onclick="confirmReceiptOcrLine()" data-i18n="btnConfirmAndAdd">確認並加入</button>
+    </div>
+  </div>
+</div>
+
+<div id="supplierEditModalOverlay" class="modal-overlay" style="display:none;">
+  <div class="modal-box" style="max-width:min(440px, 92vw);">
+    <div class="section-title" style="margin-bottom:12px;" id="supplierEditModalTitle" data-i18n="modalAddSupplierTitle">新增供應商</div>
+    <div class="field-block">
+      <label data-i18n="fieldSupplierName">名稱</label>
+      <input type="text" id="supplierNameInput" style="width:100%;" />
+    </div>
+    <div class="field-block">
+      <label data-i18n="fieldSupplierPhone">電話(選填)</label>
+      <input type="text" id="supplierPhoneInput" style="width:100%;" />
+    </div>
+    <div class="field-block">
+      <label data-i18n="fieldSupplierAddress">住址(選填)</label>
+      <input type="text" id="supplierAddressInput" style="width:100%;" />
+    </div>
+    <div class="field-block">
+      <label data-i18n="fieldSupplierNote">附註(選填,例如送貨時間、限制)</label>
+      <textarea id="supplierNoteInput" style="width:100%;min-height:60px;font-family:inherit;"></textarea>
+    </div>
+    <div id="supplierEditModalMsg" class="msg"></div>
+    <div class="modal-actions">
+      <button class="btn ghost" onclick="closeSupplierEditModal()" data-i18n="btnCancel">取消</button>
+      <button class="btn" onclick="saveSupplierEdit()" data-i18n="btnSave">儲存</button>
     </div>
   </div>
 </div>
@@ -2357,7 +2425,8 @@ let stockLocationEnabledFields = { zone: true, aisle: true, bay: true, level: tr
 let stockLocationShowOnPickingSlip = false; // Picking Slip 要不要多印一欄 Stock Location(印之前,如果商品有多個位置會先問要印哪一個)
 let receiptLineMappings = []; // 收據辨識的記憶對照表:{id, partyId, normalizedText, productId}。同一個供應商+同樣的 OCR 文字之前確認過對應到哪個商品,下次直接沿用不用再問。
 let pendingReceiptOcrLines = []; // 這次掃描收據、還在等使用者確認的品項清單(掃描完先暫存在這裡,確認視窗一次一筆處理)
-let receiptSupplierFormats = {}; // 每個供應商收據格式的學習結果:{ [partyId]: { qtyAmountSwapped: true/false } } ——qtyAmountSwapped 為 true 代表這個供應商的收據,數量/金額在行尾的順序跟預設猜測相反
+let receiptSupplierFormats = {}; // 每個供應商收據格式的學習結果:{ [partyId]: { qtyIndexFromEnd, amountIndexFromEnd } } ——數字都是「從這行抓到的數字裡,從尾端數過來第幾個」(0 是最後一個)
+let purchaseSuppliers = []; // 進貨方管理:{id, name, phone, address, note}。登記進出貨的進貨方下拉選單依這張清單顯示(依名稱字母排序),刪除的供應商不會再出現在下拉選單裡
 let shippingParties = [];
 let currentTxType = 'in';
 let pendingPurchaseReceiptFiles = []; // 進貨單收據附件(支援多檔案):[{url, filename}, ...],submitTxBatchSimple() 送出進貨單時會用到,送出後清空
@@ -2861,6 +2930,20 @@ const I18N = {
     tabOrderSectionDesc: '調整上方分頁列(系統管理、庫存管理…等)顯示的先後順序。',
     tabOrderPanelDesc: '用箭頭調整分頁在畫面上排列的順序。',
     subtabSysSettings: '系統設置', subtabSysProduct: '商品主頁',
+    subtabPurchaseMgmt: '進貨管理',
+    secSupplierManagement: '進貨方管理', secReceiptOcrDb: '掃描收據數據庫',
+    btnAddSupplier: '+ 新增供應商',
+    supplierManagementDesc: '登記進出貨的進貨方下拉選單會依這個清單顯示(依名稱排序);刪除的供應商不會再出現在下拉選單裡,但不會影響已經建立的進貨單紀錄。',
+    receiptOcrDbDesc: '管理收據掃描的記憶對照表。選一項商品,查看有哪些供應商、哪些 OCR 讀到的文字被記住對應到這個商品,如果之前不小心對到錯的商品,可以在這裡刪除,下次掃描到同樣文字就會重新跳出來問。',
+    noSuppliersYet: '尚無供應商紀錄',
+    modalEditSupplierTitle: '編輯供應商', modalAddSupplierTitle: '新增供應商',
+    fieldSupplierName: '名稱', fieldSupplierPhone: '電話', fieldSupplierAddress: '住址', fieldSupplierNote: '附註',
+    errEnterSupplierName: '請填寫供應商名稱', errSupplierNameDuplicate: '已經有同名的供應商了',
+    confirmDeleteSupplier: '確定要刪除供應商「{name}」嗎?這不會影響已經建立的進貨單紀錄。',
+    ocrDbSelectProductHint: '選一項商品,查看記憶對照表裡有哪些收據文字對應到它。',
+    ocrDbNoMappingsHint: '這個商品目前沒有任何收據辨識記憶。',
+    colSupplier: '供應商', ocrDbAnySupplierLabel: '(不限供應商)',
+    confirmDeleteOcrMapping: '確定要刪除這筆收據辨識記憶嗎?下次掃描到同樣的文字會重新跳出來問。',
     subtabTxRegister: '登記進出貨', subtabTxVerify: '訂單核對', subtabTxForecast: '進貨預估', subtabTxData: '資料維護',
     secForecast: '進貨預估',
     forecastDesc: '目前庫存可撐是跟庫存總覽一樣的算法(用平均出貨量推算);填了「預計進貨數量」之後,右邊「進貨後庫存可撐」會即時算出把這批貨加進去、大概還能再撐多久(用(預計進貨數量+目前庫存量)除以平均用量估算),方便抓進貨量的參考,不會真的異動庫存。',
@@ -3357,6 +3440,20 @@ const I18N = {
     tabOrderSectionDesc: 'Adjust the order the tabs above (System Admin, Inventory Management, etc.) are displayed in.',
     tabOrderPanelDesc: 'Use the arrows to reorder the tabs as they appear on screen.',
     subtabSysSettings: 'System Settings', subtabSysProduct: 'Product Master',
+    subtabPurchaseMgmt: 'Purchase Management',
+    secSupplierManagement: 'Supplier Management', secReceiptOcrDb: 'Receipt Scan Database',
+    btnAddSupplier: '+ Add Supplier',
+    supplierManagementDesc: 'The supplier dropdown when registering stock in/out is populated from this list (sorted by name); a deleted supplier no longer appears there, but existing purchase records are unaffected.',
+    receiptOcrDbDesc: 'Manage the receipt-scan memory table. Select a product to see which suppliers and OCR text have been remembered as matching it — if one was accidentally matched to the wrong product before, delete it here and the next scan of that text will ask again.',
+    noSuppliersYet: 'No suppliers recorded yet',
+    modalEditSupplierTitle: 'Edit Supplier', modalAddSupplierTitle: 'Add Supplier',
+    fieldSupplierName: 'Name', fieldSupplierPhone: 'Phone', fieldSupplierAddress: 'Address', fieldSupplierNote: 'Note',
+    errEnterSupplierName: 'Please enter a supplier name', errSupplierNameDuplicate: 'A supplier with this name already exists',
+    confirmDeleteSupplier: 'Delete supplier "{name}"? This won\'t affect any existing purchase records.',
+    ocrDbSelectProductHint: 'Select a product to see which receipt text is mapped to it in memory.',
+    ocrDbNoMappingsHint: 'No receipt-scan memory for this product yet.',
+    colSupplier: 'Supplier', ocrDbAnySupplierLabel: '(any supplier)',
+    confirmDeleteOcrMapping: 'Delete this receipt-scan memory entry? The next scan matching this text will ask again.',
     subtabTxRegister: 'Register Stock', subtabTxVerify: 'Order Verify', subtabTxForecast: 'Purchase Forecast', subtabTxData: 'Data Maintenance',
     secForecast: 'Purchase Forecast',
     forecastDesc: 'Current Stock Remaining uses the same calculation as Stock Overview (based on average usage). Once you fill in "Forecast Qty", the "Remaining After Purchase" column on the right instantly estimates how long stock would last with that batch added in (calculated as (forecast qty + current stock) ÷ average usage) — handy for sizing a purchase, and doesn\'t actually change any stock.',
@@ -4397,10 +4494,196 @@ function switchSystemSubTab(subtabId){
   if(!container) return;
   document.body.classList.remove('mobile-subtab-menu-active');
   document.body.classList.add('mobile-subtab-content-active');
-  container.querySelectorAll('.subtab-content').forEach(el => el.classList.remove('active-subtab'));
-  container.querySelectorAll('.subtab-btn').forEach(el => el.classList.remove('active'));
+  // 用 :scope > .subtab-content(只找直屬子層)不是一般的 querySelectorAll('.subtab-content')
+  // (那樣會找到所有子孫層),因為「進貨管理」底下自己還有一層巢狀的子分頁(進貨方管理/
+  // 掃描收據數據庫,也是用同一套 subtab-content/subtab-btn 的 class 名稱),如果這裡用一般的
+  // 全子孫搜尋,切換系統管理最上層的分頁時,會連帶把進貨管理裡面那層巢狀分頁的顯示狀態也
+  // 清掉,造成兩層分頁互相打架。
+  container.querySelectorAll(':scope > .section > .subtab-content').forEach(el => el.classList.remove('active-subtab'));
+  container.querySelectorAll(':scope > .section > .subtab-bar > .subtab-btn').forEach(el => el.classList.remove('active'));
   document.getElementById(subtabId).classList.add('active-subtab');
   document.getElementById('btn-' + subtabId).classList.add('active');
+  if(subtabId === 'subtab-sys-purchase-mgmt'){
+    renderSupplierManagementTable();
+    renderOcrDbProductSelect();
+  }
+}
+
+// 「進貨管理」底下自己的巢狀子分頁(進貨方管理/掃描收據數據庫),範圍限定在
+// #subtab-sys-purchase-mgmt 這個容器裡面找,不會動到外層系統管理自己那層分頁的顯示狀態。
+function switchPurchaseMgmtSubTab(subtabId){
+  const container = document.getElementById('subtab-sys-purchase-mgmt');
+  if(!container) return;
+  container.querySelectorAll(':scope > .subtab-content').forEach(el => el.classList.remove('active-subtab'));
+  container.querySelectorAll(':scope > .subtab-bar > .subtab-btn').forEach(el => el.classList.remove('active'));
+  document.getElementById(subtabId).classList.add('active-subtab');
+  document.getElementById('btn-' + subtabId).classList.add('active');
+  if(subtabId === 'subtab-purchase-mgmt-suppliers') renderSupplierManagementTable();
+  else if(subtabId === 'subtab-purchase-mgmt-ocrdb') renderOcrDbProductSelect();
+}
+
+// ===== 進貨方管理 =====
+function renderSupplierManagementTable(){
+  const container = document.getElementById('supplierManagementTable');
+  if(!container) return;
+  if(purchaseSuppliers.length === 0){
+    container.innerHTML = `<div class="empty-note">${t('noSuppliersYet')}</div>`;
+    return;
+  }
+  const sorted = purchaseSuppliers.slice().sort((a, b) => a.name.localeCompare(b.name));
+  container.innerHTML = `<table class="stock-table">
+    <thead><tr><th>${t('fieldSupplierName')}</th><th>${t('fieldSupplierPhone')}</th><th>${t('fieldSupplierAddress')}</th><th>${t('fieldSupplierNote')}</th><th></th></tr></thead>
+    <tbody>
+      ${sorted.map(s => `
+        <tr>
+          <td>${escapeHtmlForPrint(s.name)}</td>
+          <td>${escapeHtmlForPrint(s.phone || '')}</td>
+          <td>${escapeHtmlForPrint(s.address || '')}</td>
+          <td>${escapeHtmlForPrint(s.note || '')}</td>
+          <td style="white-space:nowrap;">
+            <span class="del-link" onclick="openSupplierEditModal('${s.id}')">${t('btnEdit')}</span>
+            &nbsp;·&nbsp;
+            <span class="del-link" onclick="deleteSupplier('${s.id}')">${t('btnDelete')}</span>
+          </td>
+        </tr>
+      `).join('')}
+    </tbody>
+  </table>`;
+}
+
+let editingSupplierId = null;
+function openSupplierEditModal(supplierId){
+  editingSupplierId = supplierId;
+  const s = supplierId ? purchaseSuppliers.find(x => x.id === supplierId) : null;
+  document.getElementById('supplierEditModalTitle').textContent = s ? t('modalEditSupplierTitle') : t('modalAddSupplierTitle');
+  document.getElementById('supplierNameInput').value = s ? s.name : '';
+  document.getElementById('supplierPhoneInput').value = s ? s.phone || '' : '';
+  document.getElementById('supplierAddressInput').value = s ? s.address || '' : '';
+  document.getElementById('supplierNoteInput').value = s ? s.note || '' : '';
+  document.getElementById('supplierEditModalMsg').textContent = '';
+  document.getElementById('supplierEditModalOverlay').style.display = 'flex';
+}
+function closeSupplierEditModal(){
+  editingSupplierId = null;
+  document.getElementById('supplierEditModalOverlay').style.display = 'none';
+}
+async function saveSupplierEdit(){
+  const msgEl = document.getElementById('supplierEditModalMsg');
+  const name = document.getElementById('supplierNameInput').value.trim();
+  const phone = document.getElementById('supplierPhoneInput').value.trim();
+  const address = document.getElementById('supplierAddressInput').value.trim();
+  const note = document.getElementById('supplierNoteInput').value.trim();
+  if(!name){ msgEl.className = 'msg error'; msgEl.textContent = t('errEnterSupplierName'); return; }
+  // 名稱不能跟其他供應商重複(資料庫本身也有唯一索引擋著,這裡先在前端擋一次,錯誤訊息比較
+  // 好懂,不用等資料庫回傳一串技術性的錯誤)——編輯自己的話,名稱沒變不算重複。
+  const dup = purchaseSuppliers.find(s => s.id !== editingSupplierId && s.name.toLowerCase() === name.toLowerCase());
+  if(dup){ msgEl.className = 'msg error'; msgEl.textContent = t('errSupplierNameDuplicate'); return; }
+
+  msgEl.className = 'msg'; msgEl.textContent = t('savingMsg');
+  const s = editingSupplierId ? purchaseSuppliers.find(x => x.id === editingSupplierId) : { id: genId() };
+  const oldName = s.name;
+  s.name = name; s.phone = phone; s.address = address; s.note = note;
+  try{
+    await upsertPurchaseSupplier(s);
+    if(!editingSupplierId) purchaseSuppliers.push(s);
+    // 改了名稱的話,之前收據辨識記憶對照表裡用舊名稱記錄的那些筆,一併同步改成新名稱,
+    // 不然改名之後那些記憶會變成對照不到任何供應商、之後掃描還是會重新問一次。
+    if(oldName && oldName !== name){
+      const affected = receiptLineMappings.filter(m => m.partyId === oldName);
+      for(const m of affected){
+        m.partyId = name;
+        try{ await sb.from('receipt_line_mappings').upsert(receiptMappingToRow(m)); }
+        catch(e){ console.error('同步更新收據記憶的供應商名稱失敗', e); }
+      }
+      if(receiptSupplierFormats[oldName]){
+        receiptSupplierFormats[name] = receiptSupplierFormats[oldName];
+        delete receiptSupplierFormats[oldName];
+        try{ await dbSet('receiptSupplierFormats', JSON.stringify(receiptSupplierFormats)); }
+        catch(e){ console.error('同步更新收據格式偏好的供應商名稱失敗', e); }
+      }
+    }
+    renderSupplierManagementTable();
+    populateTxPartyHistorySelect();
+    closeSupplierEditModal();
+  } catch(e){
+    console.error('儲存供應商失敗', e);
+    msgEl.className = 'msg error';
+    msgEl.textContent = '⚠ 儲存失敗,請重新整理頁面再試一次。';
+  }
+}
+function deleteSupplier(supplierId){
+  const s = purchaseSuppliers.find(x => x.id === supplierId);
+  if(!s) return;
+  showConfirmModal(tf('confirmDeleteSupplier', { name: s.name }), async () => {
+    try{
+      await deletePurchaseSupplierRow(supplierId);
+      purchaseSuppliers = purchaseSuppliers.filter(x => x.id !== supplierId);
+      renderSupplierManagementTable();
+      populateTxPartyHistorySelect();
+    } catch(e){
+      console.error('刪除供應商失敗', e);
+      showInfoModal('⚠ 刪除失敗,請重新整理頁面再試一次。');
+    }
+  });
+}
+
+// ===== 掃描收據數據庫 =====
+function renderOcrDbProductSelect(){
+  syncCategoryOrder();
+  const catSel = document.getElementById('ocrDbCategoryFilter');
+  const prevCat = catSel.value;
+  const usedCats = categoryOrder.filter(c => products.some(p => (p.category || '未分類') === c));
+  catSel.innerHTML = `<option value="">${t('catFilterAll')}</option>` + usedCats.map(c => `<option value="${c}">${catLabel(c)}</option>`).join('');
+  if(usedCats.includes(prevCat)) catSel.value = prevCat;
+  const catFilterVal = catSel.value;
+
+  const sel = document.getElementById('ocrDbProductSelect');
+  const prevVal = sel.value;
+  const candidateProducts = (catFilterVal ? products.filter(p => (p.category || '未分類') === catFilterVal) : products);
+  sel.innerHTML = '<option value=""></option>' + candidateProducts.slice().sort(compareProductsBySortMode)
+    .map(p => `<option value="${p.id}">${p.sku ? p.sku + ' — ' : ''}${p.parentId ? '⧉ ' : ''}${p.name}(${p.unit})</option>`).join('');
+  if(candidateProducts.some(p => p.id === prevVal)) sel.value = prevVal;
+  makeSelectSearchable('ocrDbProductSelect');
+  renderOcrDbMappingList();
+}
+function renderOcrDbMappingList(){
+  const container = document.getElementById('ocrDbMappingList');
+  if(!container) return;
+  const sel = document.getElementById('ocrDbProductSelect');
+  const productId = sel ? sel.value : '';
+  if(!productId){
+    container.innerHTML = `<div class="empty-note">${t('ocrDbSelectProductHint')}</div>`;
+    return;
+  }
+  const mappings = receiptLineMappings.filter(m => m.productId === productId);
+  if(mappings.length === 0){
+    container.innerHTML = `<div class="empty-note">${t('ocrDbNoMappingsHint')}</div>`;
+    return;
+  }
+  container.innerHTML = `<table class="stock-table" style="margin-top:12px;">
+    <thead><tr><th>${t('colSupplier')}</th><th>${t('fieldReceiptOcrRawText')}</th><th></th></tr></thead>
+    <tbody>
+      ${mappings.map(m => `
+        <tr>
+          <td>${escapeHtmlForPrint(m.partyId || t('ocrDbAnySupplierLabel'))}</td>
+          <td>${escapeHtmlForPrint(m.normalizedText)}</td>
+          <td><span class="del-link" onclick="deleteOcrMapping('${m.id}')">${t('btnDelete')}</span></td>
+        </tr>
+      `).join('')}
+    </tbody>
+  </table>`;
+}
+function deleteOcrMapping(mappingId){
+  showConfirmModal(t('confirmDeleteOcrMapping'), async () => {
+    try{
+      await sb.from('receipt_line_mappings').delete().eq('id', mappingId);
+      receiptLineMappings = receiptLineMappings.filter(m => m.id !== mappingId);
+      renderOcrDbMappingList();
+    } catch(e){
+      console.error('刪除收據記憶失敗', e);
+      showInfoModal('⚠ 刪除失敗,請重新整理頁面再試一次。');
+    }
+  });
 }
 
 // 庫存管理分頁(tab-tx)自己的子分頁切換,只在它自己的容器裡找 .subtab-content/.subtab-btn,
@@ -4874,6 +5157,7 @@ async function loadData(){
   await loadPurchases();
   await loadProductLocations();
   await loadReceiptLineMappings();
+  await loadPurchaseSuppliers();
   try{
     const counterResult = await dbGet('orderCounter');
     orderCounter = counterResult ? (parseInt(counterResult.value, 10) || 0) : 0;
@@ -5087,6 +5371,30 @@ async function loadReceiptLineMappings(){
     receiptLineMappings = (data || []).map(rowToReceiptMapping);
   } catch(e){ console.error('讀取收據辨識記憶對照表失敗', e); receiptLineMappings = []; }
 }
+
+function supplierToRow(s){
+  return { id: s.id, name: s.name, phone: s.phone || null, address: s.address || null, note: s.note || null, updated_at: new Date().toISOString() };
+}
+function rowToSupplier(row){
+  return { id: row.id, name: row.name, phone: row.phone || '', address: row.address || '', note: row.note || '' };
+}
+async function loadPurchaseSuppliers(){
+  try{
+    const { data, error } = await sb.from('purchase_suppliers').select('*');
+    if(error) throw error;
+    purchaseSuppliers = (data || []).map(rowToSupplier);
+  } catch(e){ console.error('讀取進貨方管理清單失敗', e); purchaseSuppliers = []; }
+}
+async function upsertPurchaseSupplier(s){
+  const { error } = await sb.from('purchase_suppliers').upsert(supplierToRow(s));
+  if(error){ console.error('儲存進貨方失敗', error); throw error; }
+  scheduleAutoBackup();
+}
+async function deletePurchaseSupplierRow(id){
+  const { error } = await sb.from('purchase_suppliers').delete().eq('id', id);
+  if(error){ console.error('刪除進貨方失敗', error); throw error; }
+}
+
 // 記住「這個供應商 + 這串文字」對應到哪個商品——同一組 partyId+normalizedText 已經記過的話,
 // 直接更新那一筆(改指到新選的商品),不會留著舊的、產生兩筆矛盾的對照。
 async function rememberReceiptLineMapping(partyId, normalizedText, productId){
@@ -5872,15 +6180,17 @@ function showTxMainFormArea(visible){
   if(area) area.style.display = visible ? '' : 'none';
 }
 
-// 進貨方下拉選單:列出之前所有進貨單裡出現過的供應商名稱(不重複、排序),最下面固定加一個
+// 進貨方下拉選單:列出「進貨方管理」清單裡的供應商(依名稱排序),最下面固定加一個
 // 「+ 新增供應商」選項。選了既有的供應商,直接把值帶進 txParty(其他程式碼都還是讀 txParty
-// 的值,不用另外改);選「+ 新增」才會顯示 txParty 這個文字輸入框讓你打新名字。
+// 的值,不用另外改);選「+ 新增」才會顯示 txParty 這個文字輸入框讓你打新名字——新輸入的
+// 名字這裡不會自動存進「進貨方管理」清單,要去系統管理那邊正式新增,才會留住電話/住址/
+// 附註這些額外資料,單純這裡打字送出去的話下次不會出現在下拉選單裡。
 function populateTxPartyHistorySelect(){
   const sel = document.getElementById('txPartyHistorySelect');
   if(!sel) return;
-  const distinctParties = [...new Set(purchases.map(p => p.partyName || p.partyId || '').filter(Boolean))].sort();
+  const sortedNames = purchaseSuppliers.map(s => s.name).sort((a,b) => a.localeCompare(b));
   sel.innerHTML = `<option value="">${t('optSelectSupplier')}</option>` +
-    distinctParties.map(p => `<option value="${p.replace(/"/g,'&quot;')}">${escapeHtmlForPrint(p)}</option>`).join('') +
+    sortedNames.map(p => `<option value="${p.replace(/"/g,'&quot;')}">${escapeHtmlForPrint(p)}</option>`).join('') +
     `<option value="__new__">${t('optAddNewSupplier')}</option>`;
   sel.value = '';
   document.getElementById('txParty').style.display = 'none';
@@ -10562,31 +10872,46 @@ function removePurchaseReceiptFile(index){
 // 供應商、同樣的文字就不用再問。
 let receiptOcrPartyId = null;
 
-function parseReceiptLine(rawLine, swapped){
+// 從行尾開始,一直往前抓「用空白分隔的數字欄位」,直到遇到不是數字的內容為止——常見的收據
+// 表格排版,品名後面接著好幾欄數字(數量、單價、金額之類),中間用空白分開。回傳抓到的所有
+// 數字(由左到右的順序)跟剩下的描述文字。這樣不管一行後面接了幾個數字欄位都抓得到,不會
+// 侷限在「一定剛好兩個數字」。
+function extractTrailingNumbers(line){
+  const tokens = line.trim().split(/\s+/);
+  const numbers = [];
+  let i = tokens.length - 1;
+  while(i >= 0){
+    const cleaned = tokens[i].replace(/^\$/, '');
+    if(/^\d{1,7}(?:\.\d{1,2})?$/.test(cleaned)){
+      numbers.unshift(parseFloat(cleaned));
+      i--;
+    } else break;
+  }
+  return { numbers, description: tokens.slice(0, i + 1).join(' ') };
+}
+
+// format 是這個供應商學到的欄位位置:{ qtyIndexFromEnd, amountIndexFromEnd }(都是「從最後一個
+// 數字往前數第幾個」,0 就是最後一個)。沒有學過(format 是 null/undefined)的話用預設猜測:
+// 最後一個數字是金額、倒數第二個是數量。
+function parseReceiptLine(rawLine, format){
   const line = (rawLine || '').trim();
   if(!line || line.length < 3) return null;
-  // 從行尾往前抓兩個數字:預設「後面那個是金額、前面那個是數量」,但如果這個供應商之前被
-  // 學到是相反的順序(swapped),就反過來解讀——哪個變數叫 amount、哪個叫 qty 對調就好,
-  // 抓數字的邏輯完全不用變。抓不到金額/數量也沒關係,金額留空、數量預設 1,確認視窗都還是
-  // 可以手動修正。
-  let rest = line;
-  let lastNum = null;
-  const lastMatch = rest.match(/\$?\s*(\d{1,7}(?:\.\d{1,2})?)\s*$/);
-  if(lastMatch){
-    lastNum = parseFloat(lastMatch[1]);
-    rest = rest.slice(0, lastMatch.index).trim();
+  const { numbers, description } = extractTrailingNumbers(line);
+  const cleanDescription = description.replace(/[|_\-–—]+$/, '').trim();
+  if(!cleanDescription || numbers.length === 0) return null; // 沒有文字描述,或整行沒有任何數字欄位(常見於分隔線、頁首頁尾),直接略過
+
+  let qty = null, amount = null;
+  if(format && format.qtyIndexFromEnd !== undefined && format.amountIndexFromEnd !== undefined
+     && numbers.length > format.qtyIndexFromEnd && numbers.length > format.amountIndexFromEnd){
+    qty = numbers[numbers.length - 1 - format.qtyIndexFromEnd];
+    amount = numbers[numbers.length - 1 - format.amountIndexFromEnd];
+  } else if(numbers.length >= 2){
+    amount = numbers[numbers.length - 1];
+    qty = numbers[numbers.length - 2];
+  } else {
+    qty = numbers[0];
   }
-  let secondLastNum = null;
-  const secondMatch = rest.match(/(\d{1,5}(?:\.\d{1,2})?)\s*$/);
-  if(secondMatch){
-    secondLastNum = parseFloat(secondMatch[1]);
-    rest = rest.slice(0, secondMatch.index).trim();
-  }
-  const amount = swapped ? secondLastNum : lastNum;
-  const qty = swapped ? lastNum : secondLastNum;
-  const description = rest.replace(/[|_\-–—]+$/, '').trim();
-  if(!description || /^\d+$/.test(description)) return null; // 只剩數字、沒有文字描述的行(常見於分隔線、頁碼)直接略過
-  return { description, qty: (qty && qty > 0) ? qty : 1, amount: (amount && amount > 0) ? amount : null };
+  return { description: cleanDescription, qty: (qty && qty > 0) ? qty : 1, amount: (amount && amount > 0) ? amount : null, rawNumbers: numbers };
 }
 
 // PDF 收據先在瀏覽器裡用 PDF.js 把第一頁畫成一張圖片(轉成 data URL),再照跟一般圖片一樣的
@@ -10632,8 +10957,8 @@ async function scanReceiptForItems(){
     if(isPdf) msgEl.textContent = t('scanningReceiptMsg');
     const result = await Tesseract.recognize(ocrSource, 'eng');
     const rawText = result.data.text || '';
-    const swapped = !!receiptSupplierFormats[receiptOcrPartyId]?.qtyAmountSwapped;
-    const lines = rawText.split('\n').map(line => parseReceiptLine(line, swapped)).filter(Boolean);
+    const format = receiptSupplierFormats[receiptOcrPartyId];
+    const lines = rawText.split('\n').map(line => parseReceiptLine(line, format)).filter(Boolean);
     if(lines.length === 0){
       msgEl.style.color = 'var(--crit)';
       msgEl.textContent = t('errReceiptScanNoLines');
@@ -10696,28 +11021,60 @@ function openReceiptOcrConfirmModal(line){
   document.getElementById('receiptOcrAmountInput').value = line.amount || '';
   document.getElementById('receiptOcrConfirmMsg').textContent = '';
   document.getElementById('receiptOcrProgressInfo').textContent = tf('receiptOcrProgressText', { remaining: pendingReceiptOcrLines.length });
-  const sel = document.getElementById('receiptOcrProductSelect');
-  sel.innerHTML = '<option value=""></option>' + products.filter(p => !p.hidden).slice().sort(compareProductsBySortMode)
-    .map(p => `<option value="${p.id}">${p.sku ? p.sku + ' — ' : ''}${p.parentId ? '⧉ ' : ''}${p.name}(${p.unit})</option>`).join('');
-  makeSelectSearchable('receiptOcrProductSelect');
+  syncCategoryOrder();
+  const catSel = document.getElementById('receiptOcrCategoryFilter');
+  const usedCats = categoryOrder.filter(c => products.some(p => (p.category || '未分類') === c));
+  catSel.innerHTML = `<option value="">${t('catFilterAll')}</option>` + usedCats.map(c => `<option value="${c}">${catLabel(c)}</option>`).join('');
+  catSel.value = '';
+  renderReceiptOcrProductOptions();
   document.getElementById('receiptOcrConfirmModalOverlay').style.display = 'flex';
 }
+function renderReceiptOcrProductOptions(){
+  const catFilterVal = document.getElementById('receiptOcrCategoryFilter').value;
+  const sel = document.getElementById('receiptOcrProductSelect');
+  const candidateProducts = (catFilterVal ? products.filter(p => (p.category || '未分類') === catFilterVal) : products).filter(p => !p.hidden);
+  sel.innerHTML = '<option value=""></option>' + candidateProducts.slice().sort(compareProductsBySortMode)
+    .map(p => `<option value="${p.id}">${p.sku ? p.sku + ' — ' : ''}${p.parentId ? '⧉ ' : ''}${p.name}(${p.unit})</option>`).join('');
+  makeSelectSearchable('receiptOcrProductSelect');
+}
 
-// 使用者確認的數量/金額,如果剛好跟 OCR 原本猜的兩個數字「對調」了(猜的數量其實是使用者改成
-// 的金額、猜的金額其實是使用者改成的數量),代表這個供應商的收據格式跟預設猜測的順序相反——
-// 記住這個供應商要用「反過來」的順序解讀,下次掃同一個供應商的收據,一開始猜的時候就會猜對,
-// 不用每次都手動修正。這裡只在「明顯對調」的情況才學,單純改一個數字大小(不是對調)不會觸發,
-// 避免誤判成順序錯誤。
-async function learnQtyAmountOrderIfSwapped(originalLine, confirmedQty, confirmedAmount){
+// 使用者確認的數量/金額,只要能在這一行原本抓到的所有數字裡找到一模一樣的值,就記住「這個
+// 供應商,數量/金額是從行尾數過來第幾個數字」——不限於「剛好兩個數字、對調」這種情況,
+// 這一行後面不管接了幾欄數字都適用(例如中間還夾了單價欄、或稅額欄)。只要用某個供應商的
+// 格式解析成功過一次,之後同一個供應商的收據,一開始猜的時候就會直接套用學到的欄位位置。
+async function learnQtyAmountPositionFromCorrection(originalLine, confirmedQty, confirmedAmount){
   if(!receiptOcrPartyId) return;
-  if(originalLine.amount === null || !confirmedAmount) return;
-  const looksSwapped = Math.abs(confirmedQty - originalLine.amount) < 0.01 && Math.abs(confirmedAmount - originalLine.qty) < 0.01
-    && Math.abs(originalLine.qty - originalLine.amount) > 0.01; // 兩個數字原本就要不一樣,不然「對調」沒有意義
-  if(!looksSwapped) return;
-  const current = !!receiptSupplierFormats[receiptOcrPartyId]?.qtyAmountSwapped;
-  receiptSupplierFormats[receiptOcrPartyId] = { qtyAmountSwapped: !current };
+  const numbers = originalLine.rawNumbers;
+  if(!numbers || numbers.length === 0) return;
+
+  const qtyIdx = findClosestNumberIndexFromEnd(numbers, confirmedQty);
+  const amountIdx = confirmedAmount ? findClosestNumberIndexFromEnd(numbers, confirmedAmount) : null;
+  if(qtyIdx === null) return; // 使用者填的數量,在這行 OCR 抓到的數字裡完全找不到對應的(可能是整個看錯或手動重新估算的),沒有明確的欄位位置可以學,放棄這次學習,不要記錄錯的猜測
+
+  const newFormat = { qtyIndexFromEnd: qtyIdx };
+  if(amountIdx !== null && amountIdx !== qtyIdx) newFormat.amountIndexFromEnd = amountIdx;
+  else if(originalLine.amount !== null){
+    // 金額對不到明確的數字位置(或剛好跟數量指到同一個位置),但這一行原本判斷的金額位置
+    // 可能還是對的(只有數量猜錯),沿用原本判斷出來的金額位置,不要整個蓋掉。
+    const foundIdx = numbers.indexOf(originalLine.amount);
+    if(foundIdx !== -1) newFormat.amountIndexFromEnd = numbers.length - 1 - foundIdx;
+  }
+  if(newFormat.amountIndexFromEnd === undefined) return; // 金額欄位位置還是不確定的話,先不要存半套的格式設定
+
+  const current = receiptSupplierFormats[receiptOcrPartyId];
+  if(current && current.qtyIndexFromEnd === newFormat.qtyIndexFromEnd && current.amountIndexFromEnd === newFormat.amountIndexFromEnd) return; // 跟目前記的一樣,不用重存
+  receiptSupplierFormats[receiptOcrPartyId] = newFormat;
   try{ await dbSet('receiptSupplierFormats', JSON.stringify(receiptSupplierFormats)); }
   catch(e){ console.error('儲存供應商收據格式偏好失敗', e); }
+}
+// 在數字陣列裡找跟目標值一樣的數字,回傳「從陣列尾端數過來第幾個」(0 是最後一個)——找不到
+// 回傳 null。如果剛好有重複的數字,選離陣列尾端最近的那一個(比較常見:數量欄通常比金額欄
+// 靠前,但如果有重複值,優先假設是比較靠後的那一欄,這只是個合理的預設,不保證每次都對)。
+function findClosestNumberIndexFromEnd(numbers, target){
+  for(let i = numbers.length - 1; i >= 0; i--){
+    if(Math.abs(numbers[i] - target) < 0.01) return numbers.length - 1 - i;
+  }
+  return null;
 }
 
 async function confirmReceiptOcrLine(){
@@ -10733,7 +11090,7 @@ async function confirmReceiptOcrLine(){
   const finalAmount = (amount && amount > 0) ? amount : null;
   addOcrLineToTxBatch(productId, qty, finalAmount);
   await rememberReceiptLineMapping(receiptOcrPartyId, normalizeReceiptLineText(line.description), productId);
-  await learnQtyAmountOrderIfSwapped(line, qty, finalAmount);
+  await learnQtyAmountPositionFromCorrection(line, qty, finalAmount);
   document.getElementById('receiptOcrConfirmModalOverlay').style.display = 'none';
   processNextReceiptOcrLine();
 }
@@ -11977,6 +12334,16 @@ async function submitTxBatchSimple(date, msg){
     try{ await upsertPurchase(purchase); purchases.push(purchase); }
     catch(e){ console.error('儲存進貨單失敗', e); }
     removePurchaseReceipt();
+    // 這筆用的供應商名稱,如果「進貨方管理」清單裡還沒有(例如是透過「+ 新增供應商」臨時打的
+    // 名字),先幫忙建一筆空白的(電話/住址/附註都空著)進去,下次登記進出貨的下拉選單才會
+    // 看得到,不用還要特地跑去系統管理那邊補建一次。使用者之後可以再去系統管理補上電話/住址
+    // 這些細節資料。
+    if(party && !purchaseSuppliers.some(s => s.name.toLowerCase() === party.toLowerCase())){
+      const newSupplier = { id: genId(), name: party, phone: '', address: '', note: '' };
+      purchaseSuppliers.push(newSupplier);
+      try{ await upsertPurchaseSupplier(newSupplier); }
+      catch(e){ console.error('自動建立進貨方失敗', e); }
+    }
     populateTxPartyHistorySelect(); // 剛剛這筆用的供應商,馬上就會出現在下拉選單裡,不用重新整理頁面
 
     // 有勾選「寄送給會計」才會寄——寄信失敗不影響這張進貨單本身已經建立成功這件事,只是在畫面上
