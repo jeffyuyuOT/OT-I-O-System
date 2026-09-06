@@ -9918,7 +9918,7 @@ function renderPartiesTable(){
 // 這個出貨方在「訂貨」分頁預設可以看到所有標記為可訂貨、且沒被全域隱藏的商品;
 // 這裡讓你針對這個出貨方再個別隱藏特定商品(例如某些品項只給特定對象訂購)。
 function renderPartyProductPanelHtml(party){
-  const candidates = products.filter(p => p.orderable && !p.hidden);
+  const candidates = products.filter(p => p.orderable && !p.hidden).sort(compareProductsBySortMode);
   if(candidates.length === 0){
     return `<div class="empty-note" style="margin:10px 0;">${t('noOrderableProductsForPanel')}</div>`;
   }
