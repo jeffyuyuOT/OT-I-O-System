@@ -20,6 +20,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.1.0/dist/tesseract.min.js"></script>
 <style>
   :root{
     --bg:#EBE8E0;
@@ -1305,6 +1306,10 @@
         <input type="file" id="purchaseReceiptInput" accept="image/*,application/pdf" multiple onchange="handlePurchaseReceiptUpload(this)" style="border:1px solid var(--line);background:#fff;border-radius:2px;padding:8px;font-family:'IBM Plex Mono',monospace;font-size:12px;" />
         <div id="purchaseReceiptUploadMsg" style="font-size:11.5px;margin-top:4px;"></div>
         <div id="purchaseReceiptPreviewWrap" style="display:none;margin-top:8px;flex-direction:column;gap:4px;"></div>
+        <div id="purchaseReceiptScanWrap" style="display:none;margin-top:8px;">
+          <button type="button" class="btn ghost" onclick="scanReceiptForItems()" id="btnScanReceipt">🔍 <span data-i18n="btnScanReceipt">掃描收據自動帶入商品</span></button>
+          <div id="purchaseReceiptScanMsg" style="font-size:11.5px;margin-top:4px;"></div>
+        </div>
         <div style="display:flex;align-items:center;gap:8px;margin-top:12px;">
           <input type="checkbox" id="purchaseEmailToggle" onchange="togglePurchaseEmailFieldVisibility(this)" style="width:16px;height:16px;cursor:pointer;" />
           <label for="purchaseEmailToggle" style="font-size:12.5px;color:var(--ink);font-weight:600;cursor:pointer;" data-i18n="chkEmailToAccounting">寄送給會計</label>
@@ -2087,6 +2092,37 @@
   </div>
 </div>
 
+<div id="receiptOcrConfirmModalOverlay" class="modal-overlay" style="display:none;">
+  <div class="modal-box" style="max-width:min(460px, 92vw);">
+    <div class="section-title" style="margin-bottom:4px;" data-i18n="modalReceiptOcrConfirmTitle">確認收據品項</div>
+    <p id="receiptOcrProgressInfo" style="font-size:11.5px;color:var(--ink-soft);margin:0 0 10px;"></p>
+    <div class="field-block">
+      <label data-i18n="fieldReceiptOcrRawText">收據上讀到的文字</label>
+      <input type="text" id="receiptOcrRawTextDisplay" style="width:100%;background:var(--bg);" disabled />
+    </div>
+    <div class="field-block">
+      <label data-i18n="lblProduct">商品</label>
+      <select id="receiptOcrProductSelect"></select>
+    </div>
+    <div class="form-grid" style="grid-template-columns:1fr 1fr;margin-bottom:0;">
+      <div class="field">
+        <label data-i18n="lblQty">數量</label>
+        <input type="number" id="receiptOcrQtyInput" min="0" step="1" style="width:100%;" />
+      </div>
+      <div class="field">
+        <label data-i18n="fieldReceiptOcrAmount">金額(選填)</label>
+        <input type="number" id="receiptOcrAmountInput" min="0" step="0.01" style="width:100%;" />
+      </div>
+    </div>
+    <div id="receiptOcrConfirmMsg" class="msg"></div>
+    <div class="modal-actions">
+      <button class="btn ghost" onclick="skipReceiptOcrLine()" data-i18n="btnSkip">略過這一行</button>
+      <button class="btn ghost" onclick="cancelReceiptOcrSequence()" data-i18n="btnCancel">取消全部</button>
+      <button class="btn" onclick="confirmReceiptOcrLine()" data-i18n="btnConfirmAndAdd">確認並加入</button>
+    </div>
+  </div>
+</div>
+
 <div id="signatureViewModalOverlay" class="modal-overlay" style="display:none;" onclick="if(event.target===this) closeSignatureViewModal();">
   <div class="modal-box" style="max-width:min(480px, 90vw);text-align:center;">
     <div style="text-align:right;margin-bottom:8px;">
@@ -2317,6 +2353,8 @@ let productLocations = []; // 庫存分布:{id, productId, zone, aisle, bay, lev
 let stockLocationMode = 'standard'; // 系統設置「Stock Location」:'standard'(強制照 Zone-Aisle-Bay-Level-Bin 分開填) | 'custom'(自由輸入整串位置文字)
 let stockLocationEnabledFields = { zone: true, aisle: true, bay: true, level: true, bin: true }; // 標準模式下,實際要用到哪幾個欄位(有些倉庫不需要用到全部 5 個)
 let stockLocationShowOnPickingSlip = false; // Picking Slip 要不要多印一欄 Stock Location(印之前,如果商品有多個位置會先問要印哪一個)
+let receiptLineMappings = []; // 收據辨識的記憶對照表:{id, partyId, normalizedText, productId}。同一個供應商+同樣的 OCR 文字之前確認過對應到哪個商品,下次直接沿用不用再問。
+let pendingReceiptOcrLines = []; // 這次掃描收據、還在等使用者確認的品項清單(掃描完先暫存在這裡,確認視窗一次一筆處理)
 let shippingParties = [];
 let currentTxType = 'in';
 let pendingPurchaseReceiptFiles = []; // 進貨單收據附件(支援多檔案):[{url, filename}, ...],submitTxBatchSimple() 送出進貨單時會用到,送出後清空
@@ -2851,6 +2889,14 @@ const I18N = {
     errPhotoMustBeImage: '請選擇圖片檔案', errPhotoTooLarge: '圖片檔案太大,請壓縮到 5MB 以下',
     uploadingPhotoMsg: '上傳中…', photoUploadedMsg: '✓ 已上傳', errPhotoUploadFailed: '上傳失敗,請重新整理頁面再試一次',
     fieldPurchaseReceipt: '收據/發票附件(選填,圖片或 PDF)', linkViewUploadedReceipt: '📎 查看已上傳的附件', btnRemoveFile: '移除附件',
+    btnScanReceipt: '掃描收據自動帶入商品',
+    modalReceiptOcrConfirmTitle: '確認收據品項', fieldReceiptOcrRawText: '收據上讀到的文字',
+    fieldReceiptOcrAmount: '金額(選填)', btnSkip: '略過這一行', btnConfirmAndAdd: '確認並加入',
+    errReceiptScanNoImage: '請先上傳一張圖片格式的收據(目前不支援直接掃描 PDF)',
+    errReceiptScanLibFailed: '掃描功能載入失敗,請重新整理頁面再試一次',
+    scanningReceiptMsg: '掃描中,請稍候…', errReceiptScanNoLines: '沒有辨識出任何品項,請確認圖片清晰,或直接手動新增商品',
+    receiptScanFoundLinesMsg: '辨識到 {n} 個品項,開始逐一確認', errReceiptScanFailed: '掃描失敗,請重新整理頁面再試一次',
+    receiptOcrProgressText: '還有 {remaining} 個品項待確認',
     errReceiptFileType: '請選擇圖片或 PDF 檔案', errReceiptTooLarge: '檔案太大,請壓縮到 10MB 以下',
     uploadingReceiptMsg: '上傳中…', receiptUploadedMsg: '✓ 已上傳', errReceiptUploadFailed: '上傳失敗,請重新整理頁面再試一次',
     uploadingReceiptMsgWithName: '上傳中…{name}', receiptUploadedPartialMsg: '✓ 已上傳 {success} 個檔案,{fail} 個失敗(可能是檔案格式或大小不符)',
@@ -3335,6 +3381,14 @@ const I18N = {
     errPhotoMustBeImage: 'Please select an image file', errPhotoTooLarge: 'Image is too large, please compress it under 5MB',
     uploadingPhotoMsg: 'Uploading…', photoUploadedMsg: '✓ Uploaded', errPhotoUploadFailed: 'Upload failed, please refresh and try again',
     fieldPurchaseReceipt: 'Receipt/Invoice Attachment (optional, image or PDF)', linkViewUploadedReceipt: '📎 View uploaded attachment', btnRemoveFile: 'Remove attachment',
+    btnScanReceipt: 'Scan Receipt to Auto-Fill Products',
+    modalReceiptOcrConfirmTitle: 'Confirm Receipt Item', fieldReceiptOcrRawText: 'Text read from the receipt',
+    fieldReceiptOcrAmount: 'Amount (optional)', btnSkip: 'Skip this line', btnConfirmAndAdd: 'Confirm & Add',
+    errReceiptScanNoImage: 'Please upload a receipt image first (scanning a PDF directly is not supported yet)',
+    errReceiptScanLibFailed: 'Failed to load the scanning feature, please refresh the page and try again',
+    scanningReceiptMsg: 'Scanning, please wait…', errReceiptScanNoLines: 'No items were recognized — make sure the image is clear, or add products manually',
+    receiptScanFoundLinesMsg: 'Recognized {n} item(s), confirming one by one', errReceiptScanFailed: 'Scan failed, please refresh the page and try again',
+    receiptOcrProgressText: '{remaining} item(s) left to confirm',
     errReceiptFileType: 'Please select an image or PDF file', errReceiptTooLarge: 'File is too large, please compress it under 10MB',
     uploadingReceiptMsg: 'Uploading…', receiptUploadedMsg: '✓ Uploaded', errReceiptUploadFailed: 'Upload failed, please refresh and try again',
     uploadingReceiptMsgWithName: 'Uploading… {name}', receiptUploadedPartialMsg: '✓ {success} file(s) uploaded, {fail} failed (check file type/size)',
@@ -4808,6 +4862,7 @@ async function loadData(){
   await loadDeliveryNotes();
   await loadPurchases();
   await loadProductLocations();
+  await loadReceiptLineMappings();
   try{
     const counterResult = await dbGet('orderCounter');
     orderCounter = counterResult ? (parseInt(counterResult.value, 10) || 0) : 0;
@@ -5002,6 +5057,41 @@ async function upsertProductLocation(loc){
 async function deleteProductLocationRow(id){
   const { error } = await sb.from('product_locations').delete().eq('id', id);
   if(error){ console.error('刪除庫存分布紀錄失敗', error); throw error; }
+}
+
+function receiptMappingToRow(m){
+  return { id: m.id, party_id: m.partyId || null, normalized_text: m.normalizedText, product_id: m.productId, updated_at: new Date().toISOString() };
+}
+function rowToReceiptMapping(row){
+  return { id: row.id, partyId: row.party_id || null, normalizedText: row.normalized_text, productId: row.product_id };
+}
+async function loadReceiptLineMappings(){
+  try{
+    const { data, error } = await sb.from('receipt_line_mappings').select('*');
+    if(error) throw error;
+    receiptLineMappings = (data || []).map(rowToReceiptMapping);
+  } catch(e){ console.error('讀取收據辨識記憶對照表失敗', e); receiptLineMappings = []; }
+}
+// 記住「這個供應商 + 這串文字」對應到哪個商品——同一組 partyId+normalizedText 已經記過的話,
+// 直接更新那一筆(改指到新選的商品),不會留著舊的、產生兩筆矛盾的對照。
+async function rememberReceiptLineMapping(partyId, normalizedText, productId){
+  let existing = receiptLineMappings.find(m => (m.partyId || null) === (partyId || null) && m.normalizedText === normalizedText);
+  const mapping = existing || { id: genId(), partyId: partyId || null, normalizedText, productId };
+  mapping.productId = productId;
+  if(!existing) receiptLineMappings.push(mapping);
+  try{ await sb.from('receipt_line_mappings').upsert(receiptMappingToRow(mapping)); }
+  catch(e){ console.error('儲存收據辨識記憶失敗', e); }
+}
+// 正規化 OCR 讀到的文字,拿來查記憶對照表用——轉小寫、去頭尾空白、把連續空白縮成一個,
+// 這樣同一行文字即使 OCR 每次辨識出來的空白位置有些微差異,還是能對到同一筆記憶。
+function normalizeReceiptLineText(text){
+  return (text || '').toLowerCase().trim().replace(/\s+/g, ' ');
+}
+function findReceiptLineMapping(partyId, rawText){
+  const normalized = normalizeReceiptLineText(rawText);
+  const match = receiptLineMappings.find(m => m.normalizedText === normalized && ((m.partyId || null) === (partyId || null)))
+    || receiptLineMappings.find(m => m.normalizedText === normalized); // 找不到「這個供應商」專屬的對照,退一步看有沒有其他供應商也用過同樣文字對應到的商品(不同供應商的收據品項描述有時候剛好長一樣)
+  return match ? products.find(p => p.id === match.productId) : null;
 }
 
 // 一個商品的位置紀錄被刪光(全部變成未分布)的時候,把「最後一次的主要位置」記在商品自己身上
@@ -10377,9 +10467,11 @@ async function handlePurchaseReceiptUpload(inputEl){
 function renderPurchaseReceiptPreviewList(){
   const wrap = document.getElementById('purchaseReceiptPreviewWrap');
   if(!wrap) return;
+  const scanWrap = document.getElementById('purchaseReceiptScanWrap');
   if(pendingPurchaseReceiptFiles.length === 0){
     wrap.style.display = 'none';
     wrap.innerHTML = '';
+    if(scanWrap) scanWrap.style.display = 'none';
     return;
   }
   wrap.style.display = 'flex';
@@ -10389,11 +10481,166 @@ function renderPurchaseReceiptPreviewList(){
       <span class="del-link" onclick="removePurchaseReceiptFile(${i})">${t('btnRemoveFile')}</span>
     </div>
   `).join('');
+  // 掃描功能只支援圖片格式(Tesseract.js 讀圖片辨識文字,不支援直接讀 PDF),有上傳圖片檔案
+  // 才顯示這個按鈕,只上傳 PDF 的話不顯示,不用讓使用者按了才發現不能用。
+  const hasImageFile = pendingPurchaseReceiptFiles.some(f => /\.(jpe?g|png|gif|bmp|webp)$/i.test(f.filename || f.url));
+  if(scanWrap) scanWrap.style.display = hasImageFile ? 'block' : 'none';
 }
 
 function removePurchaseReceiptFile(index){
   pendingPurchaseReceiptFiles.splice(index, 1);
   renderPurchaseReceiptPreviewList();
+}
+
+// ===== 收據掃描:讀圖片文字、拆成品項、跟記憶對照表比對、不確定的才問 =====
+//
+// 用 Tesseract.js(免費、瀏覽器端跑,不用把收據傳到任何付費雲端服務)辨識收據圖片上的文字,
+// 每一行嘗試拆出「品項描述、數量、金額」——這一步是用「猜」的規則去拆(假設每行大概是
+// 「描述 ... 數量 金額」這種排列),不是 100% 保證拆對,所以才需要下面的確認流程當安全網。
+//
+// 對照流程:每一行的「描述」文字,先去記憶對照表(receiptLineMappings)查「這個供應商之前
+// 有沒有確認過這串文字對應到哪個商品」——有記憶的話不用問,直接照 OCR 讀到的數量/金額加入
+// 清單;沒有記憶的話才跳出視窗,讓使用者手動選商品、確認數量金額,選完會記住,下次同一個
+// 供應商、同樣的文字就不用再問。
+let receiptOcrPartyId = null;
+
+function parseReceiptLine(rawLine){
+  const line = (rawLine || '').trim();
+  if(!line || line.length < 3) return null;
+  // 從行尾往前抓:先抓看起來像金額的數字(可能有 $ 開頭、通常有小數點),再抓金額前面
+  // 看起來像數量的整數,剩下前面的文字當作商品描述。抓不到金額/數量也沒關係,金額留空、
+  // 數量預設 1,確認視窗都還是可以手動修正。
+  let rest = line;
+  let amount = null;
+  const amountMatch = rest.match(/\$?\s*(\d{1,7}(?:\.\d{1,2})?)\s*$/);
+  if(amountMatch){
+    amount = parseFloat(amountMatch[1]);
+    rest = rest.slice(0, amountMatch.index).trim();
+  }
+  let qty = null;
+  const qtyMatch = rest.match(/(\d{1,5}(?:\.\d{1,2})?)\s*$/);
+  if(qtyMatch){
+    qty = parseFloat(qtyMatch[1]);
+    rest = rest.slice(0, qtyMatch.index).trim();
+  }
+  const description = rest.replace(/[|_\-–—]+$/, '').trim();
+  if(!description || /^\d+$/.test(description)) return null; // 只剩數字、沒有文字描述的行(常見於分隔線、頁碼)直接略過
+  return { description, qty: (qty && qty > 0) ? qty : 1, amount: (amount && amount > 0) ? amount : null };
+}
+
+async function scanReceiptForItems(){
+  const msgEl = document.getElementById('purchaseReceiptScanMsg');
+  const file = pendingPurchaseReceiptFiles.find(f => /\.(jpe?g|png|gif|bmp|webp)$/i.test(f.filename || f.url));
+  if(!file){
+    msgEl.style.color = 'var(--crit)';
+    msgEl.textContent = t('errReceiptScanNoImage');
+    return;
+  }
+  if(typeof Tesseract === 'undefined'){
+    msgEl.style.color = 'var(--crit)';
+    msgEl.textContent = t('errReceiptScanLibFailed');
+    return;
+  }
+  const partyInput = document.getElementById('txParty');
+  receiptOcrPartyId = partyInput ? partyInput.value.trim() : null;
+
+  const btn = document.getElementById('btnScanReceipt');
+  btn.disabled = true;
+  msgEl.style.color = 'var(--ink-soft)';
+  msgEl.textContent = t('scanningReceiptMsg');
+  try{
+    const result = await Tesseract.recognize(file.url, 'eng');
+    const rawText = result.data.text || '';
+    const lines = rawText.split('\n').map(parseReceiptLine).filter(Boolean);
+    if(lines.length === 0){
+      msgEl.style.color = 'var(--crit)';
+      msgEl.textContent = t('errReceiptScanNoLines');
+      return;
+    }
+    pendingReceiptOcrLines = lines;
+    msgEl.style.color = 'var(--safe)';
+    msgEl.textContent = tf('receiptScanFoundLinesMsg', { n: lines.length });
+    processNextReceiptOcrLine();
+  } catch(e){
+    console.error('收據 OCR 辨識失敗', e);
+    msgEl.style.color = 'var(--crit)';
+    msgEl.textContent = t('errReceiptScanFailed');
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+function addOcrLineToTxBatch(productId, qty, amount){
+  const p = products.find(x => x.id === productId);
+  if(!p) return;
+  const existing = txBatchItems.find(it => it.productId === productId);
+  if(existing){
+    existing.qty += qty;
+    if(amount) existing.amount = (existing.amount || 0) + amount;
+  } else {
+    const item = { productId, sku: p.sku || '', name: p.name, unit: p.unit, qty };
+    if(amount) item.amount = amount;
+    txBatchItems.push(item);
+  }
+  renderTxBatchList();
+}
+
+function processNextReceiptOcrLine(){
+  if(pendingReceiptOcrLines.length === 0){
+    renderTxBatchList();
+    return;
+  }
+  const line = pendingReceiptOcrLines[0];
+  const matchedProduct = findReceiptLineMapping(receiptOcrPartyId, line.description);
+  if(matchedProduct){
+    // 已經有記憶對照過,不用問,照 OCR 讀到的數量/金額直接加入清單。
+    addOcrLineToTxBatch(matchedProduct.id, line.qty, line.amount);
+    pendingReceiptOcrLines.shift();
+    processNextReceiptOcrLine();
+    return;
+  }
+  openReceiptOcrConfirmModal(line);
+}
+
+function openReceiptOcrConfirmModal(line){
+  document.getElementById('receiptOcrRawTextDisplay').value = line.description;
+  document.getElementById('receiptOcrQtyInput').value = line.qty;
+  document.getElementById('receiptOcrAmountInput').value = line.amount || '';
+  document.getElementById('receiptOcrConfirmMsg').textContent = '';
+  document.getElementById('receiptOcrProgressInfo').textContent = tf('receiptOcrProgressText', { remaining: pendingReceiptOcrLines.length });
+  const sel = document.getElementById('receiptOcrProductSelect');
+  sel.innerHTML = '<option value=""></option>' + products.filter(p => !p.hidden).slice().sort(compareProductsBySortMode)
+    .map(p => `<option value="${p.id}">${p.sku ? p.sku + ' — ' : ''}${p.parentId ? '⧉ ' : ''}${p.name}(${p.unit})</option>`).join('');
+  makeSelectSearchable('receiptOcrProductSelect');
+  document.getElementById('receiptOcrConfirmModalOverlay').style.display = 'flex';
+}
+
+async function confirmReceiptOcrLine(){
+  const msgEl = document.getElementById('receiptOcrConfirmMsg');
+  const productId = document.getElementById('receiptOcrProductSelect').value;
+  const qty = parseFloat(document.getElementById('receiptOcrQtyInput').value);
+  const amountRaw = document.getElementById('receiptOcrAmountInput').value;
+  const amount = amountRaw === '' ? null : parseFloat(amountRaw);
+  if(!productId){ msgEl.className = 'msg error'; msgEl.textContent = t('errSelectProductFirst'); return; }
+  if(isNaN(qty) || qty <= 0){ msgEl.className = 'msg error'; msgEl.textContent = t('errEnterPositiveQty'); return; }
+
+  const line = pendingReceiptOcrLines.shift();
+  addOcrLineToTxBatch(productId, qty, (amount && amount > 0) ? amount : null);
+  await rememberReceiptLineMapping(receiptOcrPartyId, normalizeReceiptLineText(line.description), productId);
+  document.getElementById('receiptOcrConfirmModalOverlay').style.display = 'none';
+  processNextReceiptOcrLine();
+}
+
+function skipReceiptOcrLine(){
+  pendingReceiptOcrLines.shift();
+  document.getElementById('receiptOcrConfirmModalOverlay').style.display = 'none';
+  processNextReceiptOcrLine();
+}
+
+function cancelReceiptOcrSequence(){
+  pendingReceiptOcrLines = [];
+  document.getElementById('receiptOcrConfirmModalOverlay').style.display = 'none';
+  renderTxBatchList();
 }
 
 function removePurchaseReceipt(){
@@ -10910,28 +11157,31 @@ function getPurchaseReceiptFileList(p){
 function buildPurchaseWorkbook(p){
   const productMap = Object.fromEntries(products.map(pp => [pp.id, pp]));
   const supplier = p.partyName || p.partyId || '';
+  const hasAnyAmount = (p.items || []).some(it => it.amount);
 
   const aoa = [];
   aoa.push([`Supplier: ${supplier}`, `Invoice No.: ${p.invoiceNo || ''}`]);
   aoa.push([`Date: ${p.date || ''}`]);
-  aoa.push(['SKU', 'Name', 'Qty', 'Unit']);
+  aoa.push(hasAnyAmount ? ['SKU', 'Name', 'Qty', 'Unit', 'Amount', 'Unit Price'] : ['SKU', 'Name', 'Qty', 'Unit']);
   (p.items || []).forEach(it => {
     const prod = productMap[it.productId];
-    aoa.push([
+    const row = [
       prod && prod.sku ? prod.sku : (it.sku || ''),
       prod ? prod.name : (it.name || '(deleted product)'),
       it.qty,
       prod ? prod.unit : (it.unit || '')
-    ]);
+    ];
+    if(hasAnyAmount){
+      row.push(it.amount || '');
+      row.push(it.amount ? Math.round((it.amount / it.qty) * 100) / 100 : ''); // 單價用「金額 ÷ 數量」現算,不是另外存的欄位——auto convert 換算單位之後,數量已經是換算後的單位,這裡算出來的就自然是換算後單位的單價
+    }
+    aoa.push(row);
   });
 
   const ws = XLSX.utils.aoa_to_sheet(aoa);
-  ws['!cols'] = [
-    {wch:10}, // SKU
-    {wch:32}, // Name
-    {wch:8},  // Qty
-    {wch:10}  // Unit
-  ];
+  ws['!cols'] = hasAnyAmount
+    ? [{wch:10},{wch:32},{wch:8},{wch:10},{wch:12},{wch:12}]
+    : [{wch:10},{wch:32},{wch:8},{wch:10}];
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Purchase');
 
@@ -11577,12 +11827,19 @@ async function submitTxBatchSimple(date, msg){
   }
 
   // 進貨(type='in')的話,除了上面照常產生的 transactions(維持庫存計算邏輯不變),同時建立一張
-  // 進貨單(purchases)——把這批品項、收據附件包成一份正式文件,不記單價/金額(見收據附件說明)。
+  // 進貨單(purchases)——把這批品項、收據附件包成一份正式文件。原則上還是不強制記單價/金額,
+  // 但如果是透過「掃描收據自動帶入」辨識出來的品項,金額(amount 是這個品項在收據上的總金額,
+  // 不是單價——auto convert 換算單位時,總花費不會變,單價才會因為單位不同而不同,所以這裡
+  // 記的是總額,匯出報表要換算成單價的話用「金額 ÷ 數量」現算即可)會一併記下來、一起匯出。
   if(currentTxType === 'in'){
     const purchase = {
       id: purchaseId,
       date, partyId: party, partyName: party, invoiceNo, note,
-      items: txBatchItems.map(it => ({ productId: it.productId, sku: it.sku || '', name: it.name, unit: it.unit, qty: it.qty })),
+      items: txBatchItems.map(it => {
+        const item = { productId: it.productId, sku: it.sku || '', name: it.name, unit: it.unit, qty: it.qty };
+        if(it.amount) item.amount = it.amount;
+        return item;
+      }),
       receiptFiles: pendingPurchaseReceiptFiles.slice(),
       createdAt: new Date().toISOString()
     };
