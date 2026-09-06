@@ -641,7 +641,7 @@
 
     /* 從選單首頁點進一個有子分頁的分頁時,先只顯示子分頁按鍵、不顯示任何子分頁內容
        (即使某個子分頁預設是 active-subtab 也一樣先蓋掉),點了子分頁按鍵才顯示內容
-       (見 switchSystemSubTab / switchTxSubTab / switchOrderSubTab / switchOrderAdminSubTab
+       (見 switchSystemSubTab / switchWarehouseOpsSubTab / switchOrderSubTab / switchOrderAdminSubTab
        裡移除這個 class 的地方)。 */
     body.mobile-subtab-menu-active .subtab-content{ display:none !important; }
 
@@ -955,7 +955,6 @@
       <div class="section-title" style="margin-bottom:12px;" data-i18n="tabMaster">系統管理</div>
       <div class="subtab-bar">
         <button class="subtab-btn active" onclick="switchSystemSubTab('subtab-sys-users')" id="btn-subtab-sys-users" data-i18n="secUserManagement">使用者管理</button>
-        <button class="subtab-btn" onclick="switchSystemSubTab('subtab-sys-purchase-mgmt')" id="btn-subtab-sys-purchase-mgmt" data-i18n="subtabPurchaseMgmt">進貨管理</button>
         <button class="subtab-btn" onclick="switchSystemSubTab('subtab-sys-settings')" id="btn-subtab-sys-settings" data-i18n="subtabSysSettings">系統設置</button>
         <button class="subtab-btn" onclick="switchSystemSubTab('subtab-sys-product')" id="btn-subtab-sys-product" data-i18n="subtabSysProduct">商品主頁</button>
       </div>
@@ -979,42 +978,6 @@
           4. <span data-i18n-html="addUserStep4">展開 User Metadata,貼上例如 <code>{"username": "tom", "role": "order"}</code>(role 可填 admin / order / inventory)</span><br>
           5. <span data-i18n="addUserStep5">存檔後,這個帳號就會自動出現在上面的清單,可再細部調整他能看到哪些分頁。</span>
         </p>
-      </div>
-
-      <div id="subtab-sys-purchase-mgmt" class="subtab-content">
-        <div class="subtab-bar" style="margin-bottom:14px;">
-          <button class="subtab-btn active" onclick="switchPurchaseMgmtSubTab('subtab-purchase-mgmt-suppliers')" id="btn-subtab-purchase-mgmt-suppliers" data-i18n="secSupplierManagement">進貨方管理</button>
-          <button class="subtab-btn" onclick="switchPurchaseMgmtSubTab('subtab-purchase-mgmt-ocrdb')" id="btn-subtab-purchase-mgmt-ocrdb" data-i18n="secReceiptOcrDb">掃描收據數據庫</button>
-        </div>
-
-        <div id="subtab-purchase-mgmt-suppliers" class="subtab-content active-subtab">
-          <div class="toolbar">
-            <div class="section-title" style="margin:0;" data-i18n="secSupplierManagement">進貨方管理</div>
-            <button class="btn" onclick="openSupplierEditModal(null)" data-i18n="btnAddSupplier">+ 新增供應商</button>
-          </div>
-          <p style="font-size:11.5px;color:var(--ink-soft);margin:0 0 12px;" data-i18n="supplierManagementDesc">
-            登記進出貨的進貨方下拉選單會依這個清單顯示(依名稱排序);刪除的供應商不會再出現在下拉選單裡,但不會影響已經建立的進貨單紀錄。
-          </p>
-          <div id="supplierManagementTable"></div>
-        </div>
-
-        <div id="subtab-purchase-mgmt-ocrdb" class="subtab-content">
-          <div class="section-title" data-i18n="secReceiptOcrDb">掃描收據數據庫</div>
-          <p style="font-size:11.5px;color:var(--ink-soft);margin:0 0 12px;" data-i18n="receiptOcrDbDesc">
-            管理收據掃描的記憶對照表。選一項商品,查看有哪些供應商、哪些 OCR 讀到的文字被記住對應到這個商品,如果之前不小心對到錯的商品,可以在這裡刪除,下次掃描到同樣文字就會重新跳出來問。
-          </p>
-          <div class="filter-row">
-            <div class="field">
-              <label data-i18n="fieldFilterByCategory">依分類篩選商品</label>
-              <select id="ocrDbCategoryFilter" onchange="resetSearchableSelect('ocrDbProductSelect'); renderOcrDbProductSelect();"></select>
-            </div>
-            <div class="field" style="min-width:260px;">
-              <label data-i18n="lblProduct">商品</label>
-              <select id="ocrDbProductSelect" onchange="renderOcrDbMappingList()"></select>
-            </div>
-          </div>
-          <div id="ocrDbMappingList"></div>
-        </div>
       </div>
 
       <div id="subtab-sys-settings" class="subtab-content">
@@ -1236,12 +1199,10 @@
     </div>
   </div>
 
-  <div id="tab-tx" class="tab-content">
+  <div id="tab-warehouse-ops" class="tab-content">
     <div class="subtab-bar">
-      <button class="subtab-btn active" onclick="switchTxSubTab('subtab-tx-register')" id="btn-subtab-tx-register" data-i18n="subtabTxRegister">登記進出貨</button>
-      <button class="subtab-btn" onclick="switchTxSubTab('subtab-tx-verify')" id="btn-subtab-tx-verify" data-i18n="subtabTxVerify">訂單核對</button>
-      <button class="subtab-btn" onclick="switchTxSubTab('subtab-tx-forecast')" id="btn-subtab-tx-forecast" data-i18n="subtabTxForecast">進貨預估</button>
-      <button class="subtab-btn" onclick="switchTxSubTab('subtab-tx-data')" id="btn-subtab-tx-data" data-i18n="subtabTxData">資料維護</button>
+      <button class="subtab-btn active" onclick="switchWarehouseOpsSubTab('subtab-tx-register')" id="btn-subtab-tx-register" data-i18n="subtabTxRegister">登記進出貨</button>
+      <button class="subtab-btn" onclick="switchWarehouseOpsSubTab('subtab-tx-verify')" id="btn-subtab-tx-verify" data-i18n="subtabTxVerify">訂單核對</button>
     </div>
 
     <div id="subtab-tx-register" class="subtab-content active-subtab">
@@ -1453,131 +1414,6 @@
     </div>
     </div>
 
-    <div id="subtab-tx-forecast" class="subtab-content">
-    <div class="section">
-      <div class="section-title" data-i18n="secForecast">進貨預估</div>
-      <p style="font-size:12.5px;color:var(--ink-soft);margin:0 0 12px;" data-i18n="forecastDesc">
-        目前庫存可撐是跟庫存總覽一樣的算法(用平均出貨量推算);填了「預計進貨數量」之後,右邊「進貨後庫存可撐」會即時算出把這批貨加進去、大概還能再撐多久(用(預計進貨數量+目前庫存量)除以平均用量估算),方便抓進貨量的參考,不會真的異動庫存。
-      </p>
-      <div style="display:flex;align-items:end;gap:16px;margin-bottom:14px;flex-wrap:wrap;">
-        <div class="field" style="width:260px;">
-          <label data-i18n="fieldFilterByForecastParty">依進貨對象篩選商品</label>
-          <select id="forecastPartyFilter" onchange="renderForecastTable()"></select>
-        </div>
-        <div class="field" style="width:260px;">
-          <label data-i18n="fieldFilterByCategory">依分類篩選商品</label>
-          <select id="forecastCategoryFilter" onchange="renderForecastTable()"></select>
-        </div>
-        <div id="forecastSummaryBar" style="margin-left:auto;font-size:15px;color:var(--ink-soft);white-space:nowrap;padding-bottom:9px;"></div>
-      </div>
-      <div id="forecastTableContainer"></div>
-    </div>
-    </div>
-
-    <div id="subtab-tx-data" class="subtab-content">
-    <div class="section">
-      <div class="section-title" data-i18n="secExportReport">匯出報表</div>
-      <p style="font-size:12.5px;color:var(--ink-soft);margin:0 0 12px;" data-i18n-html="exportReportDesc">
-        選擇「類型」(出貨/進貨/入庫),依「對象」跟日期區間篩選紀錄,匯出成 Excel 報表(格式比照 stock_out_sheet 範本,含 SKU、分類等欄位)。<b>同一對象、同一商品在選取區間內會自動加總成一筆</b>,不會重複列出每一次的紀錄。
-      </p>
-      <div class="form-grid" style="grid-template-columns:0.9fr 1.2fr 1fr 1fr auto;">
-        <div class="field">
-          <label data-i18n="fieldExportType">類型</label>
-          <select id="exportTypeSelect" onchange="populateExportPartySelect()">
-            <option value="out" data-i18n="exportTypeOut">出貨</option>
-            <option value="in" data-i18n="exportTypeIn">進貨</option>
-            <option value="restock" data-i18n="exportTypeRestock">入庫</option>
-          </select>
-        </div>
-        <div class="field">
-          <label id="exportPartyLabel" data-i18n="exportPartyLabelOut">門市/對象</label>
-          <select id="exportPartySelect">
-            <option value="" data-i18n="logPartyAll">全部對象</option>
-          </select>
-        </div>
-        <div class="field">
-          <label data-i18n="fieldFromDate">從日期</label>
-          <input type="date" id="exportDateFrom" />
-        </div>
-        <div class="field">
-          <label data-i18n="fieldToDate">到日期</label>
-          <input type="date" id="exportDateTo" />
-        </div>
-        <button class="btn" onclick="exportShipmentSheet()" data-i18n="btnExportReport">📄 匯出報表(Excel)</button>
-      </div>
-      <div id="exportShipmentMsg" class="msg"></div>
-    </div>
-
-    <hr class="divider" />
-
-    <div class="section">
-      <div class="section-title"><span data-i18n="secImportTx">從 Excel 匯入進出貨紀錄</span></div>
-      <p style="font-size:12.5px;color:var(--ink-soft);margin:0 0 14px;" data-i18n-html="secImportTxDesc">
-        上傳你填好的每日進出貨紀錄表(<b>可以一次選取多個檔案</b>),系統會依<b>檔名</b>自動判斷進貨或出貨(檔名需包含「stock in」或「stock out」),並自動比對商品名稱、抓出每一列的數量,整批登記成紀錄。每個檔案會各自偵測自己的日期/供應商。<br/>
-        <span style="color:var(--crit);" data-i18n="secImportTxWarning">注意:庫存主檔(像 stock.xlsx,含品名/庫存量/分類/安全庫存)請不要在這裡上傳,那個要到「系統管理 → 商品主頁」用「從 Excel 匯入商品主檔」。</span>
-      </p>
-      <div class="form-grid" style="grid-template-columns:1fr 1fr auto;">
-        <div class="field">
-          <label data-i18n="fieldImportDate">日期(若表格內有 Date: 會自動帶入,每個檔案各自偵測)</label>
-          <div class="input-wrap"><input id="txImportDate" type="date" /></div>
-        </div>
-        <div class="field">
-          <label data-i18n="fieldImportParty">進貨方/出貨方(若表格內有 Supplier 會自動帶入,選填)</label>
-          <div class="input-wrap"><input id="txImportParty" type="text" placeholder="例如:大盤商 A" /></div>
-        </div>
-        <div class="field">
-          <label data-i18n="fieldSelectFiles">選擇檔案(檔案在不同資料夾可分次加選)</label>
-          <input type="file" id="txImportFile" accept=".xlsx,.xls" multiple onchange="addTxFiles(this.files)" style="border:1px solid var(--line);background:#fff;border-radius:2px;padding:8px;font-family:'IBM Plex Mono',monospace;font-size:12px;" />
-        </div>
-      </div>
-      <div id="txFileList" class="file-chip-list"></div>
-      <button class="btn" onclick="parseTxExcel()" data-i18n="btnParseExcel">解析 Excel</button>
-      <div id="txImportMsg" class="msg"></div>
-      <div id="txImportPreview"></div>
-    </div>
-
-    <hr class="divider" />
-
-    <div class="section">
-      <div class="section-title"><span data-i18n="secAddProduct">新增商品</span></div>
-      <div class="form-grid" style="grid-template-columns:0.8fr 1.2fr 0.7fr 0.9fr 1fr 0.9fr 1.1fr auto;">
-        <div class="field">
-          <label data-i18n="fieldSku">SKU(選填)</label>
-          <input id="newProductSku" type="text" placeholder="例如:A001" />
-        </div>
-        <div class="field">
-          <label data-i18n="fieldName">商品名稱</label>
-          <input id="newProductName" type="text" placeholder="例如:A4影印紙" />
-        </div>
-        <div class="field">
-          <label data-i18n="fieldUnit">單位</label>
-          <input id="newProductUnit" type="text" placeholder="例如:箱 / 個 / kg" />
-        </div>
-        <div class="field">
-          <label data-i18n="fieldCategory">分類</label>
-          <select id="newProductCategory"></select>
-        </div>
-        <div class="field">
-          <label data-i18n="fieldAvg">月均使用量(選填)</label>
-          <input id="newProductAvg" type="number" min="0" step="0.1" placeholder="沒有紀錄可留空" />
-        </div>
-        <div class="field">
-          <label data-i18n="fieldSafety">安全庫存(月數,選填)</label>
-          <input id="newProductSafety" type="number" min="0" step="0.01" placeholder="例如 1.5" />
-        </div>
-        <div class="field">
-          <label data-i18n="fieldNote">備註(選填)</label>
-          <input id="newProductNote" type="text" placeholder="例如:易碎/需冷藏" />
-        </div>
-        <div class="field">
-          <label data-i18n="fieldOrderPageRemark">訂貨頁面附註(選填)</label>
-          <input id="newProductOrderPageRemark" type="text" placeholder="只會顯示在訂貨頁面" />
-        </div>
-        <button class="btn" onclick="addProduct()" data-i18n="btnAddProduct">新增商品</button>
-      </div>
-      <div id="productMsg" class="msg"></div>
-    </div>
-    </div>
   </div>
 
   <div id="tab-overview" class="tab-content">
@@ -1661,7 +1497,7 @@
       </div>
       <div class="section-title" data-i18n="secCreateOrder">建立訂貨單</div>
       <p style="font-size:12.5px;color:var(--ink-soft);margin:0 0 12px;" data-i18n-html="orderTabDesc">
-        只有標記為「可訂貨」的商品會出現在下面清單(在「庫存總覽」分頁的商品列點「加入訂貨」即可標記;也可以在「訂貨後台管理 → 管理出貨方」針對個別出貨方再調整能看到哪些商品)。庫存為 0 的商品會顯示「缺貨」且無法填數量,訂貨數量也不能超過目前庫存。<b>按下「購物車」不會扣除庫存,會先進入購物車確認,按下購物車裡的「送出訂貨」才會扣除庫存並記錄到「訂貨後台管理 → 已完成訂單」</b>,請確認數量無誤再送出;不小心送錯的話,可以到「已完成訂單」用刪除功能把庫存退回來。
+        只有標記為「可訂貨」的商品會出現在下面清單(在「庫存總覽」分頁的商品列點「加入訂貨」即可標記;也可以在「倉庫後台管理 → 出貨方管理」針對個別出貨方再調整能看到哪些商品)。庫存為 0 的商品會顯示「缺貨」且無法填數量,訂貨數量也不能超過目前庫存。<b>按下「購物車」不會扣除庫存,會先進入購物車確認,按下購物車裡的「送出訂貨」才會扣除庫存並記錄到「訂貨後台管理 → 已完成訂單」</b>,請確認數量無誤再送出;不小心送錯的話,可以到「已完成訂單」用刪除功能把庫存退回來。
       </p>
       <div class="form-grid" style="grid-template-columns:200px 200px 1fr;">
         <div class="field">
@@ -1680,7 +1516,7 @@
         </div>
       </div>
       <p style="font-size:11.5px;color:var(--ink-soft);margin:6px 0 12px;" data-i18n="orderPartyHelp">
-        沒有想要的出貨方嗎?到「訂貨後台管理 → 管理出貨方」新增即可。選了出貨方之後,下面的「每週平均用量」會用這個出貨方最近三個月的出貨紀錄計算,供訂貨時參考。
+        沒有想要的出貨方嗎?到「倉庫後台管理 → 出貨方管理」新增即可。選了出貨方之後,下面的「每週平均用量」會用這個出貨方最近三個月的出貨紀錄計算,供訂貨時參考。
       </p>
       <div class="order-toolbar-row" id="orderToolbarRow" style="display:flex;align-items:flex-end;gap:12px;">
         <div class="field" style="max-width:240px;">
@@ -1730,6 +1566,90 @@
     </div>
   </div>
 
+  <div id="tab-warehouse-admin" class="tab-content">
+    <div class="subtab-bar">
+      <button class="subtab-btn active" onclick="switchWarehouseAdminSubTab('subtab-order-parties')" id="btn-subtab-order-parties" data-i18n="subtabManageParties">出貨方管理</button>
+      <button class="subtab-btn" onclick="switchWarehouseAdminSubTab('subtab-purchase-mgmt-suppliers')" id="btn-subtab-purchase-mgmt-suppliers" data-i18n="secSupplierManagement">進貨方管理</button>
+      <button class="subtab-btn" onclick="switchWarehouseAdminSubTab('subtab-tx-forecast')" id="btn-subtab-tx-forecast" data-i18n="subtabTxForecast">進貨預估</button>
+      <button class="subtab-btn" onclick="switchWarehouseAdminSubTab('subtab-tx-data')" id="btn-subtab-tx-data" data-i18n="subtabTxData">資料維護</button>
+      <button class="subtab-btn" onclick="switchWarehouseAdminSubTab('subtab-purchase-mgmt-ocrdb')" id="btn-subtab-purchase-mgmt-ocrdb" data-i18n="secReceiptOcrDb">掃描收據數據庫</button>
+    </div>
+
+    <div id="subtab-order-parties" class="subtab-content active-subtab">
+      <div class="section-title" style="margin-bottom:8px;" data-i18n="secManageParties">管理出貨方</div>
+      <p style="font-size:12.5px;color:var(--ink-soft);margin:0 0 12px;" data-i18n="managePartiesDesc">
+        這裡新增/編輯的出貨方,會直接出現在「訂貨」分頁的「出貨方」下拉選單裡。每個出貨方預設可以看到所有可訂貨的商品,可以點「設定可訂購商品」再個別調整。
+      </p>
+      <div class="form-grid" style="grid-template-columns:1fr 1fr 1fr auto;">
+        <div class="field">
+          <label data-i18n="fieldPartyName">出貨方名稱</label>
+          <input type="text" id="newPartyName" placeholder="例如:○○貿易行" />
+        </div>
+        <div class="field">
+          <label data-i18n="fieldPartyContact">聯絡方式(選填)</label>
+          <input type="text" id="newPartyContact" placeholder="電話 / Line / Email" />
+        </div>
+        <div class="field">
+          <label data-i18n="fieldOrderNote">備註(選填)</label>
+          <input type="text" id="newPartyNote" placeholder="備註" />
+        </div>
+        <button class="btn" onclick="addParty()" style="align-self:flex-end;" data-i18n="btnAddParty">➕ 新增出貨方</button>
+      </div>
+      <div id="partyMsg" class="msg"></div>
+      <div id="partiesTable" style="margin-top:14px;">
+        <div class="empty-note" data-i18n="noPartiesYet">還沒有任何出貨方,先在上面新增一個。</div>
+      </div>
+    </div>
+
+    <div id="subtab-purchase-mgmt-suppliers" class="subtab-content">
+      <div class="toolbar">
+        <div class="section-title" style="margin:0;" data-i18n="secSupplierManagement">進貨方管理</div>
+        <button class="btn" onclick="openSupplierEditModal(null)" data-i18n="btnAddSupplier">+ 新增供應商</button>
+      </div>
+      <p style="font-size:11.5px;color:var(--ink-soft);margin:0 0 12px;" data-i18n="supplierManagementDesc">
+        登記進出貨的進貨方下拉選單會依這個清單顯示(依名稱排序);刪除的供應商不會再出現在下拉選單裡,但不會影響已經建立的進貨單紀錄。
+      </p>
+      <div id="supplierManagementTable"></div>
+    </div>
+
+    <div id="subtab-purchase-mgmt-ocrdb" class="subtab-content">
+      <div class="section-title" data-i18n="secReceiptOcrDb">掃描收據數據庫</div>
+      <p style="font-size:11.5px;color:var(--ink-soft);margin:0 0 12px;" data-i18n="receiptOcrDbDesc">
+        管理收據掃描的記憶對照表。選一項商品,查看有哪些供應商、哪些 OCR 讀到的文字被記住對應到這個商品,如果之前不小心對到錯的商品,可以在這裡刪除,下次掃描到同樣文字就會重新跳出來問。
+      </p>
+      <div class="filter-row">
+        <div class="field">
+          <label data-i18n="fieldFilterByCategory">依分類篩選商品</label>
+          <select id="ocrDbCategoryFilter" onchange="resetSearchableSelect('ocrDbProductSelect'); renderOcrDbProductSelect();"></select>
+        </div>
+        <div class="field" style="min-width:260px;">
+          <label data-i18n="lblProduct">商品</label>
+          <select id="ocrDbProductSelect" onchange="renderOcrDbMappingList()"></select>
+        </div>
+      </div>
+      <div id="ocrDbMappingList"></div>
+    </div>
+
+    <div id="subtab-tx-forecast" class="subtab-content">
+      <div class="section-title" data-i18n="secForecast">進貨預估</div>
+      <p style="font-size:12.5px;color:var(--ink-soft);margin:0 0 12px;" data-i18n="forecastDesc">
+        目前庫存可撐是跟庫存總覽一樣的算法(用平均出貨量推算);填了「預計進貨數量」之後,右邊「進貨後庫存可撐」會即時算出把這批貨加進去、大概還能再撐多久(用(預計進貨數量+目前庫存量)除以平均用量估算),方便抓進貨量的參考,不會真的異動庫存。
+      </p>
+      <div style="display:flex;align-items:end;gap:16px;margin-bottom:14px;flex-wrap:wrap;">
+        <div class="field" style="width:260px;">
+          <label data-i18n="fieldFilterByForecastParty">依進貨對象篩選商品</label>
+          <select id="forecastPartyFilter" onchange="renderForecastTable()"></select>
+        </div>
+        <div class="field" style="width:260px;">
+          <label data-i18n="fieldFilterByCategory">依分類篩選商品</label>
+          <select id="forecastCategoryFilter" onchange="renderForecastTable()"></select>
+        </div>
+        <div id="forecastSummaryBar" style="margin-left:auto;font-size:15px;color:var(--ink-soft);white-space:nowrap;padding-bottom:9px;"></div>
+      </div>
+      <div id="forecastTableContainer"></div>
+    </div>
+  </div>
+
   <div id="tab-order-admin" class="tab-content">
     <div class="section">
       <div class="section-title" style="margin-bottom:12px;" data-i18n="secOrderAdmin">訂貨後台管理</div>
@@ -1739,7 +1659,6 @@
           <span id="pendingOrderCountBadge" class="mobile-notify-badge" style="display:none;"></span>
         </span>
         <button class="subtab-btn" onclick="switchOrderAdminSubTab('subtab-order-completed')" id="btn-subtab-order-completed" data-i18n="subtabCompletedOrders">已完成訂單</button>
-        <button class="subtab-btn" onclick="switchOrderAdminSubTab('subtab-order-parties')" id="btn-subtab-order-parties" data-i18n="subtabManageParties">管理出貨方</button>
       </div>
 
       <div id="subtab-order-pending" class="subtab-content active-subtab">
@@ -1790,32 +1709,6 @@
         <div id="orderExportMsg" class="msg"></div>
         <div id="completedOrdersList">
           <div class="empty-note" data-i18n="noCompletedOrders">還沒有任何已完成的訂單。</div>
-        </div>
-      </div>
-
-      <div id="subtab-order-parties" class="subtab-content">
-        <div class="section-title" style="margin-bottom:8px;" data-i18n="secManageParties">管理出貨方</div>
-        <p style="font-size:12.5px;color:var(--ink-soft);margin:0 0 12px;" data-i18n="managePartiesDesc">
-          這裡新增/編輯的出貨方,會直接出現在「訂貨」分頁的「出貨方」下拉選單裡。每個出貨方預設可以看到所有可訂貨的商品,可以點「設定可訂購商品」再個別調整。
-        </p>
-        <div class="form-grid" style="grid-template-columns:1fr 1fr 1fr auto;">
-          <div class="field">
-            <label data-i18n="fieldPartyName">出貨方名稱</label>
-            <input type="text" id="newPartyName" placeholder="例如:○○貿易行" />
-          </div>
-          <div class="field">
-            <label data-i18n="fieldPartyContact">聯絡方式(選填)</label>
-            <input type="text" id="newPartyContact" placeholder="電話 / Line / Email" />
-          </div>
-          <div class="field">
-            <label data-i18n="fieldOrderNote">備註(選填)</label>
-            <input type="text" id="newPartyNote" placeholder="備註" />
-          </div>
-          <button class="btn" onclick="addParty()" style="align-self:flex-end;" data-i18n="btnAddParty">➕ 新增出貨方</button>
-        </div>
-        <div id="partyMsg" class="msg"></div>
-        <div id="partiesTable" style="margin-top:14px;">
-          <div class="empty-note" data-i18n="noPartiesYet">還沒有任何出貨方,先在上面新增一個。</div>
         </div>
       </div>
     </div>
@@ -2560,7 +2453,7 @@ const I18N = {
     appTitle: 'Orange Tea AU | Inventory & Order Hub', appTitleOrderOnly: 'Orange Tea AU | Order Hub',
     appTitleSubtitle: 'Inventory & Order Hub', appTitleSubtitleOrderOnly: 'Order Hub',
     appLoadingText: '載入中…',
-    tabMaster: '系統管理', tabTx: '庫存管理', tabOverview: '庫存總覽', tabLog: '歷史紀錄',
+    tabMaster: '系統管理', tabWarehouseOps: '倉庫作業台', tabWarehouseAdmin: '倉庫後台管理', tabOverview: '庫存總覽', tabLog: '歷史紀錄',
     subtabOverviewSummary: '庫存統計', subtabOverviewLocation: '庫存分布',
     secStockLocation: '庫存分布', stockLocationDesc: '搜尋一項商品,查看它目前分布在哪些位置、各自有多少數量。',
     subtabLogTx: '進出貨紀錄', subtabLogConvert: '切換紀錄', subtabLogInventory: '後台紀錄',
@@ -2640,13 +2533,13 @@ const I18N = {
 
     tabOrder: '訂貨', tabOrderAdmin: '訂貨後台管理',
     secCreateOrder: '建立訂貨單',
-    orderTabDesc: '只有標記為「可訂貨」的商品會出現在下面清單(在「庫存總覽」分頁的商品列點「加入訂貨」即可標記;也可以在「訂貨後台管理 → 管理出貨方」針對個別出貨方再調整能看到哪些商品)。庫存為 0 的商品會顯示「缺貨」且無法填數量,訂貨數量也不能超過目前庫存。<b>按下「購物車」不會扣除庫存,會先進入購物車確認,按下購物車裡的「送出訂貨」才會扣除庫存並記錄到「訂貨後台管理 → 已完成訂單」</b>,請確認數量無誤再送出;不小心送錯的話,可以到「已完成訂單」用刪除功能把庫存退回來。',
+    orderTabDesc: '只有標記為「可訂貨」的商品會出現在下面清單(在「庫存總覽」分頁的商品列點「加入訂貨」即可標記;也可以在「倉庫後台管理 → 出貨方管理」針對個別出貨方再調整能看到哪些商品)。庫存為 0 的商品會顯示「缺貨」且無法填數量,訂貨數量也不能超過目前庫存。<b>按下「購物車」不會扣除庫存,會先進入購物車確認,按下購物車裡的「送出訂貨」才會扣除庫存並記錄到「訂貨後台管理 → 已完成訂單」</b>,請確認數量無誤再送出;不小心送錯的話,可以到「已完成訂單」用刪除功能把庫存退回來。',
     fieldOrderDate: '訂貨日期', fieldShippingParty: '出貨方', fieldOrderNote: '備註(選填)',
     optUnspecified: '未指定',
-    orderPartyHelp: '沒有想要的出貨方嗎?到「訂貨後台管理 → 管理出貨方」新增即可。選了出貨方之後,下面的「每次訂貨平均用量」會用這個出貨方最近三個月的出貨紀錄計算,供訂貨時參考。',
+    orderPartyHelp: '沒有想要的出貨方嗎?到「倉庫後台管理 → 出貨方管理」新增即可。選了出貨方之後,下面的「每次訂貨平均用量」會用這個出貨方最近三個月的出貨紀錄計算,供訂貨時參考。',
     fieldFilterByCategory: '依分類篩選商品',
     noOrderableProducts: '目前沒有標記為「可訂貨」的商品。',
-    noFilteredOrderableProducts: '沒有符合條件的商品。到「庫存總覽」分頁把商品標記為可訂貨,或到「訂貨後台管理 → 管理出貨方」調整這個出貨方能看到的商品範圍,也可以檢查一下分類篩選是不是選錯了。',
+    noFilteredOrderableProducts: '沒有符合條件的商品。到「庫存總覽」分頁把商品標記為可訂貨,或到「倉庫後台管理 → 出貨方管理」調整這個出貨方能看到的商品範圍,也可以檢查一下分類篩選是不是選錯了。',
     btnConfirmOrder: '✅ 確認訂貨(立即扣庫存)',
     btnCart: '🛒 購物車', secCart: '購物車',
     cartDesc: '請確認以下訂貨數量。按「繼續訂貨」可以回到訂貨頁面修改',
@@ -2860,7 +2753,7 @@ const I18N = {
     txAddToCompletedOrderLabel: '併入已完成訂單(勾選才會賦予訂單編號,並顯示在「訂貨後台管理 → 已完成訂單」;不勾選則只是單純登記一筆出貨紀錄)',
     btnAddToBatch: '+ 加入清單', txBatchEmpty: '清單是空的,請先在上方選好商品跟數量後按「加入清單」。',
     secUploadMasterExcel: '上傳你自己的商品主檔 Excel',
-    secUploadMasterExcelDesc: '可以一次選取多個檔案。第一列要是欄位標題,系統會自動辨識這些欄位名稱(大小寫、中英文都可以):<br/><span style="font-family:\'IBM Plex Mono\',monospace;font-size:11.5px;">必要:SKU、Name/品名、Stock/庫存量&nbsp;&nbsp;|&nbsp;&nbsp;選填:Unit/單位、AvgMonthlySales/平均使用量、Categories/分類、SafetyStock/安全庫存(填月數,不是填數量)、Note/備註、ParentSKU/主商品SKU、ChildWeight/加權數、Length/長、Width/寬、Height/高</span><br/><b>以 SKU 為比對主鍵</b>:表格裡的 SKU 如果跟現有商品相同,就算表格上的名稱不一樣,也會視為同一項商品並更新其他欄位;<b>商品名稱一律維持庫存總覽現有的名稱,不會被表格覆蓋</b>。SKU 不同或全新的 SKU 會用表格上的名稱新增成一項新商品。<b>沒有填 SKU 的資料列會被略過,不會寫入。</b><br/><b>批量商品(multi-pack)</b>:如果這一列是某個主商品底下的批量商品,在 ParentSKU 欄位填主商品的 SKU,並在 ChildWeight 欄位填加權數(換算主商品庫存時,這個批量商品的庫存量會先乘以這個數字);沒填 ParentSKU 就當一般商品匯入。ParentSKU 必須是同一份表格裡或系統裡已經存在的 SKU,而且那個商品本身不能又是別人的批量商品(不支援兩層巢狀)。<br/><b>箱子尺寸(Length/Width/Height)</b>:單位是公分,三個都填了「庫存管理 → 進貨預估」頁面才能算出這個商品的體積。',
+    secUploadMasterExcelDesc: '可以一次選取多個檔案。第一列要是欄位標題,系統會自動辨識這些欄位名稱(大小寫、中英文都可以):<br/><span style="font-family:\'IBM Plex Mono\',monospace;font-size:11.5px;">必要:SKU、Name/品名、Stock/庫存量&nbsp;&nbsp;|&nbsp;&nbsp;選填:Unit/單位、AvgMonthlySales/平均使用量、Categories/分類、SafetyStock/安全庫存(填月數,不是填數量)、Note/備註、ParentSKU/主商品SKU、ChildWeight/加權數、Length/長、Width/寬、Height/高</span><br/><b>以 SKU 為比對主鍵</b>:表格裡的 SKU 如果跟現有商品相同,就算表格上的名稱不一樣,也會視為同一項商品並更新其他欄位;<b>商品名稱一律維持庫存總覽現有的名稱,不會被表格覆蓋</b>。SKU 不同或全新的 SKU 會用表格上的名稱新增成一項新商品。<b>沒有填 SKU 的資料列會被略過,不會寫入。</b><br/><b>批量商品(multi-pack)</b>:如果這一列是某個主商品底下的批量商品,在 ParentSKU 欄位填主商品的 SKU,並在 ChildWeight 欄位填加權數(換算主商品庫存時,這個批量商品的庫存量會先乘以這個數字);沒填 ParentSKU 就當一般商品匯入。ParentSKU 必須是同一份表格裡或系統裡已經存在的 SKU,而且那個商品本身不能又是別人的批量商品(不支援兩層巢狀)。<br/><b>箱子尺寸(Length/Width/Height)</b>:單位是公分,三個都填了「倉庫後台管理 → 進貨預估」頁面才能算出這個商品的體積。',
     fieldSelectFiles: '選擇檔案(檔案在不同資料夾可分次加選)',
     secImportTxDesc: '上傳你填好的每日進出貨紀錄表(<b>可以一次選取多個檔案</b>),系統會依<b>檔名</b>自動判斷進貨或出貨(檔名需包含「stock in」或「stock out」),並自動比對商品名稱、抓出每一列的數量,整批登記成紀錄。每個檔案會各自偵測自己的日期/供應商。',
     secImportTxWarning: '注意:庫存主檔(像 stock.xlsx,含品名/庫存量/分類/安全庫存)請不要在這裡上傳,那個要到「系統管理 → 商品主頁」用「從 Excel 匯入商品主檔」。',
@@ -3070,7 +2963,7 @@ const I18N = {
     appTitle: 'Orange Tea AU | Inventory & Order Hub', appTitleOrderOnly: 'Orange Tea AU | Order Hub',
     appTitleSubtitle: 'Inventory & Order Hub', appTitleSubtitleOrderOnly: 'Order Hub',
     appLoadingText: 'Loading…',
-    tabMaster: 'System Admin', tabTx: 'Inventory Management', tabOverview: 'Stock Overview', tabLog: 'History',
+    tabMaster: 'System Admin', tabWarehouseOps: 'Inbound & Outbound Hub', tabWarehouseAdmin: 'Warehouse Back Office', tabOverview: 'Stock Overview', tabLog: 'History',
     subtabOverviewSummary: 'Stock Summary', subtabOverviewLocation: 'Stock Location',
     secStockLocation: 'Stock Location', stockLocationDesc: 'Search for a product to see which locations it\'s stored in and how much is at each.',
     subtabLogTx: 'Stock In/Out Log', subtabLogConvert: 'Conversion History', subtabLogInventory: 'Inventory Log',
@@ -3150,13 +3043,13 @@ const I18N = {
 
     tabOrder: 'Place Order', tabOrderAdmin: 'Order Management',
     secCreateOrder: 'Create Order',
-    orderTabDesc: 'Only products marked "Orderable" appear in the list below (mark a product from its row in Stock Overview by clicking "Add to Order"; you can also fine-tune which products each customer can see under Order Management → Manage Customers). Products with 0 stock show "Out of Stock" and can\'t be ordered; order quantity also can\'t exceed current stock. <b>Clicking "Cart" does not deduct stock — it takes you to the cart to review first. Only clicking "Confirm the order" in the cart deducts stock and logs it under Order Management → Completed Orders</b> — please double-check quantities before submitting. If you make a mistake, you can restock by deleting it from Completed Orders.',
+    orderTabDesc: 'Only products marked "Orderable" appear in the list below (mark a product from its row in Stock Overview by clicking "Add to Order"; you can also fine-tune which products each customer can see under Warehouse Back Office → Manage Customers). Products with 0 stock show "Out of Stock" and can\'t be ordered; order quantity also can\'t exceed current stock. <b>Clicking "Cart" does not deduct stock — it takes you to the cart to review first. Only clicking "Confirm the order" in the cart deducts stock and logs it under Order Management → Completed Orders</b> — please double-check quantities before submitting. If you make a mistake, you can restock by deleting it from Completed Orders.',
     fieldOrderDate: 'Order Date', fieldShippingParty: 'Customer', fieldOrderNote: 'Note (optional)',
     optUnspecified: 'Unspecified',
-    orderPartyHelp: 'Don\'t see the customer you want? Add one under Order Management → Manage Customers. Once you pick a customer, the "Avg per Order" below is calculated from that customer\'s shipments over the last three months, as a reference while ordering.',
+    orderPartyHelp: 'Don\'t see the customer you want? Add one under Warehouse Back Office → Manage Customers. Once you pick a customer, the "Avg per Order" below is calculated from that customer\'s shipments over the last three months, as a reference while ordering.',
     fieldFilterByCategory: 'Filter by Category',
     noOrderableProducts: 'No products are marked as orderable yet.',
-    noFilteredOrderableProducts: 'No products match. Mark products as orderable in Stock Overview, adjust which products this customer can see under Order Management → Manage Customers, or check whether the category filter is set correctly.',
+    noFilteredOrderableProducts: 'No products match. Mark products as orderable in Stock Overview, adjust which products this customer can see under Warehouse Back Office → Manage Customers, or check whether the category filter is set correctly.',
     btnConfirmOrder: '✅ Confirm Order (Deducts Stock Immediately)',
     btnCart: '🛒 Cart', secCart: 'Cart',
     cartDesc: 'Please review the order quantities below. "Order more" takes you back to the order page to make changes',
@@ -3370,7 +3263,7 @@ const I18N = {
     txAddToCompletedOrderLabel: 'Add to Completed Orders with order# (if unchecked just logs a plain stock-out record)',
     btnAddToBatch: '+ Add to List', txBatchEmpty: 'The list is empty — pick a product and quantity above, then click "Add to List".',
     secUploadMasterExcel: 'Upload Your Own Product Master Excel',
-    secUploadMasterExcelDesc: 'You can select multiple files at once. The first row must be column headers — the system auto-detects these column names (case-insensitive, Chinese or English):<br/><span style="font-family:\'IBM Plex Mono\',monospace;font-size:11.5px;">Required: SKU, Name, Stock&nbsp;&nbsp;|&nbsp;&nbsp;Optional: Unit, AvgMonthlySales, Categories, SafetyStock (in months, not a quantity), Note, ParentSKU, ChildWeight, Length, Width, Height</span><br/><b>Matched by SKU</b>: if a row\'s SKU matches an existing product, it\'s treated as the same product and other fields are updated — even if the name in the sheet differs; <b>the product name always stays as whatever is currently in Stock Overview and is never overwritten by the sheet</b>. A different or brand-new SKU creates a new product using the name from the sheet. <b>Rows without a SKU are skipped.</b><br/><b>Multi-pack products</b>: if a row is a multi-pack (child) product under a main product, put the main product\'s SKU in ParentSKU and the weighting number in ChildWeight (when computing the main product\'s total stock, this multi-pack\'s stock is multiplied by that number first). Leave ParentSKU blank to import as a regular standalone product. ParentSKU must match a SKU that exists either elsewhere in this sheet or already in the system, and that product can\'t itself be another product\'s multi-pack (no two-level nesting).<br/><b>Box dimensions (Length/Width/Height)</b>: in centimeters — fill in all three to enable volume calculation on the "Inventory Management → Purchase Forecast" page.',
+    secUploadMasterExcelDesc: 'You can select multiple files at once. The first row must be column headers — the system auto-detects these column names (case-insensitive, Chinese or English):<br/><span style="font-family:\'IBM Plex Mono\',monospace;font-size:11.5px;">Required: SKU, Name, Stock&nbsp;&nbsp;|&nbsp;&nbsp;Optional: Unit, AvgMonthlySales, Categories, SafetyStock (in months, not a quantity), Note, ParentSKU, ChildWeight, Length, Width, Height</span><br/><b>Matched by SKU</b>: if a row\'s SKU matches an existing product, it\'s treated as the same product and other fields are updated — even if the name in the sheet differs; <b>the product name always stays as whatever is currently in Stock Overview and is never overwritten by the sheet</b>. A different or brand-new SKU creates a new product using the name from the sheet. <b>Rows without a SKU are skipped.</b><br/><b>Multi-pack products</b>: if a row is a multi-pack (child) product under a main product, put the main product\'s SKU in ParentSKU and the weighting number in ChildWeight (when computing the main product\'s total stock, this multi-pack\'s stock is multiplied by that number first). Leave ParentSKU blank to import as a regular standalone product. ParentSKU must match a SKU that exists either elsewhere in this sheet or already in the system, and that product can\'t itself be another product\'s multi-pack (no two-level nesting).<br/><b>Box dimensions (Length/Width/Height)</b>: in centimeters — fill in all three to enable volume calculation on the "Warehouse Back Office → Purchase Forecast" page.',
     fieldSelectFiles: 'Choose Files (add more from different folders as needed)',
     secImportTxDesc: 'Upload your filled-in daily stock in/out sheets (<b>you can select multiple files at once</b>). The system uses the <b>file name</b> to auto-detect stock in or out (file name must include "stock in" or "stock out"), matches product names automatically, reads the quantity in each row, and logs them all as records. Each file\'s date/supplier is detected independently.',
     secImportTxWarning: 'Note: don\'t upload a product master file here (like stock.xlsx, containing name/stock/category/safety stock) — use "Import from Excel" under "System Admin → Product Master" for that.',
@@ -3908,10 +3801,11 @@ async function moveTabOrder(index, direction){
 
 const TAB_DEFS = [
   { id: 'tab-master', labelKey: 'tabMaster' },
-  { id: 'tab-tx', labelKey: 'tabTx' },
+  { id: 'tab-warehouse-ops', labelKey: 'tabWarehouseOps' },
   { id: 'tab-overview', labelKey: 'tabOverview' },
   { id: 'tab-order', labelKey: 'tabOrder' },
   { id: 'tab-order-admin', labelKey: 'secOrderAdmin' },
+  { id: 'tab-warehouse-admin', labelKey: 'tabWarehouseAdmin' },
   { id: 'tab-log', labelKey: 'tabLog' }
 ];
 
@@ -3942,7 +3836,7 @@ const CAPABILITY_DEFS = [
 const ROLE_DEFAULT_TABS = {
   admin: TAB_DEFS.map(d => d.id),
   order: ['tab-order'],
-  inventory: ['tab-tx', 'tab-overview', 'tab-order-admin', 'tab-log']
+  inventory: ['tab-warehouse-ops', 'tab-overview', 'tab-order-admin', 'tab-warehouse-admin', 'tab-log']
 };
 
 // Turn a plain username into the placeholder email Supabase Auth needs.
@@ -4448,7 +4342,7 @@ function switchTab(tabId){
   // display:none, so re-render whichever tab just became visible
   if(tabId === 'tab-overview'){ populateCategoryDropdowns(); renderStockCards(); }
   if(tabId === 'tab-log'){ renderLog(); }
-  if(tabId === 'tab-tx'){ renderProductSelect(); renderTxBatchList(); populateExportPartySelect(); }
+  if(tabId === 'tab-warehouse-ops'){ renderProductSelect(); renderTxBatchList(); }
   if(tabId === 'tab-order'){
     populatePartySelect(); renderOrderItemsTable(); renderOrderHistory();
     const cartSection = document.getElementById('orderCartSection');
@@ -4457,10 +4351,17 @@ function switchTab(tabId){
   }
   if(tabId === 'tab-order-admin'){
     populatePendingOrderPartyFilter(); renderPendingOrders();
-    populateCompletedOrderPartyFilter(); renderOrders(); renderPartiesTable();
+    populateCompletedOrderPartyFilter(); renderOrders();
+  }
+  if(tabId === 'tab-warehouse-admin'){
+    renderPartiesTable(); renderForecastTable(); populateExportPartySelect();
+    renderSupplierManagementTable(); renderOcrDbProductSelect();
+    // 「管理出貨方」子分頁需要 cap-manage-parties 這個權限才看得到——沒有這個權限的話,
+    // 那個按鈕整個藏起來,而且如果剛好停在那個子分頁上,要導回第一個子分頁(出貨方管理
+    // 這個按鈕本身就是要藏的目標,所以導去下一個「進貨方管理」)。
     const partiesBtn = document.getElementById('btn-subtab-order-parties');
     if(partiesBtn) partiesBtn.style.display = hasCapability('cap-manage-parties') ? '' : 'none';
-    if(!hasCapability('cap-manage-parties')) switchOrderAdminSubTab('subtab-order-pending');
+    if(!hasCapability('cap-manage-parties')) switchWarehouseAdminSubTab('subtab-purchase-mgmt-suppliers');
   }
   if(tabId === 'tab-master'){
     loadUsers().then(renderUsersTab);
@@ -4494,32 +4395,10 @@ function switchSystemSubTab(subtabId){
   if(!container) return;
   document.body.classList.remove('mobile-subtab-menu-active');
   document.body.classList.add('mobile-subtab-content-active');
-  // 用 :scope > .subtab-content(只找直屬子層)不是一般的 querySelectorAll('.subtab-content')
-  // (那樣會找到所有子孫層),因為「進貨管理」底下自己還有一層巢狀的子分頁(進貨方管理/
-  // 掃描收據數據庫,也是用同一套 subtab-content/subtab-btn 的 class 名稱),如果這裡用一般的
-  // 全子孫搜尋,切換系統管理最上層的分頁時,會連帶把進貨管理裡面那層巢狀分頁的顯示狀態也
-  // 清掉,造成兩層分頁互相打架。
-  container.querySelectorAll(':scope > .section > .subtab-content').forEach(el => el.classList.remove('active-subtab'));
-  container.querySelectorAll(':scope > .section > .subtab-bar > .subtab-btn').forEach(el => el.classList.remove('active'));
+  container.querySelectorAll('.subtab-content').forEach(el => el.classList.remove('active-subtab'));
+  container.querySelectorAll('.subtab-btn').forEach(el => el.classList.remove('active'));
   document.getElementById(subtabId).classList.add('active-subtab');
   document.getElementById('btn-' + subtabId).classList.add('active');
-  if(subtabId === 'subtab-sys-purchase-mgmt'){
-    renderSupplierManagementTable();
-    renderOcrDbProductSelect();
-  }
-}
-
-// 「進貨管理」底下自己的巢狀子分頁(進貨方管理/掃描收據數據庫),範圍限定在
-// #subtab-sys-purchase-mgmt 這個容器裡面找,不會動到外層系統管理自己那層分頁的顯示狀態。
-function switchPurchaseMgmtSubTab(subtabId){
-  const container = document.getElementById('subtab-sys-purchase-mgmt');
-  if(!container) return;
-  container.querySelectorAll(':scope > .subtab-content').forEach(el => el.classList.remove('active-subtab'));
-  container.querySelectorAll(':scope > .subtab-bar > .subtab-btn').forEach(el => el.classList.remove('active'));
-  document.getElementById(subtabId).classList.add('active-subtab');
-  document.getElementById('btn-' + subtabId).classList.add('active');
-  if(subtabId === 'subtab-purchase-mgmt-suppliers') renderSupplierManagementTable();
-  else if(subtabId === 'subtab-purchase-mgmt-ocrdb') renderOcrDbProductSelect();
 }
 
 // ===== 進貨方管理 =====
@@ -4686,10 +4565,10 @@ function deleteOcrMapping(mappingId){
   });
 }
 
-// 庫存管理分頁(tab-tx)自己的子分頁切換,只在它自己的容器裡找 .subtab-content/.subtab-btn,
+// 倉庫作業台分頁(tab-warehouse-ops)自己的子分頁切換,只在它自己的容器裡找 .subtab-content/.subtab-btn,
 // 不會動到其他分頁那幾組子分頁的顯示狀態(共用同一套 CSS class,但各自獨立)。
-function switchTxSubTab(subtabId){
-  const container = document.getElementById('tab-tx');
+function switchWarehouseOpsSubTab(subtabId){
+  const container = document.getElementById('tab-warehouse-ops');
   if(!container) return;
   if(subtabId !== 'subtab-tx-register' && (registerOutFlowType || txBatchItems.length > 0)){
     // 使用者在「登記進出貨」流程中途(選了出貨類型,或已經加了商品到清單)跑去別的子分頁,
@@ -4701,9 +4580,25 @@ function switchTxSubTab(subtabId){
   document.body.classList.add('mobile-subtab-content-active');
   container.querySelectorAll('.subtab-content').forEach(el => el.classList.remove('active-subtab'));
   container.querySelectorAll('.subtab-btn').forEach(el => el.classList.remove('active'));
-  if(subtabId === 'subtab-tx-data'){ populateExportPartySelect(); }
   if(subtabId === 'subtab-tx-verify'){ renderVerifyPage(); renderVerifyPageProductSelect(); }
-  if(subtabId === 'subtab-tx-forecast'){ renderForecastTable(); }
+  document.getElementById(subtabId).classList.add('active-subtab');
+  document.getElementById('btn-' + subtabId).classList.add('active');
+}
+
+// 「倉庫後台管理」底下的子分頁切換(出貨方管理/進貨方管理/進貨預估/資料維護/掃描收據數據庫),
+// 只在它自己的容器裡找 .subtab-content/.subtab-btn。
+function switchWarehouseAdminSubTab(subtabId){
+  const container = document.getElementById('tab-warehouse-admin');
+  if(!container) return;
+  document.body.classList.remove('mobile-subtab-menu-active');
+  document.body.classList.add('mobile-subtab-content-active');
+  container.querySelectorAll('.subtab-content').forEach(el => el.classList.remove('active-subtab'));
+  container.querySelectorAll('.subtab-btn').forEach(el => el.classList.remove('active'));
+  if(subtabId === 'subtab-order-parties') renderPartiesTable();
+  else if(subtabId === 'subtab-purchase-mgmt-suppliers') renderSupplierManagementTable();
+  else if(subtabId === 'subtab-tx-forecast') renderForecastTable();
+  else if(subtabId === 'subtab-tx-data') populateExportPartySelect();
+  else if(subtabId === 'subtab-purchase-mgmt-ocrdb') renderOcrDbProductSelect();
   document.getElementById(subtabId).classList.add('active-subtab');
   document.getElementById('btn-' + subtabId).classList.add('active');
 }
@@ -7185,7 +7080,7 @@ async function confirmTxImport(){
   }
 
   // 出貨的匯入品項,如果被併進上面的訂單(orderGroups),現在不會馬上寫入出貨紀錄、也不會扣庫存 ——
-  // 這些訂單先以「待處理」狀態建立,要等「訂貨後台管理 → 待處理訂單」或「庫存管理 → 訂單核對」
+  // 這些訂單先以「待處理」狀態建立,要等「訂貨後台管理 → 待處理訂單」或「倉庫作業台 → 訂單核對」
   // 核對過才會真的扣庫存、寫入出貨紀錄(邏輯跟購物車送出訂貨一致)。沒有被併進訂單的出貨(勾選
   // 「併入已完成訂單」被取消,或本來就不是出貨)則維持原樣,照登記當下直接寫入紀錄、立即異動庫存。
 
@@ -9531,7 +9426,7 @@ async function verifyOrder(orderId){
   });
 }
 
-// ===== 「庫存管理 → 訂單核對」頁面 =====
+// ===== 「倉庫作業台 → 訂單核對」頁面 =====
 // 左欄是目前載入的那張待處理訂單(跟「訂貨後台管理 → 待處理訂單」共用同一套品項顯示/修改/刪除
 // 邏輯 orderItemRowHtml + savePendingOrderItemQty + deletePendingOrderItem,異動會直接寫回那張
 // 訂單本身)。右欄是使用者自己在這個頁面上另外登記的「實際點貨」清單(只存在畫面上,按「核對」
@@ -9571,8 +9466,8 @@ function openOrderInVerifyPage(orderId){
   verifyPageRightItems = [];
   const browseAllEl = document.getElementById('verifyPageBrowseAllProducts');
   if(browseAllEl) browseAllEl.checked = false;
-  switchTab('tab-tx');
-  switchTxSubTab('subtab-tx-verify');
+  switchTab('tab-warehouse-ops');
+  switchWarehouseOpsSubTab('subtab-tx-verify');
 }
 
 function renderVerifyPage(){
@@ -9767,7 +9662,7 @@ function formatOrderDateTime(iso){
 // 不會建立一張新訂單,而是把選好的品項併進這張訂單裡(見 confirmOrderFromCart 裡的分流)。
 let addingItemsToOrderId = null;
 
-// 這張訂單目前是不是正被載入在「庫存管理 → 訂單核對」頁面(verifyPageOrderId)——如果是,
+// 這張訂單目前是不是正被載入在「倉庫作業台 → 訂單核對」頁面(verifyPageOrderId)——如果是,
 // 「訂購記錄」這邊不管是舊的「修改」(改數量/移除品項)還是新的「新增商品」都不能再動這張訂單,
 // 避免使用者這邊改到一半,跟正在核對的內容對不起來。跳出警示、不執行任何動作。
 function warnIfOrderBeingProcessed(orderId){
@@ -9813,7 +9708,7 @@ function renderOrderHistory(){
     const isExpanded = expandedOrderIds.has(o.id);
     const status = orderStatus(o);
     // 可以修改的條件:訂單還是「待處理」(還沒核對、還沒進已完成訂單)、訂單本身沒被取消、也還沒
-    // 簽收、而且沒有正被載入到「庫存管理 → 訂單核對」頁面——這個「正在核對中不能改」的限制只套用
+    // 簽收、而且沒有正被載入到「倉庫作業台 → 訂單核對」頁面——這個「正在核對中不能改」的限制只套用
     // 在訂購記錄這邊(顧客自助修改),訂貨後台管理那邊不受這個限制,員工在待處理訂單清單一樣可以
     // 隨時改(不管有沒有人正在核對頁面看這張訂單)。
     const editable = !o.deleted && status === 'pending' && !o.signedAt && verifyPageOrderId !== o.id;
@@ -9953,7 +9848,7 @@ function cancelAddItemsToOrder(){
   renderOrderItemsTable();
 }
 
-// 「訂貨後台管理」的「新增商品」統一走這裡,改導去「庫存管理 → 登記進出貨」,不再導去「訂貨」
+// 「訂貨後台管理」的「新增商品」統一走這裡,改導去「倉庫作業台 → 登記進出貨」,不再導去「訂貨」
 // 分頁——因為倉庫管理員這個身分預設就沒有「訂貨」分頁的權限(那是給下單的客人/內勤用的),但
 // 「登記進出貨」他們本來就熟悉,也支援掃碼槍找商品,對倉庫管理員來說更順手。
 // mode='pending':併進待處理訂單的草稿,不會扣庫存(等訂單之後核對才會真的扣)。
@@ -9974,8 +9869,8 @@ function editOrderViaRegister(orderId, mode){
     return;
   }
 
-  switchTab('tab-tx');
-  switchTxSubTab('subtab-tx-register');
+  switchTab('tab-warehouse-ops');
+  switchWarehouseOpsSubTab('subtab-tx-register');
   setTxType('out');
   const flowSel = document.getElementById('txOutFlowType');
   if(flowSel) flowSel.value = mode === 'pending' ? 'load-pending' : 'load-completed';
@@ -13240,7 +13135,7 @@ function gaugeInfo(days){
   return { pct: 100, cls: 'safe', label: months >= 2 ? tn('daysLeftMonths', months.toFixed(1)) : tn('daysLeftDays', days.toFixed(0)), color: 'var(--safe)' };
 }
 
-// ===== 庫存管理 → 進貨預估 =====
+// ===== 倉庫後台管理 → 進貨預估 =====
 // 純粹試算用的畫面,不會真的異動庫存或建立任何紀錄:目前庫存可撐直接沿用庫存總覽同一套算法
 // (computeTotalStock + getEffectiveAvg + daysRemaining),填了「預計進貨數量」之後即時算出
 // (預計進貨數量 + 目前庫存量)÷ 平均用量,估計進貨之後大概還能撐多久。
@@ -15360,8 +15255,8 @@ function startAutoRefresh(){
 // 很短時間內把整串條碼打完,最後通常補一個 Enter。這裡用「按鍵間隔夠短 + 以 Enter 結尾」來判斷
 // 是不是一次掃描,而不是使用者自己在打字,盡量避免誤判成一般輸入。
 // 掃描結果依「目前在哪個分頁」自動決定動作:
-//   - 庫存管理 → 登記進出貨:直接把對應商品加進登記清單(數量 1,重複掃同一個就累加)
-//   - 庫存管理 → 訂單核對:直接把對應商品加進右邊「新增商品(實際點貨)」清單
+//   - 倉庫作業台 → 登記進出貨:直接把對應商品加進登記清單(數量 1,重複掃同一個就累加)
+//   - 倉庫作業台 → 訂單核對:直接把對應商品加進右邊「新增商品(實際點貨)」清單
 //   - 庫存總覽:直接捲動並標亮對應商品那一列(如果是收在展開清單裡的批量商品,順便展開)
 // 找不到對應 SKU 的話,只有在這幾個畫面才會跳出提示;其他畫面靜默忽略,不干擾一般使用。
 let scanBuffer = '';
@@ -15399,7 +15294,7 @@ function processBarcodeScan(code){
   const product = products.find(p => p.barcode && p.barcode.trim().toLowerCase() === trimmed.toLowerCase())
     || products.find(p => (p.sku || '').toLowerCase() === trimmed.toLowerCase());
 
-  const txTab = document.getElementById('tab-tx');
+  const txTab = document.getElementById('tab-warehouse-ops');
   const isTxTabActive = !!(txTab && txTab.classList.contains('active-tab'));
   const registerEl = document.getElementById('subtab-tx-register');
   const verifyEl = document.getElementById('subtab-tx-verify');
