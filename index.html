@@ -4405,8 +4405,20 @@ function showMobileHomeMenu(){
 }
 
 // 目前登入使用者可以看到的分頁 id 清單;沒有登入資訊時(理論上不會發生,防呆用)預設全部開放。
+// 使用者的 tabPermissions 是「當初存檔那個時間點」的分頁清單——如果後來系統新增了分頁
+// (例如這次的「倉庫作業台」「倉庫後台管理」),存檔在那之前的帳號,清單裡自然不會有這幾個
+// 新分頁,直接回傳存檔內容的話,這些帳號會永遠看不到新分頁,除非有人手動去使用者管理重新
+// 勾選。這裡比照 tabOrder 用 syncTabOrder() 自動補新分頁的做法:只要是這個帳號的身分
+// (role)原本預設就會給的分頁,但存檔的清單裡沒有,視為「這個權限選項在存檔當下還不存在」,
+// 自動補進去,不會因為系統加了新分頁就讓舊帳號的權限清單顯得比實際應該的還要窄。真的被
+// 管理者手動拿掉的分頁(角色預設沒有的),不會被這裡補回來。
 function getCurrentUserTabPermissions(){
-  if(currentUser && Array.isArray(currentUser.tabPermissions)) return currentUser.tabPermissions;
+  if(currentUser && Array.isArray(currentUser.tabPermissions)){
+    const roleDefaults = ROLE_DEFAULT_TABS[currentUser.role] || [];
+    const allIds = TAB_DEFS.map(d => d.id);
+    const missingNewTabs = roleDefaults.filter(id => allIds.includes(id) && !currentUser.tabPermissions.includes(id));
+    return missingNewTabs.length > 0 ? [...currentUser.tabPermissions, ...missingNewTabs] : currentUser.tabPermissions;
+  }
   return TAB_DEFS.map(d => d.id);
 }
 
