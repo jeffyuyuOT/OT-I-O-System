@@ -1290,6 +1290,7 @@
         </div>
         <div class="field" id="txPartyFieldWrap">
           <label id="txPartyLabel" data-i18n="partyLabelIn">進貨方(供應商)</label>
+          <select id="txPartyHistorySelect" style="display:none;" onchange="onTxPartyHistorySelectChange(this.value)"></select>
           <input id="txParty" type="text" placeholder="例如:大盤商 A" />
           <select id="txPartySelect" style="display:none;"></select>
         </div>
@@ -1988,7 +1989,7 @@
     <div class="section-title" style="margin-bottom:12px;" data-i18n="modalSendPurchaseEmailTitle">寄送進貨單</div>
     <div class="field-block">
       <label data-i18n="fieldRecipientEmail">收件人 Email</label>
-      <input type="email" id="sendPurchaseEmailInput" style="width:100%;" placeholder="accounting@example.com" />
+      <input type="email" id="sendPurchaseEmailInput" style="width:100%;" placeholder="accounting@example.com, another@example.com" multiple data-i18n-placeholder="multiEmailPlaceholder" />
     </div>
     <div id="sendPurchaseEmailModalMsg" class="msg"></div>
     <div class="modal-actions">
@@ -2356,6 +2357,7 @@ let stockLocationEnabledFields = { zone: true, aisle: true, bay: true, level: tr
 let stockLocationShowOnPickingSlip = false; // Picking Slip 要不要多印一欄 Stock Location(印之前,如果商品有多個位置會先問要印哪一個)
 let receiptLineMappings = []; // 收據辨識的記憶對照表:{id, partyId, normalizedText, productId}。同一個供應商+同樣的 OCR 文字之前確認過對應到哪個商品,下次直接沿用不用再問。
 let pendingReceiptOcrLines = []; // 這次掃描收據、還在等使用者確認的品項清單(掃描完先暫存在這裡,確認視窗一次一筆處理)
+let receiptSupplierFormats = {}; // 每個供應商收據格式的學習結果:{ [partyId]: { qtyAmountSwapped: true/false } } ——qtyAmountSwapped 為 true 代表這個供應商的收據,數量/金額在行尾的順序跟預設猜測相反
 let shippingParties = [];
 let currentTxType = 'in';
 let pendingPurchaseReceiptFiles = []; // 進貨單收據附件(支援多檔案):[{url, filename}, ...],submitTxBatchSimple() 送出進貨單時會用到,送出後清空
@@ -2921,6 +2923,7 @@ const I18N = {
     modalLocationEditTitle: '編輯位置', fieldLocationPhoto: '位置照片(選填)',
     secTransferLocation: '轉移', fieldTransferQty: '轉移數量', fieldLocationCode: '位置',
     fieldTransferTarget: '轉移到', optAddNewLocation: '+ 新增位置',
+    optSelectSupplier: '選擇供應商', optAddNewSupplier: '+ 新增供應商',
     fieldAssignLocation: '指派位置',
     btnConfirmTransfer: '確認轉移',
     modalLocationChoiceTitle: '從哪個位置扣取?',
@@ -2940,7 +2943,8 @@ const I18N = {
     errPurchaseSavedButEmailFailed: '進貨單已經建立成功,但寄送 email 失敗——email 後端服務可能還沒設定好,可以之後在「歷史紀錄→進貨單」手動補寄',
     emailSentMsg: '✓ 已寄出',
     btnSendEmail: '📧 寄 Email', alreadyEmailedBadge: '✉️ 已寄',
-    modalSendPurchaseEmailTitle: '寄送進貨單', fieldRecipientEmail: '收件人 Email',
+    modalSendPurchaseEmailTitle: '寄送進貨單', fieldRecipientEmail: '收件人 Email(可用逗號分隔多個地址)',
+    multiEmailPlaceholder: 'accounting@example.com, another@example.com',
     btnConfirmSend: '確認寄送',
     modalEditPurchaseTitle: '編輯進貨單', savingMsg: '儲存中…',
     processingMsg: '處理中,請稍候…',
@@ -3415,6 +3419,7 @@ const I18N = {
     modalLocationEditTitle: 'Edit Location', fieldLocationPhoto: 'Location Photo (optional)',
     secTransferLocation: 'Transfer', fieldTransferQty: 'Transfer Quantity', fieldLocationCode: 'Location',
     fieldTransferTarget: 'Transfer To', optAddNewLocation: '+ Add New Location',
+    optSelectSupplier: 'Select Supplier', optAddNewSupplier: '+ Add New Supplier',
     fieldAssignLocation: 'Assign Location',
     btnConfirmTransfer: 'Confirm Transfer',
     modalLocationChoiceTitle: 'Which location to take from?',
@@ -3434,7 +3439,8 @@ const I18N = {
     errPurchaseSavedButEmailFailed: 'The purchase was created successfully, but sending the email failed — the email backend may not be set up yet. You can resend it later from "History → Purchases"',
     emailSentMsg: '✓ Sent',
     btnSendEmail: '📧 Send Email', alreadyEmailedBadge: '✉️ Sent',
-    modalSendPurchaseEmailTitle: 'Send Purchase Order', fieldRecipientEmail: 'Recipient Email',
+    modalSendPurchaseEmailTitle: 'Send Purchase Order', fieldRecipientEmail: 'Recipient Email (comma-separate for multiple)',
+    multiEmailPlaceholder: 'accounting@example.com, another@example.com',
     btnConfirmSend: 'Confirm Send',
     modalEditPurchaseTitle: 'Edit Purchase', savingMsg: 'Saving…',
     processingMsg: 'Processing, please wait…',
@@ -4921,6 +4927,10 @@ async function loadData(){
     if(slpResult) stockLocationShowOnPickingSlip = slpResult.value === 'true';
   } catch(e){ /* no stored preference yet, keep default false */ }
   try{
+    const rsfResult = await dbGet('receiptSupplierFormats');
+    if(rsfResult && rsfResult.value) receiptSupplierFormats = JSON.parse(rsfResult.value);
+  } catch(e){ /* no stored preference yet, keep default empty */ }
+  try{
     const psmResult = await dbGet('productSortMode');
     if(psmResult && ['import','name','sku'].includes(psmResult.value)) productSortMode = psmResult.value;
   } catch(e){ /* no stored preference yet, keep default 'sku' */ }
@@ -5092,11 +5102,17 @@ async function rememberReceiptLineMapping(partyId, normalizedText, productId){
 function normalizeReceiptLineText(text){
   return (text || '').toLowerCase().trim().replace(/\s+/g, ' ');
 }
+// 回傳三種可能:{type:'product', product} 之前確認過對應到某個商品、{type:'skip'} 之前確認過
+// 這行不是商品資訊(公司資訊、地址這類)、或 null(完全沒有記憶,要跳出視窗問)。
+const RECEIPT_SKIP_SENTINEL = '__skip__';
 function findReceiptLineMapping(partyId, rawText){
   const normalized = normalizeReceiptLineText(rawText);
   const match = receiptLineMappings.find(m => m.normalizedText === normalized && ((m.partyId || null) === (partyId || null)))
     || receiptLineMappings.find(m => m.normalizedText === normalized); // 找不到「這個供應商」專屬的對照,退一步看有沒有其他供應商也用過同樣文字對應到的商品(不同供應商的收據品項描述有時候剛好長一樣)
-  return match ? products.find(p => p.id === match.productId) : null;
+  if(!match) return null;
+  if(match.productId === RECEIPT_SKIP_SENTINEL) return { type: 'skip' };
+  const product = products.find(p => p.id === match.productId);
+  return product ? { type: 'product', product } : null;
 }
 
 // 一個商品的位置紀錄被刪光(全部變成未分布)的時候,把「最後一次的主要位置」記在商品自己身上
@@ -5718,6 +5734,7 @@ function setTxType(type){
   const partyLabel = document.getElementById('txPartyLabel');
   const partyInput = document.getElementById('txParty');
   const partySelect = document.getElementById('txPartySelect');
+  const partyHistorySelect = document.getElementById('txPartyHistorySelect');
   const outFlowRow = document.getElementById('txOutFlowTypeRow');
   const deliveryFlowRow = document.getElementById('txDeliveryFlowTypeRow');
   const invoiceFieldWrap = document.getElementById('txInvoiceFieldWrap');
@@ -5742,7 +5759,7 @@ function setTxType(type){
   if(type === 'in'){
     partyLabel.textContent = t('partyLabelIn');
     partyInput.placeholder = t('partyPlaceholderIn');
-    partyInput.style.display = '';
+    partyInput.style.display = 'none';
     partySelect.style.display = 'none';
     if(outFlowRow) outFlowRow.style.display = 'none';
     if(deliveryFlowRow) deliveryFlowRow.style.display = 'none';
@@ -5752,8 +5769,15 @@ function setTxType(type){
     if(invoiceFieldWrap) invoiceFieldWrap.style.display = '';
     if(mainGridEl) mainGridEl.style.gridTemplateColumns = '1fr 1fr 1fr 1.2fr';
     if(receiptWrap) receiptWrap.style.display = '';
+    // 進貨方改成下拉選單,列出之前進貨單裡出現過的供應商,選了直接帶入;選「+ 新增供應商」
+    // 才會出現文字輸入框讓你打新名稱——不用每次都重新手動輸入同一個常用供應商的名字。
+    if(partyHistorySelect){
+      partyHistorySelect.style.display = '';
+      populateTxPartyHistorySelect();
+    }
     showTxMainFormArea(true);
   } else if(type === 'out'){
+    if(partyHistorySelect) partyHistorySelect.style.display = 'none';
     partyLabel.textContent = t('partyLabelOut');
     populateTxPartySelect();
     partyInput.style.display = 'none';
@@ -5776,6 +5800,7 @@ function setTxType(type){
     if(outFlowRow) outFlowRow.style.display = '';
     setTxOutFlowType(registerOutFlowType || '');
   } else if(type === 'delivery'){
+    if(partyHistorySelect) partyHistorySelect.style.display = 'none';
     partyLabel.textContent = t('partyLabelOut');
     populateTxPartySelect();
     partyInput.style.display = 'none';
@@ -5794,6 +5819,7 @@ function setTxType(type){
     if(deliveryFlowRow) deliveryFlowRow.style.display = '';
     setTxDeliveryFlowType(registerDeliveryFlowType || '');
   } else if(type === 'adjustment'){
+    if(partyHistorySelect) partyHistorySelect.style.display = 'none';
     // 庫存調整不需要出貨方(這個異動不是要出給誰,單純是庫存數字校正),把出貨方欄位整個藏起來,
     // 表單格線也跟著從三欄變兩欄,不會留一塊空白;備註改成必填(校正原因寫在這裡)。原本是
     // 「登記進出貨→出貨→庫存調整」底下的其中一種出貨類型,現在獨立成頂層類型自己的分頁,
@@ -5821,6 +5847,7 @@ function setTxType(type){
     renderTxBatchList();
     renderProductSelect();
   } else {
+    if(partyHistorySelect) partyHistorySelect.style.display = 'none';
     partyLabel.textContent = t('partyLabelRestock');
     partyInput.placeholder = t('partyPlaceholderRestock');
     if(!partyInput.value.trim()) partyInput.value = 'Opulent Imports';
@@ -5843,6 +5870,31 @@ function setTxType(type){
 function showTxMainFormArea(visible){
   const area = document.getElementById('txMainFormArea');
   if(area) area.style.display = visible ? '' : 'none';
+}
+
+// 進貨方下拉選單:列出之前所有進貨單裡出現過的供應商名稱(不重複、排序),最下面固定加一個
+// 「+ 新增供應商」選項。選了既有的供應商,直接把值帶進 txParty(其他程式碼都還是讀 txParty
+// 的值,不用另外改);選「+ 新增」才會顯示 txParty 這個文字輸入框讓你打新名字。
+function populateTxPartyHistorySelect(){
+  const sel = document.getElementById('txPartyHistorySelect');
+  if(!sel) return;
+  const distinctParties = [...new Set(purchases.map(p => p.partyName || p.partyId || '').filter(Boolean))].sort();
+  sel.innerHTML = `<option value="">${t('optSelectSupplier')}</option>` +
+    distinctParties.map(p => `<option value="${p.replace(/"/g,'&quot;')}">${escapeHtmlForPrint(p)}</option>`).join('') +
+    `<option value="__new__">${t('optAddNewSupplier')}</option>`;
+  sel.value = '';
+  document.getElementById('txParty').style.display = 'none';
+}
+function onTxPartyHistorySelectChange(value){
+  const partyInput = document.getElementById('txParty');
+  if(value === '__new__'){
+    partyInput.style.display = '';
+    partyInput.value = '';
+    partyInput.focus();
+  } else {
+    partyInput.style.display = 'none';
+    partyInput.value = value;
+  }
 }
 
 function resetRegisterOutFlow(){
@@ -10510,25 +10562,28 @@ function removePurchaseReceiptFile(index){
 // 供應商、同樣的文字就不用再問。
 let receiptOcrPartyId = null;
 
-function parseReceiptLine(rawLine){
+function parseReceiptLine(rawLine, swapped){
   const line = (rawLine || '').trim();
   if(!line || line.length < 3) return null;
-  // 從行尾往前抓:先抓看起來像金額的數字(可能有 $ 開頭、通常有小數點),再抓金額前面
-  // 看起來像數量的整數,剩下前面的文字當作商品描述。抓不到金額/數量也沒關係,金額留空、
-  // 數量預設 1,確認視窗都還是可以手動修正。
+  // 從行尾往前抓兩個數字:預設「後面那個是金額、前面那個是數量」,但如果這個供應商之前被
+  // 學到是相反的順序(swapped),就反過來解讀——哪個變數叫 amount、哪個叫 qty 對調就好,
+  // 抓數字的邏輯完全不用變。抓不到金額/數量也沒關係,金額留空、數量預設 1,確認視窗都還是
+  // 可以手動修正。
   let rest = line;
-  let amount = null;
-  const amountMatch = rest.match(/\$?\s*(\d{1,7}(?:\.\d{1,2})?)\s*$/);
-  if(amountMatch){
-    amount = parseFloat(amountMatch[1]);
-    rest = rest.slice(0, amountMatch.index).trim();
+  let lastNum = null;
+  const lastMatch = rest.match(/\$?\s*(\d{1,7}(?:\.\d{1,2})?)\s*$/);
+  if(lastMatch){
+    lastNum = parseFloat(lastMatch[1]);
+    rest = rest.slice(0, lastMatch.index).trim();
   }
-  let qty = null;
-  const qtyMatch = rest.match(/(\d{1,5}(?:\.\d{1,2})?)\s*$/);
-  if(qtyMatch){
-    qty = parseFloat(qtyMatch[1]);
-    rest = rest.slice(0, qtyMatch.index).trim();
+  let secondLastNum = null;
+  const secondMatch = rest.match(/(\d{1,5}(?:\.\d{1,2})?)\s*$/);
+  if(secondMatch){
+    secondLastNum = parseFloat(secondMatch[1]);
+    rest = rest.slice(0, secondMatch.index).trim();
   }
+  const amount = swapped ? secondLastNum : lastNum;
+  const qty = swapped ? lastNum : secondLastNum;
   const description = rest.replace(/[|_\-–—]+$/, '').trim();
   if(!description || /^\d+$/.test(description)) return null; // 只剩數字、沒有文字描述的行(常見於分隔線、頁碼)直接略過
   return { description, qty: (qty && qty > 0) ? qty : 1, amount: (amount && amount > 0) ? amount : null };
@@ -10577,7 +10632,8 @@ async function scanReceiptForItems(){
     if(isPdf) msgEl.textContent = t('scanningReceiptMsg');
     const result = await Tesseract.recognize(ocrSource, 'eng');
     const rawText = result.data.text || '';
-    const lines = rawText.split('\n').map(parseReceiptLine).filter(Boolean);
+    const swapped = !!receiptSupplierFormats[receiptOcrPartyId]?.qtyAmountSwapped;
+    const lines = rawText.split('\n').map(line => parseReceiptLine(line, swapped)).filter(Boolean);
     if(lines.length === 0){
       msgEl.style.color = 'var(--crit)';
       msgEl.textContent = t('errReceiptScanNoLines');
@@ -10617,10 +10673,16 @@ function processNextReceiptOcrLine(){
     return;
   }
   const line = pendingReceiptOcrLines[0];
-  const matchedProduct = findReceiptLineMapping(receiptOcrPartyId, line.description);
-  if(matchedProduct){
+  const memory = findReceiptLineMapping(receiptOcrPartyId, line.description);
+  if(memory && memory.type === 'skip'){
+    // 之前確認過這行不是商品資訊(公司資訊、地址這類),不用再問,直接跳過。
+    pendingReceiptOcrLines.shift();
+    processNextReceiptOcrLine();
+    return;
+  }
+  if(memory && memory.type === 'product'){
     // 已經有記憶對照過,不用問,照 OCR 讀到的數量/金額直接加入清單。
-    addOcrLineToTxBatch(matchedProduct.id, line.qty, line.amount);
+    addOcrLineToTxBatch(memory.product.id, line.qty, line.amount);
     pendingReceiptOcrLines.shift();
     processNextReceiptOcrLine();
     return;
@@ -10641,6 +10703,23 @@ function openReceiptOcrConfirmModal(line){
   document.getElementById('receiptOcrConfirmModalOverlay').style.display = 'flex';
 }
 
+// 使用者確認的數量/金額,如果剛好跟 OCR 原本猜的兩個數字「對調」了(猜的數量其實是使用者改成
+// 的金額、猜的金額其實是使用者改成的數量),代表這個供應商的收據格式跟預設猜測的順序相反——
+// 記住這個供應商要用「反過來」的順序解讀,下次掃同一個供應商的收據,一開始猜的時候就會猜對,
+// 不用每次都手動修正。這裡只在「明顯對調」的情況才學,單純改一個數字大小(不是對調)不會觸發,
+// 避免誤判成順序錯誤。
+async function learnQtyAmountOrderIfSwapped(originalLine, confirmedQty, confirmedAmount){
+  if(!receiptOcrPartyId) return;
+  if(originalLine.amount === null || !confirmedAmount) return;
+  const looksSwapped = Math.abs(confirmedQty - originalLine.amount) < 0.01 && Math.abs(confirmedAmount - originalLine.qty) < 0.01
+    && Math.abs(originalLine.qty - originalLine.amount) > 0.01; // 兩個數字原本就要不一樣,不然「對調」沒有意義
+  if(!looksSwapped) return;
+  const current = !!receiptSupplierFormats[receiptOcrPartyId]?.qtyAmountSwapped;
+  receiptSupplierFormats[receiptOcrPartyId] = { qtyAmountSwapped: !current };
+  try{ await dbSet('receiptSupplierFormats', JSON.stringify(receiptSupplierFormats)); }
+  catch(e){ console.error('儲存供應商收據格式偏好失敗', e); }
+}
+
 async function confirmReceiptOcrLine(){
   const msgEl = document.getElementById('receiptOcrConfirmMsg');
   const productId = document.getElementById('receiptOcrProductSelect').value;
@@ -10651,14 +10730,19 @@ async function confirmReceiptOcrLine(){
   if(isNaN(qty) || qty <= 0){ msgEl.className = 'msg error'; msgEl.textContent = t('errEnterPositiveQty'); return; }
 
   const line = pendingReceiptOcrLines.shift();
-  addOcrLineToTxBatch(productId, qty, (amount && amount > 0) ? amount : null);
+  const finalAmount = (amount && amount > 0) ? amount : null;
+  addOcrLineToTxBatch(productId, qty, finalAmount);
   await rememberReceiptLineMapping(receiptOcrPartyId, normalizeReceiptLineText(line.description), productId);
+  await learnQtyAmountOrderIfSwapped(line, qty, finalAmount);
   document.getElementById('receiptOcrConfirmModalOverlay').style.display = 'none';
   processNextReceiptOcrLine();
 }
 
 function skipReceiptOcrLine(){
-  pendingReceiptOcrLines.shift();
+  const line = pendingReceiptOcrLines.shift();
+  // 記住「這個供應商 + 這行文字」不是商品資訊(公司資訊、地址這類常見的收據雜訊)——下次掃
+  // 同一個供應商的收據,同樣的文字會直接自動跳過,不用每次都手動略過一次。
+  if(line) rememberReceiptLineMapping(receiptOcrPartyId, normalizeReceiptLineText(line.description), RECEIPT_SKIP_SENTINEL);
   document.getElementById('receiptOcrConfirmModalOverlay').style.display = 'none';
   processNextReceiptOcrLine();
 }
@@ -11224,7 +11308,10 @@ function buildPurchaseWorkbook(p){
 async function sendPurchaseEmail(purchaseId, toEmail, msgEl){
   const p = purchases.find(x => x.id === purchaseId);
   if(!p) throw new Error('找不到這張進貨單');
-  if(!toEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(toEmail)) throw new Error(t('errInvalidEmailAddress'));
+  // 支援逗號分隔的多個收件人地址,每一個都要各自驗證格式對不對,任何一個格式錯就整個擋下來,
+  // 不會「前面幾個對、最後一個錯」也照樣送出去。
+  const toEmails = (toEmail || '').split(',').map(e => e.trim()).filter(Boolean);
+  if(toEmails.length === 0 || toEmails.some(e => !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e))) throw new Error(t('errInvalidEmailAddress'));
 
   if(msgEl){ msgEl.className = 'msg'; msgEl.textContent = t('sendingEmailMsg'); }
 
@@ -11243,11 +11330,12 @@ async function sendPurchaseEmail(purchaseId, toEmail, msgEl){
   // 2026-08-15.xlsx」),不要讓後端從 Storage 網址裡的隨機檔名去反推——Storage 裡存的檔名本身
   // 是 genId() 亂數(避免同一張單重複上傳時互相覆蓋或撞名),不是給使用者看的檔名。
   // receiptFiles 現在是陣列(支援多檔案附件),用 getPurchaseReceiptFileList() 統一處理
-  // 新舊兩種資料格式。
+  // 新舊兩種資料格式。to 傳陣列過去(後端 Edge Function 也已經改成接受陣列),支援同時寄給
+  // 好幾個收件人。
   const { error: fnError } = await sb.functions.invoke('send-purchase-email', {
     body: {
       purchaseId,
-      to: toEmail,
+      to: toEmails,
       excelUrl: excelUrlData.publicUrl,
       excelFilename: filename,
       receiptFiles: getPurchaseReceiptFileList(p),
@@ -11258,7 +11346,7 @@ async function sendPurchaseEmail(purchaseId, toEmail, msgEl){
   });
   if(fnError) throw new Error(t('errEmailSendFailed'));
 
-  p.emailedTo = toEmail;
+  p.emailedTo = toEmails.join(', ');
   p.emailedAt = new Date().toISOString();
   await upsertPurchase(p);
 }
@@ -11271,7 +11359,8 @@ async function sendPurchaseEmail(purchaseId, toEmail, msgEl){
 async function sendOrderEmail(orderId, toEmail, msgEl){
   const order = orders.find(o => o.id === orderId);
   if(!order) throw new Error('找不到這張訂單');
-  if(!toEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(toEmail)) throw new Error(t('errInvalidEmailAddress'));
+  const toEmails = (toEmail || '').split(',').map(e => e.trim()).filter(Boolean);
+  if(toEmails.length === 0 || toEmails.some(e => !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e))) throw new Error(t('errInvalidEmailAddress'));
 
   if(msgEl){ msgEl.className = 'msg'; msgEl.textContent = t('sendingEmailMsg'); }
 
@@ -11294,7 +11383,7 @@ async function sendOrderEmail(orderId, toEmail, msgEl){
   const { error: fnError } = await sb.functions.invoke('send-purchase-email', {
     body: {
       purchaseId: orderId,
-      to: toEmail,
+      to: toEmails,
       excelUrl: excelUrlData.publicUrl,
       excelFilename: filename,
       receiptFiles: [],
@@ -11305,7 +11394,7 @@ async function sendOrderEmail(orderId, toEmail, msgEl){
   });
   if(fnError) throw new Error(t('errEmailSendFailed'));
 
-  order.emailedTo = toEmail;
+  order.emailedTo = toEmails.join(', ');
   order.emailedAt = new Date().toISOString();
   await upsertOrders([order]);
 }
@@ -11857,11 +11946,27 @@ async function submitTxBatchSimple(date, msg){
   // 但如果是透過「掃描收據自動帶入」辨識出來的品項,金額(amount 是這個品項在收據上的總金額,
   // 不是單價——auto convert 換算單位時,總花費不會變,單價才會因為單位不同而不同,所以這裡
   // 記的是總額,匯出報表要換算成單價的話用「金額 ÷ 數量」現算即可)會一併記下來、一起匯出。
+  //
+  // 如果這個品項是批量商品、開了「自動切換」,進貨單裡記的要是換算後的主商品(品名、數量、
+  // 單位)——這裡要跟上面 newTxs 那段用一模一樣的換算邏輯,不然匯出的進貨單會顯示批量商品的
+  // 數量,跟系統實際入庫的主商品數量對不起來。金額(這批貨總共花多少錢)不會因為換算單位而
+  // 改變,原封不動照抄過去就好,匯出報表的單價會自動用「金額 ÷ 換算後數量」現算出正確的值。
   if(currentTxType === 'in'){
     const purchase = {
       id: purchaseId,
       date, partyId: party, partyName: party, invoiceNo, note,
       items: txBatchItems.map(it => {
+        const p = products.find(pp => pp.id === it.productId);
+        if(p && p.parentId && p.autoConvertOnStockIn){
+          const parent = products.find(pp => pp.id === p.parentId);
+          const weight = p.childWeight || 1;
+          const item = {
+            productId: p.parentId, sku: (parent && parent.sku) || '', name: (parent && parent.name) || p.name,
+            unit: (parent && parent.unit) || p.unit, qty: it.qty * weight
+          };
+          if(it.amount) item.amount = it.amount;
+          return item;
+        }
         const item = { productId: it.productId, sku: it.sku || '', name: it.name, unit: it.unit, qty: it.qty };
         if(it.amount) item.amount = it.amount;
         return item;
@@ -11872,6 +11977,7 @@ async function submitTxBatchSimple(date, msg){
     try{ await upsertPurchase(purchase); purchases.push(purchase); }
     catch(e){ console.error('儲存進貨單失敗', e); }
     removePurchaseReceipt();
+    populateTxPartyHistorySelect(); // 剛剛這筆用的供應商,馬上就會出現在下拉選單裡,不用重新整理頁面
 
     // 有勾選「寄送給會計」才會寄——寄信失敗不影響這張進貨單本身已經建立成功這件事,只是在畫面上
     // 另外提示寄信失敗,讓使用者知道要去歷史紀錄手動補寄,不會讓人誤以為整張進貨單都沒送出去。
