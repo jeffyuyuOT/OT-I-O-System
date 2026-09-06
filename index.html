@@ -509,6 +509,21 @@
      modal(例如商品編輯視窗)蓋住,使用者當下完全看不到,要關掉那個視窗才會「突然」看到提示。
      這裡給它一個更高的 z-index,確保這個共用提示視窗永遠疊在最上面,不管當下還有哪個 modal 開著。 */
   #confirmModalOverlay{ z-index:1200; }
+  /* 系統處理中的鎖定畫面——按了「確定」之後,只要那個動作還在跑(包含中間可能還要跳出來問
+     位置這種巢狀視窗),就整個鎖住底下畫面不能按,避免使用者以為沒按到、又按第二次觸發重複
+     的操作。z-index 故意比一般的 modal-overlay(1000)低一點,這樣如果處理過程中還要跳出
+     別的視窗問問題(例如問要扣哪個位置),那個視窗還是會正常疊在最上面、可以正常互動,
+     不會被這層鎖定畫面擋住。 */
+  #processingOverlay{
+    display:none; position:fixed; inset:0; background:rgba(0,0,0,0.35); z-index:999;
+    align-items:center; justify-content:center; flex-direction:column; gap:14px;
+  }
+  #processingOverlay .spinner{
+    width:36px; height:36px; border:4px solid rgba(255,255,255,0.35); border-top-color:#fff;
+    border-radius:50%; animation:processing-spin 0.8s linear infinite;
+  }
+  #processingOverlay .processing-text{ color:#fff; font-size:13px; font-weight:600; }
+  @keyframes processing-spin{ to{ transform:rotate(360deg); } }
   .modal-box{
     background:var(--panel); max-width:420px; width:90%; min-width:0;
     padding:24px; border-radius:4px; box-shadow:0 10px 40px rgba(0,0,0,0.3);
@@ -981,6 +996,44 @@
           <div class="field" style="max-width:320px;margin:0;">
             <input type="email" id="accountingEmailInput" placeholder="accounting@example.com" onchange="saveAccountingEmail(this.value)" />
           </div>
+        </div>
+
+        <div class="settings-card">
+          <div class="section-title" data-i18n="secStockLocationMode">Stock Location</div>
+
+          <div style="font-size:12.5px;font-weight:700;color:var(--ink);margin:4px 0 6px;" data-i18n="subsecStockLocationFormat">格式</div>
+          <p style="font-size:11.5px;color:var(--ink-soft);margin:0 0 8px;" data-i18n="stockLocationModeHint">
+            決定「庫存分布」頁面新增/編輯位置時,要怎麼填位置資訊。標準模式強制照 Zone-Aisle-Bay-Level-Bin 分開填寫(例如 A03-12-02-1);自訂模式可以自己輸入整串位置文字。
+          </p>
+          <div class="field" style="max-width:280px;margin:0 0 12px;">
+            <select id="stockLocationModeSelect" onchange="onStockLocationModeSelectChange(this.value)">
+              <option value="standard" data-i18n="stockLocationModeStandard">標準模式(Zone-Aisle-Bay-Level-Bin)</option>
+              <option value="custom" data-i18n="stockLocationModeCustom">自訂</option>
+            </select>
+          </div>
+          <div id="stockLocationFieldsEditWrap" style="display:none;">
+            <p style="font-size:11.5px;color:var(--ink-soft);margin:0 0 8px;" data-i18n="stockLocationFieldsHint">
+              標準模式底下實際要用到哪幾個欄位(不是每個倉庫都需要用滿 5 個)。
+            </p>
+            <div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:10px;">
+              <label style="display:flex;align-items:center;gap:5px;font-size:12.5px;cursor:pointer;"><input type="checkbox" id="stockLocationFieldZone" checked /> Zone</label>
+              <label style="display:flex;align-items:center;gap:5px;font-size:12.5px;cursor:pointer;"><input type="checkbox" id="stockLocationFieldAisle" checked /> Aisle</label>
+              <label style="display:flex;align-items:center;gap:5px;font-size:12.5px;cursor:pointer;"><input type="checkbox" id="stockLocationFieldBay" checked /> Bay</label>
+              <label style="display:flex;align-items:center;gap:5px;font-size:12.5px;cursor:pointer;"><input type="checkbox" id="stockLocationFieldLevel" checked /> Level</label>
+              <label style="display:flex;align-items:center;gap:5px;font-size:12.5px;cursor:pointer;"><input type="checkbox" id="stockLocationFieldBin" checked /> Bin</label>
+            </div>
+          </div>
+          <button class="btn" onclick="saveStockLocationSettings()" data-i18n="btnSave">儲存</button>
+          <div id="stockLocationSettingsMsg" class="msg"></div>
+
+          <div style="font-size:12.5px;font-weight:700;color:var(--ink);margin:18px 0 6px;padding-top:14px;border-top:1px solid var(--line);" data-i18n="subsecStockLocationPrint">列印</div>
+          <p style="font-size:11.5px;color:var(--ink-soft);margin:0 0 8px;" data-i18n="stockLocationPrintHint">
+            勾選後,Picking Slip 最前面會多印一欄「Stock Location」。如果商品有多個位置,列印之前會先跳出視窗問要從哪個位置拿取、印出那個位置。
+          </p>
+          <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-weight:400;">
+            <input type="checkbox" id="stockLocationShowOnPickingSlipToggle" onchange="saveStockLocationShowOnPickingSlip(this.checked)" />
+            <span data-i18n="chkShowLocationOnPickingSlip">Picking Slip 顯示 Stock Location</span>
+          </label>
         </div>
 
         <div class="settings-card">
@@ -1484,6 +1537,12 @@
   </div>
 
   <div id="tab-overview" class="tab-content">
+    <div class="subtab-bar">
+      <button class="subtab-btn active" onclick="switchOverviewSubTab('subtab-overview-summary')" id="btn-subtab-overview-summary" data-i18n="subtabOverviewSummary">庫存統計</button>
+      <button class="subtab-btn" onclick="switchOverviewSubTab('subtab-overview-location')" id="btn-subtab-overview-location" data-i18n="subtabOverviewLocation">庫存分布</button>
+    </div>
+
+    <div id="subtab-overview-summary" class="subtab-content active-subtab">
     <div class="section">
       <div class="toolbar">
         <div class="section-title" style="margin:0;"><span data-i18n="secStockOverview">庫存總覽</span></div>
@@ -1512,6 +1571,35 @@
       <div id="stockCards">
         <div class="empty-note">還沒有商品資料,先在上方新增一個商品試試看。</div>
       </div>
+    </div>
+    </div>
+
+    <div id="subtab-overview-location" class="subtab-content">
+    <div class="section">
+      <div class="toolbar">
+        <div class="section-title" style="margin:0;" data-i18n="secStockLocation">庫存分布</div>
+      </div>
+      <p style="font-size:12.5px;color:var(--ink-soft);margin:0 0 12px;" data-i18n="stockLocationDesc">
+        搜尋一項商品,查看它目前分布在哪些位置、各自有多少數量。
+      </p>
+      <div class="filter-row">
+        <div class="field">
+          <label data-i18n="fieldFilterByCategory">依分類篩選商品</label>
+          <select id="stockLocationCategoryFilter" onchange="resetSearchableSelect('stockLocationProductSelect'); renderStockLocationProductSelect();"></select>
+        </div>
+        <div class="field" style="min-width:260px;">
+          <label data-i18n="lblProduct">商品</label>
+          <select id="stockLocationProductSelect" onchange="renderStockLocationDetail()"></select>
+        </div>
+        <div class="field" style="justify-content:flex-end;">
+          <label style="display:flex;align-items:center;gap:6px;font-weight:600;color:var(--ink);cursor:pointer;font-size:12.5px;text-transform:none;">
+            <input type="checkbox" id="stockLocationShowAllUnassigned" onchange="toggleStockLocationBulkView(this.checked)" style="width:15px;height:15px;cursor:pointer;" />
+            <span data-i18n="chkShowAllUnassigned">列出所有未指派商品</span>
+          </label>
+        </div>
+      </div>
+      <div id="stockLocationDetail"></div>
+    </div>
     </div>
   </div>
 
@@ -1826,6 +1914,11 @@
 </div>
 
 
+<div id="processingOverlay">
+  <div class="spinner"></div>
+  <div class="processing-text" data-i18n="processingMsg">處理中,請稍候…</div>
+</div>
+
 <div id="confirmModalOverlay" class="modal-overlay" style="display:none;">
   <div class="modal-box">
     <p id="confirmModalText" style="white-space:pre-line;"></p>
@@ -1930,6 +2023,66 @@
     <div class="modal-actions">
       <button class="btn ghost" onclick="closeEditPurchaseModal()" data-i18n="btnCancel">取消</button>
       <button class="btn" onclick="confirmEditPurchase()" data-i18n="btnSave">儲存</button>
+    </div>
+  </div>
+</div>
+
+<div id="locationEditModalOverlay" class="modal-overlay" style="display:none;" onclick="if(event.target===this) closeLocationEditModal();">
+  <div class="modal-box" style="max-width:min(460px, 92vw);">
+    <div class="section-title" style="margin-bottom:4px;" data-i18n="modalLocationEditTitle">編輯位置</div>
+    <p id="locationEditCurrentInfo" style="font-size:12.5px;color:var(--ink-soft);margin:0 0 12px;"></p>
+
+    <div id="locationEditPhotoSection" style="display:none;margin-bottom:14px;">
+      <label style="display:block;font-size:12.5px;font-weight:600;color:var(--ink);margin-bottom:4px;" data-i18n="fieldLocationPhoto">位置照片(選填)</label>
+      <div id="locationEditPhotoPreviewWrap" style="display:none;margin-bottom:8px;"></div>
+      <input type="file" id="locationEditPhotoInput" accept="image/*" onchange="handleLocationPhotoUpload(this)" style="border:1px solid var(--line);background:#fff;border-radius:2px;padding:8px;font-family:'IBM Plex Mono',monospace;font-size:12px;width:100%;box-sizing:border-box;" />
+      <div id="locationEditPhotoMsg" style="font-size:11.5px;margin-top:4px;"></div>
+    </div>
+
+    <div class="section-title" style="font-size:13px;margin-bottom:8px;" data-i18n="secTransferLocation">轉移</div>
+    <div class="field-block">
+      <label data-i18n="fieldTransferQty">轉移數量</label>
+      <input type="number" id="locationTransferQtyInput" min="0" step="1" style="width:100%;" />
+    </div>
+    <div class="field-block">
+      <label data-i18n="fieldTransferTarget">轉移到</label>
+      <select id="locationTargetSelect" onchange="onLocationTargetSelectChange()" style="width:100%;"></select>
+    </div>
+    <div id="locationStandardFieldsWrap" class="form-grid" style="display:none;grid-template-columns:1fr 1fr 1fr 1fr 1fr;margin-bottom:0;">
+      <div class="field" id="locationZoneWrap"><label>Zone</label><input type="text" id="locationZoneInput" style="width:100%;" /></div>
+      <div class="field" id="locationAisleWrap"><label>Aisle</label><input type="text" id="locationAisleInput" style="width:100%;" /></div>
+      <div class="field" id="locationBayWrap"><label>Bay</label><input type="text" id="locationBayInput" style="width:100%;" /></div>
+      <div class="field" id="locationLevelWrap"><label>Level</label><input type="text" id="locationLevelInput" style="width:100%;" /></div>
+      <div class="field" id="locationBinWrap"><label>Bin</label><input type="text" id="locationBinInput" style="width:100%;" /></div>
+    </div>
+    <div id="locationCustomFieldWrap" class="field-block" style="display:none;">
+      <label data-i18n="fieldLocationCode">位置</label>
+      <input type="text" id="locationCustomCodeInput" style="width:100%;" />
+    </div>
+    <div id="locationEditModalMsg" class="msg"></div>
+    <div class="modal-actions">
+      <button class="btn ghost" onclick="closeLocationEditModal()" data-i18n="btnCancel">取消</button>
+      <button class="btn" onclick="confirmLocationTransfer()" data-i18n="btnConfirmTransfer">確認轉移</button>
+    </div>
+  </div>
+</div>
+
+<div id="locationPhotoViewModalOverlay" class="modal-overlay" style="display:none;" onclick="if(event.target===this) closeLocationPhotoViewModal();">
+  <div class="modal-box" style="max-width:min(480px, 90vw);text-align:center;">
+    <div style="text-align:right;margin-bottom:8px;">
+      <span class="del-link" onclick="closeLocationPhotoViewModal()" data-i18n="btnClose">關閉</span>
+    </div>
+    <img id="locationPhotoViewImg" src="" style="max-width:100%;max-height:70vh;border-radius:2px;" />
+  </div>
+</div>
+
+<div id="locationChoiceModalOverlay" class="modal-overlay" style="display:none;">
+  <div class="modal-box" style="max-width:min(420px, 92vw);">
+    <div class="section-title" style="margin-bottom:4px;" data-i18n="modalLocationChoiceTitle">從哪個位置扣取?</div>
+    <p id="locationChoiceProductInfo" style="font-size:12.5px;color:var(--ink-soft);margin:0 0 12px;"></p>
+    <div id="locationChoiceOptionsWrap" style="display:flex;flex-direction:column;gap:8px;"></div>
+    <div class="modal-actions">
+      <button class="btn ghost" onclick="cancelLocationChoiceSequence()" data-i18n="btnCancel">取消</button>
     </div>
   </div>
 </div>
@@ -2159,6 +2312,11 @@ let deliveryNotes = []; // Delivery Note 清單——純文件記錄,結構比�
 let purchases = []; // 進貨單清單:{id, date, partyId/partyName, invoiceNo, items:[{productId,sku,name,qty,unit}], receiptUrl, createdAt}。
                      // 不記單價/金額——用收據附件取代手動輸入金額。提交進貨單時,底下還是會照樣
                      // 產生 type='in' 的 transactions(purchaseId 指回這張單),庫存計算邏輯不變。
+let productLocations = []; // 庫存分布:{id, productId, zone, aisle, bay, level, bin, locationCode, qty, photoUrl}。
+                            // 「未分布」不是這裡的一筆資料,是用「商品總庫存 - 這裡所有位置的數量總和」即時算出來的,見 computeUnassignedQty()。
+let stockLocationMode = 'standard'; // 系統設置「Stock Location」:'standard'(強制照 Zone-Aisle-Bay-Level-Bin 分開填) | 'custom'(自由輸入整串位置文字)
+let stockLocationEnabledFields = { zone: true, aisle: true, bay: true, level: true, bin: true }; // 標準模式下,實際要用到哪幾個欄位(有些倉庫不需要用到全部 5 個)
+let stockLocationShowOnPickingSlip = false; // Picking Slip 要不要多印一欄 Stock Location(印之前,如果商品有多個位置會先問要印哪一個)
 let shippingParties = [];
 let currentTxType = 'in';
 let pendingPurchaseReceiptFiles = []; // 進貨單收據附件(支援多檔案):[{url, filename}, ...],submitTxBatchSimple() 送出進貨單時會用到,送出後清空
@@ -2293,6 +2451,8 @@ const I18N = {
     appTitleSubtitle: 'Inventory & Order Hub', appTitleSubtitleOrderOnly: 'Order Hub',
     appLoadingText: '載入中…',
     tabMaster: '系統管理', tabTx: '庫存管理', tabOverview: '庫存總覽', tabLog: '歷史紀錄',
+    subtabOverviewSummary: '庫存統計', subtabOverviewLocation: '庫存分布',
+    secStockLocation: '庫存分布', stockLocationDesc: '搜尋一項商品,查看它目前分布在哪些位置、各自有多少數量。',
     subtabLogTx: '進出貨紀錄', subtabLogConvert: '切換紀錄', subtabLogInventory: '後台紀錄',
     secInventoryLog: '後台紀錄',
     deliveryNoteLogDesc: '列出所有 Delivery Note,依日期排序。列印過的顯示「已完成」,還沒列印的顯示「待處理」。',
@@ -2697,6 +2857,32 @@ const I18N = {
     secPurchaseLog: '進貨單', purchaseLogDesc: '列出所有進貨單,依日期排序。點一筆可以看品項明細跟收據附件,匯出也是針對單一張進貨單。',
     secAccountingEmail: '會計 Email',
     accountingEmailHint: '進貨單勾選「寄送給會計」時,預設帶入的收件人地址(送出前還是可以改成別的地址)。',
+    secStockLocationMode: 'Stock Location',
+    subsecStockLocationFormat: '格式', subsecStockLocationPrint: '列印',
+    stockLocationModeHint: '決定「庫存分布」頁面新增/編輯位置時,要怎麼填位置資訊。標準模式強制照 Zone-Aisle-Bay-Level-Bin 分開填寫(例如 A03-12-02-1);自訂模式可以自己輸入整串位置文字。',
+    stockLocationModeStandard: '標準模式(Zone-Aisle-Bay-Level-Bin)', stockLocationModeCustom: '自訂',
+    stockLocationSelectProductHint: '選一項商品,查看它的位置分布。',
+    chkShowAllUnassigned: '列出所有未指派商品', noUnassignedProductsHint: '目前沒有未指派的商品。',
+    settingsSavedMsg: '✓ 已儲存',
+    stockLocationPrintHint: '勾選後,Picking Slip 最前面會多印一欄「Stock Location」。如果商品有多個位置,列印之前會先跳出視窗問要從哪個位置拿取、印出那個位置。',
+    chkShowLocationOnPickingSlip: 'Picking Slip 顯示 Stock Location',
+    stockLocationFieldsHint: '標準模式底下實際要用到哪幾個欄位(不是每個倉庫都需要用滿 5 個)。',
+    colStockLocation: 'Stock Location',
+    lblTotalStock: '總庫存', colLocation: '位置', unassignedLocationLabel: '未分布',
+    btnAssignLocation: '指派位置', clickToViewPhoto: '點擊查看照片',
+    modalLocationEditTitle: '編輯位置', fieldLocationPhoto: '位置照片(選填)',
+    secTransferLocation: '轉移', fieldTransferQty: '轉移數量', fieldLocationCode: '位置',
+    fieldTransferTarget: '轉移到', optAddNewLocation: '+ 新增位置',
+    fieldAssignLocation: '指派位置',
+    btnConfirmTransfer: '確認轉移',
+    modalLocationChoiceTitle: '從哪個位置扣取?',
+    locationChoiceProductInfoText: '{name}——這次要扣 {qty} {unit},商品分布在多個位置,請選擇要從哪裡扣取:',
+    primaryLocationBadge: '主要位置',
+    lastPrimaryBadge: 'Last Primary',
+    locationEditCurrentInfoText: '目前位置:{code}(數量:{qty} {unit})',
+    locationAssignFromUnassignedText: '從「未分布」指派——目前未分布數量:{qty} {unit}',
+    errEnterLocationCode: '請填寫位置資訊', errTransferSameLocation: '轉移的目的地不能跟原本的位置一樣',
+    errTransferQtyExceeds: '轉移數量不能超過這個位置目前的數量({available})',
     chkEmailToAccounting: '寄送給會計',
     purchaseEmailHint: '送出進貨單時,會把這張單匯出的 Excel 檔跟收據附件(如果有上傳)一起寄到這個地址。',
     errInvalidEmailAddress: '請輸入正確的 email 地址',
@@ -2709,6 +2895,7 @@ const I18N = {
     modalSendPurchaseEmailTitle: '寄送進貨單', fieldRecipientEmail: '收件人 Email',
     btnConfirmSend: '確認寄送',
     modalEditPurchaseTitle: '編輯進貨單', savingMsg: '儲存中…',
+    processingMsg: '處理中,請稍候…',
     emailedToTitle: '已寄給 {email}({when})',
     colPurchaseDate: '日期', colPurchaseParty: '進貨方', colPurchaseInvoiceNo: 'Invoice',
     noPurchasesYet: '尚無進貨單紀錄', purchaseItemsLabel: '品項', purchaseNoReceiptLabel: '(沒有附件)',
@@ -2719,6 +2906,8 @@ const I18N = {
     fieldHideFromCompletedExport: '已完成訂單匯出不顯示',
     fieldHideFromCompletedExportHint: '勾選後,已完成訂單匯出時不會列出這個主商品;如果在訂單核對頁面把批量商品切換成這個主商品,切換用的批量商品跟數量會顯示在匯出檔案裡。',
     hideExportModeSwitchOnly: '僅顯示切換的批量商品數量', hideExportModeWholeFamily: '整個家族商品都不顯示',
+    hideExportChildForcedHint: '主商品設定「整個家族都不顯示」,這個批量商品跟著強制隱藏,不能單獨取消。',
+    hideExportChildLockedHint: '主商品目前是「僅顯示切換的批量商品數量」模式,這個批量商品需要保持顯示才能接住切換過來的數量,不能個別隱藏。',
     autoConvertStockInNote: '自動切換自「{name}」× {qty} {unit}',
     fieldShowInTotalStockHint: '— 勾選後,庫存總覽的清單會用這個商品(而不是主商品)代表整個商品家族,總庫存量/平均出貨/安全庫存都會依它的加權數換算顯示。同一個商品家族(主商品+底下所有 multipack 商品)只能勾選一個,勾了別的,這裡會自動取消。',
     fieldShowInTotalStockHiddenHint: '— 這個商品目前是隱藏狀態,不能設定為顯示於庫存總覽的代表商品,請先取消隱藏。',
@@ -2746,6 +2935,8 @@ const I18N = {
     appTitleSubtitle: 'Inventory & Order Hub', appTitleSubtitleOrderOnly: 'Order Hub',
     appLoadingText: 'Loading…',
     tabMaster: 'System Admin', tabTx: 'Inventory Management', tabOverview: 'Stock Overview', tabLog: 'History',
+    subtabOverviewSummary: 'Stock Summary', subtabOverviewLocation: 'Stock Location',
+    secStockLocation: 'Stock Location', stockLocationDesc: 'Search for a product to see which locations it\'s stored in and how much is at each.',
     subtabLogTx: 'Stock In/Out Log', subtabLogConvert: 'Conversion History', subtabLogInventory: 'Inventory Log',
     secInventoryLog: 'Inventory Log',
     deliveryNoteLogDesc: 'Lists all Delivery Notes, sorted by date. Ones already printed show "Completed"; ones not yet printed show "Pending".',
@@ -3150,6 +3341,32 @@ const I18N = {
     secPurchaseLog: 'Purchases', purchaseLogDesc: 'Lists all purchase documents, sorted by date. Click one to see item details and the receipt attachment; export is per document too.',
     secAccountingEmail: 'Accounting Email',
     accountingEmailHint: 'Default recipient address filled in when a purchase is checked "Email to accounting" (you can still change it before sending).',
+    secStockLocationMode: 'Stock Location',
+    subsecStockLocationFormat: 'Format', subsecStockLocationPrint: 'Printing',
+    stockLocationModeHint: 'Controls how location info is entered when adding/editing a location on the Stock Location page. Standard mode enforces separate Zone-Aisle-Bay-Level-Bin fields (e.g. A03-12-02-1); Custom mode lets you type the whole location string freely.',
+    stockLocationModeStandard: 'Standard (Zone-Aisle-Bay-Level-Bin)', stockLocationModeCustom: 'Custom',
+    stockLocationSelectProductHint: 'Select a product to see its location breakdown.',
+    chkShowAllUnassigned: 'List all unassigned products', noUnassignedProductsHint: 'No unassigned products right now.',
+    settingsSavedMsg: '✓ Saved',
+    stockLocationPrintHint: 'When checked, the Picking Slip will print a "Stock Location" column first. If a product is stored in multiple locations, a prompt will ask which location to take from before printing, and that location will be printed.',
+    chkShowLocationOnPickingSlip: 'Show Stock Location on Picking Slip',
+    stockLocationFieldsHint: 'Which fields Standard mode actually uses (not every warehouse needs all 5).',
+    colStockLocation: 'Stock Location',
+    lblTotalStock: 'Total Stock', colLocation: 'Location', unassignedLocationLabel: 'Unassigned',
+    btnAssignLocation: 'Assign Location', clickToViewPhoto: 'Click to view photo',
+    modalLocationEditTitle: 'Edit Location', fieldLocationPhoto: 'Location Photo (optional)',
+    secTransferLocation: 'Transfer', fieldTransferQty: 'Transfer Quantity', fieldLocationCode: 'Location',
+    fieldTransferTarget: 'Transfer To', optAddNewLocation: '+ Add New Location',
+    fieldAssignLocation: 'Assign Location',
+    btnConfirmTransfer: 'Confirm Transfer',
+    modalLocationChoiceTitle: 'Which location to take from?',
+    locationChoiceProductInfoText: '{name} — need {qty} {unit} this time. This product is spread across multiple locations, please choose where to take it from:',
+    primaryLocationBadge: 'Primary',
+    lastPrimaryBadge: 'Last Primary',
+    locationEditCurrentInfoText: 'Current location: {code} (Qty: {qty} {unit})',
+    locationAssignFromUnassignedText: 'Assigning from Unassigned — currently unassigned: {qty} {unit}',
+    errEnterLocationCode: 'Please fill in the location', errTransferSameLocation: 'The destination can\'t be the same as the current location',
+    errTransferQtyExceeds: 'Transfer quantity can\'t exceed this location\'s current quantity ({available})',
     chkEmailToAccounting: 'Email to accounting',
     purchaseEmailHint: 'When this purchase is submitted, the exported Excel file and receipt attachment (if uploaded) will be emailed to this address.',
     errInvalidEmailAddress: 'Please enter a valid email address',
@@ -3162,6 +3379,7 @@ const I18N = {
     modalSendPurchaseEmailTitle: 'Send Purchase Order', fieldRecipientEmail: 'Recipient Email',
     btnConfirmSend: 'Confirm Send',
     modalEditPurchaseTitle: 'Edit Purchase', savingMsg: 'Saving…',
+    processingMsg: 'Processing, please wait…',
     emailedToTitle: 'Sent to {email} ({when})',
     colPurchaseDate: 'Date', colPurchaseParty: 'Supplier', colPurchaseInvoiceNo: 'Invoice',
     noPurchasesYet: 'No purchase records yet', purchaseItemsLabel: 'Items', purchaseNoReceiptLabel: '(no attachment)',
@@ -3172,6 +3390,8 @@ const I18N = {
     fieldHideFromCompletedExport: 'Hide from Completed Order Export',
     fieldHideFromCompletedExportHint: 'When checked, this main product won\'t be listed when exporting completed orders; if a multipack product is switched to this main product on the Order Verification page, the multipack product and quantity used will appear in the export instead.',
     hideExportModeSwitchOnly: 'Only show the switched multipack quantity', hideExportModeWholeFamily: 'Hide the whole family',
+    hideExportChildForcedHint: 'The main product is set to "Hide the whole family" — this multipack is force-hidden along with it and can\'t be unchecked individually.',
+    hideExportChildLockedHint: 'The main product is currently in "Only show the switched multipack quantity" mode — this multipack needs to stay visible to receive the switched quantity, so it can\'t be hidden individually.',
     autoConvertStockInNote: 'Auto-converted from "{name}" × {qty} {unit}',
     fieldShowInTotalStockHint: '— when checked, the Stock Overview list represents this whole product family using this product (instead of the main product), converting Total Stock/Avg Usage/Safety Stock by its weight. Only one member of a product family (main product + all its multi-packs) can be checked at a time; checking another one here automatically unchecks this.',
     fieldShowInTotalStockHiddenHint: '— this product is currently hidden and can\'t be set as the family\'s Stock Overview representative. Unhide it first.',
@@ -4159,6 +4379,20 @@ function switchLogSubTab(subtabId){
 
 // 訂貨分頁(tab-order)自己的子分頁切換(訂貨 / 訂購記錄),只在它自己的容器裡找
 // .subtab-content/.subtab-btn,不會動到其他分頁那幾組子分頁的顯示狀態。
+function switchOverviewSubTab(subtabId){
+  const container = document.getElementById('tab-overview');
+  if(!container) return;
+  document.body.classList.remove('mobile-subtab-menu-active');
+  document.body.classList.add('mobile-subtab-content-active');
+  container.querySelectorAll('.subtab-content').forEach(el => el.classList.remove('active-subtab'));
+  container.querySelectorAll('.subtab-btn').forEach(el => el.classList.remove('active'));
+  document.getElementById(subtabId).classList.add('active-subtab');
+  document.getElementById('btn-' + subtabId).classList.add('active');
+  if(subtabId === 'subtab-overview-location'){
+    renderStockLocationProductSelect();
+  }
+}
+
 function switchOrderSubTab(subtabId){
   const container = document.getElementById('tab-order');
   if(!container) return;
@@ -4185,7 +4419,13 @@ function switchOrderSubTab(subtabId){
 let pendingConfirmCallback = null;
 let pendingCancelCallback = null;
 
+// 有一個核心操作(按了「確定」之後、還在跑 await 的那個 callback)還沒跑完的時候,不要再開
+// 新的確認視窗——避免使用者以為上一次沒按到、又點了一次別的操作,結果兩個操作幾乎同時進行,
+// 例如對同一張訂單核對兩次、跳出「訂單已經被取消」這種奇怪的錯誤訊息。
+let criticalActionInProgress = false;
+
 function showConfirmModal(message, onConfirm, onCancel){
+  if(criticalActionInProgress) return;
   document.getElementById('confirmModalText').textContent = message;
   pendingConfirmCallback = onConfirm;
   pendingCancelCallback = onCancel || null;
@@ -4399,7 +4639,15 @@ async function confirmModalYes(){
   document.getElementById('confirmModalOverlay').style.display = 'none';
   pendingConfirmCallback = null;
   pendingCancelCallback = null; // 確定了,取消專用的 callback 不用執行,直接清掉
-  if(cb) await cb();
+  if(!cb) return;
+  criticalActionInProgress = true;
+  document.getElementById('processingOverlay').style.display = 'flex';
+  try{
+    await cb();
+  } finally {
+    criticalActionInProgress = false;
+    document.getElementById('processingOverlay').style.display = 'none';
+  }
 }
 
 function genId(){ return Date.now().toString(36) + Math.random().toString(36).slice(2,7); }
@@ -4559,6 +4807,7 @@ async function loadData(){
   await loadOrders();
   await loadDeliveryNotes();
   await loadPurchases();
+  await loadProductLocations();
   try{
     const counterResult = await dbGet('orderCounter');
     orderCounter = counterResult ? (parseInt(counterResult.value, 10) || 0) : 0;
@@ -4596,6 +4845,21 @@ async function loadData(){
     const acctEmailResult = await dbGet('accountingEmail');
     if(acctEmailResult) accountingEmail = acctEmailResult.value || '';
   } catch(e){ /* no stored preference yet, keep default empty */ }
+  try{
+    const slmResult = await dbGet('stockLocationMode');
+    if(slmResult && ['standard','custom'].includes(slmResult.value)) stockLocationMode = slmResult.value;
+  } catch(e){ /* no stored preference yet, keep default 'standard' */ }
+  try{
+    const slfResult = await dbGet('stockLocationEnabledFields');
+    if(slfResult && slfResult.value){
+      const parsed = JSON.parse(slfResult.value);
+      stockLocationEnabledFields = { zone: true, aisle: true, bay: true, level: true, bin: true, ...parsed };
+    }
+  } catch(e){ /* no stored preference yet, keep default all-enabled */ }
+  try{
+    const slpResult = await dbGet('stockLocationShowOnPickingSlip');
+    if(slpResult) stockLocationShowOnPickingSlip = slpResult.value === 'true';
+  } catch(e){ /* no stored preference yet, keep default false */ }
   try{
     const psmResult = await dbGet('productSortMode');
     if(psmResult && ['import','name','sku'].includes(psmResult.value)) productSortMode = psmResult.value;
@@ -4706,6 +4970,82 @@ async function upsertPurchase(p){
   const { error } = await sb.from('purchases').upsert(row);
   if(error){ console.error('儲存進貨單失敗', error); throw error; }
   scheduleAutoBackup();
+}
+
+function locationToRow(loc){
+  return {
+    id: loc.id, product_id: loc.productId,
+    zone: loc.zone || null, aisle: loc.aisle || null, bay: loc.bay || null, level: loc.level || null, bin: loc.bin || null,
+    location_code: loc.locationCode, qty: loc.qty, photo_url: loc.photoUrl || null,
+    updated_at: new Date().toISOString()
+  };
+}
+function rowToLocation(row){
+  return {
+    id: row.id, productId: row.product_id,
+    zone: row.zone || '', aisle: row.aisle || '', bay: row.bay || '', level: row.level || '', bin: row.bin || '',
+    locationCode: row.location_code, qty: Number(row.qty), photoUrl: row.photo_url || null
+  };
+}
+async function loadProductLocations(){
+  try{
+    const { data, error } = await sb.from('product_locations').select('*');
+    if(error) throw error;
+    productLocations = (data || []).map(rowToLocation);
+  } catch(e){ console.error('讀取庫存分布失敗', e); productLocations = []; }
+}
+async function upsertProductLocation(loc){
+  const { error } = await sb.from('product_locations').upsert(locationToRow(loc));
+  if(error){ console.error('儲存庫存分布失敗', error); throw error; }
+  scheduleAutoBackup();
+}
+async function deleteProductLocationRow(id){
+  const { error } = await sb.from('product_locations').delete().eq('id', id);
+  if(error){ console.error('刪除庫存分布紀錄失敗', error); throw error; }
+}
+
+// 一個商品的位置紀錄被刪光(全部變成未分布)的時候,把「最後一次的主要位置」記在商品自己身上
+// (product.lastPrimaryLocation,存完整的 zone/aisle/bay/level/bin,不是只存組合完的字串)——
+// 這樣之後庫存分布頁面的下拉選單,就算這個商品目前完全沒有真正的位置資料,也能在清單最下面
+// 提示「以前通常放在哪裡」,選了直接把新增位置的欄位都幫忙填好,不用重新想一次位置編號。
+// 呼叫時機:任何一個位置被刪掉之後,如果那個商品的位置清單已經整個空了,而且剛好被刪掉的
+// 就是原本的主要位置(通常是最後剩下的那一筆),才會記錄下來。
+async function rememberLastPrimaryLocationIfNowEmpty(deletedLoc, wasPrimary){
+  if(!wasPrimary) return;
+  const stillHasLocations = productLocations.some(l => l.productId === deletedLoc.productId);
+  if(stillHasLocations) return;
+  const p = products.find(x => x.id === deletedLoc.productId);
+  if(!p || (p.lastPrimaryLocation && p.lastPrimaryLocation.locationCode === deletedLoc.locationCode)) return;
+  p.lastPrimaryLocation = {
+    zone: deletedLoc.zone || '', aisle: deletedLoc.aisle || '', bay: deletedLoc.bay || '',
+    level: deletedLoc.level || '', bin: deletedLoc.bin || '', locationCode: deletedLoc.locationCode
+  };
+  try{ await saveProducts(); }
+  catch(e){ console.error('記錄最後主要位置失敗', e); }
+}
+
+// 這個商品目前「未分布」的數量:總庫存(既有的 computeTotalStock 邏輯不變)減掉這個商品在
+// product_locations 裡所有位置的數量總和。不會是負數(理論上不該發生,但庫存分布資料如果因為
+// 某些原因比實際總庫存還多,顯示 0 比顯示負數合理)。
+function computeUnassignedQty(productId){
+  const totalStock = computeTotalStock(productId);
+  const assigned = productLocations.filter(l => l.productId === productId).reduce((sum, l) => sum + l.qty, 0);
+  return Math.max(0, totalStock - assigned);
+}
+
+// 這個商品所有「有庫存的位置」,按數量由多到少排序——數量最多的那個是「主要位置」。
+// 未分布不算是位置(這個 function 只回傳真正的位置資料,不含未分布),呼叫端如果要含未分布,
+// 自己另外加在最後面(未分布規定永遠排最後,不能被當成主要位置)。
+function getSortedLocationsForProduct(productId){
+  return productLocations
+    .filter(l => l.productId === productId && l.qty > 0)
+    .sort((a, b) => b.qty - a.qty);
+}
+// 這個商品目前的「主要位置」:庫存最多的那個真正的位置。未分布不算數,就算未分布數量比任何
+// 位置都多,也不會被當成主要位置——完全沒有任何真正的位置資料時回傳 null。
+function getPrimaryLocation(productId){
+  const sorted = getSortedLocationsForProduct(productId);
+  return sorted.length > 0 ? sorted[0] : null;
 }
 
 async function deleteDeliveryNoteRow(id){
@@ -5143,12 +5483,61 @@ function updateMultipackSettingsUI(){
   if(hmiBox) hmiBox.checked = hideMultipackIconOnOrderPage;
   const acctEmailInput = document.getElementById('accountingEmailInput');
   if(acctEmailInput) acctEmailInput.value = accountingEmail;
+  const slmSelect = document.getElementById('stockLocationModeSelect');
+  if(slmSelect){
+    slmSelect.value = stockLocationMode;
+    onStockLocationModeSelectChange(stockLocationMode);
+  }
+  const fieldMap = { zone: 'stockLocationFieldZone', aisle: 'stockLocationFieldAisle', bay: 'stockLocationFieldBay', level: 'stockLocationFieldLevel', bin: 'stockLocationFieldBin' };
+  Object.keys(fieldMap).forEach(k => {
+    const el = document.getElementById(fieldMap[k]);
+    if(el) el.checked = stockLocationEnabledFields[k] !== false;
+  });
+  const slpToggle = document.getElementById('stockLocationShowOnPickingSlipToggle');
+  if(slpToggle) slpToggle.checked = stockLocationShowOnPickingSlip;
 }
 
 async function saveAccountingEmail(value){
   accountingEmail = (value || '').trim();
   try{ await dbSet('accountingEmail', accountingEmail); }
   catch(e){ console.error('儲存會計 Email 失敗', e); }
+}
+
+function onStockLocationModeSelectChange(value){
+  const wrap = document.getElementById('stockLocationFieldsEditWrap');
+  if(wrap) wrap.style.display = value === 'standard' ? 'block' : 'none';
+}
+
+// 標準模式的「編輯格式」欄位勾選+模式一起存,按一次「儲存」兩個都存。自訂模式不用管欄位勾選,
+// 選了自訂就直接存,不用等按儲存(跟原本切成自訂模式時的行為一致,只有標準模式下的欄位細節
+// 才需要額外按儲存確認)。
+async function saveStockLocationSettings(){
+  const msgEl = document.getElementById('stockLocationSettingsMsg');
+  const mode = document.getElementById('stockLocationModeSelect').value;
+  stockLocationMode = mode;
+  stockLocationEnabledFields = {
+    zone: document.getElementById('stockLocationFieldZone').checked,
+    aisle: document.getElementById('stockLocationFieldAisle').checked,
+    bay: document.getElementById('stockLocationFieldBay').checked,
+    level: document.getElementById('stockLocationFieldLevel').checked,
+    bin: document.getElementById('stockLocationFieldBin').checked
+  };
+  try{
+    await dbSet('stockLocationMode', mode);
+    await dbSet('stockLocationEnabledFields', JSON.stringify(stockLocationEnabledFields));
+    msgEl.className = 'msg ok';
+    msgEl.textContent = t('settingsSavedMsg');
+  } catch(e){
+    console.error('儲存 Stock Location 設定失敗', e);
+    msgEl.className = 'msg error';
+    msgEl.textContent = '⚠ 儲存失敗,請重新整理頁面再試一次。';
+  }
+}
+
+async function saveStockLocationShowOnPickingSlip(checked){
+  stockLocationShowOnPickingSlip = checked;
+  try{ await dbSet('stockLocationShowOnPickingSlip', checked ? 'true' : 'false'); }
+  catch(e){ console.error('儲存 Stock Location 列印設定失敗', e); }
 }
 
 async function toggleAutoConvertMultipack(checked){
@@ -5347,6 +5736,13 @@ function setTxType(type){
     resetRegisterOutFlow();
     showTxMainFormArea(true);
   }
+  // 不管上面走的是哪個分支,最後都統一在這裡刷新一次送出按鈕區、還有下面的「待送出商品清單」——
+  // 道理跟上面同一個註解講的一樣:好幾個分支只呼叫了 resetRegisterOutFlow()(裡面會把
+  // txBatchItems 重設成空陣列)重設狀態,卻沒有跟著刷新這兩個畫面區塊,導致切換類型時,
+  // 上一個類型加到清單裡的商品會照舊卡著顯示在下面,要等到之後某個別的動作剛好順便觸發到
+  // 這兩個函式才會消失,造成使用者以為畫面卡住、要等一段時間才會更新。
+  renderTxSubmitArea();
+  renderTxBatchList();
 }
 
 function showTxMainFormArea(visible){
@@ -8014,6 +8410,18 @@ async function saveOrderItemQty(context, orderId, productId){
   }
 
   const oldQty = item.qty;
+
+  // 數量改多代表要多扣庫存(補出貨)——商品分布在多個位置的話,先問清楚要從哪裡扣,邏輯跟訂單
+  // 核對、直接出貨共用同一套機制。數量改少(退庫存)不用問,退回的庫存一律先算未分布。
+  let qtyChangeAllocations = null;
+  if(newQty > oldQty){
+    try{
+      qtyChangeAllocations = await resolveLocationAllocationsForItem(productId, newQty - oldQty);
+    } catch(e){
+      return; // 使用者取消了位置選擇,整個數量調整中止
+    }
+  }
+
   const txId = genId();
   const noteText = tf('orderItemQtyChangedNote', { orderNo: order.orderNo || '', name: item.name, oldQty, newQty, unit: item.unit });
 
@@ -8045,6 +8453,12 @@ async function saveOrderItemQty(context, orderId, productId){
   };
   transactions.push(tx);
   productStockMap[productId] = (productStockMap[productId] || 0) - qtyDelta;
+
+  // 伺服器那邊(adjust_order_item_qty RPC)已經確定扣庫存成功了,這裡才去動 product_locations,
+  // 避免庫存扣了/位置卻沒對應更新的不一致。
+  if(qtyChangeAllocations){
+    await applyLocationDeductions([{ productId, qty: newQty - oldQty, allocations: qtyChangeAllocations }]);
+  }
 
   item.qty = newQty;
   if(!item.qtyHistory) item.qtyHistory = [];
@@ -8212,12 +8626,50 @@ function buildOrderExportRows(order){
 
 // 列印(待處理訂單、已完成訂單共用):opts.includeCheckColumn 待處理訂單才會有(給撿貨的人拿筆
 // 現場勾選用,匯出的 Excel 不需要這欄);opts.headerLabel 是列印檔案最上面的英文標示。
-function printOrderDocument(orderId, opts){
+async function printOrderDocument(orderId, opts){
   const order = orders.find(o => o.id === orderId);
   if(!order) return;
   const items = buildOrderExportRows(order);
   const includeCheck = !!opts.includeCheckColumn;
   const includeSku = opts.includeSkuColumn !== false; // 預設顯示,已完成訂單那邊會特別關掉
+
+  // Picking Slip 如果有開「顯示 Stock Location」,列印之前先把每個品項要印哪個位置問清楚——
+  // 只有商品分布在多個位置(含未分布)時才會真的跳出視窗問,只有一個來源的話直接用那個,
+  // 不會無端打斷列印流程。中途按取消的話,這裡直接不印(跟訂單核對按取消的行為一致)。
+  //
+  // 這裡選的位置會記到訂單自己身上(order.pickedLocationAllocations),之後核對這張訂單、真的要
+  // 扣庫存的時候(verifyOrder)會直接沿用,不會重複問一次——不然撿貨單上印的是這裡選的位置,
+  // 核對時卻可能選到不一樣的位置,會變成「單子上寫的」跟「系統實際扣的」對不起來。
+  //
+  // 同一張訂單如果之前已經列印過一次、問過位置了,這次再印(例如倉庫改了訂單裡其他商品,
+  // 但沒動到這個商品)——沒被改到的商品直接沿用上次選的答案,不用重新問;只有真的被改過
+  // (數量變了、或位置資料本身變得不夠用了)的商品才會重新跳出來問。
+  let locationLabelByProductId = {};
+  let locationAllocationsByProductId = {};
+  if(includeCheck && stockLocationShowOnPickingSlip){
+    try{
+      const resolvedItems = await resolveLocationChoicesForItemsWithPreset(
+        items.map(it => ({ productId: it.productId, qty: it.qty })),
+        order.pickedLocationAllocations
+      );
+      resolvedItems.forEach(r => {
+        locationAllocationsByProductId[r.productId] = r.allocations || [];
+        locationLabelByProductId[r.productId] = (r.allocations || []).map(a => a.label).join(', ');
+      });
+      order.pickedLocationAllocations = resolvedItems.reduce((map, r) => {
+        map[r.productId] = r.allocations;
+        return map;
+      }, {});
+      try{ await upsertOrders([order]); }
+      catch(e){ console.error('記錄撿貨單選的位置失敗', e); }
+    } catch(e){
+      return; // 使用者取消了位置選擇,整個列印動作中止
+    }
+  }
+  function locationLabelFor(it){
+    if(!includeCheck || !stockLocationShowOnPickingSlip) return '';
+    return escapeHtmlForPrint(locationLabelByProductId[it.productId] || '');
+  }
 
   // 「訂貨頁面附註」「箱數參考」這兩欄只有 picking slip(includeCheck)才會出現,印在 check 欄
   // 右邊——都不需要框框、也不需要欄位標題,單純是給撿貨的人看的補充資訊,不是正式表格資料,
@@ -8258,18 +8710,23 @@ function printOrderDocument(orderId, opts){
   }
   const hasAnyNote = items.some(it => itemNoteFor(it));
 
-  const rowsHtml = items.map(it => {
-    // 訂貨頁面附註跟商品名稱印在同一欄:字型縮小、用括號接在名稱後面,只有 picking slip
-    // (includeCheck)才會有,已完成訂單維持原樣不印訂貨頁面附註。
+  // 印一列的共用函式:qtyOverride/locationLabelOverride 給「一個商品拆成好幾個位置、好幾列」
+  // 的情況用——同一個商品拆成多列時,每一列各自顯示自己那個位置、自己那部分的數量,SKU/商品名/
+  // 單位這些照樣重複顯示在每一列(讓每一列自己看就懂,不用回頭對照上一列),不會擠在同一欄
+  // 位裡反而壓縮到商品名稱欄的空間。
+  function buildPrintRow(it, qtyOverride, locationLabelOverride){
     const remark = remarkFor(it);
     const nameCell = `${escapeHtmlForPrint(it.name)}${remark ? ` <span style="font-size:11px;color:#666;">(${remark})</span>` : ''}`;
     const pickingNoteTd = (includeCheck && hasAnyNote) ? `<td class="borderless-col">${itemNoteFor(it)}</td>` : '';
     const completedNoteTd = (!includeCheck && hasAnyNote) ? `<td class="fit-col">${itemNoteFor(it)}</td>` : '';
+    const displayQty = qtyOverride !== undefined ? qtyOverride : it.qty;
+    const locationCell = locationLabelOverride !== undefined ? escapeHtmlForPrint(locationLabelOverride) : locationLabelFor(it);
     return `
     <tr>
+      ${(includeCheck && stockLocationShowOnPickingSlip) ? `<td class="borderless-col">${locationCell}</td>` : ''}
       ${includeSku ? `<td class="sku-col">${escapeHtmlForPrint(it.sku)}</td>` : ''}
       <td>${nameCell}</td>
-      <td class="qty-col" style="text-align:right;">${it.qty}</td>
+      <td class="qty-col" style="text-align:right;">${displayQty}</td>
       <td class="unit-col">${escapeHtmlForPrint(it.unit)}</td>
       ${includeCheck ? `<td class="check-col"></td>` : ''}
       ${pickingNoteTd}
@@ -8277,9 +8734,19 @@ function printOrderDocument(orderId, opts){
       ${completedNoteTd}
     </tr>
   `;
+  }
+
+  const rowsHtml = items.map(it => {
+    const allocations = (includeCheck && stockLocationShowOnPickingSlip) ? (locationAllocationsByProductId[it.productId] || []) : [];
+    if(allocations.length > 1){
+      // 湊了好幾個位置才夠這個商品的數量:每個位置各自獨立一列,不要擠在同一列裡。
+      return allocations.map(a => buildPrintRow(it, a.qty, a.label)).join('');
+    }
+    return buildPrintRow(it);
   }).join('');
   const checkTh = includeCheck ? `<th class="check-col">${escapeHtmlForPrint('Check')}</th>` : '';
   const skuTh = includeSku ? `<th class="sku-col">${escapeHtmlForPrint('SKU')}</th>` : '';
+  const locationTh = (includeCheck && stockLocationShowOnPickingSlip) ? `<th class="borderless-col">${escapeHtmlForPrint(t('colStockLocation'))}</th>` : '';
   const pickingNoteTh = (includeCheck && hasAnyNote) ? `<th class="borderless-col">${escapeHtmlForPrint('Note')}</th>` : '';
   const cartonTh = includeCheck ? `<th class="borderless-col"></th>` : '';
   const completedNoteTh = (!includeCheck && hasAnyNote) ? `<th class="fit-col">${escapeHtmlForPrint('Note')}</th>` : '';
@@ -8314,7 +8781,7 @@ function printOrderDocument(orderId, opts){
   <div class="meta">${escapeHtmlForPrint('Customer')}: ${escapeHtmlForPrint(order.partyName)}</div>
   ${(order.note && !includeCheck) ? `<div class="meta">${escapeHtmlForPrint('Note')}: ${escapeHtmlForPrint(order.note)}</div>` : ''}
   <table>
-    <thead><tr>${skuTh}<th>${escapeHtmlForPrint('Product Name')}</th><th class="qty-col">${escapeHtmlForPrint('Qty')}</th><th class="unit-col">${escapeHtmlForPrint('Unit')}</th>${checkTh}${pickingNoteTh}${cartonTh}${completedNoteTh}</tr></thead>
+    <thead><tr>${locationTh}${skuTh}<th>${escapeHtmlForPrint('Product Name')}</th><th class="qty-col">${escapeHtmlForPrint('Qty')}</th><th class="unit-col">${escapeHtmlForPrint('Unit')}</th>${checkTh}${pickingNoteTh}${cartonTh}${completedNoteTh}</tr></thead>
     <tbody>${rowsHtml}</tbody>
   </table>
   ${(order.note && includeCheck) ? `<div class="note-after-table">${escapeHtmlForPrint('Note')}: ${escapeHtmlForPrint(order.note)}</div>` : ''}
@@ -8547,6 +9014,20 @@ async function verifyOrder(orderId){
     return;
   }
   showConfirmModal(tf('confirmVerifyOrder', {orderNo: order.orderNo || orderId, n: activeItems.length}), async () => {
+    // 扣庫存之前,先問清楚每個商品要從哪個位置扣——如果列印撿貨單的時候已經問過(order.pickedLocationAllocations)
+    // 而且那個答案現在還有效,直接沿用不用再問一次;只有沒問過、或答案已經失效(例如位置被轉走了)
+    // 的商品才會真的跳出視窗問。中途按取消的話這裡會 throw,整個核對直接中止,不會扣庫存、
+    // 也不會動任何位置資料。
+    let locationChoices;
+    try{
+      locationChoices = await resolveLocationChoicesForItemsWithPreset(
+        activeItems.map(it => ({ productId: it.productId, qty: it.qty })),
+        order.pickedLocationAllocations
+      );
+    } catch(e){
+      return; // 使用者在選位置的過程中按了取消,整個核對中止
+    }
+
     const rpcItems = activeItems.map(it => ({ productId: it.productId, qty: it.qty, txId: genId() }));
     const noteText = `${order.orderNo || ''}${order.note ? '、' + order.note : ''}`;
     const confirmedAt = new Date().toISOString();
@@ -8585,6 +9066,9 @@ async function verifyOrder(orderId){
     order.status = 'confirmed';
     order.confirmedAt = confirmedAt;
     expandedOrderIds.delete(orderId);
+    // 伺服器那邊的總庫存已經確定扣成功了,這裡才去動 product_locations——如果先扣位置、
+    // RPC 才失敗,位置資料會跟實際庫存對不起來。
+    await applyLocationDeductions(locationChoices);
     logInventoryAction('order_verify', `Verified order ${order.orderNo || orderId} (${order.partyName || 'No recipient specified'}, ${activeItems.length} item(s)), stock deducted`, order.orderNo);
     renderAll();
   });
@@ -9632,6 +10116,23 @@ function renderProductEditModalBody(p, opts){
   // 選擇整個家族都不顯示、還是維持原本「僅顯示切換的批量商品數量」的行為。
   const showHideFromExportToggle = !opts.isNew;
   const hasChildrenForExportMode = !isChild && getChildProducts(p.id).length > 0;
+  // 子商品自己的「已完成訂單匯出不顯示」勾選框,要不要鎖住/強制勾選,看主商品目前的設定:
+  // ·主商品是「整個家族都不顯示」模式 → 子商品自己這裡強制勾選、鎖住不能改(整個家族一起隱藏,
+  //   子商品沒有自己單獨顯示/不顯示的空間)
+  // ·主商品是「僅顯示切換的批量商品數量」模式(或主商品根本沒勾隱藏)→ 子商品這裡鎖住不能勾選,
+  //   因為這個模式本來就是要靠子商品自己顯示、去接主商品切換過來的數量,子商品如果自己也被
+  //   個別隱藏掉,切換的數量會完全消失看不到,所以不開放個別勾選
+  // ·主商品完全沒有勾選隱藏 → 子商品自己這裡完全自由,跟家族設定無關,正常勾選/取消
+  let childExportCheckboxForceChecked = false;
+  let childExportCheckboxLocked = false;
+  if(isChild && parent && parent.hideFromCompletedOrderExport){
+    if(parent.hideFromCompletedOrderExportMode === 'wholeFamily'){
+      childExportCheckboxForceChecked = true;
+      childExportCheckboxLocked = true;
+    } else {
+      childExportCheckboxLocked = true;
+    }
+  }
   return `
     ${isChild && parent ? `
     <div class="field-block">
@@ -9730,10 +10231,11 @@ function renderProductEditModalBody(p, opts){
     ` : ''}
     ${showHideFromExportToggle ? `
     <div class="field-block">
-      <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-weight:400;">
-        <input type="checkbox" id="editProdHideFromExport" ${p.hideFromCompletedOrderExport ? 'checked' : ''} onchange="toggleHideFromExportModeVisibility(this)" />
+      <label style="display:flex;align-items:center;gap:6px;cursor:${childExportCheckboxLocked ? 'not-allowed' : 'pointer'};font-weight:400;">
+        <input type="checkbox" id="editProdHideFromExport" ${(p.hideFromCompletedOrderExport || childExportCheckboxForceChecked) ? 'checked' : ''} ${childExportCheckboxLocked ? 'disabled' : ''} onchange="toggleHideFromExportModeVisibility(this)" />
         <span>${t('fieldHideFromCompletedExport')}</span>
       </label>
+      ${childExportCheckboxLocked ? `<p style="font-size:11.5px;color:var(--ink-soft);margin:4px 0 0 22px;">${childExportCheckboxForceChecked ? t('hideExportChildForcedHint') : t('hideExportChildLockedHint')}</p>` : ''}
       ${hasChildrenForExportMode ? `
       <div id="hideFromExportModeWrap" style="display:${p.hideFromCompletedOrderExport ? 'block' : 'none'};margin:8px 0 0 22px;">
         <select id="editProdHideFromExportMode" onchange="toggleHideFromExportHintVisibility(this)">
@@ -9993,6 +10495,12 @@ async function saveProductEditModal(){
       p.hideFromCompletedOrderExport = hideFromExportEl.checked;
       const modeEl = document.getElementById('editProdHideFromExportMode');
       if(modeEl) p.hideFromCompletedOrderExportMode = modeEl.value;
+      // 主商品選了「整個家族都不顯示」的話,底下所有子商品自己的隱藏設定要跟著強制打勾——
+      // 子商品自己的編輯畫面那個勾選框會被鎖住不能改,存檔的時候也要確保資料本身是一致的,
+      // 不能出現「畫面上鎖住勾選,但資料庫裡其實沒存成勾選」這種不一致。
+      if(!p.parentId && p.hideFromCompletedOrderExport && p.hideFromCompletedOrderExportMode === 'wholeFamily'){
+        getChildProducts(p.id).forEach(c => { c.hideFromCompletedOrderExport = true; });
+      }
     }
   }
 
@@ -10027,10 +10535,12 @@ function openConversionModal(childId){
       <label>${t('fieldConvertResultToParent')}(${parent.unit})</label>
       <div id="conversionPreview" style="font-family:'IBM Plex Mono',monospace;font-size:16px;font-weight:600;">0 ${parent.unit}</div>
     </div>
+    ${buildLocationPickerHtml('conversionLoc', 'fieldAssignLocation')}
   `;
   document.getElementById('conversionModalMsg').textContent = '';
   document.getElementById('conversionModalOverlay').style.display = 'flex';
   updateConversionPreview();
+  populateLocationPicker('conversionLoc', parent.id);
 }
 
 // 主商品 → 批量商品(組裝多入裝):跟原本的「切換」方向相反,把主商品的數量拆成批量商品的數量。
@@ -10076,8 +10586,10 @@ function renderParentToChildConversionBody(){
       <label>${t('fieldConvertResultToChild')}(${selectedChild.unit})</label>
       <div id="conversionPreview" style="font-family:'IBM Plex Mono',monospace;font-size:16px;font-weight:600;">0 ${selectedChild.unit}</div>
     </div>
+    ${buildLocationPickerHtml('conversionLoc', 'fieldAssignLocation')}
   `;
   updateConversionPreview();
+  populateLocationPicker('conversionLoc', selectedChild.id);
 }
 
 function changeConversionTargetChild(childId){
@@ -10160,6 +10672,8 @@ async function confirmConversion(){
       msg.textContent = '⚠ 轉換失敗,請重新整理頁面再試一次。';
       return;
     }
+    // 交易確定成功之後才處理位置指派,避免庫存扣了/位置卻沒對應更新的不一致。
+    await applyConversionLocationAssignment('conversionLoc', child.id, convertedQty);
     const batchProductId = conversionSourceBatchProductId;
     const verifyProductId = conversionSourceVerifyProductId;
     closeConversionModal();
@@ -10208,6 +10722,8 @@ async function confirmConversion(){
     msg.textContent = '⚠ 切換失敗,請重新整理頁面再試一次。';
     return;
   }
+  // 交易確定成功之後才處理位置指派,避免庫存扣了/位置卻沒對應更新的不一致。
+  await applyConversionLocationAssignment('conversionLoc', parent.id, convertedQty);
   const batchProductId = conversionSourceBatchProductId;
   const verifyProductId = conversionSourceVerifyProductId;
   // 如果這次切換是從「訂單核對」開的(verifyProductId 有值),把這次切換記在這張訂單、這個主商品
@@ -11020,6 +11536,19 @@ async function submitTxBatchSimple(date, msg){
   }
 
   const purchaseId = currentTxType === 'in' ? genId() : null; // 一整批進貨(不管品項有幾個)共用同一個進貨單 ID
+
+  // 「直接出貨」(currentTxType === 'out')的話,扣庫存之前先問清楚每個商品要從哪個位置扣——
+  // 只有商品分布在多個位置(含未分布)時才會真的跳出視窗問,邏輯跟訂單核對、Picking Slip 共用
+  // 同一套機制。中途按取消的話直接中止,不會建立任何紀錄。
+  let outLocationChoices = null;
+  if(currentTxType === 'out'){
+    try{
+      outLocationChoices = await resolveLocationChoicesForItems(txBatchItems.map(it => ({ productId: it.productId, qty: it.qty })));
+    } catch(e){
+      return; // 使用者取消了位置選擇,整個提交中止
+    }
+  }
+
   const newTxs = txBatchItems.map(it => {
     const p = products.find(pp => pp.id === it.productId);
     if(currentTxType === 'in' && p && p.parentId && p.autoConvertOnStockIn){
@@ -11040,6 +11569,11 @@ async function submitTxBatchSimple(date, msg){
     newTxs.forEach(tx => { const i = transactions.indexOf(tx); if(i >= 0) transactions.splice(i, 1); });
     msg.className='msg error'; msg.textContent = '⚠ 提交失敗,請重新整理頁面再試一次。';
     return;
+  }
+
+  // 交易確定成功之後才處理位置扣除,避免庫存扣了/位置卻沒對應更新的不一致。
+  if(currentTxType === 'out' && outLocationChoices){
+    await applyLocationDeductions(outLocationChoices);
   }
 
   // 進貨(type='in')的話,除了上面照常產生的 transactions(維持庫存計算邏輯不變),同時建立一張
@@ -11410,6 +11944,21 @@ async function submitLoadCompletedFlow(date, msg){
     // (原子化、伺服器端會再驗證一次庫存)。前面已經先做過前端庫存檢查,這裡理論上不太會失敗,
     // 但還是要處理伺服器端拒絕的情況(例如同時間有其他人也在操作庫存)——一旦有一筆失敗就
     // 停下來,已經成功套用的部分維持不動(不嘗試整批復原,因為那些已經是真的寫進資料庫的操作)。
+    // 這批「暫存的改數量」裡,凡是要增加數量(等於補出貨、要多扣庫存)的品項,商品分布在多個
+    // 位置的話,送出前先一次問清楚每一筆各自要從哪裡扣——邏輯跟一般改數量、訂單核對共用同一套
+    // 機制。減少數量不用問,退回的庫存一律先算未分布。中途取消的話這裡整個 doSave 直接中止,
+    // 不會呼叫任何 RPC、也不會動任何位置或庫存資料。
+    const increaseChanges = pendingQtyChanges.filter(({ item, newQty }) => newQty > item.qty);
+    let qtyChangeAllocationsByProductId = {};
+    if(increaseChanges.length > 0){
+      try{
+        const resolved = await resolveLocationChoicesForItems(increaseChanges.map(({ item, newQty }) => ({ productId: item.productId, qty: newQty - item.qty })));
+        resolved.forEach(r => { qtyChangeAllocationsByProductId[r.productId] = r.allocations; });
+      } catch(e){
+        return; // 使用者取消了位置選擇,整個儲存動作中止
+      }
+    }
+
     for(const { item, newQty } of pendingQtyChanges){
       const oldQty = item.qty;
       const txId = genId();
@@ -11433,6 +11982,11 @@ async function submitLoadCompletedFlow(date, msg){
       const tx = { id: txId, productId: item.productId, type: qtyDelta > 0 ? 'out' : 'restock', qty: Math.abs(qtyDelta), date: todayISO(), party: order.partyName || '', note: noteText, system: true, orderId: order.id };
       transactions.push(tx);
       productStockMap[item.productId] = (productStockMap[item.productId] || 0) - qtyDelta;
+      // 伺服器那邊已經確定扣庫存成功了,這裡才去動 product_locations,避免庫存扣了/位置卻沒
+      // 對應更新的不一致。
+      if(qtyChangeAllocationsByProductId[item.productId]){
+        await applyLocationDeductions([{ productId: item.productId, qty: qtyDelta, allocations: qtyChangeAllocationsByProductId[item.productId] }]);
+      }
       item.qty = newQty;
       if(!item.qtyHistory) item.qtyHistory = [];
       const qtyChangeAt = new Date().toISOString();
@@ -11529,6 +12083,18 @@ async function submitAdjustmentFlow(date, msg){
   if(!note){ msg.className='msg error'; msg.textContent=t('errNoteRequiredForAdjustment'); return; }
 
   showConfirmModal(t('confirmStockAdjustment'), async () => {
+    // 庫存調整裡「減少」的品項(qty > 0,實際是 type='out')扣庫存之前,一樣先問清楚要從哪個
+    // 位置扣——「增加」的品項(qty < 0,type='restock')不用問,新增的庫存一律先算未分布。
+    const decreaseItems = txBatchItems.filter(it => it.qty > 0);
+    let adjustmentLocationChoices = null;
+    if(decreaseItems.length > 0){
+      try{
+        adjustmentLocationChoices = await resolveLocationChoicesForItems(decreaseItems.map(it => ({ productId: it.productId, qty: it.qty })));
+      } catch(e){
+        return; // 使用者取消了位置選擇,整個提交中止
+      }
+    }
+
     const newTxs = txBatchItems.map(it => ({
       id: genId(), productId: it.productId, type: it.qty > 0 ? 'out' : 'restock', qty: Math.abs(it.qty), date, party: '', note: `${t('adjustmentNotePrefix')}${note}`
     }));
@@ -11539,6 +12105,10 @@ async function submitAdjustmentFlow(date, msg){
       newTxs.forEach(tx => { const i = transactions.indexOf(tx); if(i>=0) transactions.splice(i,1); });
       txBatchItems.forEach(it => { productStockMap[it.productId] = (productStockMap[it.productId]||0) + it.qty; });
       msg.className='msg error'; msg.textContent='⚠ 提交失敗,請重新整理頁面再試一次。'; return;
+    }
+    // 交易確定成功之後才處理位置扣除,避免庫存扣了/位置卻沒對應更新的不一致。
+    if(adjustmentLocationChoices){
+      await applyLocationDeductions(adjustmentLocationChoices);
     }
     logInventoryAction('tx_out', `Logged stock adjustment: ${txBatchItems.length} item(s) — ${note}`, null);
     const count = txBatchItems.length;
@@ -12165,6 +12735,655 @@ function renderProductSelect(){
 
   makeSelectSearchable('txProduct');
   populateCategoryDropdowns();
+}
+
+// 庫存分布頁面:商品下拉選單(可依分類篩選、支援搜尋),選了商品之後畫出這個商品目前分布在
+// 哪些位置、各自的數量,加上「未分布」那一列(用 computeUnassignedQty 即時算,不是存在資料庫
+// 裡的一筆資料)。
+function renderStockLocationProductSelect(){
+  syncCategoryOrder();
+  const catSel = document.getElementById('stockLocationCategoryFilter');
+  const prevCat = catSel.value;
+  const usedCats = categoryOrder.filter(c => products.some(p => (p.category || '未分類') === c));
+  catSel.innerHTML = `<option value="">${t('catFilterAll')}</option>` +
+    usedCats.map(c => `<option value="${c}">${catLabel(c)}</option>`).join('');
+  if(usedCats.includes(prevCat)) catSel.value = prevCat;
+  const catFilterVal = catSel.value;
+
+  const sel = document.getElementById('stockLocationProductSelect');
+  const prevVal = sel.value;
+  const filteredProducts = (catFilterVal ? products.filter(p => (p.category || '未分類') === catFilterVal) : products)
+    .filter(p => !p.hidden);
+  sel.innerHTML = '<option value=""></option>' + filteredProducts.slice().sort(compareProductsBySortMode).map(p => `<option value="${p.id}">${p.sku ? p.sku + ' — ' : ''}${p.parentId ? '⧉ ' : ''}${p.name}(${p.unit})</option>`).join('');
+  if(filteredProducts.some(p => p.id === prevVal)) sel.value = prevVal;
+
+  makeSelectSearchable('stockLocationProductSelect');
+  const bulkCheckbox = document.getElementById('stockLocationShowAllUnassigned');
+  if(bulkCheckbox && bulkCheckbox.checked) renderStockLocationBulkUnassignedList();
+  else renderStockLocationDetail();
+}
+
+// 掃碼槍在庫存分布頁面掃到商品時呼叫:直接跳去顯示這個商品的位置分布,不用手動搜尋。
+function jumpToProductInStockLocation(p){
+  const catSel = document.getElementById('stockLocationCategoryFilter');
+  if(catSel) catSel.value = '';
+  renderStockLocationProductSelect();
+  const sel = document.getElementById('stockLocationProductSelect');
+  if(sel) sel.value = p.id;
+  renderStockLocationDetail();
+}
+
+// 「列出所有未指派商品」:勾選後把單一商品的詳細畫面換成一份清單(依目前的分類篩選,列出
+// 所有還有未分布庫存的商品),商品下拉選單這時候選哪個都沒意義,所以鎖住不能選,避免使用者
+// 誤以為要先選商品才看得到清單。取消勾選就切回原本「選一項商品看詳細」的畫面。
+function toggleStockLocationBulkView(checked){
+  const sel = document.getElementById('stockLocationProductSelect');
+  if(sel) sel.disabled = checked;
+  if(checked) renderStockLocationBulkUnassignedList();
+  else renderStockLocationDetail();
+}
+
+// 位置轉移/照片上傳成功之後要重新畫面——但畫面現在是「單一商品詳細」還是「未指派清單」,
+// 要看目前那個勾選框的狀態,不能一律都畫單一商品詳細(不然從清單畫面編輯完,畫面會突然
+// 跳成單一商品畫面,很奇怪)。
+function refreshStockLocationView(){
+  const bulkCheckbox = document.getElementById('stockLocationShowAllUnassigned');
+  if(bulkCheckbox && bulkCheckbox.checked) renderStockLocationBulkUnassignedList();
+  else renderStockLocationDetail();
+}
+
+function renderStockLocationBulkUnassignedList(){
+  const container = document.getElementById('stockLocationDetail');
+  if(!container) return;
+  const catFilterVal = document.getElementById('stockLocationCategoryFilter').value;
+  const candidateProducts = (catFilterVal ? products.filter(p => (p.category || '未分類') === catFilterVal) : products)
+    .filter(p => !p.hidden);
+  const rows = candidateProducts
+    .map(p => ({ p, unassigned: computeUnassignedQty(p.id) }))
+    .filter(r => r.unassigned > 0)
+    .sort((a, b) => a.p.name.localeCompare(b.p.name));
+
+  if(rows.length === 0){
+    container.innerHTML = `<div class="empty-note">${t('noUnassignedProductsHint')}</div>`;
+    return;
+  }
+  container.innerHTML = `
+    <table class="stock-table" style="margin-top:14px;">
+      <thead><tr><th>SKU</th><th>${t('lblProduct')}</th><th class="num">${t('unassignedLocationLabel')}</th><th></th></tr></thead>
+      <tbody>
+        ${rows.map(r => `
+          <tr>
+            <td>${escapeHtmlForPrint(r.p.sku || '—')}</td>
+            <td>${escapeHtmlForPrint(r.p.name)}</td>
+            <td class="num">${r.unassigned} ${escapeHtmlForPrint(r.p.unit)}</td>
+            <td><span class="del-link" onclick="openLocationEditModal(null, '${r.p.id}')">${t('btnEdit')}</span></td>
+          </tr>
+        `).join('')}
+      </tbody>
+    </table>
+  `;
+}
+
+function renderStockLocationDetail(){
+  const container = document.getElementById('stockLocationDetail');
+  if(!container) return;
+  const sel = document.getElementById('stockLocationProductSelect');
+  const productId = sel ? sel.value : '';
+  if(!productId){
+    container.innerHTML = `<div class="empty-note">${t('stockLocationSelectProductHint')}</div>`;
+    return;
+  }
+  const p = products.find(x => x.id === productId);
+  if(!p){ container.innerHTML = ''; return; }
+
+  const totalStock = computeTotalStock(productId);
+  const locs = getSortedLocationsForProduct(productId);
+  const primaryId = locs.length > 0 ? locs[0].id : null;
+  const unassigned = computeUnassignedQty(productId);
+
+  const rowsHtml = locs.map(l => `
+    <tr>
+      <td ${l.photoUrl ? `style="cursor:pointer;color:var(--ink);" onclick="viewLocationPhoto('${l.id}')" title="${t('clickToViewPhoto')}"` : ''}>${l.photoUrl ? '📷 ' : ''}${escapeHtmlForPrint(l.locationCode)}${l.id === primaryId ? ` <span style="font-size:10.5px;color:var(--ink-soft);text-transform:uppercase;font-weight:700;">${t('primaryLocationBadge')}</span>` : ''}</td>
+      <td class="num">${l.qty} ${escapeHtmlForPrint(p.unit)}</td>
+      <td><span class="del-link" onclick="openLocationEditModal('${l.id}')">${t('btnEdit')}</span></td>
+    </tr>
+  `).join('');
+  const unassignedRow = `
+    <tr>
+      <td style="color:var(--ink-soft);font-style:italic;">${t('unassignedLocationLabel')}</td>
+      <td class="num">${unassigned} ${escapeHtmlForPrint(p.unit)}</td>
+      <td><span class="del-link" onclick="openLocationEditModal(null, '${productId}')">${t('btnEdit')}</span></td>
+    </tr>
+  `;
+
+  container.innerHTML = `
+    <div class="section" style="margin-top:14px;padding:16px 20px;">
+      <div style="display:flex;gap:24px;flex-wrap:wrap;margin-bottom:14px;">
+        <div><span style="font-size:11px;color:var(--ink-soft);text-transform:uppercase;font-weight:700;">SKU</span><br>${escapeHtmlForPrint(p.sku || '—')}</div>
+        <div><span style="font-size:11px;color:var(--ink-soft);text-transform:uppercase;font-weight:700;">${t('lblProduct')}</span><br>${escapeHtmlForPrint(p.name)}</div>
+        <div><span style="font-size:11px;color:var(--ink-soft);text-transform:uppercase;font-weight:700;">${t('lblTotalStock')}</span><br>${totalStock} ${escapeHtmlForPrint(p.unit)}</div>
+      </div>
+      <table class="stock-table">
+        <thead><tr><th>${t('colLocation')}</th><th class="num">${t('colQty')}</th><th></th></tr></thead>
+        <tbody>${rowsHtml}${unassignedRow}</tbody>
+      </table>
+    </div>
+  `;
+}
+
+// 位置的「編輯」視窗:同一個視窗處理兩種情境——(1) 編輯一個已經存在的位置(locationId 有值):
+// 可以看目前的位置/數量、可以上傳這個位置的照片、也可以把這個位置的部分或全部數量轉移到別的
+// 位置。(2) 從「未分布」指派到某個位置(locationId 是 null、只給 productId):未分布不是真的一筆
+// 資料,沒有照片可以傳,直接問要轉移(指派)多少數量到哪個新位置。
+let locationEditTargetId = null;
+let locationEditProductId = null;
+let pendingLocationPhotoUrl = null;
+
+// 轉移目的地下拉選單的選項:這個商品現有的位置(照數量由多到少排序,主要位置有標記)放最前面、
+// 「未指派」固定放中間、「+ 新增位置」固定放最後。source(如果是編輯一個已存在的位置)自己
+// 不會出現在選項裡——不能轉移到自己身上。
+function buildLocationTargetOptions(productId, excludeLocationId){
+  const locs = getSortedLocationsForProduct(productId).filter(l => l.id !== excludeLocationId);
+  const options = locs.map(l => ({ value: 'loc:' + l.id, label: `${l.locationCode}${l === locs[0] ? ` (${t('primaryLocationBadge')})` : ''} — ${l.qty}` }));
+  options.push({ value: 'unassigned', label: t('unassignedLocationLabel') });
+  options.push({ value: 'new', label: t('optAddNewLocation') });
+  // 這個商品目前完全沒有真正的位置資料(全部未分布)的話,如果之前記錄過「最後一次的主要
+  // 位置」,在最下面提示一個選項,選了直接把新增位置的欄位都帶入那組舊的位置資訊。
+  const p = products.find(x => x.id === productId);
+  if(locs.length === 0 && p && p.lastPrimaryLocation && p.lastPrimaryLocation.locationCode){
+    options.push({ value: 'lastPrimary', label: `${p.lastPrimaryLocation.locationCode} (${t('lastPrimaryBadge')})` });
+  }
+  return options;
+}
+function populateLocationTargetSelect(productId, excludeLocationId, defaultValue){
+  const sel = document.getElementById('locationTargetSelect');
+  const options = buildLocationTargetOptions(productId, excludeLocationId);
+  sel.innerHTML = options.map(o => `<option value="${o.value}">${escapeHtmlForPrint(o.label)}</option>`).join('');
+  sel.value = defaultValue;
+  onLocationTargetSelectChange();
+}
+// 標準模式下,依系統設置勾選的欄位,把沒勾的那幾個 Zone/Aisle/Bay/Level/Bin 欄位藏起來——
+// 「編輯位置」視窗跟切換商品的「指派位置」共用這支,idPrefix 分別是 'location' 跟 'conversionLoc'。
+function applyStockLocationFieldVisibility(idPrefix){
+  const fieldIds = { zone: 'Zone', aisle: 'Aisle', bay: 'Bay', level: 'Level', bin: 'Bin' };
+  Object.keys(fieldIds).forEach(k => {
+    const wrap = document.getElementById(idPrefix + fieldIds[k] + 'Wrap');
+    if(wrap) wrap.style.display = (stockLocationEnabledFields[k] !== false) ? '' : 'none';
+  });
+}
+
+function onLocationTargetSelectChange(){
+  const sel = document.getElementById('locationTargetSelect');
+  const isLastPrimary = sel.value === 'lastPrimary';
+  const isNew = sel.value === 'new' || isLastPrimary;
+  const standardWrap = document.getElementById('locationStandardFieldsWrap');
+  const customWrap = document.getElementById('locationCustomFieldWrap');
+  standardWrap.style.display = (isNew && stockLocationMode !== 'custom') ? 'grid' : 'none';
+  customWrap.style.display = (isNew && stockLocationMode === 'custom') ? 'block' : 'none';
+  if(isNew && stockLocationMode !== 'custom') applyStockLocationFieldVisibility('location');
+  if(isLastPrimary){
+    const p = products.find(x => x.id === locationEditProductId);
+    const last = p && p.lastPrimaryLocation;
+    if(last){
+      document.getElementById('locationZoneInput').value = last.zone || '';
+      document.getElementById('locationAisleInput').value = last.aisle || '';
+      document.getElementById('locationBayInput').value = last.bay || '';
+      document.getElementById('locationLevelInput').value = last.level || '';
+      document.getElementById('locationBinInput').value = last.bin || '';
+      document.getElementById('locationCustomCodeInput').value = last.locationCode || '';
+    }
+  }
+}
+
+// 通用版的位置選擇器,給「編輯位置」以外的地方用(目前是切換商品的「指派位置」)——一樣是
+// 下拉選單(現有位置+未指派+新增位置),用 idPrefix 分開各自的 DOM id,避免跟編輯位置視窗的
+// id 撞在一起。這裡故意不含「轉移數量」欄位,因為切換是「憑空生出新庫存」,不是「從某個地方
+// 搬到另一個地方」,選了位置只是說這批新庫存要放哪,不需要輸入要「拿走多少」。
+function buildLocationPickerHtml(idPrefix, labelKey){
+  return `
+    <div class="field-block">
+      <label>${t(labelKey)}</label>
+      <select id="${idPrefix}Select" onchange="onLocationPickerTargetChange('${idPrefix}')" style="width:100%;"></select>
+    </div>
+    <div id="${idPrefix}StandardWrap" class="form-grid" style="display:none;grid-template-columns:1fr 1fr 1fr 1fr 1fr;margin-bottom:0;">
+      <div class="field" id="${idPrefix}ZoneWrap"><label>Zone</label><input type="text" id="${idPrefix}Zone" style="width:100%;" /></div>
+      <div class="field" id="${idPrefix}AisleWrap"><label>Aisle</label><input type="text" id="${idPrefix}Aisle" style="width:100%;" /></div>
+      <div class="field" id="${idPrefix}BayWrap"><label>Bay</label><input type="text" id="${idPrefix}Bay" style="width:100%;" /></div>
+      <div class="field" id="${idPrefix}LevelWrap"><label>Level</label><input type="text" id="${idPrefix}Level" style="width:100%;" /></div>
+      <div class="field" id="${idPrefix}BinWrap"><label>Bin</label><input type="text" id="${idPrefix}Bin" style="width:100%;" /></div>
+    </div>
+    <div id="${idPrefix}CustomWrap" class="field-block" style="display:none;">
+      <label>${t('fieldLocationCode')}</label>
+      <input type="text" id="${idPrefix}CustomCode" style="width:100%;" />
+    </div>
+  `;
+}
+function populateLocationPicker(idPrefix, productId){
+  const sel = document.getElementById(idPrefix + 'Select');
+  if(!sel) return;
+  sel.dataset.productId = productId;
+  const options = buildLocationTargetOptions(productId, null);
+  sel.innerHTML = options.map(o => `<option value="${o.value}">${escapeHtmlForPrint(o.label)}</option>`).join('');
+  const primary = getPrimaryLocation(productId);
+  sel.value = primary ? 'loc:' + primary.id : 'new';
+  onLocationPickerTargetChange(idPrefix);
+}
+function onLocationPickerTargetChange(idPrefix){
+  const sel = document.getElementById(idPrefix + 'Select');
+  const isLastPrimary = sel.value === 'lastPrimary';
+  const isNew = sel.value === 'new' || isLastPrimary;
+  document.getElementById(idPrefix + 'StandardWrap').style.display = (isNew && stockLocationMode !== 'custom') ? 'grid' : 'none';
+  document.getElementById(idPrefix + 'CustomWrap').style.display = (isNew && stockLocationMode === 'custom') ? 'block' : 'none';
+  if(isNew && stockLocationMode !== 'custom') applyStockLocationFieldVisibility(idPrefix);
+  if(isLastPrimary){
+    const p = products.find(x => x.id === sel.dataset.productId);
+    const last = p && p.lastPrimaryLocation;
+    if(last){
+      document.getElementById(idPrefix + 'Zone').value = last.zone || '';
+      document.getElementById(idPrefix + 'Aisle').value = last.aisle || '';
+      document.getElementById(idPrefix + 'Bay').value = last.bay || '';
+      document.getElementById(idPrefix + 'Level').value = last.level || '';
+      document.getElementById(idPrefix + 'Bin').value = last.bin || '';
+      document.getElementById(idPrefix + 'CustomCode').value = last.locationCode || '';
+    }
+  }
+}
+function buildLocationCodeFromPicker(idPrefix){
+  if(stockLocationMode === 'custom') return document.getElementById(idPrefix + 'CustomCode').value.trim();
+  const zone = document.getElementById(idPrefix + 'Zone').value.trim();
+  const aisle = document.getElementById(idPrefix + 'Aisle').value.trim();
+  const bay = document.getElementById(idPrefix + 'Bay').value.trim();
+  const level = document.getElementById(idPrefix + 'Level').value.trim();
+  const bin = document.getElementById(idPrefix + 'Bin').value.trim();
+  return [zone, aisle, bay, level, bin].filter(Boolean).join('-');
+}
+// 切換確認之後呼叫:把這批新增出來的庫存(convertedQty)加到使用者選的位置上——選「未指派」
+// 什麼都不用做(新庫存本來就會自動算成未分布)。選「新增位置」的話,要先檢查有沒有填完整,
+// 沒填的話視為沒選位置,一樣什麼都不做(新庫存留在未分布,使用者之後可以自己去庫存分布頁面
+// 指派)。
+async function applyConversionLocationAssignment(idPrefix, productId, qty){
+  const sel = document.getElementById(idPrefix + 'Select');
+  if(!sel) return;
+  const targetVal = sel.value;
+  if(targetVal === 'unassigned') return;
+  let destLoc = null;
+  let newCode = null;
+  if(targetVal.startsWith('loc:')){
+    destLoc = productLocations.find(l => l.id === targetVal.slice(4));
+  } else if(targetVal === 'new' || targetVal === 'lastPrimary'){
+    newCode = buildLocationCodeFromPicker(idPrefix);
+    if(!newCode) return; // 沒填完整位置資訊,當作沒選,新庫存留在未分布
+    destLoc = productLocations.find(l => l.productId === productId && l.locationCode === newCode);
+  }
+  try{
+    if(destLoc){
+      destLoc.qty += qty;
+      await upsertProductLocation(destLoc);
+    } else if(newCode){
+      const zone = document.getElementById(idPrefix + 'Zone') ? document.getElementById(idPrefix + 'Zone').value.trim() : '';
+      const aisle = document.getElementById(idPrefix + 'Aisle') ? document.getElementById(idPrefix + 'Aisle').value.trim() : '';
+      const bay = document.getElementById(idPrefix + 'Bay') ? document.getElementById(idPrefix + 'Bay').value.trim() : '';
+      const level = document.getElementById(idPrefix + 'Level') ? document.getElementById(idPrefix + 'Level').value.trim() : '';
+      const bin = document.getElementById(idPrefix + 'Bin') ? document.getElementById(idPrefix + 'Bin').value.trim() : '';
+      const newLoc = { id: genId(), productId, zone, aisle, bay, level, bin, locationCode: newCode, qty, photoUrl: null };
+      productLocations.push(newLoc);
+      await upsertProductLocation(newLoc);
+    }
+  } catch(e){ console.error('切換後指派位置失敗', e); }
+}
+
+function buildLocationCode(){
+  if(stockLocationMode === 'custom'){
+    return document.getElementById('locationCustomCodeInput').value.trim();
+  }
+  const zone = document.getElementById('locationZoneInput').value.trim();
+  const aisle = document.getElementById('locationAisleInput').value.trim();
+  const bay = document.getElementById('locationBayInput').value.trim();
+  const level = document.getElementById('locationLevelInput').value.trim();
+  const bin = document.getElementById('locationBinInput').value.trim();
+  return [zone, aisle, bay, level, bin].filter(Boolean).join('-');
+}
+
+function openLocationEditModal(locationId, productIdIfNew){
+  locationEditTargetId = locationId || null;
+  locationEditProductId = locationId ? (productLocations.find(l => l.id === locationId) || {}).productId : productIdIfNew;
+  pendingLocationPhotoUrl = null;
+
+  const photoSection = document.getElementById('locationEditPhotoSection');
+  const photoPreviewWrap = document.getElementById('locationEditPhotoPreviewWrap');
+  const photoMsg = document.getElementById('locationEditPhotoMsg');
+  photoMsg.textContent = '';
+  document.getElementById('locationEditModalMsg').textContent = '';
+  document.getElementById('locationTransferQtyInput').value = '';
+  ['locationZoneInput','locationAisleInput','locationBayInput','locationLevelInput','locationBinInput','locationCustomCodeInput'].forEach(id => {
+    document.getElementById(id).value = '';
+  });
+
+  // 預設選項一律是「主要位置」(除非主要位置剛好就是正在編輯的來源本身,那樣就沒得選了,
+  // 改預設成「+ 新增位置」);完全沒有任何位置資料的商品,直接預設「+ 新增位置」。
+  const primary = getPrimaryLocation(locationEditProductId);
+  let defaultTarget = 'new';
+  if(primary && primary.id !== locationId) defaultTarget = 'loc:' + primary.id;
+  populateLocationTargetSelect(locationEditProductId, locationId, defaultTarget);
+
+  if(locationId){
+    const loc = productLocations.find(l => l.id === locationId);
+    const p = products.find(x => x.id === loc.productId);
+    document.getElementById('locationEditCurrentInfo').textContent = tf('locationEditCurrentInfoText', { code: loc.locationCode, qty: loc.qty, unit: p ? p.unit : '' });
+    document.getElementById('locationTransferQtyInput').value = loc.qty; // 預設整批轉移,使用者要部分轉移的話自己改小
+    photoSection.style.display = 'block';
+    if(loc.photoUrl){
+      pendingLocationPhotoUrl = loc.photoUrl;
+      photoPreviewWrap.innerHTML = `<a href="${loc.photoUrl}" target="_blank" style="font-size:12.5px;">📎 ${t('linkViewUploadedReceipt')}</a>`;
+      photoPreviewWrap.style.display = 'block';
+    } else {
+      photoPreviewWrap.style.display = 'none';
+      photoPreviewWrap.innerHTML = '';
+    }
+  } else {
+    const unassigned = computeUnassignedQty(productIdIfNew);
+    const p = products.find(x => x.id === productIdIfNew);
+    document.getElementById('locationEditCurrentInfo').textContent = tf('locationAssignFromUnassignedText', { qty: unassigned, unit: p ? p.unit : '' });
+    document.getElementById('locationTransferQtyInput').value = unassigned; // 預設把未分布的全部數量都指派出去
+    // 未分布不是真的一筆位置資料,還沒有位置可以掛照片——這裡上傳的照片先暫存,等按下「確認轉移」
+    // 真的建立/更新目的地位置的時候,才會把這張照片存到那個位置上(見 confirmLocationTransfer)。
+    photoSection.style.display = 'block';
+    photoPreviewWrap.style.display = 'none';
+    photoPreviewWrap.innerHTML = '';
+  }
+
+  document.getElementById('locationEditModalOverlay').style.display = 'flex';
+}
+
+function closeLocationEditModal(){
+  locationEditTargetId = null;
+  locationEditProductId = null;
+  pendingLocationPhotoUrl = null;
+  document.getElementById('locationEditModalOverlay').style.display = 'none';
+}
+
+async function handleLocationPhotoUpload(inputEl){
+  const file = inputEl.files && inputEl.files[0];
+  if(!file) return;
+  const msgEl = document.getElementById('locationEditPhotoMsg');
+  if(!file.type.startsWith('image/')){
+    msgEl.style.color = 'var(--crit)'; msgEl.textContent = t('errPhotoMustBeImage'); inputEl.value = ''; return;
+  }
+  if(file.size > 5 * 1024 * 1024){
+    msgEl.style.color = 'var(--crit)'; msgEl.textContent = t('errPhotoTooLarge'); inputEl.value = ''; return;
+  }
+  msgEl.style.color = 'var(--ink-soft)'; msgEl.textContent = t('uploadingPhotoMsg');
+  const ext = (file.name.split('.').pop() || 'jpg').toLowerCase().replace(/[^a-z0-9]/g, '') || 'jpg';
+  // 未分布(locationEditTargetId 是 null)還沒有位置可以掛,先存到一個以商品 id 開頭的暫存路徑,
+  // 等按下「確認轉移」真的建立/更新目的地位置的時候,才會把這張照片指定的網址存進那個位置。
+  const path = `${locationEditTargetId || 'unassigned_' + locationEditProductId}/${genId()}.${ext}`;
+  try{
+    const { error } = await sb.storage.from('location-photos').upload(path, file, { upsert: true });
+    if(error) throw error;
+    const { data } = sb.storage.from('location-photos').getPublicUrl(path);
+    pendingLocationPhotoUrl = data.publicUrl;
+    if(locationEditTargetId){
+      const loc = productLocations.find(l => l.id === locationEditTargetId);
+      if(loc){ loc.photoUrl = pendingLocationPhotoUrl; await upsertProductLocation(loc); }
+      refreshStockLocationView();
+    }
+    document.getElementById('locationEditPhotoPreviewWrap').innerHTML = `<a href="${pendingLocationPhotoUrl}" target="_blank" style="font-size:12.5px;">📎 ${t('linkViewUploadedReceipt')}</a>`;
+    document.getElementById('locationEditPhotoPreviewWrap').style.display = 'block';
+    msgEl.style.color = 'var(--safe)'; msgEl.textContent = t('receiptUploadedMsg');
+  } catch(e){
+    console.error('上傳位置照片失敗', e);
+    msgEl.style.color = 'var(--crit)'; msgEl.textContent = t('errReceiptUploadFailed');
+  }
+  inputEl.value = '';
+}
+
+function viewLocationPhoto(locationId){
+  const loc = productLocations.find(l => l.id === locationId);
+  if(!loc || !loc.photoUrl) return;
+  document.getElementById('locationPhotoViewImg').src = loc.photoUrl;
+  document.getElementById('locationPhotoViewModalOverlay').style.display = 'flex';
+}
+function closeLocationPhotoViewModal(){
+  document.getElementById('locationPhotoViewModalOverlay').style.display = 'none';
+  document.getElementById('locationPhotoViewImg').src = '';
+}
+
+// ===== 訂單核對扣庫存時,問「從哪個位置扣」的邏輯 =====
+// 「直接核對」「訂單核對頁面的左右比對確認」兩條路徑最後都會呼叫同一個 verifyOrder(),用的
+// 都是訂單自己的品項(order.items),所以只要在 verifyOrder() 裡插這一段,兩條路徑就都涵蓋到了,
+// 不用在兩個地方各寫一次。
+//
+// 支援「湊數量」:如果選的來源不夠這次要扣的量,會把那個來源全部用完,剩下還缺的量自動繼續
+// 問(從清單裡排除掉已經用完的來源),直到湊滿為止,不用使用者自己算好每個位置各拿多少。
+let locationChoiceResolver = null;
+let locationChoiceRejecter = null;
+let locationChoiceCurrentOptions = [];
+
+// 這個商品「目前」有庫存的來源清單(位置+未分布),可以用 virtualQtyOverrides 蓋掉某幾個來源的
+// 即時數量——同一次「湊數量」的過程裡,選過的來源要扣掉已經拿走的量再問下一輪,不然同一個
+// 來源可能被重複算到超過它實際能提供的量。
+function getLiveLocationChoicesForProduct(productId, virtualQtyOverrides){
+  const overrides = virtualQtyOverrides || {};
+  const choices = productLocations
+    .filter(l => l.productId === productId)
+    .map(l => ({ type: 'location', id: l.id, label: l.locationCode, qty: (overrides[l.id] !== undefined ? overrides[l.id] : l.qty) }))
+    .filter(c => c.qty > 0);
+  const unassignedQty = overrides.unassigned !== undefined ? overrides.unassigned : computeUnassignedQty(productId);
+  if(unassignedQty > 0){
+    choices.push({ type: 'unassigned', id: null, label: t('unassignedLocationLabel'), qty: unassignedQty });
+  }
+  return choices;
+}
+
+function promptLocationChoice(product, remainingQty, choices){
+  return new Promise((resolve, reject) => {
+    locationChoiceResolver = resolve;
+    locationChoiceRejecter = reject;
+    locationChoiceCurrentOptions = choices;
+    document.getElementById('locationChoiceProductInfo').textContent = tf('locationChoiceProductInfoText', { name: product ? product.name : '', qty: remainingQty, unit: product ? product.unit : '' });
+    document.getElementById('locationChoiceOptionsWrap').innerHTML = choices.map((c, i) =>
+      `<button class="btn ghost" style="text-align:left;" onclick="chooseLocationOption(${i})">${escapeHtmlForPrint(c.label)} (${c.qty} ${product ? escapeHtmlForPrint(product.unit) : ''})</button>`
+    ).join('');
+    document.getElementById('locationChoiceModalOverlay').style.display = 'flex';
+  });
+}
+function chooseLocationOption(index){
+  const choice = locationChoiceCurrentOptions[index];
+  document.getElementById('locationChoiceModalOverlay').style.display = 'none';
+  const resolve = locationChoiceResolver;
+  locationChoiceResolver = null; locationChoiceRejecter = null; locationChoiceCurrentOptions = [];
+  if(resolve) resolve(choice);
+}
+function cancelLocationChoiceSequence(){
+  document.getElementById('locationChoiceModalOverlay').style.display = 'none';
+  const reject = locationChoiceRejecter;
+  locationChoiceResolver = null; locationChoiceRejecter = null; locationChoiceCurrentOptions = [];
+  if(reject) reject(new Error('cancelled'));
+}
+
+// 湊出一個商品這次要扣的數量,回傳分配清單(通常只有一筆,湊數量的情況會有好幾筆):
+// [{type, id, label, qty}, ...],加總起來一定等於 neededQty。
+// ·目前只剩一個來源可以選 → 不用問,直接整批(或剩下的部分)用那個來源
+// ·有兩個以上來源 → 跳出視窗問,選了哪個來源不夠這次剩下要扣的量,就把它整個用完,
+//   剩下還缺的量自動繼續問(排除掉這個已經用完的來源),直到湊滿為止
+async function resolveLocationAllocationsForItem(productId, neededQty){
+  const product = products.find(x => x.id === productId);
+  const virtualQty = {};
+  let remaining = neededQty;
+  const allocations = [];
+
+  while(remaining > 0){
+    const liveChoices = getLiveLocationChoicesForProduct(productId, virtualQty);
+    if(liveChoices.length === 0) break; // 理論上不該發生:代表位置資料的總和跟總庫存本身就對不起來
+
+    const picked = liveChoices.length === 1
+      ? liveChoices[0]
+      : await promptLocationChoice(product, remaining, liveChoices);
+
+    const take = Math.min(picked.qty, remaining);
+    allocations.push({ type: picked.type, id: picked.id, label: picked.label, qty: take });
+    const key = picked.id || 'unassigned';
+    virtualQty[key] = picked.qty - take;
+    remaining -= take;
+  }
+  return allocations;
+}
+
+// 一次處理一整批品項的位置分配,一個一個問(前一個湊完/確定了,才會問下一個),回傳
+// [{productId, qty, allocations}, ...]。中途按了取消,這個 function 會 throw,呼叫端要接住、
+// 不要繼續往下扣庫存。
+async function resolveLocationChoicesForItems(items){
+  const results = [];
+  for(const it of items){
+    const allocations = await resolveLocationAllocationsForItem(it.productId, it.qty);
+    results.push({ productId: it.productId, qty: it.qty, allocations });
+  }
+  return results;
+}
+
+// 核對訂單時用:如果這張訂單在列印撿貨單的時候已經問過、記錄下每個商品要從哪些位置扣
+// (order.pickedLocationAllocations),這裡優先沿用那個答案,不用重新問一次——避免撿貨單上印的
+// 位置跟核對時系統實際扣的位置對不起來。但沿用之前要先確認裡面「每一筆」分配現在都還有效
+// (選的是某個真實位置的話,那個位置要還存在、庫存也要還夠那一筆分配的量;選未分布的話一定
+// 有效,因為未分布是即時算的):只要其中任何一筆已經失效,就整個放棄這組舊答案、當作沒問過,
+// 重新走一次完整的湊數量流程,不會勉強拼湊一半新一半舊的答案。
+async function resolveLocationChoicesForItemsWithPreset(items, presetMap){
+  const results = [];
+  for(const it of items){
+    const preset = presetMap ? presetMap[it.productId] : null;
+    let presetStillValid = false;
+    if(Array.isArray(preset) && preset.length > 0){
+      const sumQty = preset.reduce((s, a) => s + a.qty, 0);
+      presetStillValid = sumQty === it.qty && preset.every(a => {
+        if(a.type === 'unassigned') return true;
+        if(a.type === 'location'){
+          const loc = productLocations.find(l => l.id === a.id);
+          return !!loc && loc.qty >= a.qty;
+        }
+        return false;
+      });
+    }
+    const allocations = presetStillValid ? preset : await resolveLocationAllocationsForItem(it.productId, it.qty);
+    results.push({ productId: it.productId, qty: it.qty, allocations });
+  }
+  return results;
+}
+
+// 核對通過、伺服器那邊的庫存已經真的扣完之後,才去動 product_locations 這幾筆資料——每一筆
+// 分配各自扣各自的位置(扣到 0 就整筆刪掉);未分布不用做任何事,因為未分布本來就是用
+// 「總庫存 - 各位置總和」算出來的,伺服器那邊扣完總庫存,未分布數字自然就跟著變了。
+async function applyLocationDeductions(resolvedItems){
+  for(const { allocations } of resolvedItems){
+    if(!Array.isArray(allocations)) continue;
+    for(const alloc of allocations){
+      if(!alloc || alloc.type !== 'location') continue;
+      const loc = productLocations.find(l => l.id === alloc.id);
+      if(!loc) continue;
+      if(alloc.qty > loc.qty){
+        console.error(`位置 ${loc.locationCode} 數量不足(現有 ${loc.qty},要扣 ${alloc.qty}),扣到 0 為止,請去庫存分布頁面確認這個商品的位置資料是否需要人工核對。`);
+      }
+      const wasPrimaryBeforeDeduction = getPrimaryLocation(loc.productId) === loc;
+      loc.qty = Math.max(0, loc.qty - alloc.qty);
+      try{
+        if(loc.qty <= 0){
+          await deleteProductLocationRow(loc.id);
+          productLocations = productLocations.filter(l => l.id !== loc.id);
+          await rememberLastPrimaryLocationIfNowEmpty(loc, wasPrimaryBeforeDeduction);
+        } else {
+          await upsertProductLocation(loc);
+        }
+      } catch(e){ console.error('核對扣庫存後同步位置數量失敗', e); }
+    }
+  }
+}
+
+// 轉移(或從未分布指派)的核心邏輯:來源如果是「已存在的位置」,轉移掉的數量要從那個位置扣掉
+// (扣到 0 就直接把那筆位置紀錄刪掉,不留 qty=0 的空位置紀錄);來源如果是「未分布」,因為那不是
+// 真的一筆資料,轉移出去之後不用扣什麼、也不用刪什麼,少掉的量會自動反映在下次算未分布數量
+// (computeUnassignedQty)的時候。目的地位置如果原本就存在同樣的位置代碼,直接把數量加上去,
+// 不會產生兩筆同樣位置的紀錄。
+async function confirmLocationTransfer(){
+  const msgEl = document.getElementById('locationEditModalMsg');
+  const productId = locationEditProductId;
+  const qty = parseFloat(document.getElementById('locationTransferQtyInput').value);
+  const targetVal = document.getElementById('locationTargetSelect').value;
+
+  if(isNaN(qty) || qty <= 0){ msgEl.className = 'msg error'; msgEl.textContent = t('errEnterPositiveQty'); return; }
+
+  let sourceLoc = null;
+  let availableQty;
+  if(locationEditTargetId){
+    sourceLoc = productLocations.find(l => l.id === locationEditTargetId);
+    if(!sourceLoc){ msgEl.className = 'msg error'; msgEl.textContent = '找不到這個位置紀錄,請重新整理頁面再試一次。'; return; }
+    availableQty = sourceLoc.qty;
+  } else {
+    availableQty = computeUnassignedQty(productId);
+  }
+  if(qty > availableQty){ msgEl.className = 'msg error'; msgEl.textContent = tf('errTransferQtyExceeds', { available: availableQty }); return; }
+
+  // 目的地是「未指派」的話,沒有真正的位置紀錄要建立/更新——只需要處理來源那邊扣掉的部分,
+  // 未分布數量會自動反映(因為未分布本來就是算出來的)。
+  let newCode = null;
+  let existingDestLoc = null;
+  if(targetVal === 'unassigned'){
+    // 不用做任何目的地相關的事
+  } else if(targetVal === 'new' || targetVal === 'lastPrimary'){
+    // lastPrimary 選項被選到的時候,欄位已經在 onLocationTargetSelectChange 裡自動帶入
+    // 之前記錄的位置資訊了,這裡直接當「新增位置」處理即可,不用另外寫一套邏輯。
+    newCode = buildLocationCode();
+    if(!newCode){ msgEl.className = 'msg error'; msgEl.textContent = t('errEnterLocationCode'); return; }
+    existingDestLoc = productLocations.find(l => l.productId === productId && l.locationCode === newCode);
+  } else if(targetVal.startsWith('loc:')){
+    existingDestLoc = productLocations.find(l => l.id === targetVal.slice(4));
+    if(!existingDestLoc){ msgEl.className = 'msg error'; msgEl.textContent = '找不到這個位置紀錄,請重新整理頁面再試一次。'; return; }
+    newCode = existingDestLoc.locationCode;
+  }
+  if(sourceLoc && newCode && sourceLoc.locationCode === newCode){ msgEl.className = 'msg error'; msgEl.textContent = t('errTransferSameLocation'); return; }
+
+  msgEl.className = 'msg'; msgEl.textContent = t('savingMsg');
+  try{
+    // 先處理目的地:同一個商品、同一個位置代碼已經有紀錄的話,直接加上去;沒有的話新增一筆;
+    // 目的地是「未指派」的話完全不用處理這一段。如果是從「未分布」轉移過來(沒有 sourceLoc),
+    // 而且剛才有先上傳照片(存在 pendingLocationPhotoUrl 裡、還沒真的掛在任何位置上),這裡
+    // 順便把那張照片指定給目的地位置。
+    if(targetVal !== 'unassigned'){
+      if(existingDestLoc){
+        existingDestLoc.qty += qty;
+        if(!sourceLoc && pendingLocationPhotoUrl) existingDestLoc.photoUrl = pendingLocationPhotoUrl;
+        await upsertProductLocation(existingDestLoc);
+      } else {
+        const zone = document.getElementById('locationZoneInput').value.trim();
+        const aisle = document.getElementById('locationAisleInput').value.trim();
+        const bay = document.getElementById('locationBayInput').value.trim();
+        const level = document.getElementById('locationLevelInput').value.trim();
+        const bin = document.getElementById('locationBinInput').value.trim();
+        const destPhotoUrl = (!sourceLoc && pendingLocationPhotoUrl) ? pendingLocationPhotoUrl : null;
+        const newLoc = { id: genId(), productId, zone, aisle, bay, level, bin, locationCode: newCode, qty, photoUrl: destPhotoUrl };
+        productLocations.push(newLoc);
+        await upsertProductLocation(newLoc);
+      }
+    }
+
+    // 再處理來源:已存在的位置要扣掉轉移走的量,扣到 0 就整筆刪掉;未分布不用做任何事。
+    if(sourceLoc){
+      const wasPrimaryBeforeDeduction = getPrimaryLocation(sourceLoc.productId) === sourceLoc;
+      sourceLoc.qty -= qty;
+      if(sourceLoc.qty <= 0){
+        await deleteProductLocationRow(sourceLoc.id);
+        productLocations = productLocations.filter(l => l.id !== sourceLoc.id);
+        await rememberLastPrimaryLocationIfNowEmpty(sourceLoc, wasPrimaryBeforeDeduction);
+      } else {
+        await upsertProductLocation(sourceLoc);
+      }
+    }
+
+    refreshStockLocationView();
+    closeLocationEditModal();
+  } catch(e){
+    console.error('轉移位置失敗', e);
+    msgEl.className = 'msg error';
+    msgEl.textContent = '⚠ 儲存失敗,請重新整理頁面再試一次。';
+  }
 }
 
 function renderStockCards(){
@@ -13432,6 +14651,8 @@ function processBarcodeScan(code){
   const verifySubtabActive = isTxTabActive && !!(verifyEl && verifyEl.classList.contains('active-subtab'));
   const overviewTab = document.getElementById('tab-overview');
   const isOverviewActive = !!(overviewTab && overviewTab.classList.contains('active-tab'));
+  const locationEl = document.getElementById('subtab-overview-location');
+  const locationSubtabActive = isOverviewActive && !!(locationEl && locationEl.classList.contains('active-subtab'));
 
   if(!product){
     if(registerSubtabActive || verifySubtabActive || isOverviewActive){
@@ -13446,6 +14667,8 @@ function processBarcodeScan(code){
   } else if(verifySubtabActive){
     addScannedProductToVerifyPage(product);
     showScanToast(tf('scanAddedToList', { name: product.name }), false);
+  } else if(locationSubtabActive){
+    jumpToProductInStockLocation(product);
   } else if(isOverviewActive){
     jumpToProductInStockOverview(product);
   }
