@@ -1648,6 +1648,111 @@
       </div>
       <div id="forecastTableContainer"></div>
     </div>
+
+    <div id="subtab-tx-data" class="subtab-content">
+    <div class="section">
+      <div class="section-title" data-i18n="secExportReport">匯出報表</div>
+      <p style="font-size:12.5px;color:var(--ink-soft);margin:0 0 12px;" data-i18n-html="exportReportDesc">
+        選擇「類型」(出貨/進貨/入庫),依「對象」跟日期區間篩選紀錄,匯出成 Excel 報表(格式比照 stock_out_sheet 範本,含 SKU、分類等欄位)。<b>同一對象、同一商品在選取區間內會自動加總成一筆</b>,不會重複列出每一次的紀錄。
+      </p>
+      <div class="form-grid" style="grid-template-columns:0.9fr 1.2fr 1fr 1fr auto;">
+        <div class="field">
+          <label data-i18n="fieldExportType">類型</label>
+          <select id="exportTypeSelect" onchange="populateExportPartySelect()">
+            <option value="out" data-i18n="exportTypeOut">出貨</option>
+            <option value="in" data-i18n="exportTypeIn">進貨</option>
+            <option value="restock" data-i18n="exportTypeRestock">入庫</option>
+          </select>
+        </div>
+        <div class="field">
+          <label id="exportPartyLabel" data-i18n="exportPartyLabelOut">門市/對象</label>
+          <select id="exportPartySelect">
+            <option value="" data-i18n="logPartyAll">全部對象</option>
+          </select>
+        </div>
+        <div class="field">
+          <label data-i18n="fieldFromDate">從日期</label>
+          <input type="date" id="exportDateFrom" />
+        </div>
+        <div class="field">
+          <label data-i18n="fieldToDate">到日期</label>
+          <input type="date" id="exportDateTo" />
+        </div>
+        <button class="btn" onclick="exportShipmentSheet()" data-i18n="btnExportReport">📄 匯出報表(Excel)</button>
+      </div>
+      <div id="exportShipmentMsg" class="msg"></div>
+    </div>
+
+    <hr class="divider" />
+
+    <div class="section">
+      <div class="section-title"><span data-i18n="secImportTx">從 Excel 匯入進出貨紀錄</span></div>
+      <p style="font-size:12.5px;color:var(--ink-soft);margin:0 0 14px;" data-i18n-html="secImportTxDesc">
+        上傳你填好的每日進出貨紀錄表(<b>可以一次選取多個檔案</b>),系統會依<b>檔名</b>自動判斷進貨或出貨(檔名需包含「stock in」或「stock out」),並自動比對商品名稱、抓出每一列的數量,整批登記成紀錄。每個檔案會各自偵測自己的日期/供應商。<br/>
+        <span style="color:var(--crit);" data-i18n="secImportTxWarning">注意:庫存主檔(像 stock.xlsx,含品名/庫存量/分類/安全庫存)請不要在這裡上傳,那個要到「系統管理 → 商品主頁」用「從 Excel 匯入商品主檔」。</span>
+      </p>
+      <div class="form-grid" style="grid-template-columns:1fr 1fr auto;">
+        <div class="field">
+          <label data-i18n="fieldImportDate">日期(若表格內有 Date: 會自動帶入,每個檔案各自偵測)</label>
+          <div class="input-wrap"><input id="txImportDate" type="date" /></div>
+        </div>
+        <div class="field">
+          <label data-i18n="fieldImportParty">進貨方/出貨方(若表格內有 Supplier 會自動帶入,選填)</label>
+          <div class="input-wrap"><input id="txImportParty" type="text" placeholder="例如:大盤商 A" /></div>
+        </div>
+        <div class="field">
+          <label data-i18n="fieldSelectFiles">選擇檔案(檔案在不同資料夾可分次加選)</label>
+          <input type="file" id="txImportFile" accept=".xlsx,.xls" multiple onchange="addTxFiles(this.files)" style="border:1px solid var(--line);background:#fff;border-radius:2px;padding:8px;font-family:'IBM Plex Mono',monospace;font-size:12px;" />
+        </div>
+      </div>
+      <div id="txFileList" class="file-chip-list"></div>
+      <button class="btn" onclick="parseTxExcel()" data-i18n="btnParseExcel">解析 Excel</button>
+      <div id="txImportMsg" class="msg"></div>
+      <div id="txImportPreview"></div>
+    </div>
+
+    <hr class="divider" />
+
+    <div class="section">
+      <div class="section-title"><span data-i18n="secAddProduct">新增商品</span></div>
+      <div class="form-grid" style="grid-template-columns:0.8fr 1.2fr 0.7fr 0.9fr 1fr 0.9fr 1.1fr auto;">
+        <div class="field">
+          <label data-i18n="fieldSku">SKU(選填)</label>
+          <input id="newProductSku" type="text" placeholder="例如:A001" />
+        </div>
+        <div class="field">
+          <label data-i18n="fieldName">商品名稱</label>
+          <input id="newProductName" type="text" placeholder="例如:A4影印紙" />
+        </div>
+        <div class="field">
+          <label data-i18n="fieldUnit">單位</label>
+          <input id="newProductUnit" type="text" placeholder="例如:箱 / 個 / kg" />
+        </div>
+        <div class="field">
+          <label data-i18n="fieldCategory">分類</label>
+          <select id="newProductCategory"></select>
+        </div>
+        <div class="field">
+          <label data-i18n="fieldAvg">月均使用量(選填)</label>
+          <input id="newProductAvg" type="number" min="0" step="0.1" placeholder="沒有紀錄可留空" />
+        </div>
+        <div class="field">
+          <label data-i18n="fieldSafety">安全庫存(月數,選填)</label>
+          <input id="newProductSafety" type="number" min="0" step="0.01" placeholder="例如 1.5" />
+        </div>
+        <div class="field">
+          <label data-i18n="fieldNote">備註(選填)</label>
+          <input id="newProductNote" type="text" placeholder="例如:易碎/需冷藏" />
+        </div>
+        <div class="field">
+          <label data-i18n="fieldOrderPageRemark">訂貨頁面附註(選填)</label>
+          <input id="newProductOrderPageRemark" type="text" placeholder="只會顯示在訂貨頁面" />
+        </div>
+        <button class="btn" onclick="addProduct()" data-i18n="btnAddProduct">新增商品</button>
+      </div>
+      <div id="productMsg" class="msg"></div>
+    </div>
+    </div>
   </div>
 
   <div id="tab-order-admin" class="tab-content">
