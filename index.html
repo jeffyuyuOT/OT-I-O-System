@@ -11246,10 +11246,17 @@ function groupWordsIntoLines(words){
   const lines = [];
   const tolerance = 12; // 像素,同一行的字中心 Y 差距在這個範圍內都算同一行(容忍掃描/字體高低的小誤差)
   for(const w of withCenter){
-    let line = lines.find(l => Math.abs(l.cy - w.cy) < tolerance);
-    if(!line){ line = { cy: w.cy, words: [] }; lines.push(line); }
+    // 用「這一行第一個字的 Y」當固定不變的基準去比對,不要用「目前已經收進這一行的字的平均
+    // Y」——用平均值當基準的話,只要同一頁有一長串 Y 座標連續、緩慢往下遞增的字(常見於有
+    // 格線的表格,格線本身有時候會被 OCR 誤判成很高、貫穿好幾列的直線符號),每加一個字平均
+    // 值就跟著往下挪一點點,最後可能把明明相差幾十像素、根本是不同列的文字(例如標題列跟
+    // 底下的商品資料列)全部串成同一「行」——一旦標題列文字跟商品資料被合併,後面「這行有
+    // 標題字樣就整行略過」的判斷,會連同真正的商品數字一起被丟掉,導致這筆商品整行消失、
+    // 完全不會跳出來問。固定用第一個字的 Y 當基準,才能確保同一行文字的 Y 範圍真的都落在
+    // 容忍值之內,不會無限往下漂移。
+    let line = lines.find(l => Math.abs(l.anchorCy - w.cy) < tolerance);
+    if(!line){ line = { anchorCy: w.cy, cy: w.cy, words: [] }; lines.push(line); }
     line.words.push(w);
-    line.cy = line.words.reduce((s, x) => s + x.cy, 0) / line.words.length;
   }
   lines.forEach(l => l.words.sort((a, b) => a.cx - b.cx));
   return lines.sort((a, b) => a.cy - b.cy);
