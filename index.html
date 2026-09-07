@@ -2982,6 +2982,7 @@ const I18N = {
     errReceiptScanLibFailed: '掃描功能載入失敗,請重新整理頁面再試一次',
     scanningReceiptMsg: '掃描中,請稍候…', errReceiptScanNoLines: '沒有辨識出任何品項,請確認圖片清晰,或直接手動新增商品',
     convertingPdfMsg: 'PDF 轉換中,請稍候…', errPdfConvertFailed: 'PDF 轉換失敗,請確認檔案沒有損毀,或改上傳圖片格式的收據',
+    scanningPdfPageMsg: '掃描中(第 {current}/{total} 頁)…',
     receiptScanFoundLinesMsg: '辨識到 {n} 個品項,開始逐一確認', errReceiptScanFailed: '掃描失敗,請重新整理頁面再試一次',
     receiptOcrProgressText: '還有 {remaining} 個品項待確認',
     errReceiptFileType: '請選擇圖片或 PDF 檔案', errReceiptTooLarge: '檔案太大,請壓縮到 10MB 以下',
@@ -3492,6 +3493,7 @@ const I18N = {
     errReceiptScanLibFailed: 'Failed to load the scanning feature, please refresh the page and try again',
     scanningReceiptMsg: 'Scanning, please wait…', errReceiptScanNoLines: 'No items were recognized — make sure the image is clear, or add products manually',
     convertingPdfMsg: 'Converting PDF, please wait…', errPdfConvertFailed: 'PDF conversion failed — please check the file isn\'t corrupted, or upload an image receipt instead',
+    scanningPdfPageMsg: 'Scanning (page {current} of {total})…',
     receiptScanFoundLinesMsg: 'Recognized {n} item(s), confirming one by one', errReceiptScanFailed: 'Scan failed, please refresh the page and try again',
     receiptOcrProgressText: '{remaining} item(s) left to confirm',
     errReceiptFileType: 'Please select an image or PDF file', errReceiptTooLarge: 'File is too large, please compress it under 10MB',
@@ -10931,21 +10933,95 @@ function parseReceiptLine(rawLine, format){
   return { description: cleanDescription, qty: (qty && qty > 0) ? qty : 1, amount: (amount && amount > 0) ? amount : null, rawNumbers: numbers };
 }
 
-// PDF 收據先在瀏覽器裡用 PDF.js 把第一頁畫成一張圖片(轉成 data URL),再照跟一般圖片一樣的
-// 流程丟給 Tesseract.js 做文字辨識——多頁的 PDF 目前只處理第一頁,常見的單頁發票/收據沒問題,
-// 如果常常是好幾頁的長發票,之後可以再擴充成每頁都掃、品項合併。
-async function renderFirstPdfPageAsImageDataUrl(pdfUrl){
+// PDF 收據先在瀏覽器裡用 PDF.js 把每一頁都畫成一張圖片(轉成 data URL),再照跟一般圖片一樣的
+// 流程,每一頁分別丟給 Tesseract.js 做文字辨識——支援多頁,每一頁各自獨立辨識、各自套用欄位
+// 標題座標偵測,辨識出來的品項清單最後全部合併成一份。
+async function renderAllPdfPagesAsImageDataUrls(pdfUrl){
   if(typeof pdfjsLib === 'undefined') throw new Error('pdfjs not loaded');
   pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
   const pdf = await pdfjsLib.getDocument(pdfUrl).promise;
-  const page = await pdf.getPage(1);
   const scale = 2; // 放大一點畫,辨識準確度通常會比原始 PDF 預設解析度好
-  const viewport = page.getViewport({ scale });
-  const canvas = document.createElement('canvas');
-  canvas.width = viewport.width;
-  canvas.height = viewport.height;
-  await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
-  return canvas.toDataURL('image/png');
+  const dataUrls = [];
+  for(let pageNum = 1; pageNum <= pdf.numPages; pageNum++){
+    const page = await pdf.getPage(pageNum);
+    const viewport = page.getViewport({ scale });
+    const canvas = document.createElement('canvas');
+    canvas.width = viewport.width;
+    canvas.height = viewport.height;
+    await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
+    dataUrls.push(canvas.toDataURL('image/png'));
+  }
+  return dataUrls;
+}
+
+// ===== 用欄位標題(QTY/Amount)的實際座標去抓數字,比純文字猜測更準 =====
+//
+// Tesseract 辨識除了純文字,還會回傳每個字的座標(result.data.words,每個字有 bbox)。
+// 如果收據上有清楚的「QTY」欄位標題,直接找出這個標題文字所在的 X 座標,之後每一行資料,
+// 就找「X 座標最接近這個位置」的數字當作數量——這樣不管一行後面接了幾個其他欄位(單價、
+// 小計、稅額之類),都能準確抓到「真的在 QTY 那一欄底下」的數字,不是用猜的。金額欄位同理。
+// 只有收據上完全沒有清楚欄位標題(OCR 沒認出來,或這張收據本來就沒有)的情況,才會退回
+// 用純文字、猜測數字位置的舊邏輯(parseReceiptLine)。
+function groupWordsIntoLines(words){
+  const withCenter = words
+    .filter(w => w.text && w.text.trim())
+    .map(w => ({ text: w.text.trim(), cx: (w.bbox.x0 + w.bbox.x1) / 2, cy: (w.bbox.y0 + w.bbox.y1) / 2 }));
+  withCenter.sort((a, b) => a.cy - b.cy);
+  const lines = [];
+  const tolerance = 12; // 像素,同一行的字中心 Y 差距在這個範圍內都算同一行(容忍掃描/字體高低的小誤差)
+  for(const w of withCenter){
+    let line = lines.find(l => Math.abs(l.cy - w.cy) < tolerance);
+    if(!line){ line = { cy: w.cy, words: [] }; lines.push(line); }
+    line.words.push(w);
+    line.cy = line.words.reduce((s, x) => s + x.cy, 0) / line.words.length;
+  }
+  lines.forEach(l => l.words.sort((a, b) => a.cx - b.cx));
+  return lines.sort((a, b) => a.cy - b.cy);
+}
+function findHeaderColumnX(lines, patterns){
+  for(const line of lines){
+    for(const w of line.words){
+      if(patterns.some(p => p.test(w.text))) return w.cx;
+    }
+  }
+  return null;
+}
+function isNumericWord(text){
+  return /^\$?\d{1,7}(?:\.\d{1,2})?$/.test((text || '').replace(/,/g, ''));
+}
+function pickNumberNearX(lineWords, targetX){
+  if(targetX === null) return null;
+  let best = null, bestDist = Infinity;
+  for(const w of lineWords){
+    if(!isNumericWord(w.text)) continue;
+    const dist = Math.abs(w.cx - targetX);
+    if(dist < bestDist){ bestDist = dist; best = parseFloat(w.text.replace(/[,$]/g, '')); }
+  }
+  return best;
+}
+function parseReceiptWithColumns(words){
+  if(!words || words.length === 0) return null;
+  const lines = groupWordsIntoLines(words);
+  const qtyHeaderX = findHeaderColumnX(lines, [/^qty$/i, /^quantity$/i, /數量/]);
+  if(qtyHeaderX === null) return null; // 沒偵測到清楚的 QTY 欄位標題,交給舊的純文字猜測邏輯處理
+  const amountHeaderX = findHeaderColumnX(lines, [/^amount$/i, /^total$/i, /金額/, /小計/]);
+
+  const results = [];
+  for(const line of lines){
+    // 這一行本身如果就有 QTY/Amount 這類欄位標題文字,代表這行是標題列本身,不是實際品項,略過。
+    if(line.words.some(w => /^qty$|^quantity$|數量|^amount$|^total$|金額|小計/i.test(w.text))) continue;
+
+    const qty = pickNumberNearX(line.words, qtyHeaderX);
+    if(qty === null || qty <= 0) continue; // 這行在 QTY 欄位底下找不到數字,可能是雜訊行(頁首頁尾、地址之類),略過
+    const amount = amountHeaderX !== null ? pickNumberNearX(line.words, amountHeaderX) : null;
+    const descWords = line.words.filter(w => !isNumericWord(w.text));
+    const description = descWords.map(w => w.text).join(' ').trim();
+    if(!description) continue;
+    const rawNumbers = line.words.filter(w => isNumericWord(w.text)).map(w => parseFloat(w.text.replace(/[,$]/g, '')));
+
+    results.push({ description, qty, amount: (amount && amount > 0) ? amount : null, rawNumbers });
+  }
+  return results.length > 0 ? results : null;
 }
 
 async function scanReceiptForItems(){
@@ -10970,20 +11046,35 @@ async function scanReceiptForItems(){
   msgEl.style.color = 'var(--ink-soft)';
   msgEl.textContent = isPdf ? t('convertingPdfMsg') : t('scanningReceiptMsg');
   try{
-    const ocrSource = isPdf ? await renderFirstPdfPageAsImageDataUrl(file.url) : file.url;
-    if(isPdf) msgEl.textContent = t('scanningReceiptMsg');
-    const result = await Tesseract.recognize(ocrSource, 'eng');
-    const rawText = result.data.text || '';
     const format = receiptSupplierFormats[receiptOcrPartyId];
-    const lines = rawText.split('\n').map(line => parseReceiptLine(line, format)).filter(Boolean);
-    if(lines.length === 0){
+    // 一頁一頁分別跑 OCR,不會把好幾頁的圖片混在一起辨識——每一頁的欄位標題座標是各自獨立的
+    // 座標系統,混在一起反而會讓「找 QTY 標題座標」這個機制失效。每一頁辨識出來的品項清單,
+    // 最後全部合併成一份,不用管原本是哪一頁的。
+    const ocrSources = isPdf ? await renderAllPdfPagesAsImageDataUrls(file.url) : [file.url];
+    let allLines = [];
+    for(let i = 0; i < ocrSources.length; i++){
+      if(isPdf && ocrSources.length > 1){
+        msgEl.textContent = tf('scanningPdfPageMsg', { current: i + 1, total: ocrSources.length });
+      } else {
+        msgEl.textContent = t('scanningReceiptMsg');
+      }
+      const result = await Tesseract.recognize(ocrSources[i], 'eng');
+      // 先試著用「QTY/Amount 欄位標題的實際座標」去抓數字(比較準,因為是照收據原本的欄位對齊
+      // 去讀,不是用猜的);這個方法需要收據上有清楚辨識出「QTY」這個標題文字才能用,辨識不到
+      // 標題的話(可能 OCR 沒認出來,或這一頁本來就沒有欄位標題),才退回用純文字、猜數字
+      // 位置的舊邏輯,那個邏輯還會套用這個供應商之前學到的欄位位置(如果有的話)。
+      const pageLines = parseReceiptWithColumns(result.data.words || [])
+        || result.data.text.split('\n').map(line => parseReceiptLine(line, format)).filter(Boolean);
+      allLines = allLines.concat(pageLines);
+    }
+    if(allLines.length === 0){
       msgEl.style.color = 'var(--crit)';
       msgEl.textContent = t('errReceiptScanNoLines');
       return;
     }
-    pendingReceiptOcrLines = lines;
+    pendingReceiptOcrLines = allLines;
     msgEl.style.color = 'var(--safe)';
-    msgEl.textContent = tf('receiptScanFoundLinesMsg', { n: lines.length });
+    msgEl.textContent = tf('receiptScanFoundLinesMsg', { n: allLines.length });
     processNextReceiptOcrLine();
   } catch(e){
     console.error('收據 OCR 辨識失敗', e);
@@ -11053,6 +11144,12 @@ function renderReceiptOcrProductOptions(){
   sel.innerHTML = '<option value=""></option>' + candidateProducts.slice().sort(compareProductsBySortMode)
     .map(p => `<option value="${p.id}">${p.sku ? p.sku + ' — ' : ''}${p.parentId ? '⧉ ' : ''}${p.name}(${p.unit})</option>`).join('');
   makeSelectSearchable('receiptOcrProductSelect');
+  // makeSelectSearchable() 第一次呼叫之後就不會再重新包裝(只在第一次真的把搜尋輸入框接上去),
+  // 之後每次重畫選項(不管是換分類篩選,還是換到下一行要確認的品項),底層 select 的值雖然會
+  // 因為重建 innerHTML 自動回到空白,但畫面上顯示的搜尋輸入框文字不會跟著自動清空(那個文字
+  // 只有在使用者真的手動選了東西、或程式碼呼叫 resetSearchableSelect 明確指定清空時才會同步)。
+  // 這裡明確呼叫一次,確保換行/換分類的時候搜尋框顯示也真的清空,不會卡在上一個選的商品名稱。
+  resetSearchableSelect('receiptOcrProductSelect');
 }
 
 // 使用者確認的數量/金額,只要能在這一行原本抓到的所有數字裡找到一模一樣的值,就記住「這個
