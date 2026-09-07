@@ -2444,6 +2444,7 @@ let stockLocationShowOnPickingSlip = false; // Picking Slip 要不要多印一�
 let receiptLineMappings = []; // 收據辨識的記憶對照表:{id, partyId, normalizedText, productId}。同一個供應商+同樣的 OCR 文字之前確認過對應到哪個商品,下次直接沿用不用再問。
 let pendingReceiptOcrLines = []; // 這次掃描收據、還在等使用者確認的品項清單(掃描完先暫存在這裡,確認視窗一次一筆處理)
 let receiptOcrSessionNewMappingIds = []; // 這次掃描過程中「新建立」的記憶對照表 id(略過或確認的都算)——如果整個掃描動作被取消,這些新建的記憶要一起復原刪除,不能留下「已經取消的這次掃描,卻默默留下部分永久記憶」這種不一致的狀態
+let receiptOcrSessionFormatSnapshot = undefined; // 這次掃描「開始前」,目前這個供應商的欄位位置學習結果長怎樣(undefined 代表這個供應商掃描前根本還沒有任何學習記錄)——掃描過程中每確認一行都可能更新 receiptSupplierFormats,如果整個掃描動作被取消,要把它復原成掃描前的樣子,不能留下「已取消的這次掃描,卻默默留下欄位位置學習結果」這種不一致的狀態
 let ocrDbSelectedMappingIds = new Set(); // 掃描收據數據庫頁面,目前勾選要一起刪除的記憶 id
 let receiptSupplierFormats = {}; // 每個供應商收據格式的學習結果:{ [partyId]: { qtyIndexFromEnd, amountIndexFromEnd } } ——數字都是「從這行抓到的數字裡,從尾端數過來第幾個」(0 是最後一個)
 let purchaseSuppliers = []; // 進貨方管理:{id, name, phone, address, note}。登記進出貨的進貨方下拉選單依這張清單顯示(依名稱字母排序),刪除的供應商不會再出現在下拉選單裡
@@ -11330,6 +11331,11 @@ async function scanReceiptForItems(){
   const partyInput = document.getElementById('txParty');
   receiptOcrPartyId = partyInput ? partyInput.value.trim() : null;
   receiptOcrSessionNewMappingIds = [];
+  // 記下這個供應商「掃描開始前」的欄位位置學習結果快照,供整個掃描動作被取消時復原用(deep
+  // copy,避免後面 learnQtyAmountPositionFromCorrection() 直接改到 receiptSupplierFormats
+  // 裡的物件時,連這個快照也被一起改到)。
+  receiptOcrSessionFormatSnapshot = receiptSupplierFormats[receiptOcrPartyId]
+    ? { ...receiptSupplierFormats[receiptOcrPartyId] } : undefined;
 
   const btn = document.getElementById('btnScanReceipt');
   btn.disabled = true;
@@ -11598,6 +11604,21 @@ async function cancelReceiptOcrSequence(){
       receiptLineMappings = receiptLineMappings.filter(m => m.id !== id);
     } catch(e){ console.error('復原取消的收據辨識記憶失敗', e); }
   }
+  // 欄位位置學習結果(receiptSupplierFormats)也要一起復原成掃描開始前的樣子——這個資料在
+  // 掃描過程中每確認一行就會即時存檔,不會等到整個流程結束才寫入,所以取消時不能只清品項
+  // 對照記憶,不然學到一半、可能學錯的欄位位置會被留下來,讓下次掃描這個供應商的收據時
+  // 悄悄套用錯誤的猜測,反而比完全沒學過還誤導人。
+  if(receiptOcrPartyId){
+    const before = JSON.stringify(receiptSupplierFormats[receiptOcrPartyId]);
+    const after = JSON.stringify(receiptOcrSessionFormatSnapshot);
+    if(before !== after){
+      if(receiptOcrSessionFormatSnapshot === undefined) delete receiptSupplierFormats[receiptOcrPartyId];
+      else receiptSupplierFormats[receiptOcrPartyId] = receiptOcrSessionFormatSnapshot;
+      try{ await dbSet('receiptSupplierFormats', JSON.stringify(receiptSupplierFormats)); }
+      catch(e){ console.error('復原取消的收據欄位位置學習結果失敗', e); }
+    }
+  }
+  receiptOcrSessionFormatSnapshot = undefined;
   renderTxBatchList();
 }
 
