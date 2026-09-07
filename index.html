@@ -2139,7 +2139,7 @@
       <label data-i18n="fieldReceiptOcrRawText">收據上讀到的文字</label>
       <input type="text" id="receiptOcrRawTextDisplay" style="width:100%;background:var(--bg);" disabled />
     </div>
-    <p id="receiptOcrRawNumbersDisplay" style="font-size:11px;color:var(--ink-soft);margin:-6px 0 12px;"></p>
+    <p id="receiptOcrRawNumbersDisplay" style="font-size:11px;color:var(--ink-soft);margin:6px 0 14px;"></p>
     <div class="field-block">
       <label data-i18n="fieldFilterByCategory">依分類篩選商品</label>
       <select id="receiptOcrCategoryFilter" onchange="renderReceiptOcrProductOptions()" style="width:100%;"></select>
@@ -10909,33 +10909,60 @@ function extractTrailingNumbers(line){
       i--;
     } else break;
   }
-  return { numbers, description: tokens.slice(0, i + 1).join(' ') };
+  // 金額有沒有清楚用「$」標示,這個要看「整行」,不是只看行尾那一串連續數字——道理跟數量的
+  // 「N CTN」寫法一樣:有些收據金額欄位前面會印 $ 符號,但這個欄位不見得剛好落在行尾那串
+  // 連續數字裡(例如「3.000 CTN $80 unit $240 total」這種,中間夾著文字,行尾抓不到 $80/$240)。
+  const dollarNumbers = tokens
+    .filter(tok => /^\$\d{1,7}(?:\.\d{1,2})?$/.test(tok))
+    .map(tok => parseFloat(tok.replace(/^\$/, '')));
+  return { numbers, description: tokens.slice(0, i + 1).join(' '), dollarNumbers };
 }
 
 // format 是這個供應商學到的欄位位置:{ qtyIndexFromEnd, amountIndexFromEnd }(都是「從最後一個
-// 數字往前數第幾個」,0 就是最後一個)。沒有學過(format 是 null/undefined)的話用預設猜測:
-// 最後一個數字是金額、倒數第二個是數量。
+// 數字往前數第幾個」,0 就是最後一個)。沒有學過(format 是 null/undefined)、也沒有找到下面
+// 這些「語意明確」的寫法(N+單位縮寫、$金額)的話,才會用最陽春的預設猜測:最後一個數字是
+// 金額、倒數第二個是數量——這一層猜測本來就只是「完全沒有其他線索時的最後手段」,不同供應商
+// 格式差很多的話這一層猜錯很正常,真正該依賴的是上面兩層(語意寫法優先、其次是這個供應商
+// 之前教過的位置),這兩層都失敗才會落到這裡。
 function parseReceiptLine(rawLine, format){
   const line = (rawLine || '').trim();
   if(!line || line.length < 3) return null;
-  const { numbers, description } = extractTrailingNumbers(line);
+  const { numbers, description, dollarNumbers } = extractTrailingNumbers(line);
   const cleanDescription = description.replace(/[|_\-–—]+$/, '').trim();
   if(!cleanDescription || numbers.length === 0) return null; // 沒有文字描述,或整行沒有任何數字欄位(常見於分隔線、頁首頁尾),直接略過
 
+  // 很多發票的數量寫法是「N.NNN 單位縮寫」直接接在商品描述後面(例如「3.000 CTN」「5.000 CTN」),
+  // 不是排在行尾那一串數字裡(行尾那幾個數字常常是重量、單價、稅額之類,完全不含真正的數量)。
+  // 這裡先找有沒有這種「數字+常見單位縮寫」的寫法,有的話直接拿這個數字當數量——這比行尾數字
+  // 的猜測準確得多,也不會被「學習欄位位置」這個機制誤導,因為真正的數量根本不在行尾那串
+  // 數字裡,不管怎麼學位置都學不到。找到這個明確寫法的話,優先度比學過的欄位位置還高。
+  let unitPatternQty = null;
+  const unitMatch = cleanDescription.match(/(\d+(?:\.\d+)?)\s*(CTN|CARTON|PCS?|EA|BOX|DZ|SET|PACK|BAG|KG|G|L|ML)\b/i);
+  if(unitMatch) unitPatternQty = parseFloat(unitMatch[1]);
+
   let qty = null, amount = null;
-  if(format && format.qtyIndexFromEnd !== undefined && numbers.length > format.qtyIndexFromEnd){
+  if(unitPatternQty !== null && unitPatternQty > 0){
+    qty = unitPatternQty;
+  } else if(format && format.qtyIndexFromEnd !== undefined && numbers.length > format.qtyIndexFromEnd){
     qty = numbers[numbers.length - 1 - format.qtyIndexFromEnd];
   } else if(numbers.length >= 2){
     qty = numbers[numbers.length - 2];
   } else {
     qty = numbers[0];
   }
-  if(format && format.amountIndexFromEnd !== undefined && numbers.length > format.amountIndexFromEnd){
+  // 金額同理:整行只有清楚標「$」的數字剛好一個的話,直接當金額用(語意明確,不用猜);
+  // 如果 $ 標示的數字不只一個(不確定是哪個)或完全沒有,才照學過的位置或退回行尾最後一個猜。
+  if(dollarNumbers.length === 1){
+    amount = dollarNumbers[0];
+  } else if(format && format.amountIndexFromEnd !== undefined && numbers.length > format.amountIndexFromEnd){
     amount = numbers[numbers.length - 1 - format.amountIndexFromEnd];
   } else if(numbers.length >= 2){
     amount = numbers[numbers.length - 1];
   }
-  return { description: cleanDescription, qty: (qty && qty > 0) ? qty : 1, amount: (amount && amount > 0) ? amount : null, rawNumbers: numbers };
+  // rawNumbers 要包含這個從單位縮寫旁邊抓到的數量,不然診斷畫面看不到它、學習機制也沒辦法拿它
+  // 去比對使用者確認的答案(萬一之後遇到這種寫法失效的情況,還是有機會退回位置學習)。
+  const rawNumbers = (unitPatternQty !== null && !numbers.includes(unitPatternQty)) ? [unitPatternQty, ...numbers] : numbers;
+  return { description: cleanDescription, qty: (qty && qty > 0) ? qty : 1, amount: (amount && amount > 0) ? amount : null, rawNumbers };
 }
 
 // PDF 收據先在瀏覽器裡用 PDF.js 把每一頁都畫成一張圖片(轉成 data URL),再照跟一般圖片一樣的
