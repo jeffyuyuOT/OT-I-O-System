@@ -11355,17 +11355,18 @@ async function scanReceiptForItems(){
         msgEl.textContent = t('scanningReceiptMsg');
       }
       const result = await Tesseract.recognize(ocrSources[i], 'eng');
-      // 這個供應商如果已經有學過欄位位置(之前手動修正過,系統記住「數量是第幾個數字」),
-      // 優先直接照學到的位置解讀,不要再用「QTY 標題座標」去猜——欄位標題定位這個方法終究
-      // 是用猜的,同一個供應商的收據格式本來就是固定的,使用者已經明確教過一次之後,系統學到
-      // 的答案應該要比重新猜一次更可靠,不能讓「猜的」蓋掉「使用者教過的」。只有完全沒學過
-      // 這個供應商格式的時候(第一次掃這個供應商的收據),才會試著用欄位標題座標去猜一個
-      // 起始答案給使用者確認;如果收據上也沒有清楚的欄位標題,才退回最陽春的「猜最後兩個
-      // 數字」邏輯。
-      const pageLines = format
-        ? result.data.text.split('\n').map(line => parseReceiptLine(line, format)).filter(Boolean)
-        : (parseReceiptWithColumns(result.data.words || [])
-           || result.data.text.split('\n').map(line => parseReceiptLine(line, format)).filter(Boolean));
+      // 只要這張收據上偵測得到清楚的 QTY(/Amount)欄位標題,一律優先用「欄位標題實際座標」
+      // 去抓數字(parseReceiptWithColumns)——這個方法是照每一行文字實際的版面位置分組、比對
+      // 欄位標題的X座標去抓數字,同一張收據不管掃幾次,判斷方式都是一樣的、也比較不會漏行。
+      // 之前這裡的邏輯是「只要這個供應商學過欄位位置,就整個不用欄位標題定位,改用純文字逐行
+      // 猜測」——聽起來「使用者教過的比猜的可靠」沒錯,但純文字逐行猜測(parseReceiptLine)
+      // 是照 Tesseract 辨識出來的純文字用換行字元切,不是照版面位置分組,常常沒辦法對應到
+      // 實際的品項列,反而會比每次都重新用欄位標題定位還漏抓更多行、更不穩定,所以之前才會
+      // 一直發生「學過一次之後,反而再也掃不出完整品項清單」的狀況。現在改成:欄位標題定位
+      // 永遠優先試,學到的欄位位置(format)只在這張收據完全偵測不到清楚欄位標題的時候,
+      // 才當作退路用來輔助純文字猜測那一層。
+      const pageLines = parseReceiptWithColumns(result.data.words || [])
+        || result.data.text.split('\n').map(line => parseReceiptLine(line, format)).filter(Boolean);
       allLines = allLines.concat(pageLines);
     }
     if(allLines.length === 0){
