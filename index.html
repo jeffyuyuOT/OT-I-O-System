@@ -2140,8 +2140,12 @@
       <input type="text" id="receiptOcrRawTextDisplay" style="width:100%;background:var(--bg);" disabled />
     </div>
     <p id="receiptOcrRawNumbersDisplay" style="font-size:11px;color:var(--ink-soft);margin:6px 0 14px;"></p>
+    <div id="receiptOcrSuggestionsWrap" style="display:none;margin-bottom:12px;">
+      <label style="display:block;font-size:12.5px;font-weight:600;color:var(--ink);margin-bottom:6px;" data-i18n="fieldReceiptOcrSuggestions">庫存裡找到可能符合的商品</label>
+      <div id="receiptOcrSuggestionsList" style="display:flex;flex-direction:column;gap:6px;"></div>
+    </div>
     <div class="field-block">
-      <label data-i18n="fieldFilterByCategory">依分類篩選商品</label>
+      <label data-i18n="fieldFilterByCategory">依分類篩選商品(找不到符合的商品,再從下面選)</label>
       <select id="receiptOcrCategoryFilter" onchange="renderReceiptOcrProductOptions()" style="width:100%;"></select>
     </div>
     <div class="field-block">
@@ -2979,6 +2983,7 @@ const I18N = {
     btnScanReceipt: '掃描收據自動帶入商品',
     modalReceiptOcrConfirmTitle: '確認收據品項', fieldReceiptOcrRawText: '收據上讀到的文字',
     fieldReceiptOcrAmount: '金額(選填)', btnSkip: '略過這一行', btnConfirmAndAdd: '確認並加入',
+    fieldReceiptOcrSuggestions: '庫存裡找到可能符合的商品',
     errReceiptScanNoImage: '請先上傳一張圖片格式的收據(目前不支援直接掃描 PDF)',
     errReceiptScanLibFailed: '掃描功能載入失敗,請重新整理頁面再試一次',
     scanningReceiptMsg: '掃描中,請稍候…', errReceiptScanNoLines: '沒有辨識出任何品項,請確認圖片清晰,或直接手動新增商品',
@@ -3491,6 +3496,7 @@ const I18N = {
     btnScanReceipt: 'Scan Receipt to Auto-Fill Products',
     modalReceiptOcrConfirmTitle: 'Confirm Receipt Item', fieldReceiptOcrRawText: 'Text read from the receipt',
     fieldReceiptOcrAmount: 'Amount (optional)', btnSkip: 'Skip this line', btnConfirmAndAdd: 'Confirm & Add',
+    fieldReceiptOcrSuggestions: 'Possible matches found in inventory',
     errReceiptScanNoImage: 'Please upload a receipt image first (scanning a PDF directly is not supported yet)',
     errReceiptScanLibFailed: 'Failed to load the scanning feature, please refresh the page and try again',
     scanningReceiptMsg: 'Scanning, please wait…', errReceiptScanNoLines: 'No items were recognized — make sure the image is clear, or add products manually',
@@ -11195,6 +11201,26 @@ function processNextReceiptOcrLine(){
   openReceiptOcrConfirmModal(line);
 }
 
+// 用 OCR 讀到的文字,去庫存商品清單裡找「看起來可能符合」的商品——不是要求整串文字一模一樣
+// (畢竟 OCR 跟商品主檔的措辭本來就不會完全一樣),而是把兩邊都拆成一個一個的字/詞,看商品
+// 名稱裡有多少比例的字有出現在 OCR 文字裡,比例越高排越前面。回傳最多 5 個候選,比例太低的
+// (完全沾不上邊的)不列入,避免整排都是不相干的商品,反而干擾判斷。
+function findSimilarProducts(description){
+  const descNormalized = normalizeReceiptLineText(description);
+  const descWords = descNormalized.split(/[^a-z0-9\u4e00-\u9fa5]+/).filter(w => w.length > 1);
+  if(descWords.length === 0) return [];
+  const scored = products.filter(p => !p.hidden).map(p => {
+    const nameWords = normalizeReceiptLineText(p.name).split(/[^a-z0-9\u4e00-\u9fa5]+/).filter(w => w.length > 1);
+    if(nameWords.length === 0) return { p, score: 0 };
+    let matchCount = 0;
+    for(const nw of nameWords){
+      if(descWords.some(dw => dw.includes(nw) || nw.includes(dw))) matchCount++;
+    }
+    return { p, score: matchCount / nameWords.length };
+  });
+  return scored.filter(s => s.score >= 0.5).sort((a, b) => b.score - a.score).slice(0, 5).map(s => s.p);
+}
+
 function openReceiptOcrConfirmModal(line){
   document.getElementById('receiptOcrRawTextDisplay').value = line.description;
   document.getElementById('receiptOcrQtyInput').value = line.qty;
@@ -11214,6 +11240,22 @@ function openReceiptOcrConfirmModal(line){
     numbersDisplay.textContent = tf('receiptOcrRawNumbersLabel', { numbers: labeled });
   } else {
     numbersDisplay.textContent = '';
+  }
+  // 先用商品名稱的文字相似度,找幾個可能符合的商品當快速選項——找得到的話,列在最上面,
+  // 點一下就直接選定,不用再去下面那個完整清單裡搜尋;完全找不到符合的,這個區塊就不顯示,
+  // 直接用下面的分類篩選+完整清單選就好。
+  const suggestions = findSimilarProducts(line.description);
+  const suggestWrap = document.getElementById('receiptOcrSuggestionsWrap');
+  if(suggestions.length > 0){
+    suggestWrap.style.display = 'block';
+    document.getElementById('receiptOcrSuggestionsList').innerHTML = suggestions.map(p => `
+      <button type="button" class="btn ghost" style="text-align:left;" onclick="selectReceiptOcrSuggestedProduct('${p.id}')">
+        ${p.sku ? escapeHtmlForPrint(p.sku) + ' — ' : ''}${p.parentId ? '⧉ ' : ''}${escapeHtmlForPrint(p.name)}(${escapeHtmlForPrint(p.unit)})
+      </button>
+    `).join('');
+  } else {
+    suggestWrap.style.display = 'none';
+    document.getElementById('receiptOcrSuggestionsList').innerHTML = '';
   }
   syncCategoryOrder();
   const catSel = document.getElementById('receiptOcrCategoryFilter');
@@ -11236,6 +11278,17 @@ function renderReceiptOcrProductOptions(){
   // 只有在使用者真的手動選了東西、或程式碼呼叫 resetSearchableSelect 明確指定清空時才會同步)。
   // 這裡明確呼叫一次,確保換行/換分類的時候搜尋框顯示也真的清空,不會卡在上一個選的商品名稱。
   resetSearchableSelect('receiptOcrProductSelect');
+}
+
+// 點了「可能符合的商品」快速選項:先把分類篩選重設成「全部分類」,確保這個商品一定會出現在
+// 下面完整清單的選項裡(不然萬一它剛好不屬於目前選的分類,選了也選不到),重畫選項之後再把
+// 值設定成這個商品——用 .value= 賦值,makeSelectSearchable 那邊包裝過的 setter 會自動同步
+// 畫面上顯示的搜尋框文字,不用另外處理。
+function selectReceiptOcrSuggestedProduct(productId){
+  const catSel = document.getElementById('receiptOcrCategoryFilter');
+  if(catSel) catSel.value = '';
+  renderReceiptOcrProductOptions();
+  document.getElementById('receiptOcrProductSelect').value = productId;
 }
 
 // 使用者確認的數量/金額,只要能在這一行原本抓到的所有數字裡找到一模一樣的值,就記住「這個
