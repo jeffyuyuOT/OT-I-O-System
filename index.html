@@ -11026,8 +11026,22 @@ function findHeaderColumnX(lines, patterns){
 function isNumericWord(text){
   return /^\$?\d{1,7}(?:\.\d{1,2})?$/.test((text || '').replace(/,/g, ''));
 }
-function pickNumberNearX(lineWords, targetX){
+// COUNT_UNIT_WORDS 是「數量常見的計數單位縮寫」——跟 parseReceiptLine 那邊用的是同一組概念,
+// 特地不含 KG/G/L/ML 這類重量/容量單位(那些通常是描述商品包裝大小,不是訂購數量)。
+const COUNT_UNIT_WORDS = /^(CTN|CARTON|PCS?|EA|BOX|DZ|SET|PACK|BAG)$/i;
+function pickNumberNearX(lineWords, targetX, preferUnitPattern){
   if(targetX === null) return null;
+  // 如果這一行找得到「數字後面緊接著計數單位縮寫」這種寫法(例如「3.000 CTN」),這個組合本身
+  // 就是很明確的語意訊號,比單純看座標距離更可靠——優先採用這個,只要它離目標欄位的 X 座標
+  // 沒有離譜地遠(避免真的抓到不相干的地方,例如發票最下面「Total Weight」那種也帶單位的數字)。
+  if(preferUnitPattern){
+    for(let i = 0; i < lineWords.length - 1; i++){
+      const w = lineWords[i], next = lineWords[i + 1];
+      if(isNumericWord(w.text) && COUNT_UNIT_WORDS.test(next.text)){
+        if(Math.abs(w.cx - targetX) < 400) return parseFloat(w.text.replace(/[,$]/g, ''));
+      }
+    }
+  }
   let best = null, bestDist = Infinity;
   for(const w of lineWords){
     if(!isNumericWord(w.text)) continue;
@@ -11048,9 +11062,9 @@ function parseReceiptWithColumns(words){
     // 這一行本身如果就有 QTY/Amount 這類欄位標題文字,代表這行是標題列本身,不是實際品項,略過。
     if(line.words.some(w => /^qty$|^quantity$|數量|^amount$|^total$|金額|小計/i.test(w.text))) continue;
 
-    const qty = pickNumberNearX(line.words, qtyHeaderX);
+    const qty = pickNumberNearX(line.words, qtyHeaderX, true);
     if(qty === null || qty <= 0) continue; // 這行在 QTY 欄位底下找不到數字,可能是雜訊行(頁首頁尾、地址之類),略過
-    const amount = amountHeaderX !== null ? pickNumberNearX(line.words, amountHeaderX) : null;
+    const amount = amountHeaderX !== null ? pickNumberNearX(line.words, amountHeaderX, false) : null;
     const descWords = line.words.filter(w => !isNumericWord(w.text));
     const description = descWords.map(w => w.text).join(' ').trim();
     if(!description) continue;
