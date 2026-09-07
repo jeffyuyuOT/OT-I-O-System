@@ -2439,6 +2439,7 @@ let stockLocationEnabledFields = { zone: true, aisle: true, bay: true, level: tr
 let stockLocationShowOnPickingSlip = false; // Picking Slip 要不要多印一欄 Stock Location(印之前,如果商品有多個位置會先問要印哪一個)
 let receiptLineMappings = []; // 收據辨識的記憶對照表:{id, partyId, normalizedText, productId}。同一個供應商+同樣的 OCR 文字之前確認過對應到哪個商品,下次直接沿用不用再問。
 let pendingReceiptOcrLines = []; // 這次掃描收據、還在等使用者確認的品項清單(掃描完先暫存在這裡,確認視窗一次一筆處理)
+let receiptOcrSessionNewMappingIds = []; // 這次掃描過程中「新建立」的記憶對照表 id(略過或確認的都算)——如果整個掃描動作被取消,這些新建的記憶要一起復原刪除,不能留下「已經取消的這次掃描,卻默默留下部分永久記憶」這種不一致的狀態
 let receiptSupplierFormats = {}; // 每個供應商收據格式的學習結果:{ [partyId]: { qtyIndexFromEnd, amountIndexFromEnd } } ——數字都是「從這行抓到的數字裡,從尾端數過來第幾個」(0 是最後一個)
 let purchaseSuppliers = []; // 進貨方管理:{id, name, phone, address, note}。登記進出貨的進貨方下拉選單依這張清單顯示(依名稱字母排序),刪除的供應商不會再出現在下拉選單裡
 let shippingParties = [];
@@ -5483,7 +5484,13 @@ async function rememberReceiptLineMapping(partyId, normalizedText, productId){
   let existing = receiptLineMappings.find(m => (m.partyId || null) === (partyId || null) && m.normalizedText === normalizedText);
   const mapping = existing || { id: genId(), partyId: partyId || null, normalizedText, productId };
   mapping.productId = productId;
-  if(!existing) receiptLineMappings.push(mapping);
+  if(!existing){
+    receiptLineMappings.push(mapping);
+    // 這筆是這次掃描過程中新建立的(不是原本就有、只是更新對應的商品),記下它的 id——如果
+    // 這次的掃描整個被取消,才知道要把哪幾筆新建的記憶一起復原刪除,不能留下「掃描已經取消了,
+    // 卻默默留下部分永久記憶」這種不一致的狀態。
+    receiptOcrSessionNewMappingIds.push(mapping.id);
+  }
   try{ await sb.from('receipt_line_mappings').upsert(receiptMappingToRow(mapping)); }
   catch(e){ console.error('儲存收據辨識記憶失敗', e); }
 }
@@ -11234,6 +11241,7 @@ async function scanReceiptForItems(){
   const isPdf = /\.pdf$/i.test(file.filename || file.url);
   const partyInput = document.getElementById('txParty');
   receiptOcrPartyId = partyInput ? partyInput.value.trim() : null;
+  receiptOcrSessionNewMappingIds = [];
 
   const btn = document.getElementById('btnScanReceipt');
   btn.disabled = true;
@@ -11487,9 +11495,21 @@ function skipReceiptOcrLine(){
   processNextReceiptOcrLine();
 }
 
-function cancelReceiptOcrSequence(){
+async function cancelReceiptOcrSequence(){
   pendingReceiptOcrLines = [];
   document.getElementById('receiptOcrConfirmModalOverlay').style.display = 'none';
+  // 「取消全部」要是真的取消掉這整次掃描的所有影響,不只是清空還沒確認的品項——這次掃描過程中
+  // 如果已經有幾筆新建的記憶(不管是「確認並加入」還是「略過這一行」建立的),一併復原刪除,
+  // 不然下次同一張收據重新掃描,那幾筆被略過/確認的行會照舊記憶直接跳過,使用者會覺得「明明
+  // 取消了,怎麼還是沒有跳出來問」,搞不清楚發生了什麼事。
+  const idsToRevert = receiptOcrSessionNewMappingIds.slice();
+  receiptOcrSessionNewMappingIds = [];
+  for(const id of idsToRevert){
+    try{
+      await sb.from('receipt_line_mappings').delete().eq('id', id);
+      receiptLineMappings = receiptLineMappings.filter(m => m.id !== id);
+    } catch(e){ console.error('復原取消的收據辨識記憶失敗', e); }
+  }
   renderTxBatchList();
 }
 
