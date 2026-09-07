@@ -1302,28 +1302,7 @@
       </div>
       <div id="purchaseReceiptWrap" style="display:none;margin-top:10px;">
         <label style="display:block;font-size:12.5px;font-weight:600;color:var(--ink);margin-bottom:4px;" data-i18n="fieldPurchaseReceipt">收據/發票附件(選填,圖片或 PDF,可選取多個檔案)</label>
-        <!-- 手機上把 accept 寫成「image/*,application/pdf」混合兩種類型的話,部分 Android 系統的
-             選擇檔案視窗會直接跳過「相簿/相片」這個選項,只顯示「檔案」或雲端硬碟這類來源——
-             拆成兩個各自單一類型的輸入欄位(純圖片、純 PDF),比較能確保手機上看得到相簿選項。
-             原本那個混合類型的欄位還是留著當作備用(有些情境還是照樣支援兩種類型一起選)。 -->
-        <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:8px;">
-          <label class="btn ghost" style="display:inline-flex;align-items:center;gap:6px;cursor:pointer;font-size:12px;padding:6px 10px;">
-            🖼️ <span data-i18n="btnChooseImages">選擇圖片(相簿)</span>
-            <input type="file" id="purchaseReceiptImageInput" accept="image/*" multiple onchange="handlePurchaseReceiptUpload(this)" style="display:none;" />
-          </label>
-          <label class="btn ghost" style="display:inline-flex;align-items:center;gap:6px;cursor:pointer;font-size:12px;padding:6px 10px;">
-            📄 <span data-i18n="btnChoosePdf">選擇 PDF</span>
-            <input type="file" id="purchaseReceiptPdfInput" accept="application/pdf" multiple onchange="handlePurchaseReceiptUpload(this)" style="display:none;" />
-          </label>
-          <label class="btn ghost" style="display:inline-flex;align-items:center;gap:6px;cursor:pointer;font-size:12px;padding:6px 10px;">
-            📷 <span data-i18n="btnTakePhotoDirect">直接拍一張照片</span>
-            <input type="file" id="purchaseReceiptCameraInput" accept="image/*" capture="environment" onchange="handlePurchaseReceiptUpload(this)" style="display:none;" />
-          </label>
-        </div>
-        <details style="margin-bottom:6px;">
-          <summary style="font-size:11.5px;color:var(--ink-soft);cursor:pointer;" data-i18n="detailsOtherUploadOption">其他上傳方式(圖片+PDF 混合選取)</summary>
-          <input type="file" id="purchaseReceiptInput" accept="image/*,application/pdf" multiple onchange="handlePurchaseReceiptUpload(this)" style="border:1px solid var(--line);background:#fff;border-radius:2px;padding:8px;font-family:'IBM Plex Mono',monospace;font-size:12px;margin-top:6px;" />
-        </details>
+        <input type="file" id="purchaseReceiptInput" accept="image/*,application/pdf" multiple onchange="handlePurchaseReceiptUpload(this)" style="border:1px solid var(--line);background:#fff;border-radius:2px;padding:8px;font-family:'IBM Plex Mono',monospace;font-size:12px;" />
         <div id="purchaseReceiptUploadMsg" style="font-size:11.5px;margin-top:4px;"></div>
         <div id="purchaseReceiptPreviewWrap" style="display:none;margin-top:8px;flex-direction:column;gap:4px;"></div>
         <div id="purchaseReceiptScanWrap" style="display:none;margin-top:8px;">
@@ -1636,7 +1615,7 @@
     <div id="subtab-purchase-mgmt-ocrdb" class="subtab-content">
       <div class="section-title" data-i18n="secReceiptOcrDb">掃描收據數據庫</div>
       <p style="font-size:11.5px;color:var(--ink-soft);margin:0 0 12px;" data-i18n="receiptOcrDbDesc">
-        管理收據掃描的記憶對照表。預設列出所有記憶,可以往下滑瀏覽,也可以用分類篩選或選特定商品縮小範圍——如果之前不小心對到錯的商品,可以在這裡刪除,下次掃描到同樣文字就會重新跳出來問。
+        管理收據掃描的記憶對照表。預設列出所有跟商品相關的記憶(不含被記成「略過,不是商品資訊」的那些),可以往下滑瀏覽,也可以用分類篩選或選特定商品縮小範圍;勾選「包含略過的資訊」才會連那些一起列出來。如果之前不小心對到錯的商品,可以在這裡刪除,下次掃描到同樣文字就會重新跳出來問。
       </p>
       <div class="filter-row">
         <div class="field">
@@ -1649,8 +1628,8 @@
         </div>
         <div class="field" style="justify-content:flex-end;">
           <label style="display:flex;align-items:center;gap:6px;font-weight:600;color:var(--ink);cursor:pointer;font-size:12.5px;text-transform:none;">
-            <input type="checkbox" id="ocrDbShowAllToggle" onchange="toggleOcrDbShowAll(this.checked)" style="width:15px;height:15px;cursor:pointer;" />
-            <span data-i18n="chkShowAllOcrData">顯示所有資料</span>
+            <input type="checkbox" id="ocrDbIncludeSkippedToggle" onchange="renderOcrDbMappingList()" style="width:15px;height:15px;cursor:pointer;" />
+            <span data-i18n="chkIncludeSkippedOcrData">包含略過的資訊</span>
           </label>
         </div>
       </div>
@@ -2979,6 +2958,7 @@ const I18N = {
     chkShowAllOcrData: '顯示所有資料',
     ocrDbNoMappingsHint: '這個商品目前沒有任何收據辨識記憶。',
     colSupplier: '供應商', ocrDbAnySupplierLabel: '(不限供應商)', deletedProductLabel: '(商品已刪除)',
+    chkIncludeSkippedOcrData: '包含略過的資訊', ocrDbSkippedLabel: '(略過,非商品資訊)',
     confirmDeleteOcrMapping: '確定要刪除這筆收據辨識記憶嗎?下次掃描到同樣的文字會重新跳出來問。',
     subtabTxRegister: '登記進出貨', subtabTxVerify: '訂單核對', subtabTxForecast: '進貨預估', subtabTxData: '資料維護',
     secForecast: '進貨預估',
@@ -3498,6 +3478,7 @@ const I18N = {
     chkShowAllOcrData: 'Show all data',
     ocrDbNoMappingsHint: 'No receipt-scan memory for this product yet.',
     colSupplier: 'Supplier', ocrDbAnySupplierLabel: '(any supplier)', deletedProductLabel: '(product deleted)',
+    chkIncludeSkippedOcrData: 'Include skipped info', ocrDbSkippedLabel: '(skipped, not product info)',
     confirmDeleteOcrMapping: 'Delete this receipt-scan memory entry? The next scan matching this text will ask again.',
     subtabTxRegister: 'Register Stock', subtabTxVerify: 'Order Verify', subtabTxForecast: 'Purchase Forecast', subtabTxData: 'Data Maintenance',
     secForecast: 'Purchase Forecast',
@@ -4704,21 +4685,19 @@ function renderOcrDbMappingList(){
   const container = document.getElementById('ocrDbMappingList');
   if(!container) return;
   const sel = document.getElementById('ocrDbProductSelect');
-  const showAll = document.getElementById('ocrDbShowAllToggle').checked;
-  const productId = (sel && !showAll) ? sel.value : ''; // 勾了「顯示所有資料」的話,忽略勾選前可能已經選好的商品,一律當作沒選,才會真的顯示全部
+  const productId = sel ? sel.value : '';
   const catFilterVal = document.getElementById('ocrDbCategoryFilter').value;
+  const includeSkipped = document.getElementById('ocrDbIncludeSkippedToggle').checked;
 
-  // 沒勾「顯示所有資料」的話,只顯示選定商品的記憶,沒選商品就先顯示提示,不會一次全部攤開;
-  // 勾了才會列出所有記憶(一樣可以用分類篩選縮小範圍),方便一次瀏覽/整理全部資料。
-  if(!showAll && !productId){
-    container.innerHTML = `<div class="empty-note">${t('ocrDbSelectProductHint')}</div>`;
-    return;
-  }
-
+  // 預設(沒勾「包含略過的資訊」)只列出真的對應到某個商品的記憶,不含「略過,不是商品資訊」
+  // 那些(公司資訊、地址這類雜訊)——勾選了才會連這些也一起列出來。
+  // 商品篩選邏輯不變:沒選商品就列出全部(依分類篩選縮小範圍),選了商品才縮小到只看那一個。
   const productMap = Object.fromEntries(products.map(p => [p.id, p]));
-  let mappings = productId
-    ? receiptLineMappings.filter(m => m.productId === productId)
-    : receiptLineMappings.filter(m => {
+  let mappings = receiptLineMappings.filter(m => includeSkipped || m.productId !== RECEIPT_SKIP_SENTINEL);
+  mappings = productId
+    ? mappings.filter(m => m.productId === productId)
+    : mappings.filter(m => {
+        if(m.productId === RECEIPT_SKIP_SENTINEL) return !catFilterVal; // 略過的資訊沒有商品、沒有分類可比對,只有「全部分類」時才顯示
         const p = productMap[m.productId];
         return catFilterVal ? (p && (p.category || '未分類') === catFilterVal) : true;
       });
@@ -4736,10 +4715,11 @@ function renderOcrDbMappingList(){
     <thead><tr>${showProductCol ? `<th>${t('lblProduct')}</th>` : ''}<th>${t('colSupplier')}</th><th>${t('fieldReceiptOcrRawText')}</th><th></th></tr></thead>
     <tbody>
       ${mappings.map(m => {
-        const p = productMap[m.productId];
+        const isSkip = m.productId === RECEIPT_SKIP_SENTINEL;
+        const p = isSkip ? null : productMap[m.productId];
         return `
         <tr>
-          ${showProductCol ? `<td>${p ? escapeHtmlForPrint(p.name) : t('deletedProductLabel')}</td>` : ''}
+          ${showProductCol ? `<td>${isSkip ? `<span style="color:var(--ink-soft);font-style:italic;">${t('ocrDbSkippedLabel')}</span>` : (p ? escapeHtmlForPrint(p.name) : t('deletedProductLabel'))}</td>` : ''}
           <td>${escapeHtmlForPrint(m.partyId || t('ocrDbAnySupplierLabel'))}</td>
           <td>${escapeHtmlForPrint(m.normalizedText)}</td>
           <td><span class="del-link" onclick="deleteOcrMapping('${m.id}')">${t('btnDelete')}</span></td>
@@ -4750,13 +4730,6 @@ function renderOcrDbMappingList(){
   </table>`;
 }
 
-// 「顯示所有資料」勾選框:勾了就把商品下拉選單鎖住(選哪個都沒意義,因為畫面已經是全部資料),
-// 取消勾選則解鎖,回到「要先選商品才看得到資料」的預設行為。
-function toggleOcrDbShowAll(checked){
-  const sel = document.getElementById('ocrDbProductSelect');
-  if(sel) sel.disabled = checked;
-  renderOcrDbMappingList();
-}
 function deleteOcrMapping(mappingId){
   showConfirmModal(t('confirmDeleteOcrMapping'), async () => {
     try{
