@@ -2994,6 +2994,7 @@ const I18N = {
     receiptOcrRawNumbersLabel: '這行辨識到的數字:{numbers}',
     errReceiptFileType: '請選擇圖片或 PDF 檔案', errReceiptTooLarge: '檔案太大,請壓縮到 10MB 以下',
     uploadingReceiptMsg: '上傳中…', receiptUploadedMsg: '✓ 已上傳', errReceiptUploadFailed: '上傳失敗,請重新整理頁面再試一次',
+    errReceiptFileTypeInvalid: '檔案格式不支援,請上傳圖片或 PDF', errReceiptFileTooLarge: '檔案太大(超過 10MB),請壓縮後再上傳',
     uploadingReceiptMsgWithName: '上傳中…{name}', receiptUploadedPartialMsg: '✓ 已上傳 {success} 個檔案,{fail} 個失敗(可能是檔案格式或大小不符)',
     secPurchaseLog: '進貨單', purchaseLogDesc: '列出所有進貨單,依日期排序。點一筆可以看品項明細跟收據附件,匯出也是針對單一張進貨單。',
     secAccountingEmail: '會計 Email',
@@ -3507,6 +3508,7 @@ const I18N = {
     receiptOcrRawNumbersLabel: 'Numbers found on this line: {numbers}',
     errReceiptFileType: 'Please select an image or PDF file', errReceiptTooLarge: 'File is too large, please compress it under 10MB',
     uploadingReceiptMsg: 'Uploading…', receiptUploadedMsg: '✓ Uploaded', errReceiptUploadFailed: 'Upload failed, please refresh and try again',
+    errReceiptFileTypeInvalid: 'Unsupported file type — please upload an image or PDF', errReceiptFileTooLarge: 'File too large (over 10MB) — please compress it and try again',
     uploadingReceiptMsgWithName: 'Uploading… {name}', receiptUploadedPartialMsg: '✓ {success} file(s) uploaded, {fail} failed (check file type/size)',
     secPurchaseLog: 'Purchases', purchaseLogDesc: 'Lists all purchase documents, sorted by date. Click one to see item details and the receipt attachment; export is per document too.',
     secAccountingEmail: 'Accounting Email',
@@ -10832,14 +10834,27 @@ async function handlePurchaseReceiptUpload(inputEl){
   const maxBytes = 10 * 1024 * 1024;
   let successCount = 0;
   let failCount = 0;
+  let lastFailReason = '';
 
   for(const file of files){
-    if(!file.type.startsWith('image/') && file.type !== 'application/pdf'){
+    // 手機拍照上傳(尤其是直接用相機拍、不是從相簿選)的檔案,file.type 常常是空字串——瀏覽器
+    // 沒有正確帶入 MIME type,不是檔案真的有問題。原本這裡只看 file.type,遇到空字串一律當
+    // 「格式不符」擋掉,手機拍照上傳才會一直失敗。這裡改成:file.type 有給的話正常判斷;
+    // 沒給的話(常見於手機拍照),退回看副檔名判斷,不會因為瀏覽器沒帶 MIME type 就整個擋掉。
+    const ext = (file.name.split('.').pop() || '').toLowerCase();
+    const looksLikeImageByExt = /^(jpe?g|png|gif|bmp|webp|heic|heif)$/.test(ext);
+    const looksLikePdfByExt = ext === 'pdf';
+    const validType = file.type
+      ? (file.type.startsWith('image/') || file.type === 'application/pdf')
+      : (looksLikeImageByExt || looksLikePdfByExt);
+    if(!validType){
       failCount++;
+      lastFailReason = t('errReceiptFileTypeInvalid');
       continue;
     }
     if(file.size > maxBytes){
       failCount++;
+      lastFailReason = t('errReceiptFileTooLarge');
       continue;
     }
     msgEl.style.color = 'var(--ink-soft)';
@@ -10858,6 +10873,9 @@ async function handlePurchaseReceiptUpload(inputEl){
     } catch(e){
       console.error('上傳進貨單收據失敗', e);
       failCount++;
+      // 真正上傳失敗(不是前面型別/大小這種本機就能判斷的問題)的話,把 Supabase 回傳的錯誤
+      // 訊息也一併記下來,顯示的時候比單純「上傳失敗」更容易看出是網路問題還是別的原因。
+      lastFailReason = (e && e.message) ? e.message : t('errReceiptUploadFailed');
     }
   }
 
@@ -10867,7 +10885,7 @@ async function handlePurchaseReceiptUpload(inputEl){
     msgEl.textContent = t('receiptUploadedMsg');
   } else if(successCount === 0){
     msgEl.style.color = 'var(--crit)';
-    msgEl.textContent = t('errReceiptUploadFailed');
+    msgEl.textContent = failCount === 1 ? `⚠ ${lastFailReason}` : t('errReceiptUploadFailed');
   } else {
     msgEl.style.color = 'var(--warn)';
     msgEl.textContent = tf('receiptUploadedPartialMsg', { success: successCount, fail: failCount });
