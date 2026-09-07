@@ -1622,6 +1622,10 @@
           <label data-i18n="fieldFilterByCategory">依分類篩選商品</label>
           <select id="ocrDbCategoryFilter" onchange="resetSearchableSelect('ocrDbProductSelect'); renderOcrDbProductSelect();"></select>
         </div>
+        <div class="field">
+          <label data-i18n="fieldFilterBySupplier">依供應商篩選</label>
+          <select id="ocrDbSupplierFilter" onchange="renderOcrDbMappingList()"></select>
+        </div>
         <div class="field" style="min-width:260px;">
           <label data-i18n="lblProduct">商品</label>
           <select id="ocrDbProductSelect" onchange="renderOcrDbMappingList()"></select>
@@ -2660,6 +2664,7 @@ const I18N = {
     optUnspecified: '未指定',
     orderPartyHelp: '沒有想要的出貨方嗎?到「倉庫後台管理 → 出貨方管理」新增即可。選了出貨方之後,下面的「每次訂貨平均用量」會用這個出貨方最近三個月的出貨紀錄計算,供訂貨時參考。',
     fieldFilterByCategory: '依分類篩選商品',
+    fieldFilterBySupplier: '依供應商篩選',
     noOrderableProducts: '目前沒有標記為「可訂貨」的商品。',
     noFilteredOrderableProducts: '沒有符合條件的商品。到「庫存總覽」分頁把商品標記為可訂貨,或到「倉庫後台管理 → 出貨方管理」調整這個出貨方能看到的商品範圍,也可以檢查一下分類篩選是不是選錯了。',
     btnConfirmOrder: '✅ 確認訂貨(立即扣庫存)',
@@ -3180,6 +3185,7 @@ const I18N = {
     optUnspecified: 'Unspecified',
     orderPartyHelp: 'Don\'t see the customer you want? Add one under Warehouse Back Office → Manage Customers. Once you pick a customer, the "Avg per Order" below is calculated from that customer\'s shipments over the last three months, as a reference while ordering.',
     fieldFilterByCategory: 'Filter by Category',
+    fieldFilterBySupplier: 'Filter by Supplier',
     noOrderableProducts: 'No products are marked as orderable yet.',
     noFilteredOrderableProducts: 'No products match. Mark products as orderable in Stock Overview, adjust which products this customer can see under Warehouse Back Office → Manage Customers, or check whether the category filter is set correctly.',
     btnConfirmOrder: '✅ Confirm Order (Deducts Stock Immediately)',
@@ -4673,6 +4679,17 @@ function renderOcrDbProductSelect(){
   if(usedCats.includes(prevCat)) catSel.value = prevCat;
   const catFilterVal = catSel.value;
 
+  // 供應商篩選:列出「進貨方管理」清單裡的供應商名稱,再加上記憶對照表裡實際出現過、但目前
+  // 不在管理清單裡的名稱(例如供應商後來被刪掉了,舊的記憶還在)——確保篩選得到所有實際存在
+  // 過的供應商,不會因為供應商後來被刪除,連帶篩選不到那筆舊記憶。
+  const supSel = document.getElementById('ocrDbSupplierFilter');
+  const prevSup = supSel.value;
+  const managedNames = purchaseSuppliers.map(s => s.name);
+  const mappingNames = [...new Set(receiptLineMappings.map(m => m.partyId).filter(Boolean))];
+  const allSupplierNames = [...new Set([...managedNames, ...mappingNames])].sort((a, b) => a.localeCompare(b));
+  supSel.innerHTML = `<option value="">${t('ocrDbAnySupplierLabel')}</option>` + allSupplierNames.map(n => `<option value="${n.replace(/"/g,'&quot;')}">${escapeHtmlForPrint(n)}</option>`).join('');
+  if(allSupplierNames.includes(prevSup)) supSel.value = prevSup;
+
   const sel = document.getElementById('ocrDbProductSelect');
   const prevVal = sel.value;
   const candidateProducts = (catFilterVal ? products.filter(p => (p.category || '未分類') === catFilterVal) : products);
@@ -4688,13 +4705,16 @@ function renderOcrDbMappingList(){
   const sel = document.getElementById('ocrDbProductSelect');
   const productId = sel ? sel.value : '';
   const catFilterVal = document.getElementById('ocrDbCategoryFilter').value;
+  const supplierFilterVal = document.getElementById('ocrDbSupplierFilter').value;
   const includeSkipped = document.getElementById('ocrDbIncludeSkippedToggle').checked;
 
   // 預設(沒勾「包含略過的資訊」)只列出真的對應到某個商品的記憶,不含「略過,不是商品資訊」
   // 那些(公司資訊、地址這類雜訊)——勾選了才會連這些也一起列出來。
   // 商品篩選邏輯不變:沒選商品就列出全部(依分類篩選縮小範圍),選了商品才縮小到只看那一個。
+  // 供應商篩選是額外一層,跟商品/分類篩選同時套用(選了供應商,只看那個供應商記錄的那幾筆)。
   const productMap = Object.fromEntries(products.map(p => [p.id, p]));
   let mappings = receiptLineMappings.filter(m => includeSkipped || m.productId !== RECEIPT_SKIP_SENTINEL);
+  if(supplierFilterVal) mappings = mappings.filter(m => (m.partyId || '') === supplierFilterVal);
   mappings = productId
     ? mappings.filter(m => m.productId === productId)
     : mappings.filter(m => {
