@@ -1302,13 +1302,28 @@
       </div>
       <div id="purchaseReceiptWrap" style="display:none;margin-top:10px;">
         <label style="display:block;font-size:12.5px;font-weight:600;color:var(--ink);margin-bottom:4px;" data-i18n="fieldPurchaseReceipt">收據/發票附件(選填,圖片或 PDF,可選取多個檔案)</label>
-        <input type="file" id="purchaseReceiptInput" accept="image/*,application/pdf" multiple onchange="handlePurchaseReceiptUpload(this)" style="border:1px solid var(--line);background:#fff;border-radius:2px;padding:8px;font-family:'IBM Plex Mono',monospace;font-size:12px;" />
-        <div style="margin-top:6px;">
+        <!-- 手機上把 accept 寫成「image/*,application/pdf」混合兩種類型的話,部分 Android 系統的
+             選擇檔案視窗會直接跳過「相簿/相片」這個選項,只顯示「檔案」或雲端硬碟這類來源——
+             拆成兩個各自單一類型的輸入欄位(純圖片、純 PDF),比較能確保手機上看得到相簿選項。
+             原本那個混合類型的欄位還是留著當作備用(有些情境還是照樣支援兩種類型一起選)。 -->
+        <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:8px;">
+          <label class="btn ghost" style="display:inline-flex;align-items:center;gap:6px;cursor:pointer;font-size:12px;padding:6px 10px;">
+            🖼️ <span data-i18n="btnChooseImages">選擇圖片(相簿)</span>
+            <input type="file" id="purchaseReceiptImageInput" accept="image/*" multiple onchange="handlePurchaseReceiptUpload(this)" style="display:none;" />
+          </label>
+          <label class="btn ghost" style="display:inline-flex;align-items:center;gap:6px;cursor:pointer;font-size:12px;padding:6px 10px;">
+            📄 <span data-i18n="btnChoosePdf">選擇 PDF</span>
+            <input type="file" id="purchaseReceiptPdfInput" accept="application/pdf" multiple onchange="handlePurchaseReceiptUpload(this)" style="display:none;" />
+          </label>
           <label class="btn ghost" style="display:inline-flex;align-items:center;gap:6px;cursor:pointer;font-size:12px;padding:6px 10px;">
             📷 <span data-i18n="btnTakePhotoDirect">直接拍一張照片</span>
             <input type="file" id="purchaseReceiptCameraInput" accept="image/*" capture="environment" onchange="handlePurchaseReceiptUpload(this)" style="display:none;" />
           </label>
         </div>
+        <details style="margin-bottom:6px;">
+          <summary style="font-size:11.5px;color:var(--ink-soft);cursor:pointer;" data-i18n="detailsOtherUploadOption">其他上傳方式(圖片+PDF 混合選取)</summary>
+          <input type="file" id="purchaseReceiptInput" accept="image/*,application/pdf" multiple onchange="handlePurchaseReceiptUpload(this)" style="border:1px solid var(--line);background:#fff;border-radius:2px;padding:8px;font-family:'IBM Plex Mono',monospace;font-size:12px;margin-top:6px;" />
+        </details>
         <div id="purchaseReceiptUploadMsg" style="font-size:11.5px;margin-top:4px;"></div>
         <div id="purchaseReceiptPreviewWrap" style="display:none;margin-top:8px;flex-direction:column;gap:4px;"></div>
         <div id="purchaseReceiptScanWrap" style="display:none;margin-top:8px;">
@@ -2997,6 +3012,7 @@ const I18N = {
     uploadingPhotoMsg: '上傳中…', photoUploadedMsg: '✓ 已上傳', errPhotoUploadFailed: '上傳失敗,請重新整理頁面再試一次',
     fieldPurchaseReceipt: '收據/發票附件(選填,圖片或 PDF)', linkViewUploadedReceipt: '📎 查看已上傳的附件', btnRemoveFile: '移除附件',
     btnTakePhotoDirect: '直接拍一張照片',
+    btnChooseImages: '選擇圖片(相簿)', btnChoosePdf: '選擇 PDF', detailsOtherUploadOption: '其他上傳方式(圖片+PDF 混合選取)',
     btnScanReceipt: '掃描收據自動帶入商品',
     modalReceiptOcrConfirmTitle: '確認收據品項', fieldReceiptOcrRawText: '收據上讀到的文字',
     fieldReceiptOcrAmount: '金額(選填)', btnSkip: '略過這一行', btnConfirmAndAdd: '確認並加入',
@@ -3515,6 +3531,7 @@ const I18N = {
     uploadingPhotoMsg: 'Uploading…', photoUploadedMsg: '✓ Uploaded', errPhotoUploadFailed: 'Upload failed, please refresh and try again',
     fieldPurchaseReceipt: 'Receipt/Invoice Attachment (optional, image or PDF)', linkViewUploadedReceipt: '📎 View uploaded attachment', btnRemoveFile: 'Remove attachment',
     btnTakePhotoDirect: 'Take a photo directly',
+    btnChooseImages: 'Choose Images (Photos)', btnChoosePdf: 'Choose PDF', detailsOtherUploadOption: 'Other upload option (mixed image + PDF)',
     btnScanReceipt: 'Scan Receipt to Auto-Fill Products',
     modalReceiptOcrConfirmTitle: 'Confirm Receipt Item', fieldReceiptOcrRawText: 'Text read from the receipt',
     fieldReceiptOcrAmount: 'Amount (optional)', btnSkip: 'Skip this line', btnConfirmAndAdd: 'Confirm & Add',
