@@ -2935,7 +2935,7 @@ const I18N = {
     secSupplierManagement: '進貨方管理', secReceiptOcrDb: '掃描收據數據庫',
     btnAddSupplier: '+ 新增供應商',
     supplierManagementDesc: '登記進出貨的進貨方下拉選單會依這個清單顯示(依名稱排序);刪除的供應商不會再出現在下拉選單裡,但不會影響已經建立的進貨單紀錄。',
-    receiptOcrDbDesc: '管理收據掃描的記憶對照表。選一項商品,查看有哪些供應商、哪些 OCR 讀到的文字被記住對應到這個商品,如果之前不小心對到錯的商品,可以在這裡刪除,下次掃描到同樣文字就會重新跳出來問。',
+    receiptOcrDbDesc: '管理收據掃描的記憶對照表。預設列出所有記憶,可以往下滑瀏覽,也可以用分類篩選或選特定商品縮小範圍——如果之前不小心對到錯的商品,可以在這裡刪除,下次掃描到同樣文字就會重新跳出來問。',
     noSuppliersYet: '尚無供應商紀錄',
     modalEditSupplierTitle: '編輯供應商', modalAddSupplierTitle: '新增供應商',
     fieldSupplierName: '名稱', fieldSupplierPhone: '電話', fieldSupplierAddress: '住址', fieldSupplierNote: '附註',
@@ -2943,7 +2943,7 @@ const I18N = {
     confirmDeleteSupplier: '確定要刪除供應商「{name}」嗎?這不會影響已經建立的進貨單紀錄。',
     ocrDbSelectProductHint: '選一項商品,查看記憶對照表裡有哪些收據文字對應到它。',
     ocrDbNoMappingsHint: '這個商品目前沒有任何收據辨識記憶。',
-    colSupplier: '供應商', ocrDbAnySupplierLabel: '(不限供應商)',
+    colSupplier: '供應商', ocrDbAnySupplierLabel: '(不限供應商)', deletedProductLabel: '(商品已刪除)',
     confirmDeleteOcrMapping: '確定要刪除這筆收據辨識記憶嗎?下次掃描到同樣的文字會重新跳出來問。',
     subtabTxRegister: '登記進出貨', subtabTxVerify: '訂單核對', subtabTxForecast: '進貨預估', subtabTxData: '資料維護',
     secForecast: '進貨預估',
@@ -3447,7 +3447,7 @@ const I18N = {
     secSupplierManagement: 'Supplier Management', secReceiptOcrDb: 'Receipt Scan Database',
     btnAddSupplier: '+ Add Supplier',
     supplierManagementDesc: 'The supplier dropdown when registering stock in/out is populated from this list (sorted by name); a deleted supplier no longer appears there, but existing purchase records are unaffected.',
-    receiptOcrDbDesc: 'Manage the receipt-scan memory table. Select a product to see which suppliers and OCR text have been remembered as matching it — if one was accidentally matched to the wrong product before, delete it here and the next scan of that text will ask again.',
+    receiptOcrDbDesc: 'Manage the receipt-scan memory table. All entries are listed by default and you can scroll through them, or narrow down by category or a specific product — if one was accidentally matched to the wrong product before, delete it here and the next scan of that text will ask again.',
     noSuppliersYet: 'No suppliers recorded yet',
     modalEditSupplierTitle: 'Edit Supplier', modalAddSupplierTitle: 'Add Supplier',
     fieldSupplierName: 'Name', fieldSupplierPhone: 'Phone', fieldSupplierAddress: 'Address', fieldSupplierNote: 'Note',
@@ -3455,7 +3455,7 @@ const I18N = {
     confirmDeleteSupplier: 'Delete supplier "{name}"? This won\'t affect any existing purchase records.',
     ocrDbSelectProductHint: 'Select a product to see which receipt text is mapped to it in memory.',
     ocrDbNoMappingsHint: 'No receipt-scan memory for this product yet.',
-    colSupplier: 'Supplier', ocrDbAnySupplierLabel: '(any supplier)',
+    colSupplier: 'Supplier', ocrDbAnySupplierLabel: '(any supplier)', deletedProductLabel: '(product deleted)',
     confirmDeleteOcrMapping: 'Delete this receipt-scan memory entry? The next scan matching this text will ask again.',
     subtabTxRegister: 'Register Stock', subtabTxVerify: 'Order Verify', subtabTxForecast: 'Purchase Forecast', subtabTxData: 'Data Maintenance',
     secForecast: 'Purchase Forecast',
@@ -4657,25 +4657,41 @@ function renderOcrDbMappingList(){
   if(!container) return;
   const sel = document.getElementById('ocrDbProductSelect');
   const productId = sel ? sel.value : '';
-  if(!productId){
-    container.innerHTML = `<div class="empty-note">${t('ocrDbSelectProductHint')}</div>`;
-    return;
-  }
-  const mappings = receiptLineMappings.filter(m => m.productId === productId);
+  const catFilterVal = document.getElementById('ocrDbCategoryFilter').value;
+
+  // 沒有特別選商品的話,列出所有記憶(依分類篩選,選了商品的話才縮小到那一個商品)——不用先選
+  // 商品才看得到東西,方便直接往下滑瀏覽全部資料。
+  const productMap = Object.fromEntries(products.map(p => [p.id, p]));
+  let mappings = productId
+    ? receiptLineMappings.filter(m => m.productId === productId)
+    : receiptLineMappings.filter(m => {
+        const p = productMap[m.productId];
+        return catFilterVal ? (p && (p.category || '未分類') === catFilterVal) : true;
+      });
+  mappings = mappings.slice().sort((a, b) => {
+    const pa = productMap[a.productId], pb = productMap[b.productId];
+    return (pa ? pa.name : '').localeCompare(pb ? pb.name : '');
+  });
+
   if(mappings.length === 0){
     container.innerHTML = `<div class="empty-note">${t('ocrDbNoMappingsHint')}</div>`;
     return;
   }
+  const showProductCol = !productId;
   container.innerHTML = `<table class="stock-table" style="margin-top:12px;">
-    <thead><tr><th>${t('colSupplier')}</th><th>${t('fieldReceiptOcrRawText')}</th><th></th></tr></thead>
+    <thead><tr>${showProductCol ? `<th>${t('lblProduct')}</th>` : ''}<th>${t('colSupplier')}</th><th>${t('fieldReceiptOcrRawText')}</th><th></th></tr></thead>
     <tbody>
-      ${mappings.map(m => `
+      ${mappings.map(m => {
+        const p = productMap[m.productId];
+        return `
         <tr>
+          ${showProductCol ? `<td>${p ? escapeHtmlForPrint(p.name) : t('deletedProductLabel')}</td>` : ''}
           <td>${escapeHtmlForPrint(m.partyId || t('ocrDbAnySupplierLabel'))}</td>
           <td>${escapeHtmlForPrint(m.normalizedText)}</td>
           <td><span class="del-link" onclick="deleteOcrMapping('${m.id}')">${t('btnDelete')}</span></td>
         </tr>
-      `).join('')}
+      `;
+      }).join('')}
     </tbody>
   </table>`;
 }
