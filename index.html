@@ -10936,9 +10936,14 @@ function parseReceiptLine(rawLine, format){
   // 這裡先找有沒有這種「數字+常見單位縮寫」的寫法,有的話直接拿這個數字當數量——這比行尾數字
   // 的猜測準確得多,也不會被「學習欄位位置」這個機制誤導,因為真正的數量根本不在行尾那串
   // 數字裡,不管怎麼學位置都學不到。找到這個明確寫法的話,優先度比學過的欄位位置還高。
+  //
+  // 單位縮寫故意不含 KG/G/L/ML 這類重量/容量單位——這些幾乎都是拿來描述「商品本身的包裝大小」
+  // (例如商品名稱裡常見的「(3.3kg)」,是在說這箱東西裝多重,不是在講訂了幾份),混進來會誤判。
+  // 另外故意找「最後一個」符合的地方,不是找到第一個就用——商品描述裡有時候會先帶到重量之類的
+  // 資訊,真正的訂購數量欄位通常接在完整描述之後,排在比較後面的位置。
   let unitPatternQty = null;
-  const unitMatch = cleanDescription.match(/(\d+(?:\.\d+)?)\s*(CTN|CARTON|PCS?|EA|BOX|DZ|SET|PACK|BAG|KG|G|L|ML)\b/i);
-  if(unitMatch) unitPatternQty = parseFloat(unitMatch[1]);
+  const unitMatches = [...cleanDescription.matchAll(/(\d+(?:\.\d+)?)\s+(CTN|CARTON|PCS?|EA|BOX|DZ|SET|PACK|BAG)\b/gi)];
+  if(unitMatches.length > 0) unitPatternQty = parseFloat(unitMatches[unitMatches.length - 1][1]);
 
   let qty = null, amount = null;
   if(unitPatternQty !== null && unitPatternQty > 0){
@@ -15426,6 +15431,11 @@ async function startApp(){
   document.getElementById('orderDate').value = todayISO();
   setTxType('in');
   await loadData();
+  // setTxType('in') 在這個函式一開始、loadData() 還沒跑完之前就先執行過了(為了讓表單欄位
+  // 一開機就有預設值可看),那時候 purchaseSuppliers 都還是空的,進貨方下拉選單當下等於是空的。
+  // 現在資料真的載入完成了,如果目前畫面剛好還停在「登記進出貨→進貨」這個狀態,重新刷新一次
+  // 這個下拉選單,才不會讓使用者一開機就看到空的進貨方清單,要手動切換類型繞一圈才會刷新到。
+  if(currentTxType === 'in') populateTxPartyHistorySelect();
   applyStaticTranslations();
   renderCurrentUserBadge();
   updateAppHeaderTitle();
