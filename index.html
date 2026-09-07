@@ -4679,14 +4679,13 @@ function renderOcrDbProductSelect(){
   if(usedCats.includes(prevCat)) catSel.value = prevCat;
   const catFilterVal = catSel.value;
 
-  // 供應商篩選:列出「進貨方管理」清單裡的供應商名稱,再加上記憶對照表裡實際出現過、但目前
-  // 不在管理清單裡的名稱(例如供應商後來被刪掉了,舊的記憶還在)——確保篩選得到所有實際存在
-  // 過的供應商,不會因為供應商後來被刪除,連帶篩選不到那筆舊記憶。
+  // 供應商篩選:只列出記憶對照表裡實際有記錄的供應商名稱——不管那個供應商現在還在不在
+  // 「進貨方管理」的清單裡,只要有辨識紀錄就會出現;完全沒有任何辨識紀錄的供應商(不管是還在
+  // 管理清單裡、還是已經被刪除的舊供應商)不會列進來,避免下拉選單塞滿一堆選了也篩不出東西
+  // 的供應商,反而不好找。
   const supSel = document.getElementById('ocrDbSupplierFilter');
   const prevSup = supSel.value;
-  const managedNames = purchaseSuppliers.map(s => s.name);
-  const mappingNames = [...new Set(receiptLineMappings.map(m => m.partyId).filter(Boolean))];
-  const allSupplierNames = [...new Set([...managedNames, ...mappingNames])].sort((a, b) => a.localeCompare(b));
+  const allSupplierNames = [...new Set(receiptLineMappings.map(m => m.partyId).filter(Boolean))].sort((a, b) => a.localeCompare(b));
   supSel.innerHTML = `<option value="">${t('ocrDbAnySupplierLabel')}</option>` + allSupplierNames.map(n => `<option value="${n.replace(/"/g,'&quot;')}">${escapeHtmlForPrint(n)}</option>`).join('');
   if(allSupplierNames.includes(prevSup)) supSel.value = prevSup;
 
