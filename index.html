@@ -11289,12 +11289,18 @@ function pickNumberNearX(lineWords, targetX, preferUnitPattern){
     }
   }
   let best = null, bestDist = Infinity;
+  // 只有離目標欄位 X 座標夠近(在合理的欄寬範圍內)的數字才採用——如果一整行裡「離得最近」
+  // 的數字其實還是遠在幾百像素外(例如版面上方地址區塊裡的帳號、電話號碼這類跟商品表格完全
+  // 無關的數字),代表這一行本來就不是表格裡的資料列,只是剛好有個數字存在,不該硬拿來當
+  // 數量用。250 像素大約是這類收據裡欄與欄之間常見間距的兩倍多,足夠容忍 OCR 座標抓取的
+  // 誤差,又能濾掉明顯不相干的雜訊行。
+  const MAX_COLUMN_DIST = 250;
   for(const w of lineWords){
     if(!isNumericWord(w.text)) continue;
     const dist = Math.abs(w.cx - targetX);
     if(dist < bestDist){ bestDist = dist; best = parseFloat(w.text.replace(/[,$]/g, '')); }
   }
-  return best;
+  return bestDist <= MAX_COLUMN_DIST ? best : null;
 }
 function parseReceiptWithColumns(words){
   if(!words || words.length === 0) return null;
