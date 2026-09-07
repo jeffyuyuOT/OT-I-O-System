@@ -2139,6 +2139,7 @@
       <label data-i18n="fieldReceiptOcrRawText">收據上讀到的文字</label>
       <input type="text" id="receiptOcrRawTextDisplay" style="width:100%;background:var(--bg);" disabled />
     </div>
+    <p id="receiptOcrRawNumbersDisplay" style="font-size:11px;color:var(--ink-soft);margin:-6px 0 12px;"></p>
     <div class="field-block">
       <label data-i18n="fieldFilterByCategory">依分類篩選商品</label>
       <select id="receiptOcrCategoryFilter" onchange="renderReceiptOcrProductOptions()" style="width:100%;"></select>
@@ -2985,6 +2986,7 @@ const I18N = {
     scanningPdfPageMsg: '掃描中(第 {current}/{total} 頁)…',
     receiptScanFoundLinesMsg: '辨識到 {n} 個品項,開始逐一確認', errReceiptScanFailed: '掃描失敗,請重新整理頁面再試一次',
     receiptOcrProgressText: '還有 {remaining} 個品項待確認',
+    receiptOcrRawNumbersLabel: '這行辨識到的數字:{numbers}',
     errReceiptFileType: '請選擇圖片或 PDF 檔案', errReceiptTooLarge: '檔案太大,請壓縮到 10MB 以下',
     uploadingReceiptMsg: '上傳中…', receiptUploadedMsg: '✓ 已上傳', errReceiptUploadFailed: '上傳失敗,請重新整理頁面再試一次',
     uploadingReceiptMsgWithName: '上傳中…{name}', receiptUploadedPartialMsg: '✓ 已上傳 {success} 個檔案,{fail} 個失敗(可能是檔案格式或大小不符)',
@@ -3496,6 +3498,7 @@ const I18N = {
     scanningPdfPageMsg: 'Scanning (page {current} of {total})…',
     receiptScanFoundLinesMsg: 'Recognized {n} item(s), confirming one by one', errReceiptScanFailed: 'Scan failed, please refresh the page and try again',
     receiptOcrProgressText: '{remaining} item(s) left to confirm',
+    receiptOcrRawNumbersLabel: 'Numbers found on this line: {numbers}',
     errReceiptFileType: 'Please select an image or PDF file', errReceiptTooLarge: 'File is too large, please compress it under 10MB',
     uploadingReceiptMsg: 'Uploading…', receiptUploadedMsg: '✓ Uploaded', errReceiptUploadFailed: 'Upload failed, please refresh and try again',
     uploadingReceiptMsgWithName: 'Uploading… {name}', receiptUploadedPartialMsg: '✓ {success} file(s) uploaded, {fail} failed (check file type/size)',
@@ -11136,6 +11139,20 @@ function openReceiptOcrConfirmModal(line){
   document.getElementById('receiptOcrAmountInput').value = line.amount || '';
   document.getElementById('receiptOcrConfirmMsg').textContent = '';
   document.getElementById('receiptOcrProgressInfo').textContent = tf('receiptOcrProgressText', { remaining: pendingReceiptOcrLines.length });
+  // 這行 OCR 實際抓到的所有數字,依序列出來,順便標出目前系統猜/學到的答案是指到哪一個——
+  // 抓錯的時候,直接看得出來是「這幾個數字裡選錯了哪一個」,而不是完全看不出系統在想什麼。
+  const numbersDisplay = document.getElementById('receiptOcrRawNumbersDisplay');
+  if(line.rawNumbers && line.rawNumbers.length > 0){
+    const labeled = line.rawNumbers.map(n => {
+      const isQty = Math.abs(n - line.qty) < 0.01;
+      const isAmount = line.amount !== null && Math.abs(n - line.amount) < 0.01;
+      const tag = isQty ? ` (${t('lblQty')})` : (isAmount ? ` (${t('fieldReceiptOcrAmount').replace(/\(.*\)/, '').trim()})` : '');
+      return `${n}${tag}`;
+    }).join(', ');
+    numbersDisplay.textContent = tf('receiptOcrRawNumbersLabel', { numbers: labeled });
+  } else {
+    numbersDisplay.textContent = '';
+  }
   syncCategoryOrder();
   const catSel = document.getElementById('receiptOcrCategoryFilter');
   const usedCats = categoryOrder.filter(c => products.some(p => (p.category || '未分類') === c));
