@@ -10920,15 +10920,17 @@ function parseReceiptLine(rawLine, format){
   if(!cleanDescription || numbers.length === 0) return null; // 沒有文字描述,或整行沒有任何數字欄位(常見於分隔線、頁首頁尾),直接略過
 
   let qty = null, amount = null;
-  if(format && format.qtyIndexFromEnd !== undefined && format.amountIndexFromEnd !== undefined
-     && numbers.length > format.qtyIndexFromEnd && numbers.length > format.amountIndexFromEnd){
+  if(format && format.qtyIndexFromEnd !== undefined && numbers.length > format.qtyIndexFromEnd){
     qty = numbers[numbers.length - 1 - format.qtyIndexFromEnd];
-    amount = numbers[numbers.length - 1 - format.amountIndexFromEnd];
   } else if(numbers.length >= 2){
-    amount = numbers[numbers.length - 1];
     qty = numbers[numbers.length - 2];
   } else {
     qty = numbers[0];
+  }
+  if(format && format.amountIndexFromEnd !== undefined && numbers.length > format.amountIndexFromEnd){
+    amount = numbers[numbers.length - 1 - format.amountIndexFromEnd];
+  } else if(numbers.length >= 2){
+    amount = numbers[numbers.length - 1];
   }
   return { description: cleanDescription, qty: (qty && qty > 0) ? qty : 1, amount: (amount && amount > 0) ? amount : null, rawNumbers: numbers };
 }
@@ -11059,12 +11061,17 @@ async function scanReceiptForItems(){
         msgEl.textContent = t('scanningReceiptMsg');
       }
       const result = await Tesseract.recognize(ocrSources[i], 'eng');
-      // 先試著用「QTY/Amount 欄位標題的實際座標」去抓數字(比較準,因為是照收據原本的欄位對齊
-      // 去讀,不是用猜的);這個方法需要收據上有清楚辨識出「QTY」這個標題文字才能用,辨識不到
-      // 標題的話(可能 OCR 沒認出來,或這一頁本來就沒有欄位標題),才退回用純文字、猜數字
-      // 位置的舊邏輯,那個邏輯還會套用這個供應商之前學到的欄位位置(如果有的話)。
-      const pageLines = parseReceiptWithColumns(result.data.words || [])
-        || result.data.text.split('\n').map(line => parseReceiptLine(line, format)).filter(Boolean);
+      // 這個供應商如果已經有學過欄位位置(之前手動修正過,系統記住「數量是第幾個數字」),
+      // 優先直接照學到的位置解讀,不要再用「QTY 標題座標」去猜——欄位標題定位這個方法終究
+      // 是用猜的,同一個供應商的收據格式本來就是固定的,使用者已經明確教過一次之後,系統學到
+      // 的答案應該要比重新猜一次更可靠,不能讓「猜的」蓋掉「使用者教過的」。只有完全沒學過
+      // 這個供應商格式的時候(第一次掃這個供應商的收據),才會試著用欄位標題座標去猜一個
+      // 起始答案給使用者確認;如果收據上也沒有清楚的欄位標題,才退回最陽春的「猜最後兩個
+      // 數字」邏輯。
+      const pageLines = format
+        ? result.data.text.split('\n').map(line => parseReceiptLine(line, format)).filter(Boolean)
+        : (parseReceiptWithColumns(result.data.words || [])
+           || result.data.text.split('\n').map(line => parseReceiptLine(line, format)).filter(Boolean));
       allLines = allLines.concat(pageLines);
     }
     if(allLines.length === 0){
@@ -11163,20 +11170,29 @@ async function learnQtyAmountPositionFromCorrection(originalLine, confirmedQty, 
 
   const qtyIdx = findClosestNumberIndexFromEnd(numbers, confirmedQty);
   const amountIdx = confirmedAmount ? findClosestNumberIndexFromEnd(numbers, confirmedAmount) : null;
-  if(qtyIdx === null) return; // 使用者填的數量,在這行 OCR 抓到的數字裡完全找不到對應的(可能是整個看錯或手動重新估算的),沒有明確的欄位位置可以學,放棄這次學習,不要記錄錯的猜測
 
-  const newFormat = { qtyIndexFromEnd: qtyIdx };
-  if(amountIdx !== null && amountIdx !== qtyIdx) newFormat.amountIndexFromEnd = amountIdx;
-  else if(originalLine.amount !== null){
-    // 金額對不到明確的數字位置(或剛好跟數量指到同一個位置),但這一行原本判斷的金額位置
-    // 可能還是對的(只有數量猜錯),沿用原本判斷出來的金額位置,不要整個蓋掉。
-    const foundIdx = numbers.indexOf(originalLine.amount);
-    if(foundIdx !== -1) newFormat.amountIndexFromEnd = numbers.length - 1 - foundIdx;
+  // 數量、金額的欄位位置各自獨立學、各自獨立存——使用者這次如果只確認了數量、沒有填金額
+  // (或金額對不到明確的數字位置),不會因為金額學不到就連數量都不存,不然使用者明明教對了
+  // 數量,系統卻整個學習結果丟掉不存,下次還是繼續猜錯。
+  const current = receiptSupplierFormats[receiptOcrPartyId] || {};
+  const newFormat = { ...current };
+  let changed = false;
+
+  if(qtyIdx !== null && current.qtyIndexFromEnd !== qtyIdx){
+    newFormat.qtyIndexFromEnd = qtyIdx;
+    changed = true;
   }
-  if(newFormat.amountIndexFromEnd === undefined) return; // 金額欄位位置還是不確定的話,先不要存半套的格式設定
+  if(amountIdx !== null && amountIdx !== qtyIdx && current.amountIndexFromEnd !== amountIdx){
+    newFormat.amountIndexFromEnd = amountIdx;
+    changed = true;
+  } else if(amountIdx === null && originalLine.amount !== null && current.amountIndexFromEnd === undefined){
+    // 使用者這次沒有主動去改金額(維持系統原本猜的那個值),而且之前也還沒學過這個供應商的
+    // 金額欄位位置——沿用系統原本判斷出來的金額位置當作學習結果,總比完全沒學到好。
+    const foundIdx = numbers.indexOf(originalLine.amount);
+    if(foundIdx !== -1){ newFormat.amountIndexFromEnd = numbers.length - 1 - foundIdx; changed = true; }
+  }
 
-  const current = receiptSupplierFormats[receiptOcrPartyId];
-  if(current && current.qtyIndexFromEnd === newFormat.qtyIndexFromEnd && current.amountIndexFromEnd === newFormat.amountIndexFromEnd) return; // 跟目前記的一樣,不用重存
+  if(!changed) return; // 這次沒有學到任何新東西(跟已經記的一樣,或完全找不到明確位置),不用重存
   receiptSupplierFormats[receiptOcrPartyId] = newFormat;
   try{ await dbSet('receiptSupplierFormats', JSON.stringify(receiptSupplierFormats)); }
   catch(e){ console.error('儲存供應商收據格式偏好失敗', e); }
