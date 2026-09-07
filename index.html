@@ -2444,6 +2444,7 @@ let stockLocationShowOnPickingSlip = false; // Picking Slip 要不要多印一�
 let receiptLineMappings = []; // 收據辨識的記憶對照表:{id, partyId, normalizedText, productId}。同一個供應商+同樣的 OCR 文字之前確認過對應到哪個商品,下次直接沿用不用再問。
 let pendingReceiptOcrLines = []; // 這次掃描收據、還在等使用者確認的品項清單(掃描完先暫存在這裡,確認視窗一次一筆處理)
 let receiptOcrSessionNewMappingIds = []; // 這次掃描過程中「新建立」的記憶對照表 id(略過或確認的都算)——如果整個掃描動作被取消,這些新建的記憶要一起復原刪除,不能留下「已經取消的這次掃描,卻默默留下部分永久記憶」這種不一致的狀態
+let ocrDbSelectedMappingIds = new Set(); // 掃描收據數據庫頁面,目前勾選要一起刪除的記憶 id
 let receiptSupplierFormats = {}; // 每個供應商收據格式的學習結果:{ [partyId]: { qtyIndexFromEnd, amountIndexFromEnd } } ——數字都是「從這行抓到的數字裡,從尾端數過來第幾個」(0 是最後一個)
 let purchaseSuppliers = []; // 進貨方管理:{id, name, phone, address, note}。登記進出貨的進貨方下拉選單依這張清單顯示(依名稱字母排序),刪除的供應商不會再出現在下拉選單裡
 let shippingParties = [];
@@ -2966,6 +2967,8 @@ const I18N = {
     colSupplier: '供應商', ocrDbAnySupplierLabel: '(不限供應商)', deletedProductLabel: '(商品已刪除)',
     chkIncludeSkippedOcrData: '包含略過的資訊', ocrDbSkippedLabel: '(略過,非商品資訊)',
     confirmDeleteOcrMapping: '確定要刪除這筆收據辨識記憶嗎?下次掃描到同樣的文字會重新跳出來問。',
+    ocrDbSelectedCountLabel: '已選取 {n} 筆', btnDeleteSelected: '刪除已選取',
+    confirmDeleteSelectedOcrMappings: '確定要刪除這 {n} 筆收據辨識記憶嗎?下次掃描到同樣的文字會重新跳出來問。',
     subtabTxRegister: '登記進出貨', subtabTxVerify: '訂單核對', subtabTxForecast: '進貨預估', subtabTxData: '資料維護',
     secForecast: '進貨預估',
     forecastDesc: '目前庫存可撐是跟庫存總覽一樣的算法(用平均出貨量推算);填了「預計進貨數量」之後,右邊「進貨後庫存可撐」會即時算出把這批貨加進去、大概還能再撐多久(用(預計進貨數量+目前庫存量)除以平均用量估算),方便抓進貨量的參考,不會真的異動庫存。',
@@ -3487,6 +3490,8 @@ const I18N = {
     colSupplier: 'Supplier', ocrDbAnySupplierLabel: '(any supplier)', deletedProductLabel: '(product deleted)',
     chkIncludeSkippedOcrData: 'Include skipped info', ocrDbSkippedLabel: '(skipped, not product info)',
     confirmDeleteOcrMapping: 'Delete this receipt-scan memory entry? The next scan matching this text will ask again.',
+    ocrDbSelectedCountLabel: '{n} selected', btnDeleteSelected: 'Delete Selected',
+    confirmDeleteSelectedOcrMappings: 'Delete these {n} receipt-scan memory entries? The next scan matching that text will ask again.',
     subtabTxRegister: 'Register Stock', subtabTxVerify: 'Order Verify', subtabTxForecast: 'Purchase Forecast', subtabTxData: 'Data Maintenance',
     secForecast: 'Purchase Forecast',
     forecastDesc: 'Current Stock Remaining uses the same calculation as Stock Overview (based on average usage). Once you fill in "Forecast Qty", the "Remaining After Purchase" column on the right instantly estimates how long stock would last with that batch added in (calculated as (forecast qty + current stock) ÷ average usage) — handy for sizing a purchase, and doesn\'t actually change any stock.',
@@ -4730,15 +4735,30 @@ function renderOcrDbMappingList(){
     container.innerHTML = `<div class="empty-note">${t('ocrDbNoMappingsHint')}</div>`;
     return;
   }
+  // 篩選條件變了、清單裡的項目跟著換了一批,之前勾選的裡面如果有已經不在這次清單裡的,先清掉
+  // (不然可能誤刪到畫面上根本沒看到的其他記憶),只留下這次清單裡還存在的勾選狀態。
+  const visibleIds = new Set(mappings.map(m => m.id));
+  ocrDbSelectedMappingIds = new Set([...ocrDbSelectedMappingIds].filter(id => visibleIds.has(id)));
+
   const showProductCol = !productId;
-  container.innerHTML = `<table class="stock-table" style="margin-top:12px;">
-    <thead><tr>${showProductCol ? `<th>${t('lblProduct')}</th>` : ''}<th>${t('colSupplier')}</th><th>${t('fieldReceiptOcrRawText')}</th><th></th></tr></thead>
+  const allSelected = mappings.length > 0 && mappings.every(m => ocrDbSelectedMappingIds.has(m.id));
+  const bulkBarHtml = ocrDbSelectedMappingIds.size > 0 ? `
+    <div style="display:flex;align-items:center;gap:10px;margin:10px 0;">
+      <span style="font-size:12.5px;color:var(--ink-soft);">${tf('ocrDbSelectedCountLabel', { n: ocrDbSelectedMappingIds.size })}</span>
+      <button class="btn ghost" onclick="deleteSelectedOcrMappings()" style="color:var(--crit);">${t('btnDeleteSelected')}</button>
+    </div>` : '';
+  container.innerHTML = bulkBarHtml + `<table class="stock-table" style="margin-top:${bulkBarHtml ? '0' : '12px'};">
+    <thead><tr>
+      <th style="width:32px;"><input type="checkbox" ${allSelected ? 'checked' : ''} onchange="toggleAllOcrDbSelection(this.checked)" style="cursor:pointer;" /></th>
+      ${showProductCol ? `<th>${t('lblProduct')}</th>` : ''}<th>${t('colSupplier')}</th><th>${t('fieldReceiptOcrRawText')}</th><th></th>
+    </tr></thead>
     <tbody>
       ${mappings.map(m => {
         const isSkip = m.productId === RECEIPT_SKIP_SENTINEL;
         const p = isSkip ? null : productMap[m.productId];
         return `
         <tr>
+          <td><input type="checkbox" ${ocrDbSelectedMappingIds.has(m.id) ? 'checked' : ''} onchange="toggleOcrDbSelection('${m.id}', this.checked)" style="cursor:pointer;" /></td>
           ${showProductCol ? `<td>${isSkip ? `<span style="color:var(--ink-soft);font-style:italic;">${t('ocrDbSkippedLabel')}</span>` : (p ? escapeHtmlForPrint(p.name) : t('deletedProductLabel'))}</td>` : ''}
           <td>${escapeHtmlForPrint(m.partyId || t('ocrDbAnySupplierLabel'))}</td>
           <td>${escapeHtmlForPrint(m.normalizedText)}</td>
@@ -4748,6 +4768,55 @@ function renderOcrDbMappingList(){
       }).join('')}
     </tbody>
   </table>`;
+}
+
+function toggleOcrDbSelection(mappingId, checked){
+  if(checked) ocrDbSelectedMappingIds.add(mappingId);
+  else ocrDbSelectedMappingIds.delete(mappingId);
+  renderOcrDbMappingList();
+}
+function toggleAllOcrDbSelection(checked){
+  // 只勾/取消目前篩選條件下畫面上實際會顯示的那些列,不會動到篩選範圍外、畫面上看不到的
+  // 其他記憶。
+  renderOcrDbMappingListWithSelection(checked);
+}
+function renderOcrDbMappingListWithSelection(checkAll){
+  // toggleAllOcrDbSelection 呼叫這個:先算出目前篩選條件下畫面上會顯示的那些 id,再整批加入
+  // 或整批移出勾選集合,最後照常重畫一次。
+  const sel = document.getElementById('ocrDbProductSelect');
+  const productId = sel ? sel.value : '';
+  const catFilterVal = document.getElementById('ocrDbCategoryFilter').value;
+  const supplierFilterVal = document.getElementById('ocrDbSupplierFilter').value;
+  const includeSkipped = document.getElementById('ocrDbIncludeSkippedToggle').checked;
+  const productMap = Object.fromEntries(products.map(p => [p.id, p]));
+  let mappings = receiptLineMappings.filter(m => includeSkipped || m.productId !== RECEIPT_SKIP_SENTINEL);
+  if(supplierFilterVal) mappings = mappings.filter(m => (m.partyId || '') === supplierFilterVal);
+  mappings = productId
+    ? mappings.filter(m => m.productId === productId)
+    : mappings.filter(m => {
+        if(m.productId === RECEIPT_SKIP_SENTINEL) return !catFilterVal;
+        const p = productMap[m.productId];
+        return catFilterVal ? (p && (p.category || '未分類') === catFilterVal) : true;
+      });
+  if(checkAll) mappings.forEach(m => ocrDbSelectedMappingIds.add(m.id));
+  else mappings.forEach(m => ocrDbSelectedMappingIds.delete(m.id));
+  renderOcrDbMappingList();
+}
+async function deleteSelectedOcrMappings(){
+  const ids = [...ocrDbSelectedMappingIds];
+  if(ids.length === 0) return;
+  showConfirmModal(tf('confirmDeleteSelectedOcrMappings', { n: ids.length }), async () => {
+    try{
+      await sb.from('receipt_line_mappings').delete().in('id', ids);
+      const idSet = new Set(ids);
+      receiptLineMappings = receiptLineMappings.filter(m => !idSet.has(m.id));
+      ocrDbSelectedMappingIds = new Set();
+      renderOcrDbMappingList();
+    } catch(e){
+      console.error('批次刪除收據記憶失敗', e);
+      showInfoModal('⚠ 刪除失敗,請重新整理頁面再試一次。');
+    }
+  });
 }
 
 function deleteOcrMapping(mappingId){
