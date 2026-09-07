@@ -962,7 +962,7 @@
       <div id="subtab-sys-users" class="subtab-content active-subtab">
         <div class="section-title" data-i18n="secUserManagement">使用者管理</div>
         <p style="font-size:12.5px;color:var(--ink-soft);margin:0 0 12px;" data-i18n="userManagementDesc">
-          管理可以登入這個 App 的帳號。每個帳號有一個主要身分(管理者/訂貨用戶/庫存管理員),新增帳號時會依身分帶入預設可看的分頁,之後仍可針對個別帳號再細部勾選調整可看的分頁。
+          管理可以登入這個 App 的帳號。每個帳號有一個主要身分(管理者/訂貨用戶/倉庫管理員),新增帳號時會依身分帶入預設可看的分頁,之後仍可針對個別帳號再細部勾選調整可看的分頁。
         </p>
         <div id="usersTable"><div class="empty-note">尚無使用者</div></div>
         <div id="userMsg" class="msg"></div>
@@ -1567,6 +1567,7 @@
   </div>
 
   <div id="tab-warehouse-admin" class="tab-content">
+    <div class="section">
     <div class="subtab-bar">
       <button class="subtab-btn active" onclick="switchWarehouseAdminSubTab('subtab-order-parties')" id="btn-subtab-order-parties" data-i18n="subtabManageParties">出貨方管理</button>
       <button class="subtab-btn" onclick="switchWarehouseAdminSubTab('subtab-purchase-mgmt-suppliers')" id="btn-subtab-purchase-mgmt-suppliers" data-i18n="secSupplierManagement">進貨方管理</button>
@@ -1751,6 +1752,7 @@
         <button class="btn" onclick="addProduct()" data-i18n="btnAddProduct">新增商品</button>
       </div>
       <div id="productMsg" class="msg"></div>
+    </div>
     </div>
     </div>
   </div>
@@ -2609,10 +2611,10 @@ const I18N = {
     statusFilterAll: '燈號:全部', statusFilterCrit: '🔴 紅燈(庫存吃緊)', statusFilterWarn: '🟡 黃燈(庫存偏低)',
     statusFilterSafe: '🟢 綠燈(庫存充足)', statusFilterNone: '⚪ 灰燈(無出貨紀錄)',
     orderStockChangedIntro: '庫存在確認的當下有變動,訂單未送出:', orderStockChangedLine: '「{name}」只剩 {available} 可訂(原本要訂 {requested})',
-    tabUsers: '使用者管理', secUserManagement: '使用者管理', userManagementDesc: '管理可以登入這個 App 的帳號。每個帳號有一個主要身分(管理者/訂貨用戶/庫存管理員),新增帳號時會依身分帶入預設可看的分頁,之後仍可針對個別帳號再細部勾選調整可看的分頁。',
+    tabUsers: '使用者管理', secUserManagement: '使用者管理', userManagementDesc: '管理可以登入這個 App 的帳號。每個帳號有一個主要身分(管理者/訂貨用戶/倉庫管理員),新增帳號時會依身分帶入預設可看的分頁,之後仍可針對個別帳號再細部勾選調整可看的分頁。',
     secAddUser: '新增使用者', loginUsername: '帳號', loginPassword: '密碼', userRole: '身分', btnAddUser: '新增使用者',
     userTabPermDesc: '可看的分頁', noUsersYet: '尚無使用者', btnSave: '儲存', btnDelete: '刪除',
-    roleAdmin: '管理者', roleOrder: '訂貨用戶', roleInventory: '庫存管理員',
+    roleAdmin: '管理者', roleOrder: '訂貨用戶', roleInventory: '倉庫管理員',
 
     noShipmentRecord: '近12個月無出貨紀錄', daysLeftMonths: '約 {n} 個月', daysLeftDays: '約 {n} 天',
     hideAction: '隱藏', unhideAction: '取消隱藏', addToOrderAction: '加入訂貨', removeFromOrderAction: '移出訂貨',
@@ -3119,10 +3121,10 @@ const I18N = {
     statusFilterAll: 'Status: All', statusFilterCrit: '🔴 Red (Low Stock)', statusFilterWarn: '🟡 Yellow (Stock Getting Low)',
     statusFilterSafe: '🟢 Green (Stock OK)', statusFilterNone: '⚪ Gray (No Shipment Data)',
     orderStockChangedIntro: 'Stock changed right as you confirmed — order was not submitted:', orderStockChangedLine: '"{name}" only has {available} left (you tried to order {requested})',
-    tabUsers: 'User Management', secUserManagement: 'User Management', userManagementDesc: 'Manage accounts that can log in to this app. Each account has a main role (Admin/Order User/Inventory Manager) that fills in default tab access when created; you can still fine-tune tab access per account afterward.',
+    tabUsers: 'User Management', secUserManagement: 'User Management', userManagementDesc: 'Manage accounts that can log in to this app. Each account has a main role (Admin/Order User/Warehouse Manager) that fills in default tab access when created; you can still fine-tune tab access per account afterward.',
     secAddUser: 'Add User', loginUsername: 'Username', loginPassword: 'Password', userRole: 'Role', btnAddUser: 'Add User',
     userTabPermDesc: 'Visible tabs', noUsersYet: 'No users yet', btnSave: 'Save', btnDelete: 'Delete',
-    roleAdmin: 'Admin', roleOrder: 'Order User', roleInventory: 'Inventory Manager',
+    roleAdmin: 'Admin', roleOrder: 'Order User', roleInventory: 'Warehouse Manager',
 
     noShipmentRecord: 'No shipments in the last 12 months', daysLeftMonths: 'About {n} months', daysLeftDays: 'About {n} days',
     hideAction: 'Hide', unhideAction: 'Unhide', addToOrderAction: 'Add to Order', removeFromOrderAction: 'Remove from Order',
@@ -3933,10 +3935,10 @@ const CAPABILITY_DEFS = [
 // 各主要身分預設可看的分頁,新增使用者時會依身分帶入,之後可再針對個別帳號自行調整(不受身分限制)。
 // 三種身分預設分別是:
 //   - 管理者(admin):全部分頁。
-//   - 庫存管理員(inventory):庫存管理、庫存總覽、訂貨後台管理、進出貨紀錄、後台紀錄。
+//   - 倉庫管理員(inventory):倉庫作業台、庫存總覽、訂貨後台管理、倉庫後台管理、歷史紀錄。
 //   - 訂貨用戶(order):只有訂貨分頁。
 // 注意:tab-master(系統管理)現在包含使用者管理、商品主檔匯入,以及完整資料備份/還原/還原預設,
-// 所以「庫存管理員」預設不帶這個分頁;如果庫存管理員也需要這些功能,可以再手動幫個別帳號
+// 所以「倉庫管理員」預設不帶這個分頁;如果倉庫管理員也需要這些功能,可以再手動幫個別帳號
 // 打開 tab-master,並用上面的 cap-manage-users 限制他們碰不到使用者管理。
 const ROLE_DEFAULT_TABS = {
   admin: TAB_DEFS.map(d => d.id),
@@ -4405,14 +4407,17 @@ function showMobileHomeMenu(){
 }
 
 // 目前登入使用者可以看到的分頁 id 清單;沒有登入資訊時(理論上不會發生,防呆用)預設全部開放。
-// 使用者的 tabPermissions 是「當初存檔那個時間點」的分頁清單——如果後來系統新增了分頁
-// (例如這次的「倉庫作業台」「倉庫後台管理」),存檔在那之前的帳號,清單裡自然不會有這幾個
-// 新分頁,直接回傳存檔內容的話,這些帳號會永遠看不到新分頁,除非有人手動去使用者管理重新
-// 勾選。這裡比照 tabOrder 用 syncTabOrder() 自動補新分頁的做法:只要是這個帳號的身分
-// (role)原本預設就會給的分頁,但存檔的清單裡沒有,視為「這個權限選項在存檔當下還不存在」,
-// 自動補進去,不會因為系統加了新分頁就讓舊帳號的權限清單顯得比實際應該的還要窄。真的被
-// 管理者手動拿掉的分頁(角色預設沒有的),不會被這裡補回來。
+// 管理者(admin)這個身分,不管存檔裡的 tabPermissions 寫了什麼,一律直接給全部分頁——管理者
+// 本來就該什麼都看得到,沒有理由讓管理者自己的帳號被一份可能過時的權限清單卡住看不到新分頁
+// (這也是這次「倉庫作業台/倉庫後台管理」上線後,管理者帳號一度看不到新分頁的根本解法,比
+// 下面「補新分頁」那個做法更直接、更不會有漏網之魚)。
+// 非管理者身分(訂貨用戶、倉庫管理員)還是照存檔的 tabPermissions 走,但一樣要處理「存檔在
+// 新分頁出現之前」的情況:只要是這個帳號的身分(role)原本預設就會給的分頁,但存檔的清單裡
+// 沒有,視為「這個權限選項在存檔當下還不存在」,自動補進去,不會因為系統加了新分頁就讓舊
+// 帳號的權限清單顯得比實際應該的還要窄。真的被管理者手動拿掉的分頁(角色預設沒有的),
+// 不會被這裡補回來。
 function getCurrentUserTabPermissions(){
+  if(currentUser && currentUser.role === 'admin') return TAB_DEFS.map(d => d.id);
   if(currentUser && Array.isArray(currentUser.tabPermissions)){
     const roleDefaults = ROLE_DEFAULT_TABS[currentUser.role] || [];
     const allIds = TAB_DEFS.map(d => d.id);
