@@ -20,7 +20,6 @@
 <link href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.1.0/dist/tesseract.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <style>
   :root{
@@ -2302,6 +2301,11 @@
 // ============================================================
 const SUPABASE_URL = 'https://zurktjerrqmjbrhvtibm.supabase.co';
 const SUPABASE_ANON_KEY = 'sb_publishable_VRLmAkNvk9JgatRltsZSXg_JCUObpTK';
+// 獨立收據掃描服務(receipt-scan-service)的網址跟這個倉庫的 API key——部署到正式環境時,
+// 網址要換成 Cloudflare 上設的網域,API key 是這個倉庫在 warehouses 表裡登記的那把原始 key
+// (不是 hash 過的那份)。掃描服務本身跟這個倉庫用的 Supabase 是兩個完全獨立的專案。
+const RECEIPT_SCAN_SERVICE_URL = 'https://forecast-working-reserved-pirates.trycloudflare.com';
+const RECEIPT_SCAN_SERVICE_API_KEY = '562f05dd5941c5a089ecfcf4c371cb83993ef8aad09c68780cae74e0858027e6';
 const EMAIL_DOMAIN = 'inventory.local';                  // placeholder domain used to turn usernames into login emails
 
 const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
@@ -2444,9 +2448,7 @@ let stockLocationShowOnPickingSlip = false; // Picking Slip 要不要多印一�
 let receiptLineMappings = []; // 收據辨識的記憶對照表:{id, partyId, normalizedText, productId}。同一個供應商+同樣的 OCR 文字之前確認過對應到哪個商品,下次直接沿用不用再問。
 let pendingReceiptOcrLines = []; // 這次掃描收據、還在等使用者確認的品項清單(掃描完先暫存在這裡,確認視窗一次一筆處理)
 let receiptOcrSessionNewMappingIds = []; // 這次掃描過程中「新建立」的記憶對照表 id(略過或確認的都算)——如果整個掃描動作被取消,這些新建的記憶要一起復原刪除,不能留下「已經取消的這次掃描,卻默默留下部分永久記憶」這種不一致的狀態
-let receiptOcrSessionFormatSnapshot = undefined; // 這次掃描「開始前」,目前這個供應商的欄位位置學習結果長怎樣(undefined 代表這個供應商掃描前根本還沒有任何學習記錄)——掃描過程中每確認一行都可能更新 receiptSupplierFormats,如果整個掃描動作被取消,要把它復原成掃描前的樣子,不能留下「已取消的這次掃描,卻默默留下欄位位置學習結果」這種不一致的狀態
 let ocrDbSelectedMappingIds = new Set(); // 掃描收據數據庫頁面,目前勾選要一起刪除的記憶 id
-let receiptSupplierFormats = {}; // 每個供應商收據格式的學習結果:{ [partyId]: { qtyIndexFromEnd, amountIndexFromEnd } } ——數字都是「從這行抓到的數字裡,從尾端數過來第幾個」(0 是最後一個)
 let purchaseSuppliers = []; // 進貨方管理:{id, name, phone, address, note}。登記進出貨的進貨方下拉選單依這張清單顯示(依名稱字母排序),刪除的供應商不會再出現在下拉選單裡
 let shippingParties = [];
 let currentTxType = 'in';
@@ -3008,13 +3010,12 @@ const I18N = {
     fieldReceiptOcrAmount: '金額(選填)', btnSkip: '略過這一行', btnConfirmAndAdd: '確認並加入',
     fieldReceiptOcrSuggestions: '庫存裡找到可能符合的商品',
     errReceiptScanNoImage: '請先上傳一張圖片格式的收據(目前不支援直接掃描 PDF)',
-    errReceiptScanLibFailed: '掃描功能載入失敗,請重新整理頁面再試一次',
+    errReceiptScanNotConfigured: '收據掃描服務尚未設定(缺少服務網址或 API key),請聯絡系統管理員',
     scanningReceiptMsg: '掃描中,請稍候…', errReceiptScanNoLines: '沒有辨識出任何品項,請確認圖片清晰,或直接手動新增商品',
     convertingPdfMsg: 'PDF 轉換中,請稍候…', errPdfConvertFailed: 'PDF 轉換失敗,請確認檔案沒有損毀,或改上傳圖片格式的收據',
     scanningPdfPageMsg: '掃描中(第 {current}/{total} 頁)…',
     receiptScanFoundLinesMsg: '辨識到 {n} 個品項,開始逐一確認', errReceiptScanFailed: '掃描失敗,請重新整理頁面再試一次',
     receiptOcrProgressText: '還有 {remaining} 個品項待確認',
-    receiptOcrRawNumbersLabel: '這行辨識到的數字:{numbers}',
     errReceiptFileType: '請選擇圖片或 PDF 檔案', errReceiptTooLarge: '檔案太大,請壓縮到 10MB 以下',
     uploadingReceiptMsg: '上傳中…', receiptUploadedMsg: '✓ 已上傳', errReceiptUploadFailed: '上傳失敗,請重新整理頁面再試一次',
     errReceiptFileTypeInvalid: '檔案格式不支援,請上傳圖片或 PDF', errReceiptFileTooLarge: '檔案太大(超過 10MB),請壓縮後再上傳',
@@ -3531,13 +3532,12 @@ const I18N = {
     fieldReceiptOcrAmount: 'Amount (optional)', btnSkip: 'Skip this line', btnConfirmAndAdd: 'Confirm & Add',
     fieldReceiptOcrSuggestions: 'Possible matches found in inventory',
     errReceiptScanNoImage: 'Please upload a receipt image first (scanning a PDF directly is not supported yet)',
-    errReceiptScanLibFailed: 'Failed to load the scanning feature, please refresh the page and try again',
+    errReceiptScanNotConfigured: 'Receipt scan service is not configured (missing service URL or API key) — contact your system administrator',
     scanningReceiptMsg: 'Scanning, please wait…', errReceiptScanNoLines: 'No items were recognized — make sure the image is clear, or add products manually',
     convertingPdfMsg: 'Converting PDF, please wait…', errPdfConvertFailed: 'PDF conversion failed — please check the file isn\'t corrupted, or upload an image receipt instead',
     scanningPdfPageMsg: 'Scanning (page {current} of {total})…',
     receiptScanFoundLinesMsg: 'Recognized {n} item(s), confirming one by one', errReceiptScanFailed: 'Scan failed, please refresh the page and try again',
     receiptOcrProgressText: '{remaining} item(s) left to confirm',
-    receiptOcrRawNumbersLabel: 'Numbers found on this line: {numbers}',
     errReceiptFileType: 'Please select an image or PDF file', errReceiptTooLarge: 'File is too large, please compress it under 10MB',
     uploadingReceiptMsg: 'Uploading…', receiptUploadedMsg: '✓ Uploaded', errReceiptUploadFailed: 'Upload failed, please refresh and try again',
     errReceiptFileTypeInvalid: 'Unsupported file type — please upload an image or PDF', errReceiptFileTooLarge: 'File too large (over 10MB) — please compress it and try again',
@@ -4643,12 +4643,6 @@ async function saveSupplierEdit(){
         try{ await sb.from('receipt_line_mappings').upsert(receiptMappingToRow(m)); }
         catch(e){ console.error('同步更新收據記憶的供應商名稱失敗', e); }
       }
-      if(receiptSupplierFormats[oldName]){
-        receiptSupplierFormats[name] = receiptSupplierFormats[oldName];
-        delete receiptSupplierFormats[oldName];
-        try{ await dbSet('receiptSupplierFormats', JSON.stringify(receiptSupplierFormats)); }
-        catch(e){ console.error('同步更新收據格式偏好的供應商名稱失敗', e); }
-      }
     }
     renderSupplierManagementTable();
     populateTxPartyHistorySelect();
@@ -5382,10 +5376,6 @@ async function loadData(){
     const slpResult = await dbGet('stockLocationShowOnPickingSlip');
     if(slpResult) stockLocationShowOnPickingSlip = slpResult.value === 'true';
   } catch(e){ /* no stored preference yet, keep default false */ }
-  try{
-    const rsfResult = await dbGet('receiptSupplierFormats');
-    if(rsfResult && rsfResult.value) receiptSupplierFormats = JSON.parse(rsfResult.value);
-  } catch(e){ /* no stored preference yet, keep default empty */ }
   try{
     const psmResult = await dbGet('productSortMode');
     if(psmResult && ['import','name','sku'].includes(psmResult.value)) productSortMode = psmResult.value;
@@ -11121,97 +11111,31 @@ function removePurchaseReceiptFile(index){
   renderPurchaseReceiptPreviewList();
 }
 
-// ===== 收據掃描:讀圖片文字、拆成品項、跟記憶對照表比對、不確定的才問 =====
+// ===== 收據掃描:呼叫獨立的收據掃描服務(receipt-scan-service)、拆成品項、跟記憶對照表比對、不確定的才問 =====
 //
-// 用 Tesseract.js(免費、瀏覽器端跑,不用把收據傳到任何付費雲端服務)辨識收據圖片上的文字,
-// 每一行嘗試拆出「品項描述、數量、金額」——這一步是用「猜」的規則去拆(假設每行大概是
-// 「描述 ... 數量 金額」這種排列),不是 100% 保證拆對,所以才需要下面的確認流程當安全網。
+// 辨識本身不在瀏覽器裡跑——圖片會上傳到獨立部署的 receipt-scan-service(用 Docling 做表格結構
+// 辨識,不是逐字猜座標),回傳已經拆好「品名/數量/金額」的結構化清單。這個服務是完全獨立的
+// 專案(有自己的 Supabase、自己的部署),多個倉庫系統可以共用同一個服務,同一個供應商的收據
+// 格式只要有任何一個倉庫教過,其他倉庫掃到一樣的供應商也會受益——欄位對應的學習邏輯全部在
+// 服務那邊處理,這裡不用再自己猜「數量在倒數第幾個數字」。
 //
-// 對照流程:每一行的「描述」文字,先去記憶對照表(receiptLineMappings)查「這個供應商之前
-// 有沒有確認過這串文字對應到哪個商品」——有記憶的話不用問,直接照 OCR 讀到的數量/金額加入
-// 清單;沒有記憶的話才跳出視窗,讓使用者手動選商品、確認數量金額,選完會記住,下次同一個
-// 供應商、同樣的文字就不用再問。
+// 對照流程維持不變:每一行的「描述」文字,先去記憶對照表(receiptLineMappings)查「這個供應商
+// 之前有沒有確認過這串文字對應到哪個商品」——有記憶的話不用問,直接照掃描服務回傳的數量/
+// 金額加入清單;沒有記憶的話才跳出視窗,讓使用者手動選商品、確認數量金額,選完會記住。
 let receiptOcrPartyId = null;
-
-// 從行尾開始,一直往前抓「用空白分隔的數字欄位」,直到遇到不是數字的內容為止——常見的收據
-// 表格排版,品名後面接著好幾欄數字(數量、單價、金額之類),中間用空白分開。回傳抓到的所有
-// 數字(由左到右的順序)跟剩下的描述文字。這樣不管一行後面接了幾個數字欄位都抓得到,不會
-// 侷限在「一定剛好兩個數字」。
-function extractTrailingNumbers(line){
-  const tokens = line.trim().split(/\s+/);
-  const numbers = [];
-  let i = tokens.length - 1;
-  while(i >= 0){
-    const cleaned = tokens[i].replace(/^\$/, '');
-    if(/^\d{1,7}(?:\.\d{1,3})?$/.test(cleaned)){
-      numbers.unshift(parseFloat(cleaned));
-      i--;
-    } else break;
-  }
-  // 金額有沒有清楚用「$」標示,這個要看「整行」,不是只看行尾那一串連續數字——道理跟數量的
-  // 「N CTN」寫法一樣:有些收據金額欄位前面會印 $ 符號,但這個欄位不見得剛好落在行尾那串
-  // 連續數字裡(例如「3.000 CTN $80 unit $240 total」這種,中間夾著文字,行尾抓不到 $80/$240)。
-  const dollarNumbers = tokens
-    .filter(tok => /^\$\d{1,7}(?:\.\d{1,3})?$/.test(tok))
-    .map(tok => parseFloat(tok.replace(/^\$/, '')));
-  return { numbers, description: tokens.slice(0, i + 1).join(' '), dollarNumbers };
-}
-
-// format 是這個供應商學到的欄位位置:{ qtyIndexFromEnd, amountIndexFromEnd }(都是「從最後一個
-// 數字往前數第幾個」,0 就是最後一個)。沒有學過(format 是 null/undefined)、也沒有找到下面
-// 這些「語意明確」的寫法(N+單位縮寫、$金額)的話,才會用最陽春的預設猜測:最後一個數字是
-// 金額、倒數第二個是數量——這一層猜測本來就只是「完全沒有其他線索時的最後手段」,不同供應商
-// 格式差很多的話這一層猜錯很正常,真正該依賴的是上面兩層(語意寫法優先、其次是這個供應商
-// 之前教過的位置),這兩層都失敗才會落到這裡。
-function parseReceiptLine(rawLine, format){
-  const line = (rawLine || '').trim();
-  if(!line || line.length < 3) return null;
-  const { numbers, description, dollarNumbers } = extractTrailingNumbers(line);
-  const cleanDescription = description.replace(/[|_\-–—]+$/, '').trim();
-  if(!cleanDescription || numbers.length === 0) return null; // 沒有文字描述,或整行沒有任何數字欄位(常見於分隔線、頁首頁尾),直接略過
-
-  // 很多發票的數量寫法是「N.NNN 單位縮寫」直接接在商品描述後面(例如「3.000 CTN」「5.000 CTN」),
-  // 不是排在行尾那一串數字裡(行尾那幾個數字常常是重量、單價、稅額之類,完全不含真正的數量)。
-  // 這裡先找有沒有這種「數字+常見單位縮寫」的寫法,有的話直接拿這個數字當數量——這比行尾數字
-  // 的猜測準確得多,也不會被「學習欄位位置」這個機制誤導,因為真正的數量根本不在行尾那串
-  // 數字裡,不管怎麼學位置都學不到。找到這個明確寫法的話,優先度比學過的欄位位置還高。
-  //
-  // 單位縮寫故意不含 KG/G/L/ML 這類重量/容量單位——這些幾乎都是拿來描述「商品本身的包裝大小」
-  // (例如商品名稱裡常見的「(3.3kg)」,是在說這箱東西裝多重,不是在講訂了幾份),混進來會誤判。
-  // 另外故意找「最後一個」符合的地方,不是找到第一個就用——商品描述裡有時候會先帶到重量之類的
-  // 資訊,真正的訂購數量欄位通常接在完整描述之後,排在比較後面的位置。
-  let unitPatternQty = null;
-  const unitMatches = [...cleanDescription.matchAll(/(\d+(?:\.\d+)?)\s+(CTN|CARTON|PCS?|EA|BOX|DZ|SET|PACK|BAG)\b/gi)];
-  if(unitMatches.length > 0) unitPatternQty = parseFloat(unitMatches[unitMatches.length - 1][1]);
-
-  let qty = null, amount = null;
-  if(unitPatternQty !== null && unitPatternQty > 0){
-    qty = unitPatternQty;
-  } else if(format && format.qtyIndexFromEnd !== undefined && numbers.length > format.qtyIndexFromEnd){
-    qty = numbers[numbers.length - 1 - format.qtyIndexFromEnd];
-  } else if(numbers.length >= 2){
-    qty = numbers[numbers.length - 2];
-  } else {
-    qty = numbers[0];
-  }
-  // 金額同理:整行只有清楚標「$」的數字剛好一個的話,直接當金額用(語意明確,不用猜);
-  // 如果 $ 標示的數字不只一個(不確定是哪個)或完全沒有,才照學過的位置或退回行尾最後一個猜。
-  if(dollarNumbers.length === 1){
-    amount = dollarNumbers[0];
-  } else if(format && format.amountIndexFromEnd !== undefined && numbers.length > format.amountIndexFromEnd){
-    amount = numbers[numbers.length - 1 - format.amountIndexFromEnd];
-  } else if(numbers.length >= 2){
-    amount = numbers[numbers.length - 1];
-  }
-  // rawNumbers 要包含這個從單位縮寫旁邊抓到的數量,不然診斷畫面看不到它、學習機制也沒辦法拿它
-  // 去比對使用者確認的答案(萬一之後遇到這種寫法失效的情況,還是有機會退回位置學習)。
-  const rawNumbers = (unitPatternQty !== null && !numbers.includes(unitPatternQty)) ? [unitPatternQty, ...numbers] : numbers;
-  return { description: cleanDescription, qty: (qty && qty > 0) ? qty : 1, amount: (amount && amount > 0) ? amount : null, rawNumbers };
-}
+// 這次掃描,目前這張收據在掃描服務那邊的 scan_id——確認完所有行之後,要靠這個 id 把使用者
+// 實際確認/修正過的結果回報回去,讓掃描服務持續學習、越用越準。
+let currentReceiptScanId = null;
+// 這次掃描,使用者實際確認過(選了商品、填了數量金額)的品項,先收集在這裡,等這次掃描的
+// 品項全部處理完(不管是逐一確認完,還是還沒確認完但使用者提早離開這個流程)才一次性回報,
+// 不用每確認一行就打一次 API。
+let receiptOcrConfirmedLinesForCorrection = [];
 
 // PDF 收據先在瀏覽器裡用 PDF.js 把每一頁都畫成一張圖片(轉成 data URL),再照跟一般圖片一樣的
-// 流程,每一頁分別丟給 Tesseract.js 做文字辨識——支援多頁,每一頁各自獨立辨識、各自套用欄位
-// 標題座標偵測,辨識出來的品項清單最後全部合併成一份。
+// 流程,每一頁分別丟給掃描服務辨識——支援多頁,每一頁各自獨立辨識,辨識出來的品項清單最後
+// 全部合併成一份。(多頁收據目前只用第一頁的 scan_id 回報修正結果,其餘頁的修正暫時不會回饋
+// 給掃描服務學習——這是先求堪用的簡化,真的常遇到多頁收據的話,更好的做法是讓掃描服務直接
+// 支援收多頁上傳,而不是前端逐頁轉圖再逐張打 API。)
 async function renderAllPdfPagesAsImageDataUrls(pdfUrl){
   if(typeof pdfjsLib === 'undefined') throw new Error('pdfjs not loaded');
   pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
@@ -11230,101 +11154,20 @@ async function renderAllPdfPagesAsImageDataUrls(pdfUrl){
   return dataUrls;
 }
 
-// ===== 用欄位標題(QTY/Amount)的實際座標去抓數字,比純文字猜測更準 =====
-//
-// Tesseract 辨識除了純文字,還會回傳每個字的座標(result.data.words,每個字有 bbox)。
-// 如果收據上有清楚的「QTY」欄位標題,直接找出這個標題文字所在的 X 座標,之後每一行資料,
-// 就找「X 座標最接近這個位置」的數字當作數量——這樣不管一行後面接了幾個其他欄位(單價、
-// 小計、稅額之類),都能準確抓到「真的在 QTY 那一欄底下」的數字,不是用猜的。金額欄位同理。
-// 只有收據上完全沒有清楚欄位標題(OCR 沒認出來,或這張收據本來就沒有)的情況,才會退回
-// 用純文字、猜測數字位置的舊邏輯(parseReceiptLine)。
-function groupWordsIntoLines(words){
-  const withCenter = words
-    .filter(w => w.text && w.text.trim())
-    .map(w => ({ text: w.text.trim(), cx: (w.bbox.x0 + w.bbox.x1) / 2, cy: (w.bbox.y0 + w.bbox.y1) / 2 }));
-  withCenter.sort((a, b) => a.cy - b.cy);
-  const lines = [];
-  const tolerance = 12; // 像素,同一行的字中心 Y 差距在這個範圍內都算同一行(容忍掃描/字體高低的小誤差)
-  for(const w of withCenter){
-    // 用「這一行第一個字的 Y」當固定不變的基準去比對,不要用「目前已經收進這一行的字的平均
-    // Y」——用平均值當基準的話,只要同一頁有一長串 Y 座標連續、緩慢往下遞增的字(常見於有
-    // 格線的表格,格線本身有時候會被 OCR 誤判成很高、貫穿好幾列的直線符號),每加一個字平均
-    // 值就跟著往下挪一點點,最後可能把明明相差幾十像素、根本是不同列的文字(例如標題列跟
-    // 底下的商品資料列)全部串成同一「行」——一旦標題列文字跟商品資料被合併,後面「這行有
-    // 標題字樣就整行略過」的判斷,會連同真正的商品數字一起被丟掉,導致這筆商品整行消失、
-    // 完全不會跳出來問。固定用第一個字的 Y 當基準,才能確保同一行文字的 Y 範圍真的都落在
-    // 容忍值之內,不會無限往下漂移。
-    let line = lines.find(l => Math.abs(l.anchorCy - w.cy) < tolerance);
-    if(!line){ line = { anchorCy: w.cy, cy: w.cy, words: [] }; lines.push(line); }
-    line.words.push(w);
-  }
-  lines.forEach(l => l.words.sort((a, b) => a.cx - b.cx));
-  return lines.sort((a, b) => a.cy - b.cy);
-}
-function findHeaderColumnX(lines, patterns){
-  for(const line of lines){
-    for(const w of line.words){
-      if(patterns.some(p => p.test(w.text))) return w.cx;
-    }
-  }
-  return null;
-}
-function isNumericWord(text){
-  return /^\$?\d{1,7}(?:\.\d{1,3})?$/.test((text || '').replace(/,/g, ''));
-}
-// COUNT_UNIT_WORDS 是「數量常見的計數單位縮寫」——跟 parseReceiptLine 那邊用的是同一組概念,
-// 特地不含 KG/G/L/ML 這類重量/容量單位(那些通常是描述商品包裝大小,不是訂購數量)。
-const COUNT_UNIT_WORDS = /^(CTN|CARTON|PCS?|EA|BOX|DZ|SET|PACK|BAG)$/i;
-function pickNumberNearX(lineWords, targetX, preferUnitPattern){
-  if(targetX === null) return null;
-  // 如果這一行找得到「數字後面緊接著計數單位縮寫」這種寫法(例如「3.000 CTN」),這個組合本身
-  // 就是很明確的語意訊號,比單純看座標距離更可靠——優先採用這個,只要它離目標欄位的 X 座標
-  // 沒有離譜地遠(避免真的抓到不相干的地方,例如發票最下面「Total Weight」那種也帶單位的數字)。
-  if(preferUnitPattern){
-    for(let i = 0; i < lineWords.length - 1; i++){
-      const w = lineWords[i], next = lineWords[i + 1];
-      if(isNumericWord(w.text) && COUNT_UNIT_WORDS.test(next.text)){
-        if(Math.abs(w.cx - targetX) < 400) return parseFloat(w.text.replace(/[,$]/g, ''));
-      }
-    }
-  }
-  let best = null, bestDist = Infinity;
-  // 只有離目標欄位 X 座標夠近(在合理的欄寬範圍內)的數字才採用——如果一整行裡「離得最近」
-  // 的數字其實還是遠在幾百像素外(例如版面上方地址區塊裡的帳號、電話號碼這類跟商品表格完全
-  // 無關的數字),代表這一行本來就不是表格裡的資料列,只是剛好有個數字存在,不該硬拿來當
-  // 數量用。250 像素大約是這類收據裡欄與欄之間常見間距的兩倍多,足夠容忍 OCR 座標抓取的
-  // 誤差,又能濾掉明顯不相干的雜訊行。
-  const MAX_COLUMN_DIST = 250;
-  for(const w of lineWords){
-    if(!isNumericWord(w.text)) continue;
-    const dist = Math.abs(w.cx - targetX);
-    if(dist < bestDist){ bestDist = dist; best = parseFloat(w.text.replace(/[,$]/g, '')); }
-  }
-  return bestDist <= MAX_COLUMN_DIST ? best : null;
-}
-function parseReceiptWithColumns(words){
-  if(!words || words.length === 0) return null;
-  const lines = groupWordsIntoLines(words);
-  const qtyHeaderX = findHeaderColumnX(lines, [/^qty$/i, /^quantity$/i, /數量/]);
-  if(qtyHeaderX === null) return null; // 沒偵測到清楚的 QTY 欄位標題,交給舊的純文字猜測邏輯處理
-  const amountHeaderX = findHeaderColumnX(lines, [/^amount$/i, /^total$/i, /金額/, /小計/]);
-
-  const results = [];
-  for(const line of lines){
-    // 這一行本身如果就有 QTY/Amount 這類欄位標題文字,代表這行是標題列本身,不是實際品項,略過。
-    if(line.words.some(w => /^qty$|^quantity$|數量|^amount$|^total$|金額|小計/i.test(w.text))) continue;
-
-    const qty = pickNumberNearX(line.words, qtyHeaderX, true);
-    if(qty === null || qty <= 0) continue; // 這行在 QTY 欄位底下找不到數字,可能是雜訊行(頁首頁尾、地址之類),略過
-    const amount = amountHeaderX !== null ? pickNumberNearX(line.words, amountHeaderX, false) : null;
-    const descWords = line.words.filter(w => !isNumericWord(w.text));
-    const description = descWords.map(w => w.text).join(' ').trim();
-    if(!description) continue;
-    const rawNumbers = line.words.filter(w => isNumericWord(w.text)).map(w => parseFloat(w.text.replace(/[,$]/g, '')));
-
-    results.push({ description, qty, amount: (amount && amount > 0) ? amount : null, rawNumbers });
-  }
-  return results.length > 0 ? results : null;
+// 把一張圖片(data URL)送到掃描服務的 /v1/scan,回傳 { scan_id, supplier_guess, lines }。
+// lines 裡每一項是 { name, qty, amount }——已經是掃描服務那邊用 Docling 表格結構辨識拆好的
+// 結果,不用再自己猜欄位位置。
+async function callReceiptScanService(dataUrl, pageIndex){
+  const blob = await (await fetch(dataUrl)).blob();
+  const formData = new FormData();
+  formData.append('file', blob, `receipt-page-${pageIndex + 1}.jpg`);
+  const resp = await fetch(`${RECEIPT_SCAN_SERVICE_URL}/v1/scan`, {
+    method: 'POST',
+    headers: { 'Authorization': `Bearer ${RECEIPT_SCAN_SERVICE_API_KEY}` },
+    body: formData
+  });
+  if(!resp.ok) throw new Error(`收據掃描服務回傳錯誤 HTTP ${resp.status}`);
+  return await resp.json();
 }
 
 async function scanReceiptForItems(){
@@ -11335,30 +11178,23 @@ async function scanReceiptForItems(){
     msgEl.textContent = t('errReceiptScanNoImage');
     return;
   }
-  if(typeof Tesseract === 'undefined'){
+  if(!RECEIPT_SCAN_SERVICE_URL || !RECEIPT_SCAN_SERVICE_API_KEY){
     msgEl.style.color = 'var(--crit)';
-    msgEl.textContent = t('errReceiptScanLibFailed');
+    msgEl.textContent = t('errReceiptScanNotConfigured');
     return;
   }
   const isPdf = /\.pdf$/i.test(file.filename || file.url);
   const partyInput = document.getElementById('txParty');
   receiptOcrPartyId = partyInput ? partyInput.value.trim() : null;
   receiptOcrSessionNewMappingIds = [];
-  // 記下這個供應商「掃描開始前」的欄位位置學習結果快照,供整個掃描動作被取消時復原用(deep
-  // copy,避免後面 learnQtyAmountPositionFromCorrection() 直接改到 receiptSupplierFormats
-  // 裡的物件時,連這個快照也被一起改到)。
-  receiptOcrSessionFormatSnapshot = receiptSupplierFormats[receiptOcrPartyId]
-    ? { ...receiptSupplierFormats[receiptOcrPartyId] } : undefined;
+  currentReceiptScanId = null;
+  receiptOcrConfirmedLinesForCorrection = [];
 
   const btn = document.getElementById('btnScanReceipt');
   btn.disabled = true;
   msgEl.style.color = 'var(--ink-soft)';
   msgEl.textContent = isPdf ? t('convertingPdfMsg') : t('scanningReceiptMsg');
   try{
-    const format = receiptSupplierFormats[receiptOcrPartyId];
-    // 一頁一頁分別跑 OCR,不會把好幾頁的圖片混在一起辨識——每一頁的欄位標題座標是各自獨立的
-    // 座標系統,混在一起反而會讓「找 QTY 標題座標」這個機制失效。每一頁辨識出來的品項清單,
-    // 最後全部合併成一份,不用管原本是哪一頁的。
     const ocrSources = isPdf ? await renderAllPdfPagesAsImageDataUrls(file.url) : [file.url];
     let allLines = [];
     for(let i = 0; i < ocrSources.length; i++){
@@ -11367,19 +11203,13 @@ async function scanReceiptForItems(){
       } else {
         msgEl.textContent = t('scanningReceiptMsg');
       }
-      const result = await Tesseract.recognize(ocrSources[i], 'eng');
-      // 只要這張收據上偵測得到清楚的 QTY(/Amount)欄位標題,一律優先用「欄位標題實際座標」
-      // 去抓數字(parseReceiptWithColumns)——這個方法是照每一行文字實際的版面位置分組、比對
-      // 欄位標題的X座標去抓數字,同一張收據不管掃幾次,判斷方式都是一樣的、也比較不會漏行。
-      // 之前這裡的邏輯是「只要這個供應商學過欄位位置,就整個不用欄位標題定位,改用純文字逐行
-      // 猜測」——聽起來「使用者教過的比猜的可靠」沒錯,但純文字逐行猜測(parseReceiptLine)
-      // 是照 Tesseract 辨識出來的純文字用換行字元切,不是照版面位置分組,常常沒辦法對應到
-      // 實際的品項列,反而會比每次都重新用欄位標題定位還漏抓更多行、更不穩定,所以之前才會
-      // 一直發生「學過一次之後,反而再也掃不出完整品項清單」的狀況。現在改成:欄位標題定位
-      // 永遠優先試,學到的欄位位置(format)只在這張收據完全偵測不到清楚欄位標題的時候,
-      // 才當作退路用來輔助純文字猜測那一層。
-      const pageLines = parseReceiptWithColumns(result.data.words || [])
-        || result.data.text.split('\n').map(line => parseReceiptLine(line, format)).filter(Boolean);
+      const data = await callReceiptScanService(ocrSources[i], i);
+      if(i === 0) currentReceiptScanId = data.scan_id; // 多頁只用第一頁的 scan_id 回報修正,見上面的說明
+      const pageLines = (data.lines || []).map(l => ({
+        description: l.name,
+        qty: (l.qty && l.qty > 0) ? l.qty : 1,
+        amount: (l.amount && l.amount > 0) ? l.amount : null
+      }));
       allLines = allLines.concat(pageLines);
     }
     if(allLines.length === 0){
@@ -11392,7 +11222,7 @@ async function scanReceiptForItems(){
     msgEl.textContent = tf('receiptScanFoundLinesMsg', { n: allLines.length });
     processNextReceiptOcrLine();
   } catch(e){
-    console.error('收據 OCR 辨識失敗', e);
+    console.error('收據掃描服務辨識失敗', e);
     msgEl.style.color = 'var(--crit)';
     msgEl.textContent = isPdf ? t('errPdfConvertFailed') : t('errReceiptScanFailed');
   } finally {
@@ -11418,6 +11248,7 @@ function addOcrLineToTxBatch(productId, qty, amount){
 function processNextReceiptOcrLine(){
   if(pendingReceiptOcrLines.length === 0){
     renderTxBatchList();
+    reportReceiptScanCorrections(); // 這次掃描確認完的品項,一次性回報給掃描服務,累積學習資料用
     return;
   }
   const line = pendingReceiptOcrLines[0];
@@ -11464,20 +11295,10 @@ function openReceiptOcrConfirmModal(line){
   document.getElementById('receiptOcrAmountInput').value = line.amount || '';
   document.getElementById('receiptOcrConfirmMsg').textContent = '';
   document.getElementById('receiptOcrProgressInfo').textContent = tf('receiptOcrProgressText', { remaining: pendingReceiptOcrLines.length });
-  // 這行 OCR 實際抓到的所有數字,依序列出來,順便標出目前系統猜/學到的答案是指到哪一個——
-  // 抓錯的時候,直接看得出來是「這幾個數字裡選錯了哪一個」,而不是完全看不出系統在想什麼。
+  // 掃描服務回傳的已經是拆好的品名/數量/金額,不會再附帶一整行「所有候選數字」讓使用者對照
+  // (那是以前 Tesseract 逐字猜位置時代的產物),這個顯示區塊固定清空。
   const numbersDisplay = document.getElementById('receiptOcrRawNumbersDisplay');
-  if(line.rawNumbers && line.rawNumbers.length > 0){
-    const labeled = line.rawNumbers.map(n => {
-      const isQty = Math.abs(n - line.qty) < 0.01;
-      const isAmount = line.amount !== null && Math.abs(n - line.amount) < 0.01;
-      const tag = isQty ? ` (${t('lblQty')})` : (isAmount ? ` (${t('fieldReceiptOcrAmount').replace(/\(.*\)/, '').trim()})` : '');
-      return `${n}${tag}`;
-    }).join(', ');
-    numbersDisplay.textContent = tf('receiptOcrRawNumbersLabel', { numbers: labeled });
-  } else {
-    numbersDisplay.textContent = '';
-  }
+  if(numbersDisplay) numbersDisplay.textContent = '';
   // 先用商品名稱的文字相似度,找幾個可能符合的商品當快速選項——找得到的話,列在最上面,
   // 點一下就直接選定,不用再去下面那個完整清單裡搜尋;完全找不到符合的,這個區塊就不顯示,
   // 直接用下面的分類篩選+完整清單選就好。
@@ -11528,52 +11349,32 @@ function selectReceiptOcrSuggestedProduct(productId){
   document.getElementById('receiptOcrProductSelect').value = productId;
 }
 
-// 使用者確認的數量/金額,只要能在這一行原本抓到的所有數字裡找到一模一樣的值,就記住「這個
-// 供應商,數量/金額是從行尾數過來第幾個數字」——不限於「剛好兩個數字、對調」這種情況,
-// 這一行後面不管接了幾欄數字都適用(例如中間還夾了單價欄、或稅額欄)。只要用某個供應商的
-// 格式解析成功過一次,之後同一個供應商的收據,一開始猜的時候就會直接套用學到的欄位位置。
-async function learnQtyAmountPositionFromCorrection(originalLine, confirmedQty, confirmedAmount){
-  if(!receiptOcrPartyId) return;
-  const numbers = originalLine.rawNumbers;
-  if(!numbers || numbers.length === 0) return;
-
-  const qtyIdx = findClosestNumberIndexFromEnd(numbers, confirmedQty);
-  const amountIdx = confirmedAmount ? findClosestNumberIndexFromEnd(numbers, confirmedAmount) : null;
-
-  // 數量、金額的欄位位置各自獨立學、各自獨立存——使用者這次如果只確認了數量、沒有填金額
-  // (或金額對不到明確的數字位置),不會因為金額學不到就連數量都不存,不然使用者明明教對了
-  // 數量,系統卻整個學習結果丟掉不存,下次還是繼續猜錯。
-  const current = receiptSupplierFormats[receiptOcrPartyId] || {};
-  const newFormat = { ...current };
-  let changed = false;
-
-  if(qtyIdx !== null && current.qtyIndexFromEnd !== qtyIdx){
-    newFormat.qtyIndexFromEnd = qtyIdx;
-    changed = true;
+// 這次掃描使用者實際確認過(或修正過)的品項,一次性回報給獨立收據掃描服務——服務那邊會拿
+// 這些資料當作這張收據的「正確答案」存起來,累積作為之後同一個供應商辨識更準的依據。純粹是
+// 「盡力而為」的背景回報:失敗不影響倉庫這邊的進貨流程(進貨批次在上一步就已經正常加進去
+// 了),所以這裡故意不擋 UI、不跳錯誤訊息,只在 console 留紀錄方便日後排查。
+async function reportReceiptScanCorrections(){
+  if(!currentReceiptScanId || receiptOcrConfirmedLinesForCorrection.length === 0){
+    currentReceiptScanId = null;
+    receiptOcrConfirmedLinesForCorrection = [];
+    return;
   }
-  if(amountIdx !== null && amountIdx !== qtyIdx && current.amountIndexFromEnd !== amountIdx){
-    newFormat.amountIndexFromEnd = amountIdx;
-    changed = true;
-  } else if(amountIdx === null && originalLine.amount !== null && current.amountIndexFromEnd === undefined){
-    // 使用者這次沒有主動去改金額(維持系統原本猜的那個值),而且之前也還沒學過這個供應商的
-    // 金額欄位位置——沿用系統原本判斷出來的金額位置當作學習結果,總比完全沒學到好。
-    const foundIdx = numbers.indexOf(originalLine.amount);
-    if(foundIdx !== -1){ newFormat.amountIndexFromEnd = numbers.length - 1 - foundIdx; changed = true; }
+  const scanId = currentReceiptScanId;
+  const lines = receiptOcrConfirmedLinesForCorrection.slice();
+  currentReceiptScanId = null;
+  receiptOcrConfirmedLinesForCorrection = [];
+  try{
+    await fetch(`${RECEIPT_SCAN_SERVICE_URL}/v1/scan/${scanId}/correct`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${RECEIPT_SCAN_SERVICE_API_KEY}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ supplier_name: receiptOcrPartyId || '', lines })
+    });
+  } catch(e){
+    console.error('回報收據掃描修正結果失敗(不影響本次進貨,只影響未來辨識準確度)', e);
   }
-
-  if(!changed) return; // 這次沒有學到任何新東西(跟已經記的一樣,或完全找不到明確位置),不用重存
-  receiptSupplierFormats[receiptOcrPartyId] = newFormat;
-  try{ await dbSet('receiptSupplierFormats', JSON.stringify(receiptSupplierFormats)); }
-  catch(e){ console.error('儲存供應商收據格式偏好失敗', e); }
-}
-// 在數字陣列裡找跟目標值一樣的數字,回傳「從陣列尾端數過來第幾個」(0 是最後一個)——找不到
-// 回傳 null。如果剛好有重複的數字,選離陣列尾端最近的那一個(比較常見:數量欄通常比金額欄
-// 靠前,但如果有重複值,優先假設是比較靠後的那一欄,這只是個合理的預設,不保證每次都對)。
-function findClosestNumberIndexFromEnd(numbers, target){
-  for(let i = numbers.length - 1; i >= 0; i--){
-    if(Math.abs(numbers[i] - target) < 0.01) return numbers.length - 1 - i;
-  }
-  return null;
 }
 
 async function confirmReceiptOcrLine(){
@@ -11589,7 +11390,9 @@ async function confirmReceiptOcrLine(){
   const finalAmount = (amount && amount > 0) ? amount : null;
   addOcrLineToTxBatch(productId, qty, finalAmount);
   await rememberReceiptLineMapping(receiptOcrPartyId, normalizeReceiptLineText(line.description), productId);
-  await learnQtyAmountPositionFromCorrection(line, qty, finalAmount);
+  // 收集這行使用者實際確認的結果,等這次掃描全部處理完再一次回報給掃描服務(見
+  // reportReceiptScanCorrections)——略過的行(公司資訊、地址之類)不算品項,不放進來。
+  receiptOcrConfirmedLinesForCorrection.push({ name: line.description, qty, amount: finalAmount });
   document.getElementById('receiptOcrConfirmModalOverlay').style.display = 'none';
   processNextReceiptOcrLine();
 }
@@ -11618,21 +11421,10 @@ async function cancelReceiptOcrSequence(){
       receiptLineMappings = receiptLineMappings.filter(m => m.id !== id);
     } catch(e){ console.error('復原取消的收據辨識記憶失敗', e); }
   }
-  // 欄位位置學習結果(receiptSupplierFormats)也要一起復原成掃描開始前的樣子——這個資料在
-  // 掃描過程中每確認一行就會即時存檔,不會等到整個流程結束才寫入,所以取消時不能只清品項
-  // 對照記憶,不然學到一半、可能學錯的欄位位置會被留下來,讓下次掃描這個供應商的收據時
-  // 悄悄套用錯誤的猜測,反而比完全沒學過還誤導人。
-  if(receiptOcrPartyId){
-    const before = JSON.stringify(receiptSupplierFormats[receiptOcrPartyId]);
-    const after = JSON.stringify(receiptOcrSessionFormatSnapshot);
-    if(before !== after){
-      if(receiptOcrSessionFormatSnapshot === undefined) delete receiptSupplierFormats[receiptOcrPartyId];
-      else receiptSupplierFormats[receiptOcrPartyId] = receiptOcrSessionFormatSnapshot;
-      try{ await dbSet('receiptSupplierFormats', JSON.stringify(receiptSupplierFormats)); }
-      catch(e){ console.error('復原取消的收據欄位位置學習結果失敗', e); }
-    }
-  }
-  receiptOcrSessionFormatSnapshot = undefined;
+  // 取消掉的這次掃描,不回報任何修正結果給掃描服務——currentReceiptScanId 對應的那張收據
+  // 本來就沒有走完確認流程,不該當作「使用者確認過的正確答案」回饋進去。
+  currentReceiptScanId = null;
+  receiptOcrConfirmedLinesForCorrection = [];
   renderTxBatchList();
 }
 
