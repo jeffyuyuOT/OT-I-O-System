@@ -2070,7 +2070,8 @@
       </div>
       <div class="field">
         <label data-i18n="colPurchaseParty">進貨方</label>
-        <input type="text" id="editPurchasePartyInput" style="width:100%;" />
+        <select id="editPurchasePartySelect" style="width:100%;" onchange="onEditPurchasePartySelectChange(this.value)"></select>
+        <input type="text" id="editPurchasePartyInput" style="width:100%;margin-top:6px;" />
       </div>
     </div>
     <div class="field-block">

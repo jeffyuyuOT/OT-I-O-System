@@ -317,13 +317,49 @@ async function confirmSendPurchaseEmail(){
 // 已經發生的進出貨紀錄對不起來,不開放在這裡編輯)。
 let editPurchaseTargetId = null;
 let editPurchaseWorkingReceiptFiles = []; // 編輯中的收據附件清單(工作副本),按「取消」不會影響到原本存的資料,只有按「儲存」才會真的寫回去
+// 編輯進貨單的「進貨方」欄位:跟登記進出貨→進貨的供應商選擇邏輯一樣——下拉選單列出「進貨方管理」
+// 裡現有的供應商(依名稱排序),選了「+ 新增供應商」才會跳出文字輸入框讓你打新名字。下拉選單
+// 選了現有供應商,底下那個文字輸入框(實際存檔用的欄位)會同步改成那個名字、但保持隱藏;
+// 存檔時(confirmEditPurchase)一律只讀文字輸入框的值,不用管當下是下拉選的還是手打的。
+// currentName 是這張進貨單目前的進貨方名稱:如果剛好對得到清單裡的某個供應商,下拉選單直接選中
+// 那筆;對不到的話(例如供應商後來被刪掉了,或本來就是手打的名字),視為「新增供應商」模式,
+// 文字輸入框直接顯示、並帶入原本的名字,不會讓使用者看不到原本填的是什麼。
+function populateEditPurchasePartySelect(currentName){
+  const sel = document.getElementById('editPurchasePartySelect');
+  const input = document.getElementById('editPurchasePartyInput');
+  if(!sel || !input) return;
+  const sortedNames = purchaseSuppliers.map(s => s.name).sort((a,b) => a.localeCompare(b));
+  sel.innerHTML = `<option value="">${t('optSelectSupplier')}</option>` +
+    sortedNames.map(p => `<option value="${p.replace(/"/g,'&quot;')}">${escapeHtmlForPrint(p)}</option>`).join('') +
+    `<option value="__new__">${t('optAddNewSupplier')}</option>`;
+  if(currentName && sortedNames.includes(currentName)){
+    sel.value = currentName;
+    input.style.display = 'none';
+    input.value = currentName;
+  } else {
+    sel.value = '__new__';
+    input.style.display = '';
+    input.value = currentName || '';
+  }
+}
+function onEditPurchasePartySelectChange(value){
+  const input = document.getElementById('editPurchasePartyInput');
+  if(value === '__new__'){
+    input.style.display = '';
+    input.value = '';
+    input.focus();
+  } else {
+    input.style.display = 'none';
+    input.value = value;
+  }
+}
 function openEditPurchaseModal(purchaseId){
   const p = purchases.find(x => x.id === purchaseId);
   if(!p) return;
   editPurchaseTargetId = purchaseId;
   editPurchaseWorkingReceiptFiles = getPurchaseReceiptFileList(p).slice();
   document.getElementById('editPurchaseDateInput').value = p.date || '';
-  document.getElementById('editPurchasePartyInput').value = p.partyName || p.partyId || '';
+  populateEditPurchasePartySelect(p.partyName || p.partyId || '');
   document.getElementById('editPurchaseInvoiceInput').value = p.invoiceNo || '';
   document.getElementById('editPurchaseNoteInput').value = p.note || '';
   document.getElementById('editPurchaseReceiptUploadMsg').textContent = '';
