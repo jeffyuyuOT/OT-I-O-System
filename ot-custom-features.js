@@ -7,7 +7,7 @@
 // 會自動變成系統預設值)。
 //
 // window.FEATURES 用 Object.assign 合併寫入,不要直接整包蓋掉——因為除了這個檔案,
-// receipt-scan-features.js 也會寫入同一個 window.FEATURES 物件,兩個檔案不管誰先載入,
+// receipt-scan.js 也會寫入同一個 window.FEATURES 物件,兩個檔案不管誰先載入,
 // 都要能疊加、不能互相蓋掉對方已經寫好的開關。
 //
 // 之後如果要再加新的客製功能,一樣在這裡加一個 true/false 開關就好,
