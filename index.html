@@ -10220,6 +10220,24 @@ function applyStockLocationFieldVisibility(idPrefix){
   });
 }
 
+// 標準模式下,系統設置裡有勾選(啟用)的欄位一律必填——只要有一格空白,就回傳缺了哪幾個欄位
+// (固定用英文欄位名 Zone/Aisle/Bay/Level/Bin,兩個語言都看得懂,不用另外翻譯),外面負責顯示
+// 紅字並擋掉儲存。理由:以前空白欄位會被直接跳過、接下去的欄位照樣接成一個「看起來正常」的
+// 位置代碼(例如少了 Bay 就變成 Zone-Aisle-Level-Bin),事後完全看不出來漏填了哪一格,也不知道
+// 這個位置實際上對不對得上真實的貨架。自訂模式沒有這個限制(回傳空陣列,永遠不擋)。
+function getMissingStandardLocationFields(){
+  if(stockLocationMode === 'custom') return [];
+  const fieldIds = { zone: 'locationZoneInput', aisle: 'locationAisleInput', bay: 'locationBayInput', level: 'locationLevelInput', bin: 'locationBinInput' };
+  const labels = { zone: 'Zone', aisle: 'Aisle', bay: 'Bay', level: 'Level', bin: 'Bin' };
+  const missing = [];
+  Object.keys(fieldIds).forEach(k => {
+    if(stockLocationEnabledFields[k] === false) return; // 這個欄位沒啟用,不用填
+    const el = document.getElementById(fieldIds[k]);
+    if(el && !el.value.trim()) missing.push(labels[k]);
+  });
+  return missing;
+}
+
 function onLocationTargetSelectChange(){
   const sel = document.getElementById('locationTargetSelect');
   const isLastPrimary = sel.value === 'lastPrimary';
@@ -10638,6 +10656,12 @@ async function confirmLocationTransfer(){
   } else if(targetVal === 'new' || targetVal === 'lastPrimary'){
     // lastPrimary 選項被選到的時候,欄位已經在 onLocationTargetSelectChange 裡自動帶入
     // 之前記錄的位置資訊了,這裡直接當「新增位置」處理即可,不用另外寫一套邏輯。
+    const missingFields = getMissingStandardLocationFields();
+    if(missingFields.length > 0){
+      msgEl.className = 'msg error';
+      msgEl.textContent = tf('errMissingLocationFields', { fields: missingFields.join(', ') });
+      return;
+    }
     newCode = buildLocationCode();
     if(!newCode){ msgEl.className = 'msg error'; msgEl.textContent = t('errEnterLocationCode'); return; }
     existingDestLoc = productLocations.find(l => l.productId === productId && l.locationCode === newCode);
