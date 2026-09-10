@@ -5622,11 +5622,15 @@ async function rememberLastPrimaryLocationIfNowEmpty(deletedLoc, wasPrimary){
   catch(e){ console.error('記錄最後主要位置失敗', e); }
 }
 
-// 這個商品目前「未分布」的數量:總庫存(既有的 computeTotalStock 邏輯不變)減掉這個商品在
-// product_locations 裡所有位置的數量總和。不會是負數(理論上不該發生,但庫存分布資料如果因為
-// 某些原因比實際總庫存還多,顯示 0 比顯示負數合理)。
+// 這個商品目前「未分布」的數量:這個商品自己的庫存量(computeStock,不含底下批量商品換算後的
+// 量——位置資料本來就只追蹤這個商品自己實際擺在哪裡,批量商品自己是獨立的商品、有自己的位置
+// 資料,不該被算進主商品的位置分布裡)減掉這個商品在 product_locations 裡所有位置的數量總和。
+// 這裡原本誤用 computeTotalStock(含家族總量),導致主商品只要底下批量商品有庫存,未分布數字
+// 就會被灌水、算不準,庫存分布頁面顯示的「總庫存」也應該是這個商品自己的庫存量,不是家族總量
+// (家族總量要看庫存總覽的「總庫存量」欄位)。不會是負數(理論上不該發生,但庫存分布資料如果
+// 因為某些原因比實際庫存還多,顯示 0 比顯示負數合理)。
 function computeUnassignedQty(productId){
-  const totalStock = computeTotalStock(productId);
+  const totalStock = computeStock(productId);
   const assigned = productLocations.filter(l => l.productId === productId).reduce((sum, l) => sum + l.qty, 0);
   return Math.max(0, totalStock - assigned);
 }
@@ -13960,7 +13964,7 @@ function renderStockLocationDetail(){
   const p = products.find(x => x.id === productId);
   if(!p){ container.innerHTML = ''; return; }
 
-  const totalStock = computeTotalStock(productId);
+  const totalStock = computeStock(productId);
   const locs = getSortedLocationsForProduct(productId);
   const primaryId = locs.length > 0 ? locs[0].id : null;
   const unassigned = computeUnassignedQty(productId);
@@ -13985,7 +13989,7 @@ function renderStockLocationDetail(){
       <div style="display:flex;gap:24px;flex-wrap:wrap;margin-bottom:14px;">
         <div><span style="font-size:11px;color:var(--ink-soft);text-transform:uppercase;font-weight:700;">SKU</span><br>${escapeHtmlForPrint(p.sku || '—')}</div>
         <div><span style="font-size:11px;color:var(--ink-soft);text-transform:uppercase;font-weight:700;">${t('lblProduct')}</span><br>${escapeHtmlForPrint(p.name)}</div>
-        <div><span style="font-size:11px;color:var(--ink-soft);text-transform:uppercase;font-weight:700;">${t('lblTotalStock')}</span><br>${totalStock} ${escapeHtmlForPrint(p.unit)}</div>
+        <div><span style="font-size:11px;color:var(--ink-soft);text-transform:uppercase;font-weight:700;">${t('colStock')}</span><br>${totalStock} ${escapeHtmlForPrint(p.unit)}</div>
       </div>
       <table class="stock-table">
         <thead><tr><th>${t('colLocation')}</th><th class="num">${t('colQty')}</th><th></th></tr></thead>
