@@ -1026,14 +1026,16 @@
           <button class="btn" onclick="saveStockLocationSettings()" data-i18n="btnSave">儲存</button>
           <div id="stockLocationSettingsMsg" class="msg"></div>
 
-          <div style="font-size:12.5px;font-weight:700;color:var(--ink);margin:18px 0 6px;padding-top:14px;border-top:1px solid var(--line);" data-i18n="subsecStockLocationPrint">列印</div>
-          <p style="font-size:11.5px;color:var(--ink-soft);margin:0 0 8px;" data-i18n="stockLocationPrintHint">
-            勾選後,Picking Slip 最前面會多印一欄「Stock Location」。如果商品有多個位置,列印之前會先跳出視窗問要從哪個位置拿取、印出那個位置。
-          </p>
-          <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-weight:400;">
-            <input type="checkbox" id="stockLocationShowOnPickingSlipToggle" onchange="saveStockLocationShowOnPickingSlip(this.checked)" />
-            <span data-i18n="chkShowLocationOnPickingSlip">Picking Slip 顯示 Stock Location</span>
-          </label>
+          <div id="stockLocationPrintSection" style="display:none;">
+            <div style="font-size:12.5px;font-weight:700;color:var(--ink);margin:18px 0 6px;padding-top:14px;border-top:1px solid var(--line);" data-i18n="subsecStockLocationPrint">列印</div>
+            <p style="font-size:11.5px;color:var(--ink-soft);margin:0 0 8px;" data-i18n="stockLocationPrintHint">
+              勾選後,Picking Slip 最前面會多印一欄「Stock Location」。如果商品有多個位置,列印之前會先跳出視窗問要從哪個位置拿取、印出那個位置。
+            </p>
+            <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-weight:400;">
+              <input type="checkbox" id="stockLocationShowOnPickingSlipToggle" onchange="saveStockLocationShowOnPickingSlip(this.checked)" />
+              <span data-i18n="chkShowLocationOnPickingSlip">Picking Slip 顯示 Stock Location</span>
+            </label>
+          </div>
         </div>
 
         <div class="settings-card">
@@ -1079,7 +1081,7 @@
           </p>
         </div>
 
-        <div class="settings-card">
+        <div class="settings-card" id="completedExportFormatCard" style="display:none;">
           <div class="section-title" data-i18n="secCompletedExportFormat">已完成訂單匯出格式</div>
           <p style="font-size:11.5px;color:var(--ink-soft);margin:0 0 8px;" data-i18n="completedExportFormatHint">
             決定已完成訂單匯出 Excel 時,商品清單要怎麼列。
@@ -2295,8 +2297,14 @@
 </div>
 
 <script src="config.js"></script>
+<script src="ot-custom-features.js"></script>
 <script>
 const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+// 判斷某個客製化功能模組是否存在——由 ot-custom-features.js 這個「選配」檔案決定。
+// 如果部署時沒有帶 ot-custom-features.js(例如給別家公司用、不需要這些客製功能),
+// window.FEATURES 就會是 undefined,這裡一律回傳 false,對應功能就會用預設行為。
+function hasFeature(name){ return !!(window.FEATURES && window.FEATURES[name]); }
 
 // ---- Shared key-value storage helpers (replaces the old window.storage API) ----
 async function dbGet(key){
@@ -5360,18 +5368,26 @@ async function loadData(){
       stockLocationEnabledFields = { zone: true, aisle: true, bay: true, level: true, bin: true, ...parsed };
     }
   } catch(e){ /* no stored preference yet, keep default all-enabled */ }
-  try{
-    const slpResult = await dbGet('stockLocationShowOnPickingSlip');
-    if(slpResult) stockLocationShowOnPickingSlip = slpResult.value === 'true';
-  } catch(e){ /* no stored preference yet, keep default false */ }
+  if(hasFeature('stockLocationPickingSlipPrint')){
+    try{
+      const slpResult = await dbGet('stockLocationShowOnPickingSlip');
+      if(slpResult) stockLocationShowOnPickingSlip = slpResult.value === 'true';
+    } catch(e){ /* no stored preference yet, keep default false */ }
+  } else {
+    stockLocationShowOnPickingSlip = true; // 沒有 ot-custom-features.js:固定顯示 Stock Location,不能關掉
+  }
   try{
     const psmResult = await dbGet('productSortMode');
     if(psmResult && ['import','name','sku'].includes(psmResult.value)) productSortMode = psmResult.value;
   } catch(e){ /* no stored preference yet, keep default 'sku' */ }
-  try{
-    const cefResult = await dbGet('completedExportFormat');
-    if(cefResult && ['recordsOnly','fullCatalog'].includes(cefResult.value)) completedExportFormat = cefResult.value;
-  } catch(e){ /* no stored preference yet, keep default 'fullCatalog' */ }
+  if(hasFeature('completedExportFormatOption')){
+    try{
+      const cefResult = await dbGet('completedExportFormat');
+      if(cefResult && ['recordsOnly','fullCatalog'].includes(cefResult.value)) completedExportFormat = cefResult.value;
+    } catch(e){ /* no stored preference yet, keep default 'fullCatalog' */ }
+  } else {
+    completedExportFormat = 'recordsOnly'; // 沒有 ot-custom-features.js:已完成訂單固定只匯出有紀錄的商品
+  }
   try{
     const hmiResult = await dbGet('hideMultipackIconOnOrderPage');
     if(hmiResult) hideMultipackIconOnOrderPage = hmiResult.value === 'true';
@@ -6069,6 +6085,12 @@ function updateMultipackSettingsUI(){
   });
   const slpToggle = document.getElementById('stockLocationShowOnPickingSlipToggle');
   if(slpToggle) slpToggle.checked = stockLocationShowOnPickingSlip;
+  // 客製化功能模組(ot-custom-features.js)沒帶的話,對應的設置選項直接隱藏不顯示——
+  // 行為固定用預設值(見 loadData() 裡對應的 else 分支)。
+  const slPrintSection = document.getElementById('stockLocationPrintSection');
+  if(slPrintSection) slPrintSection.style.display = hasFeature('stockLocationPickingSlipPrint') ? '' : 'none';
+  const cefCard = document.getElementById('completedExportFormatCard');
+  if(cefCard) cefCard.style.display = hasFeature('completedExportFormatOption') ? '' : 'none';
 }
 
 // 會計 Email 清單管理:每一列一個地址+一個「設為主要」的選項(用單選鈕實作,同一時間只能有
@@ -10778,7 +10800,7 @@ function renderProductEditModalBody(p, opts){
   // 「已完成訂單匯出不顯示」勾選框:現在所有商品(不管主商品、子商品、有沒有 multipack 家族)
   // 都可以個別設定,預設不勾。如果是「有 multipack 子商品的主商品」,勾選之後還會多一個下拉選單,
   // 選擇整個家族都不顯示、還是維持原本「僅顯示切換的批量商品數量」的行為。
-  const showHideFromExportToggle = !opts.isNew;
+  const showHideFromExportToggle = !opts.isNew && hasFeature('hideFromCompletedExport');
   const hasChildrenForExportMode = !isChild && getChildProducts(p.id).length > 0;
   // 子商品自己的「已完成訂單匯出不顯示」勾選框,要不要鎖住/強制勾選,看主商品目前的設定:
   // ·主商品是「整個家族都不顯示」模式 → 子商品自己這裡強制勾選、鎖住不能改(整個家族一起隱藏,
