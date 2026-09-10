@@ -1322,7 +1322,10 @@
           <label for="purchaseEmailToggle" style="font-size:12.5px;color:var(--ink);font-weight:600;cursor:pointer;" data-i18n="chkEmailToAccounting">寄送給會計</label>
         </div>
         <div id="purchaseEmailFieldWrap" style="display:none;margin:6px 0 0 24px;">
+          <label style="display:block;font-size:11.5px;color:var(--ink-soft);margin:0 0 2px;" data-i18n="fieldRecipientEmail">收件人 Email</label>
           <input type="email" id="purchaseEmailAddress" placeholder="accounting@example.com" style="max-width:280px;" />
+          <label style="display:block;font-size:11.5px;color:var(--ink-soft);margin:8px 0 2px;" data-i18n="fieldCcEmail">副本 CC(選填)</label>
+          <input type="email" id="purchaseEmailCc" placeholder="accounting@example.com, another@example.com" data-i18n-placeholder="multiEmailPlaceholder" style="max-width:280px;" multiple />
           <p style="font-size:11.5px;color:var(--ink-soft);margin:4px 0 0;" data-i18n="purchaseEmailHint">送出進貨單時,會把這張單匯出的 Excel 檔跟收據附件(如果有上傳)一起寄到這個地址。</p>
         </div>
       </div>
@@ -10337,6 +10340,8 @@ function togglePurchaseEmailFieldVisibility(checkboxEl){
   if(checkboxEl.checked){
     const emailInput = document.getElementById('purchaseEmailAddress');
     if(emailInput && !emailInput.value) emailInput.value = getAccountingEmailToAndCc().to || '';
+    const ccInput = document.getElementById('purchaseEmailCc');
+    if(ccInput && !ccInput.value) ccInput.value = getAccountingEmailToAndCc().cc || '';
   }
 }
 
@@ -11595,8 +11600,10 @@ async function submitTxBatchSimple(date, msg){
     const emailToggleEl = document.getElementById('purchaseEmailToggle');
     if(emailToggleEl && emailToggleEl.checked){
       const emailAddr = (document.getElementById('purchaseEmailAddress').value || '').trim();
+      const ccEl = document.getElementById('purchaseEmailCc');
+      const ccAddr = ccEl ? (ccEl.value || '').trim() : (getAccountingEmailToAndCc().cc || '');
       try{
-        await sendPurchaseEmail(purchase.id, emailAddr, getAccountingEmailToAndCc().cc, msg);
+        await sendPurchaseEmail(purchase.id, emailAddr, ccAddr, msg);
       } catch(e){
         console.error('寄送進貨單 email 失敗', e);
         msg.className = 'msg error';
