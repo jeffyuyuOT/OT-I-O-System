@@ -45,7 +45,9 @@ function weeklyAvgFromSeries(windowTx, allTx, now, windowStart){
   const effectiveStartTime = Math.max(earliestOverallTime, windowStart.getTime());
   const weeksElapsed = Math.max(1, (now.getTime() - effectiveStartTime) / (7*24*60*60*1000));
   const weeks = Math.min(RECENT_AVG_WINDOW_WEEKS, weeksElapsed);
-  return totalQty / weeks;
+  // 退貨(restock)扣抵之後,極端情況下這段期間淨出貨量可能是負的(退的比出的還多)——
+  // 平均用量不該顯示負數,顯示 0 比較不會誤導看的人。
+  return Math.max(0, totalQty / weeks);
 }
 
 function computePerOrderAvgForParty(productId, partyObj, now){

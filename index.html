@@ -6794,6 +6794,10 @@ function computeTotalStock(productId){
 
 // 把某商品「自己」的出貨紀錄,加上(如果是主商品)所有批量商品的出貨紀錄經過加權後,
 // 合併成一份依日期加總的出貨序列,用來計算平均用量。切換(批量商品↔主商品)產生的紀錄不算數。
+// 「入庫(type: restock)」的紀錄會用負數併進同一份序列——這種紀錄代表東西又送回倉庫(常見情境:
+// 出貨方叫多了、事後退回來),既然當初的出貨量已經算進這份序列,退回來的部分自然也要扣掉,
+// 不然平均用量會一直偏高,把「曾經出過但後來退回」的量也算成客人真正需要的量。這裡不管退回的
+// 日期是不是跟當初出貨同一天——扣的是「這筆退貨發生那天」的量,退貨可能是出貨後好幾天才發生。
 // opts.onlyParty: 只計入某個出貨方的紀錄;opts.excludeMasterImportAdjustment: 排除「Excel 匯入商品主檔」時,
 // 表格數量跟現有庫存對不上而自動產生的調整紀錄(這種紀錄一定會標記 masterImportAdjustment:true)——
 // 這種調整紀錄算庫存校正,不是真的一筆一筆出貨給客人,所以訂貨頁面的「每次訂貨平均用量」不算這個;
@@ -6810,11 +6814,12 @@ function buildWeightedOutSeries(productId, opts){
   const byDate = {};
   const addFrom = (pid, weight) => {
     transactions.forEach(t => {
-      if(t.productId !== pid || t.type !== 'out') return;
+      if(t.productId !== pid || (t.type !== 'out' && t.type !== 'restock')) return;
       if(t.conversion) return; // 切換數量不算入平均用量
       if(opts.excludeMasterImportAdjustment && t.masterImportAdjustment) return;
       if(opts.onlyParty && t.party !== opts.onlyParty) return;
-      byDate[t.date] = (byDate[t.date] || 0) + t.qty * weight;
+      const signedQty = t.type === 'restock' ? -t.qty : t.qty;
+      byDate[t.date] = (byDate[t.date] || 0) + signedQty * weight;
     });
   };
   addFrom(productId, 1);
@@ -6851,10 +6856,11 @@ function computeAvgMonthlyOut(productId, now){
     const outQty = outTx
       .filter(t => new Date(t.date) >= windowStart && new Date(t.date) <= now)
       .reduce((s,t) => s + t.qty, 0);
-    return { avg: outQty / 12, historyDays, hasRealData: true, monthsWithRecords: 12 };
+    // 退貨(restock)扣抵之後,極端情況下可能是負值,不該顯示負的平均出貨。
+    return { avg: Math.max(0, outQty / 12), historyDays, hasRealData: true, monthsWithRecords: 12 };
   }
 
-  const outQtyAll = outTx.reduce((s,t) => s + t.qty, 0);
+  const outQtyAll = Math.max(0, outTx.reduce((s,t) => s + t.qty, 0));
   return { avg: null, historyDays, hasRealData: true, monthsWithRecords: rawMonths, outQtyAll };
 }
 
