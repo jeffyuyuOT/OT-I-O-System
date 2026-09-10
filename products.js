@@ -529,6 +529,17 @@ async function confirmConversion(){
       msg.textContent = tf('errConversionResultNotInteger', { result: convertedQty.toLocaleString(undefined, {maximumFractionDigits: 4}), unit: child.unit });
       return;
     }
+    // 新增出來的批量商品如果要指派到「新增位置」,標準模式下要先檢查有沒有填完整,理由跟庫存
+    // 分布頁面的「編輯位置」一樣:漏填會接出一個殘缺的位置代碼,事後看不出來哪裡漏填了。
+    const destSelForChild = document.getElementById('conversionLocSelect');
+    if(destSelForChild && (destSelForChild.value === 'new' || destSelForChild.value === 'lastPrimary')){
+      const missingFields = getMissingStandardLocationFields('conversionLoc', '');
+      if(missingFields.length > 0){
+        msg.className = 'msg error';
+        msg.textContent = tf('errMissingLocationFields', { fields: missingFields.join(', ') });
+        return;
+      }
+    }
     // 扣庫存之前,先問清楚主商品要從哪個位置扣——理由跟核對訂單、列印撿貨單時一樣:要是先扣了
     // 庫存,選位置的過程中使用者卻按了取消,庫存分布資料就會跟實際庫存對不起來。這裡修正的正是
     // 之前的漏洞:切換只有幫「多出來的批量商品」指派位置,卻從來沒有從主商品原本的位置扣過,
@@ -589,6 +600,16 @@ async function confirmConversion(){
     msg.className = 'msg error';
     msg.textContent = tf('errConversionResultNotInteger', { result: convertedQty.toLocaleString(undefined, {maximumFractionDigits: 4}), unit: parent.unit });
     return;
+  }
+  // 新增出來的主商品如果要指派到「新增位置」,標準模式下一樣要先檢查有沒有填完整(同上)。
+  const destSelForParent = document.getElementById('conversionLocSelect');
+  if(destSelForParent && (destSelForParent.value === 'new' || destSelForParent.value === 'lastPrimary')){
+    const missingFields = getMissingStandardLocationFields('conversionLoc', '');
+    if(missingFields.length > 0){
+      msg.className = 'msg error';
+      msg.textContent = tf('errMissingLocationFields', { fields: missingFields.join(', ') });
+      return;
+    }
   }
   // 扣庫存之前,先問清楚批量商品要從哪個位置扣(同上,避免庫存分布跟實際庫存對不起來)。
   let sourceLocationChoices;

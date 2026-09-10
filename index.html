@@ -10225,15 +10225,20 @@ function applyStockLocationFieldVisibility(idPrefix){
 // 紅字並擋掉儲存。理由:以前空白欄位會被直接跳過、接下去的欄位照樣接成一個「看起來正常」的
 // 位置代碼(例如少了 Bay 就變成 Zone-Aisle-Level-Bin),事後完全看不出來漏填了哪一格,也不知道
 // 這個位置實際上對不對得上真實的貨架。自訂模式沒有這個限制(回傳空陣列,永遠不擋)。
-function getMissingStandardLocationFields(){
+// idPrefix/suffix:這幾個欄位輸入框的 id 命名在兩個地方不太一樣——庫存分布頁面的「編輯位置」
+// 視窗固定是 location + 欄位名 + Input(例如 locationZoneInput),呼叫時不用傳參數(用預設值);
+// 切換批量商品數量視窗裡的位置指派是 idPrefix + 欄位名、沒有 Input 後綴(例如 conversionLocZone),
+// 呼叫時傳 idPrefix='conversionLoc', suffix=''。
+function getMissingStandardLocationFields(idPrefix, suffix){
   if(stockLocationMode === 'custom') return [];
-  const fieldIds = { zone: 'locationZoneInput', aisle: 'locationAisleInput', bay: 'locationBayInput', level: 'locationLevelInput', bin: 'locationBinInput' };
-  const labels = { zone: 'Zone', aisle: 'Aisle', bay: 'Bay', level: 'Level', bin: 'Bin' };
+  idPrefix = idPrefix || 'location';
+  suffix = suffix === undefined ? 'Input' : suffix;
+  const fieldNames = { zone: 'Zone', aisle: 'Aisle', bay: 'Bay', level: 'Level', bin: 'Bin' };
   const missing = [];
-  Object.keys(fieldIds).forEach(k => {
+  Object.keys(fieldNames).forEach(k => {
     if(stockLocationEnabledFields[k] === false) return; // 這個欄位沒啟用,不用填
-    const el = document.getElementById(fieldIds[k]);
-    if(el && !el.value.trim()) missing.push(labels[k]);
+    const el = document.getElementById(idPrefix + fieldNames[k] + suffix);
+    if(el && !el.value.trim()) missing.push(fieldNames[k]);
   });
   return missing;
 }
