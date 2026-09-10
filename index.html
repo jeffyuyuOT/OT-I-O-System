@@ -10942,6 +10942,7 @@ async function printDeliveryNote(){
 
   const rowsHtml = data.items.map(it => `
     <tr>
+      <td class="sku-col">${escapeHtmlForPrint(it.sku)}</td>
       <td>${escapeHtmlForPrint(it.name)}</td>
       <td style="text-align:right;">${it.qty}</td>
       <td>${escapeHtmlForPrint(it.unit)}</td>
@@ -10961,6 +10962,7 @@ async function printDeliveryNote(){
   table{ border-collapse:collapse; width:100%; margin-top:14px; }
   th, td{ padding:7px 10px; border:1px solid #999; font-size:13px; text-align:left; }
   th{ background:#eee; }
+  .sku-col{ width:1%; white-space:nowrap; }
 </style>
 </head>
 <body>
@@ -10969,7 +10971,7 @@ async function printDeliveryNote(){
   <div class="meta">${escapeHtmlForPrint('Date')}: ${data.date}</div>
   <div class="meta">${escapeHtmlForPrint('Note')}: ${escapeHtmlForPrint(data.note)}</div>
   <table>
-    <thead><tr><th>${escapeHtmlForPrint('Product Name')}</th><th>${escapeHtmlForPrint('Qty')}</th><th>${escapeHtmlForPrint('Unit')}</th></tr></thead>
+    <thead><tr><th class="sku-col">${escapeHtmlForPrint('SKU')}</th><th>${escapeHtmlForPrint('Product Name')}</th><th>${escapeHtmlForPrint('Qty')}</th><th>${escapeHtmlForPrint('Unit')}</th></tr></thead>
     <tbody>${rowsHtml}</tbody>
   </table>
 </body>
