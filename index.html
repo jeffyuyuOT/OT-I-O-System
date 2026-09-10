@@ -1158,7 +1158,7 @@
         <div class="section-title"><span data-i18n="secImportTitle">從 Excel 匯入商品主檔</span></div>
 
         <div id="importSection">
-          <p style="font-size:12.5px;color:var(--ink-soft);margin:0 0 12px;">
+          <p style="font-size:12.5px;color:var(--ink-soft);margin:0 0 12px;" data-i18n-html="importDetectedMsg">
             偵測到你之前上傳的 <b>stock.xlsx</b>,裡面有 <b id="importCount">66</b> 項商品(品名、單位、庫存量、平均使用量、分類、安全庫存)。按下方按鈕匯入:新商品會新增,已存在的商品會自動比對並更新庫存量/分類/平均值/安全庫存/備註(庫存量不同會產生一筆調整紀錄),不會重複新增。
           </p>
           <button class="btn" onclick="importFromExcel()" data-i18n="btnImportUpdate">匯入 / 更新 stock.xlsx 的庫存資料</button>
@@ -1296,7 +1296,7 @@
         <div class="field" id="txPartyFieldWrap">
           <label id="txPartyLabel" data-i18n="partyLabelIn">進貨方(供應商)</label>
           <select id="txPartyHistorySelect" style="display:none;" onchange="onTxPartyHistorySelectChange(this.value)"></select>
-          <input id="txParty" type="text" placeholder="例如:大盤商 A" />
+          <input id="txParty" type="text" placeholder="例如:大盤商 A" data-i18n-placeholder="partyPlaceholderIn" />
           <select id="txPartySelect" style="display:none;"></select>
         </div>
         <div class="field" id="txInvoiceFieldWrap" style="display:none;">
@@ -1438,7 +1438,7 @@
         <div class="section-title" style="margin:0;"><span data-i18n="secStockOverview">庫存總覽</span></div>
         <div class="overview-toolbar-controls" style="display:flex;gap:10px;align-items:center;">
           <select id="categoryFilter" onchange="renderStockCards()">
-            <option value="">全部分類</option>
+            <option value="" data-i18n="catFilterAll">全部分類</option>
           </select>
           <select id="statusFilter" onchange="renderStockCards()">
             <option value="" data-i18n="statusFilterAll">燈號:全部</option>
@@ -1522,7 +1522,7 @@
         </div>
         <div class="field">
           <label data-i18n="fieldOrderNote">備註(選填)</label>
-          <input type="text" id="orderNote" placeholder="例如:用途、聯絡方式…" />
+          <input type="text" id="orderNote" placeholder="例如:用途、聯絡方式…" data-i18n-placeholder="fieldOrderNotePlaceholderExample" />
         </div>
       </div>
       <p style="font-size:11.5px;color:var(--ink-soft);margin:6px 0 12px;" data-i18n="orderPartyHelp">
@@ -1553,7 +1553,7 @@
       <div id="cartItemsTable"></div>
       <div class="field" style="max-width:360px;margin-top:12px;">
         <label data-i18n="fieldOrderNote">備註(選填)</label>
-        <input type="text" id="cartOrderNote" placeholder="例如:用途、聯絡方式…" oninput="document.getElementById('orderNote').value = this.value;" />
+        <input type="text" id="cartOrderNote" placeholder="例如:用途、聯絡方式…" data-i18n-placeholder="fieldOrderNotePlaceholderExample" oninput="document.getElementById('orderNote').value = this.value;" />
       </div>
       <div style="margin-top:14px;display:flex;gap:10px;">
         <button class="btn ghost" onclick="closeCart()" data-i18n="btnOrderMore">← 繼續訂貨</button>
@@ -1594,15 +1594,15 @@
       <div class="form-grid" style="grid-template-columns:1fr 1fr 1fr auto;">
         <div class="field">
           <label data-i18n="fieldPartyName">出貨方名稱</label>
-          <input type="text" id="newPartyName" placeholder="例如:○○貿易行" />
+          <input type="text" id="newPartyName" placeholder="例如:○○貿易行" data-i18n-placeholder="fieldCustomerNamePlaceholderExample" />
         </div>
         <div class="field">
           <label data-i18n="fieldPartyContact">聯絡方式(選填)</label>
-          <input type="text" id="newPartyContact" placeholder="電話 / Line / Email" />
+          <input type="text" id="newPartyContact" placeholder="電話 / Line / Email" data-i18n-placeholder="fieldContactPlaceholderExample" />
         </div>
         <div class="field">
           <label data-i18n="fieldOrderNote">備註(選填)</label>
-          <input type="text" id="newPartyNote" placeholder="備註" />
+          <input type="text" id="newPartyNote" placeholder="備註" data-i18n-placeholder="colNote" />
         </div>
         <button class="btn" onclick="addParty()" style="align-self:flex-end;" data-i18n="btnAddParty">➕ 新增出貨方</button>
       </div>
@@ -1719,7 +1719,7 @@
         </div>
         <div class="field">
           <label data-i18n="fieldImportParty">進貨方/出貨方(若表格內有 Supplier 會自動帶入,選填)</label>
-          <div class="input-wrap"><input id="txImportParty" type="text" placeholder="例如:大盤商 A" /></div>
+          <div class="input-wrap"><input id="txImportParty" type="text" placeholder="例如:大盤商 A" data-i18n-placeholder="partyPlaceholderIn" /></div>
         </div>
         <div class="field">
           <label data-i18n="fieldSelectFiles">選擇檔案(檔案在不同資料夾可分次加選)</label>
@@ -1739,15 +1739,15 @@
       <div class="form-grid" style="grid-template-columns:0.8fr 1.2fr 0.7fr 0.9fr 1fr 0.9fr 1.1fr auto;">
         <div class="field">
           <label data-i18n="fieldSku">SKU(選填)</label>
-          <input id="newProductSku" type="text" placeholder="例如:A001" />
+          <input id="newProductSku" type="text" placeholder="例如:A001" data-i18n-placeholder="fieldSkuPlaceholderExample" />
         </div>
         <div class="field">
           <label data-i18n="fieldName">商品名稱</label>
-          <input id="newProductName" type="text" placeholder="例如:A4影印紙" />
+          <input id="newProductName" type="text" placeholder="例如:A4影印紙" data-i18n-placeholder="fieldProductNamePlaceholderExample" />
         </div>
         <div class="field">
           <label data-i18n="fieldUnit">單位</label>
-          <input id="newProductUnit" type="text" placeholder="例如:箱 / 個 / kg" />
+          <input id="newProductUnit" type="text" placeholder="例如:箱 / 個 / kg" data-i18n-placeholder="fieldUnitPlaceholderExample" />
         </div>
         <div class="field">
           <label data-i18n="fieldCategory">分類</label>
@@ -1755,19 +1755,19 @@
         </div>
         <div class="field">
           <label data-i18n="fieldAvg">月均使用量(選填)</label>
-          <input id="newProductAvg" type="number" min="0" step="0.1" placeholder="沒有紀錄可留空" />
+          <input id="newProductAvg" type="number" min="0" step="0.1" placeholder="沒有紀錄可留空" data-i18n-placeholder="fieldStockPlaceholderEmptyOk" />
         </div>
         <div class="field">
           <label data-i18n="fieldSafety">安全庫存(月數,選填)</label>
-          <input id="newProductSafety" type="number" min="0" step="0.01" placeholder="例如 1.5" />
+          <input id="newProductSafety" type="number" min="0" step="0.01" placeholder="例如 1.5" data-i18n-placeholder="fieldSafetyStockMonthsPlaceholder" />
         </div>
         <div class="field">
           <label data-i18n="fieldNote">備註(選填)</label>
-          <input id="newProductNote" type="text" placeholder="例如:易碎/需冷藏" />
+          <input id="newProductNote" type="text" placeholder="例如:易碎/需冷藏" data-i18n-placeholder="fieldNotePlaceholderExample" />
         </div>
         <div class="field">
           <label data-i18n="fieldOrderPageRemark">訂貨頁面附註(選填)</label>
-          <input id="newProductOrderPageRemark" type="text" placeholder="只會顯示在訂貨頁面" />
+          <input id="newProductOrderPageRemark" type="text" placeholder="只會顯示在訂貨頁面" data-i18n-placeholder="fieldOrderPageRemarkPlaceholder" />
         </div>
         <button class="btn" onclick="addProduct()" data-i18n="btnAddProduct">新增商品</button>
       </div>
@@ -1859,13 +1859,13 @@
           <div class="field">
             <label data-i18n="fieldFilterByCategory">依分類篩選商品</label>
             <select id="logCategoryFilter" onchange="onLogCategoryFilterChange()">
-              <option value="">全部分類</option>
+              <option value="" data-i18n="catFilterAll">全部分類</option>
             </select>
           </div>
           <div class="field">
             <label data-i18n="lblProduct">商品</label>
             <select id="logFilter" onchange="renderLog()">
-              <option value="">全部商品</option>
+              <option value="" data-i18n="logFilterAll">全部商品</option>
             </select>
           </div>
           <div class="field">
@@ -1880,7 +1880,7 @@
           <div class="field">
             <label data-i18n="lblPartyGeneric">對象</label>
             <select id="logPartyFilter" onchange="renderLog()">
-              <option value="">全部對象</option>
+              <option value="" data-i18n="logPartyAll">全部對象</option>
             </select>
           </div>
           <div class="field">
@@ -6185,7 +6185,7 @@ function renderTxPreview(matches, unmatched){
         <div class="field" style="max-width:340px;margin-bottom:10px;">
           <label style="font-size:11px;color:var(--ink-soft);display:block;margin-bottom:4px;">指定出貨方(建立的訂單要正式歸到哪一個出貨方,強烈建議選填)</label>
           <select id="txImportOrderParty">
-            <option value="">— 依匯入的對象名稱自動比對,比對不到就沒有出貨方 —</option>
+            <option value="" data-i18n="partyAutoMatchOptionLabel">— 依匯入的對象名稱自動比對,比對不到就沒有出貨方 —</option>
             ${shippingParties.map(sp => `<option value="${sp.id}">${sp.name.replace(/"/g,'&quot;')}</option>`).join('')}
           </select>
         </div>` : ''}
@@ -9719,11 +9719,11 @@ function renderProductEditModalBody(p, opts){
     </div>
     <div class="field-block">
       <label>${t('fieldName')}</label>
-      <input type="text" id="editProdName" value="${(p.name||'').replace(/"/g,'&quot;')}" style="width:100%;" placeholder="${isChild ? '例如:百香果汁x20瓶' : ''}" />
+      <input type="text" id="editProdName" value="${(p.name||'').replace(/"/g,'&quot;')}" style="width:100%;" placeholder="${isChild ? t('fieldChildProductNamePlaceholderExample') : ''}" />
     </div>
     <div class="field-block">
       <label>${t('fieldUnit')}</label>
-      <input type="text" id="editProdUnit" value="${p.unit||''}" placeholder="單位" style="width:100%;" />
+      <input type="text" id="editProdUnit" value="${p.unit||''}" placeholder="單位" data-i18n-placeholder="fieldUnit" style="width:100%;" />
     </div>
     <div class="field-block">
       <label>${t('fieldProductPhoto')}</label>
@@ -9737,7 +9737,7 @@ function renderProductEditModalBody(p, opts){
     ${isChild ? `
     <div class="field-block">
       <label>庫存量加權數<span style="color:var(--ink-soft);font-weight:400;"> — 計算主商品庫存總量時,批量商品數量會先乘以這個數字</span></label>
-      <input type="number" id="editProdWeight" min="0" step="0.01" value="${p.childWeight !== null && p.childWeight !== undefined ? p.childWeight : ''}" placeholder="例如:20" style="width:100%;" />
+      <input type="number" id="editProdWeight" min="0" step="0.01" value="${p.childWeight !== null && p.childWeight !== undefined ? p.childWeight : ''}" placeholder="例如:20" data-i18n-placeholder="fieldChildWeightPlaceholderExample" style="width:100%;" />
     </div>
     ${!opts.isNew ? `
     <div class="field-block">
@@ -9755,7 +9755,7 @@ function renderProductEditModalBody(p, opts){
     `}
     <div class="field-block">
       <label>${t('colAvgOut')} / ${t('fieldAvg')}</label>
-      <input type="number" id="editProdAvg" min="0" step="0.1" value="${p.manualAvg !== null && p.manualAvg !== undefined ? p.manualAvg : ''}" placeholder="月均使用量" style="width:100%;" />
+      <input type="number" id="editProdAvg" min="0" step="0.1" value="${p.manualAvg !== null && p.manualAvg !== undefined ? p.manualAvg : ''}" placeholder="月均使用量" data-i18n-placeholder="fieldAvgMonthlyPlaceholder" style="width:100%;" />
     </div>
     <div class="field-block">
       <label>${t('fieldSafetyStockMonths')}</label>
@@ -9764,7 +9764,7 @@ function renderProductEditModalBody(p, opts){
     </div>
     <div class="field-block">
       <label>${t('colNote')}</label>
-      <input type="text" id="editProdNote" value="${p.note ? p.note.replace(/"/g,'&quot;') : ''}" placeholder="備註" style="width:100%;" />
+      <input type="text" id="editProdNote" value="${p.note ? p.note.replace(/"/g,'&quot;') : ''}" placeholder="備註" data-i18n-placeholder="colNote" style="width:100%;" />
     </div>
     <div class="field-block">
       <label>${t('fieldOrderPageRemark')}</label>
@@ -14107,6 +14107,7 @@ function renderAll(){
   renderVerifyPage();
   renderPartiesTable();
   renderForecastTable();
+  renderStockLocationDetail();
   const masterTabEl = document.getElementById('tab-master');
   if(masterTabEl && masterTabEl.classList.contains('active-tab')) loadUsers().then(renderUsersTab);
 }
@@ -14497,6 +14498,15 @@ function exportStockInSheet(rows, productMap, dateFrom, dateTo, msg){
   msg.textContent = `✓ 已匯出 ${sorted.length} 筆進貨紀錄:${filename}`;
 }
 
+// 「偵測到你之前上傳的 stock.xlsx」那段文字現在是 data-i18n-html(見 importDetectedMsg),
+// 切換語言時 applyStaticTranslations() 會用翻譯字典裡的版本整個重寫這段 innerHTML(裡面帶的是
+// 寫死的 id="importCount">0</b> 佔位符),把原本已經填好的真實數字蓋回 0——所以這個數字要在
+// applyStaticTranslations() 之後、每次都重新填一次,不能只在開機時設一次。
+function updateImportCountDisplay(){
+  const el = document.getElementById('importCount');
+  if(el) el.textContent = IMPORTED_STOCK_DATA.length;
+}
+
 async function startApp(){
   document.getElementById('txDate').value = todayISO();
   document.getElementById('txImportDate').value = todayISO();
@@ -14527,7 +14537,7 @@ async function startApp(){
       showMobileHomeMenu();
     }
   }
-  document.getElementById('importCount').textContent = IMPORTED_STOCK_DATA.length;
+  updateImportCountDisplay();
   const allImported = IMPORTED_STOCK_DATA.every(item => products.some(p => p.sku === item.sku));
   const needsCategoryBackfill = IMPORTED_STOCK_DATA.some(item => {
     const existing = products.find(p => p.sku === item.sku);

@@ -54,6 +54,7 @@ const I18N = {
     logActionOrderPlace: '訂貨', logActionTxIn: '進貨', logActionTxOut: '出貨', logActionTxRestock: '入庫',
     logActionOrderEdit: '修改訂單', logActionOrderDelete: '刪除訂單', logActionOrderRemark: '編輯訂單附註',
     secImportTitle: '從 Excel 匯入商品主檔',
+    importDetectedMsg: '偵測到你之前上傳的 <b>stock.xlsx</b>,裡面有 <b id="importCount">0</b> 項商品(品名、單位、庫存量、平均使用量、分類、安全庫存)。按下方按鈕匯入:新商品會新增,已存在的商品會自動比對並更新庫存量/分類/平均值/安全庫存/備註(庫存量不同會產生一筆調整紀錄),不會重複新增。',
     secAddProduct: '新增商品', secRegisterTx: '登記進出貨', secImportTx: '從 Excel 匯入進出貨紀錄',
     browseAllProductsLabel: '瀏覽所有商品(不勾選:只顯示這個出貨方訂貨時看得到的商品;勾選:顯示庫存總覽裡所有商品,隱藏商品除外)',
     secStockOverview: '庫存總覽', secTxLog: '進出貨紀錄',
@@ -61,6 +62,18 @@ const I18N = {
     fieldAvg: '月均使用量(選填)', fieldSafety: '安全庫存(月數,選填)', fieldNote: '備註(選填)',
     fieldBarcode: '條碼', barcodeInputHint: '可以直接把游標點進這一欄,拿掃碼槍掃一次商品包裝上的條碼,掃到的號碼會自動打進來,不用手動輸入。',
     fieldOrderPageRemark: '訂貨頁面附註', fieldOrderPageRemarkPlaceholder: '只會顯示在訂貨頁面',
+    fieldOrderNotePlaceholderExample: '例如:用途、聯絡方式…',
+    fieldCustomerNamePlaceholderExample: '例如:○○貿易行',
+    fieldContactPlaceholderExample: '電話 / Line / Email',
+    fieldSkuPlaceholderExample: '例如:A001',
+    fieldProductNamePlaceholderExample: '例如:A4影印紙',
+    fieldUnitPlaceholderExample: '例如:箱 / 個 / kg',
+    fieldStockPlaceholderEmptyOk: '沒有紀錄可留空',
+    fieldNotePlaceholderExample: '例如:易碎/需冷藏',
+    partyAutoMatchOptionLabel: '— 依匯入的對象名稱自動比對,比對不到就沒有出貨方 —',
+    fieldChildProductNamePlaceholderExample: '例如:百香果汁x20瓶',
+    fieldChildWeightPlaceholderExample: '例如:20',
+    fieldAvgMonthlyPlaceholder: '月均使用量',
     orderPageRemarkHint: '跟一般備註不一樣,這個附註是常駐的,只會顯示在「訂貨」頁面商品名稱後面(斜體小字),其他地方(訂貨後台管理、進出貨紀錄…)不會顯示。',
     fieldBoxDimensions: '箱子尺寸(公分)', fieldBoxLength: '長', fieldBoxWidth: '寬', fieldBoxHeight: '高',
     boxDimensionsHint: '單位是公分。填了之後,進貨預估頁面才能算出這個商品的體積。',
@@ -576,6 +589,7 @@ const I18N = {
     logActionOrderPlace: 'Place order', logActionTxIn: 'Stock in', logActionTxOut: 'Stock out', logActionTxRestock: 'Restock',
     logActionOrderEdit: 'Edit order', logActionOrderDelete: 'Delete order', logActionOrderRemark: 'Edit order remark',
     secImportTitle: 'Import Product Master from Excel',
+    importDetectedMsg: 'Detected the <b>stock.xlsx</b> you uploaded before, containing <b id="importCount">0</b> product(s) (name, unit, stock, avg usage, category, safety stock). Click the button below to import: new products are added, and existing ones are matched and updated (stock/category/average/safety stock/note — a stock change generates an adjustment record); nothing is added twice.',
     secAddProduct: 'Add Product', secRegisterTx: 'Log Stock In/Out', secImportTx: 'Import Stock In/Out from Excel',
     browseAllProductsLabel: 'Browse all products (unchecked: only products this supplier can see when ordering; checked: all products in stock overview, except hidden ones)',
     secStockOverview: 'Stock Overview', secTxLog: 'Stock In/Out Log',
@@ -583,6 +597,18 @@ const I18N = {
     fieldAvg: 'Avg Monthly Usage (optional)', fieldSafety: 'Safety Stock (months, optional)', fieldNote: 'Note (optional)',
     fieldBarcode: 'Barcode', barcodeInputHint: 'Click into this field and scan the product\'s barcode with a scanner gun — the code types straight in, no need to enter it by hand.',
     fieldOrderPageRemark: 'Order Page Remark', fieldOrderPageRemarkPlaceholder: 'Only shown on the Order page',
+    fieldOrderNotePlaceholderExample: 'e.g. Purpose, contact info…',
+    fieldCustomerNamePlaceholderExample: 'e.g. XX Trading Co.',
+    fieldContactPlaceholderExample: 'Phone / Line / Email',
+    fieldSkuPlaceholderExample: 'e.g. A001',
+    fieldProductNamePlaceholderExample: 'e.g. A4 Printer Paper',
+    fieldUnitPlaceholderExample: 'e.g. Box / Piece / kg',
+    fieldStockPlaceholderEmptyOk: 'Leave blank if no record',
+    fieldNotePlaceholderExample: 'e.g. Fragile / Keep refrigerated',
+    partyAutoMatchOptionLabel: '— Auto-match by imported party name; no party if no match —',
+    fieldChildProductNamePlaceholderExample: 'e.g. Passion Fruit Juice x20 Bottles',
+    fieldChildWeightPlaceholderExample: 'e.g. 20',
+    fieldAvgMonthlyPlaceholder: 'Avg monthly usage',
     orderPageRemarkHint: 'Unlike the general note, this remark is persistent and only appears next to the product name on the "Order" page (small italic text) — it won\'t show anywhere else (Order Management, Stock Log, etc.).',
     fieldBoxDimensions: 'Box Dimensions (cm)', fieldBoxLength: 'Length', fieldBoxWidth: 'Width', fieldBoxHeight: 'Height',
     boxDimensionsHint: 'Units are in centimeters. Fill these in to enable volume calculation on the Purchase Forecast page.',
@@ -1102,6 +1128,7 @@ async function setLang(newLang){
   try{ localStorage.setItem('inventoryAppLang', lang); } catch(e){}
   try{ await dbSet('lang', lang); } catch(e){}
   applyStaticTranslations();
+  updateImportCountDisplay();
   renderCurrentUserBadge();
   updateAppHeaderTitle();
   renderTabBar();
