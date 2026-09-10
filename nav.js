@@ -237,6 +237,12 @@ function switchTab(tabId){
     const partiesBtn = document.getElementById('btn-subtab-order-parties');
     if(partiesBtn) partiesBtn.style.display = hasCapability('cap-manage-parties') ? '' : 'none';
     if(!hasCapability('cap-manage-parties')) switchWarehouseAdminSubTab('subtab-purchase-mgmt-suppliers');
+    // 「收據掃描數據庫」是收據掃描模組(receipt-scan-module.js,選配)的一部分——沒有這個模組的話,
+    // 這個按鈕整個藏起來,理由跟上面「管理出貨方」一樣:模組沒帶,底下的功能(掃描比對記憶表)
+    // 根本沒有意義存在,藏起來比留著一個點了也沒用的按鈕清楚。
+    const ocrDbBtn = document.getElementById('btn-subtab-purchase-mgmt-ocrdb');
+    if(ocrDbBtn) ocrDbBtn.style.display = hasFeature('receiptScanModule') ? '' : 'none';
+    if(!hasFeature('receiptScanModule')) switchWarehouseAdminSubTab('subtab-purchase-mgmt-suppliers');
   }
   if(tabId === 'tab-master'){
     loadUsers().then(renderUsersTab);

@@ -6,10 +6,15 @@
 // 瀏覽器抓不到檔案只會在 console 顯示一個 404,不影響其他功能運作,對應的選項/行為
 // 會自動變成系統預設值)。
 //
+// window.FEATURES 用 Object.assign 合併寫入,不要直接整包蓋掉——因為除了這個檔案,
+// receipt-scan-features.js 也會寫入同一個 window.FEATURES 物件,兩個檔案不管誰先載入,
+// 都要能疊加、不能互相蓋掉對方已經寫好的開關。
+//
 // 之後如果要再加新的客製功能,一樣在這裡加一個 true/false 開關就好,
 // 主程式那邊用 hasFeature('新開關名稱') 判斷。
 // ============================================================
-window.FEATURES = {
+window.FEATURES = window.FEATURES || {};
+Object.assign(window.FEATURES, {
   // 商品編輯畫面裡的「不顯示於已完成訂單匯出」開關(含「整個家族都不顯示」/
   // 「僅顯示切換的批量商品數量」兩個子選項)
   hideFromCompletedExport: true,
@@ -24,4 +29,4 @@ window.FEATURES = {
   // Picking Slip 上的「箱數參考」欄(數量參考欄):把訂貨數量換算成幾箱+剩餘幾件,
   // 給揀貨的人參考用
   pickingSlipQtyReference: true
-};
+});

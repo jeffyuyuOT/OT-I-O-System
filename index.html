@@ -2309,6 +2309,7 @@
 
 <script src="config.js"></script>
 <script src="ot-custom-features.js"></script>
+<script src="receipt-scan-features.js"></script>
 <script src="i18n.js"></script>
 <script src="db.js"></script>
 <script src="auth.js"></script>
@@ -2319,9 +2320,10 @@
 <script>
 const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-// 判斷某個客製化功能模組是否存在——由 ot-custom-features.js 這個「選配」檔案決定。
-// 如果部署時沒有帶 ot-custom-features.js(例如給別家公司用、不需要這些客製功能),
-// window.FEATURES 就會是 undefined,這裡一律回傳 false,對應功能就會用預設行為。
+// 判斷某個客製化功能模組是否存在——由「選配」的功能開關檔案決定(目前有 ot-custom-features.js、
+// receipt-scan-features.js 兩個,以後也可能再加)。
+// 如果部署時沒有帶某個開關檔案(例如給別家公司用、不需要那部分客製功能),對應的開關就不會被
+// 寫進 window.FEATURES,這裡一律回傳 false,對應功能就會用預設行為。
 function hasFeature(name){ return !!(window.FEATURES && window.FEATURES[name]); }
 
 
@@ -2748,6 +2750,7 @@ function deleteSupplier(supplierId){
 
 // ===== 掃描收據數據庫 =====
 function renderOcrDbProductSelect(){
+  if(!hasFeature('receiptScanModule')) return;
   syncCategoryOrder();
   const catSel = document.getElementById('ocrDbCategoryFilter');
   const prevCat = catSel.value;
@@ -8099,7 +8102,7 @@ function renderPurchaseReceiptPreviewList(){
   // 一樣的流程做文字辨識(見 scanReceiptForItems)。有上傳圖片或 PDF 檔案才顯示這個按鈕,
   // 只上傳其他格式(理論上不該發生,上傳欄位本身就限制只能選圖片/PDF)才不顯示。
   const hasScannableFile = pendingPurchaseReceiptFiles.some(f => /\.(jpe?g|png|gif|bmp|webp|pdf)$/i.test(f.filename || f.url));
-  if(scanWrap) scanWrap.style.display = hasScannableFile ? 'block' : 'none';
+  if(scanWrap) scanWrap.style.display = (hasScannableFile && hasFeature('receiptScanModule')) ? 'block' : 'none';
 }
 
 function removePurchaseReceiptFile(index){
@@ -8167,6 +8170,7 @@ async function callReceiptScanService(dataUrl, pageIndex){
 }
 
 async function scanReceiptForItems(){
+  if(!hasFeature('receiptScanModule')) return;
   const msgEl = document.getElementById('purchaseReceiptScanMsg');
   const file = pendingPurchaseReceiptFiles.find(f => /\.(jpe?g|png|gif|bmp|webp|pdf)$/i.test(f.filename || f.url));
   if(!file){
