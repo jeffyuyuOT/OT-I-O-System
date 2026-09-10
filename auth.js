@@ -28,7 +28,7 @@ const ROLE_DEFS = [
 // 細部功能權限(比「看不看得到分頁」更細):預設每個帳號都「允許」,
 // 只有被明確勾掉才會受限。掛在某個分頁底下,那個分頁本身要先勾選,這個設定才有意義。
 const CAPABILITY_DEFS = [
-  { id: 'cap-manage-parties', parentTab: 'tab-order-admin', labelKey: 'capManageParties' },
+  { id: 'cap-manage-parties', parentTab: 'tab-warehouse-admin', labelKey: 'capManageParties' },
   { id: 'cap-edit-overview', parentTab: 'tab-overview', labelKey: 'capEditOverview' },
   { id: 'cap-manage-users', parentTab: 'tab-master', labelKey: 'capManageUsers' }
 ];
