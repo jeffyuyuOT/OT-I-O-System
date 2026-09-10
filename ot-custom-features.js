@@ -19,5 +19,9 @@ window.FEATURES = {
   stockLocationPickingSlipPrint: true,
 
   // 系統設置 →「已完成訂單匯出格式」選項(僅匯出有紀錄的商品 / 匯出全部商品)
-  completedExportFormatOption: true
+  completedExportFormatOption: true,
+
+  // Picking Slip 上的「箱數參考」欄(數量參考欄):把訂貨數量換算成幾箱+剩餘幾件,
+  // 給揀貨的人參考用
+  pickingSlipQtyReference: true
 };

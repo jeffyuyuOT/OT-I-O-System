@@ -9372,7 +9372,7 @@ async function printOrderDocument(orderId, opts){
     return u ? u.charAt(0).toUpperCase() : '';
   }
   function cartonRefFor(it){
-    if(!includeCheck || !it.productId) return '';
+    if(!includeCheck || !hasFeature('pickingSlipQtyReference') || !it.productId) return '';
     const p = products.find(x => x.id === it.productId);
     const child = p ? getBasisMultipackChild(p) : null;
     if(!child || !(it.qty >= child.childWeight)) return '';
@@ -9409,14 +9409,14 @@ async function printOrderDocument(orderId, opts){
     const locationCell = locationLabelOverride !== undefined ? escapeHtmlForPrint(locationLabelOverride) : locationLabelFor(it);
     return `
     <tr>
-      ${(includeCheck && stockLocationShowOnPickingSlip) ? `<td class="borderless-col">${locationCell}</td>` : ''}
       ${includeSku ? `<td class="sku-col">${escapeHtmlForPrint(it.sku)}</td>` : ''}
       <td>${nameCell}</td>
+      ${(includeCheck && stockLocationShowOnPickingSlip) ? `<td class="location-col">${locationCell}</td>` : ''}
       <td class="qty-col" style="text-align:right;">${displayQty}</td>
       <td class="unit-col">${escapeHtmlForPrint(it.unit)}</td>
       ${includeCheck ? `<td class="check-col"></td>` : ''}
       ${pickingNoteTd}
-      ${includeCheck ? `<td class="borderless-col">${cartonRefFor(it)}</td>` : ''}
+      ${(includeCheck && hasFeature('pickingSlipQtyReference')) ? `<td class="borderless-col">${cartonRefFor(it)}</td>` : ''}
       ${completedNoteTd}
     </tr>
   `;
@@ -9432,9 +9432,9 @@ async function printOrderDocument(orderId, opts){
   }).join('');
   const checkTh = includeCheck ? `<th class="check-col">${escapeHtmlForPrint('Check')}</th>` : '';
   const skuTh = includeSku ? `<th class="sku-col">${escapeHtmlForPrint('SKU')}</th>` : '';
-  const locationTh = (includeCheck && stockLocationShowOnPickingSlip) ? `<th class="borderless-col">${escapeHtmlForPrint(t('colStockLocation'))}</th>` : '';
+  const locationTh = (includeCheck && stockLocationShowOnPickingSlip) ? `<th class="location-col">${escapeHtmlForPrint(t('colStockLocation'))}</th>` : '';
   const pickingNoteTh = (includeCheck && hasAnyNote) ? `<th class="borderless-col">${escapeHtmlForPrint('Note')}</th>` : '';
-  const cartonTh = includeCheck ? `<th class="borderless-col"></th>` : '';
+  const cartonTh = (includeCheck && hasFeature('pickingSlipQtyReference')) ? `<th class="borderless-col"></th>` : '';
   const completedNoteTh = (!includeCheck && hasAnyNote) ? `<th class="fit-col">${escapeHtmlForPrint('Note')}</th>` : '';
 
   const html = `<!DOCTYPE html>
@@ -9457,6 +9457,7 @@ async function printOrderDocument(orderId, opts){
   .unit-col{ width:1%; white-space:nowrap; }
   .check-col{ width:44px; text-align:center; }
   .borderless-col{ border:none; font-size:12px; color:#555; width:1%; white-space:nowrap; }
+  .location-col{ width:1%; white-space:nowrap; }
   .fit-col{ width:1%; white-space:nowrap; }
 </style>
 </head>
@@ -9467,7 +9468,7 @@ async function printOrderDocument(orderId, opts){
   <div class="meta">${escapeHtmlForPrint('Customer')}: ${escapeHtmlForPrint(order.partyName)}</div>
   ${(order.note && !includeCheck) ? `<div class="meta">${escapeHtmlForPrint('Note')}: ${escapeHtmlForPrint(order.note)}</div>` : ''}
   <table>
-    <thead><tr>${locationTh}${skuTh}<th>${escapeHtmlForPrint('Product Name')}</th><th class="qty-col">${escapeHtmlForPrint('Qty')}</th><th class="unit-col">${escapeHtmlForPrint('Unit')}</th>${checkTh}${pickingNoteTh}${cartonTh}${completedNoteTh}</tr></thead>
+    <thead><tr>${skuTh}<th>${escapeHtmlForPrint('Product Name')}</th>${locationTh}<th class="qty-col">${escapeHtmlForPrint('Qty')}</th><th class="unit-col">${escapeHtmlForPrint('Unit')}</th>${checkTh}${pickingNoteTh}${cartonTh}${completedNoteTh}</tr></thead>
     <tbody>${rowsHtml}</tbody>
   </table>
   ${(order.note && includeCheck) ? `<div class="note-after-table">${escapeHtmlForPrint('Note')}: ${escapeHtmlForPrint(order.note)}</div>` : ''}
@@ -11695,6 +11696,15 @@ async function confirmConversion(){
       msg.textContent = tf('errConversionResultNotInteger', { result: convertedQty.toLocaleString(undefined, {maximumFractionDigits: 4}), unit: child.unit });
       return;
     }
+    // 扣庫存之前,先問清楚主商品要從哪個位置扣——理由跟核對訂單、列印撿貨單時一樣:要是先扣了
+    // 庫存,選位置的過程中使用者卻按了取消,庫存分布資料就會跟實際庫存對不起來。這裡修正的正是
+    // 之前的漏洞:切換只有幫「多出來的批量商品」指派位置,卻從來沒有從主商品原本的位置扣過,
+    // 導致庫存分布頁面的數字跟主商品實際庫存對不起來。
+    let sourceLocationChoices;
+    try{
+      sourceLocationChoices = await resolveLocationChoicesForItems([{ productId: parent.id, qty }]);
+    } catch(e){ return; } // 使用者在選位置的過程中按了取消,整個轉換中止
+
     const dateVal = todayISO();
     const nowIso = new Date().toISOString();
     const conversionId = genId();
@@ -11714,7 +11724,9 @@ async function confirmConversion(){
       msg.textContent = '⚠ 轉換失敗,請重新整理頁面再試一次。';
       return;
     }
-    // 交易確定成功之後才處理位置指派,避免庫存扣了/位置卻沒對應更新的不一致。
+    // 交易確定成功之後才處理位置變動,避免庫存扣了/位置卻沒對應更新的不一致:先把主商品
+    // 原本的位置庫存扣掉,再幫轉換出來的批量商品指派位置。
+    await applyLocationDeductions(sourceLocationChoices);
     await applyConversionLocationAssignment('conversionLoc', child.id, convertedQty);
     const batchProductId = conversionSourceBatchProductId;
     const verifyProductId = conversionSourceVerifyProductId;
@@ -11745,6 +11757,12 @@ async function confirmConversion(){
     msg.textContent = tf('errConversionResultNotInteger', { result: convertedQty.toLocaleString(undefined, {maximumFractionDigits: 4}), unit: parent.unit });
     return;
   }
+  // 扣庫存之前,先問清楚批量商品要從哪個位置扣(同上,避免庫存分布跟實際庫存對不起來)。
+  let sourceLocationChoices;
+  try{
+    sourceLocationChoices = await resolveLocationChoicesForItems([{ productId: child.id, qty }]);
+  } catch(e){ return; } // 使用者在選位置的過程中按了取消,整個切換中止
+
   const dateVal = todayISO();
   const nowIso = new Date().toISOString();
   const conversionId = genId();
@@ -11764,7 +11782,9 @@ async function confirmConversion(){
     msg.textContent = '⚠ 切換失敗,請重新整理頁面再試一次。';
     return;
   }
-  // 交易確定成功之後才處理位置指派,避免庫存扣了/位置卻沒對應更新的不一致。
+  // 交易確定成功之後才處理位置變動:先扣掉批量商品原本的位置庫存,再幫轉換出來的主商品
+  // 指派位置。
+  await applyLocationDeductions(sourceLocationChoices);
   await applyConversionLocationAssignment('conversionLoc', parent.id, convertedQty);
   const batchProductId = conversionSourceBatchProductId;
   const verifyProductId = conversionSourceVerifyProductId;
