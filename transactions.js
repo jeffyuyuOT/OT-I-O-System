@@ -11,6 +11,11 @@
 // ============================================================
 function setTxType(type){
   currentTxType = type;
+  // 切換類型時,把上一個類型送出後留下的訊息(不管是成功的綠字、還是失敗的紅字)一起清掉——
+  // 不然切到新的類型,畫面上還留著「已提交 xxx」這種跟目前畫面對不上的殘留訊息,容易誤導使用者
+  // 以為剛剛這個類型也送出過了。
+  const txMsgEl = document.getElementById('txMsg');
+  if(txMsgEl){ txMsgEl.className = 'msg'; txMsgEl.textContent = ''; }
   const sel = document.getElementById('txTypeSelect');
   if(sel && sel.value !== type) sel.value = type;
   const partyLabel = document.getElementById('txPartyLabel');
