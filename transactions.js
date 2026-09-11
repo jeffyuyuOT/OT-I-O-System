@@ -2319,3 +2319,67 @@ function isTxLinkedToSignedOrder(tx){
   const order = orders.find(o => o.id === tx.orderId);
   return !!(order && order.signedAt);
 }
+
+// 併入「已完成訂單」相關(從登記進出貨→出貨→載入已完成訂單這個子流程呼叫,見
+// submitLoadCompletedFlow)
+// 併入「已完成訂單」(會真的扣/加庫存):針對這批品項各自建一筆進出貨紀錄(連結這張訂單的
+// orderId),並把品項併進訂單的 items 清單。每一項各自依「自己的數量正負號」決定方向——正數是
+// 出貨(扣庫存),負數是入庫/退貨(加庫存),不是整批共用同一個類型,因為現在同一批裡可以同時有
+// 要出貨的商品跟要入庫的商品。item.qty 統一存成「正=出貨、負=入庫」的淨值,跟已完成訂單
+// 「改數量」用的是同一套慣例。呼叫前應該已經檢查過出貨數量沒有超過庫存。
+// 同一項商品如果已經在這張訂單裡,直接擋下來請使用者從這批清單移除,不嘗試自動合併,避免
+// 複雜的加總邏輯藏著算錯的風險。
+async function mergeItemsIntoCompletedOrderCore(orderId, batchItems, date, party){
+  const order = orders.find(o => o.id === orderId);
+  if(!order || order.deleted || orderStatus(order) !== 'confirmed' || order.signedAt){
+    return { ok: false, reason: 'not_editable' };
+  }
+  const dup = batchItems.find(bIt => order.items.some(it => it.productId === bIt.productId && !it.deleted));
+  if(dup){
+    return { ok: false, reason: 'duplicate', productName: dup.name };
+  }
+
+  const newTxs = batchItems.map(it => ({
+    id: genId(), productId: it.productId, type: it.qty > 0 ? 'out' : 'restock', qty: Math.abs(it.qty), date, party,
+    // 這張訂單本身有訂單號,交易記錄的備註只要放訂單號就能追溯回這張訂單、看到 order.note 裡的
+    // 完整備註內容,不需要把使用者打的備註也重複塞進每一筆交易記錄裡。
+    note: order.orderNo || orderId,
+    system: true, orderId
+  }));
+
+  const prevItems = order.items;
+  const newOrderItems = batchItems.map(it => ({
+    productId: it.productId, sku: it.sku || '', name: it.name, unit: it.unit,
+    qty: it.qty,
+    qtyHistory: [{ added: true, at: new Date().toISOString(), qty: it.qty }]
+  }));
+  order.items = [...prevItems, ...newOrderItems];
+
+  const prevPostVerifyChanges = order.postVerifyChanges ? [...order.postVerifyChanges] : [];
+  if(!order.postVerifyChanges) order.postVerifyChanges = [];
+  batchItems.forEach(it => {
+    order.postVerifyChanges.push({ kind: 'added', productId: it.productId, name: it.name, sku: it.sku, unit: it.unit, qty: it.qty, at: new Date().toISOString() });
+  });
+
+  transactions.push(...newTxs);
+  batchItems.forEach(it => {
+    productStockMap[it.productId] = (productStockMap[it.productId] || 0) - it.qty;
+  });
+
+  try{
+    await insertTransactions(newTxs);
+    await upsertOrders([order]);
+  } catch(e){
+    newTxs.forEach(tx => { const i = transactions.indexOf(tx); if(i >= 0) transactions.splice(i, 1); });
+    order.items = prevItems;
+    order.postVerifyChanges = prevPostVerifyChanges;
+    batchItems.forEach(it => {
+      productStockMap[it.productId] = (productStockMap[it.productId] || 0) + it.qty;
+    });
+    console.error('新增商品到已完成訂單失敗', e);
+    return { ok: false, reason: 'save_failed' };
+  }
+
+  logInventoryAction('order_edit', `Order ${order.orderNo || orderId} - added after verification: ${batchItems.map(it => `${it.name} ${it.qty} ${it.unit}`).join(', ')}`, order.orderNo);
+  return { ok: true, order };
+}
