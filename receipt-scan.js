@@ -382,6 +382,7 @@ async function scanReceiptForItems(){
   try{
     const ocrSources = isPdf ? await renderAllPdfPagesAsImageDataUrls(file.url) : [file.url];
     let allLines = [];
+    let supplierGuess = null;
     for(let i = 0; i < ocrSources.length; i++){
       if(isPdf && ocrSources.length > 1){
         msgEl.textContent = tf('scanningPdfPageMsg', { current: i + 1, total: ocrSources.length });
@@ -389,7 +390,10 @@ async function scanReceiptForItems(){
         msgEl.textContent = t('scanningReceiptMsg');
       }
       const data = await callReceiptScanService(ocrSources[i], i);
-      if(i === 0) currentReceiptScanId = data.scan_id; // 多頁只用第一頁的 scan_id 回報修正,見上面的說明
+      if(i === 0){
+        currentReceiptScanId = data.scan_id; // 多頁只用第一頁的 scan_id 回報修正,見上面的說明
+        supplierGuess = data.supplier_guess;
+      }
       const pageLines = (data.lines || []).map(l => ({
         description: l.name,
         qty: (l.qty && l.qty > 0) ? l.qty : 1,
@@ -397,6 +401,27 @@ async function scanReceiptForItems(){
       }));
       allLines = allLines.concat(pageLines);
     }
+
+    // 掃描前「進貨方」欄位是空的、掃描服務又猜出了供應商的話,嘗試自動帶入下拉選單——
+    // 用互相包含(不分大小寫)去比對選項的value或文字,不用完全一模一樣才算,比較寬容。
+    // 只在「使用者原本沒填」的情況下才自動帶入,使用者已經自己選好supplier的話絕對不覆蓋。
+    let autoFilledSupplier = false;
+    if(!receiptOcrPartyId && supplierGuess && partyInput){
+      const guessLower = supplierGuess.trim().toLowerCase();
+      const matchedOption = Array.from(partyInput.options).find(opt => {
+        const optValue = (opt.value || '').trim().toLowerCase();
+        const optText = (opt.textContent || '').trim().toLowerCase();
+        return (optValue && (optValue.includes(guessLower) || guessLower.includes(optValue))) ||
+               (optText && (optText.includes(guessLower) || guessLower.includes(optText)));
+      });
+      if(matchedOption){
+        partyInput.value = matchedOption.value;
+        receiptOcrPartyId = partyInput.value.trim();
+        partyInput.dispatchEvent(new Event('change', { bubbles: true }));
+        autoFilledSupplier = true;
+      }
+    }
+
     if(allLines.length === 0){
       msgEl.style.color = 'var(--crit)';
       msgEl.textContent = t('errReceiptScanNoLines');
@@ -404,7 +429,15 @@ async function scanReceiptForItems(){
     }
     pendingReceiptOcrLines = allLines;
     msgEl.style.color = 'var(--safe)';
-    msgEl.textContent = tf('receiptScanFoundLinesMsg', { n: allLines.length });
+    // 「已自動帶入供應商」這句提示暫時寫在這個檔案自己裡面,沒有走i18n.js的翻譯字典
+    // (手上沒有那份檔案完整內容,怕貿然加新key跟另一個負責前端模組化的對話撞到)——
+    // 直接讀全域的 lang 變數判斷中/英,自己維護這一句就好,不影響i18n.js。
+    const autoFilledNote = autoFilledSupplier
+      ? (lang === 'en'
+          ? ` (Supplier: ${supplierGuess} has been auto-filled. Please verify.)`
+          : `（已自動帶入供應商:${supplierGuess},請確認是否正確）`)
+      : '';
+    msgEl.textContent = tf('receiptScanFoundLinesMsg', { n: allLines.length }) + autoFilledNote;
     processNextReceiptOcrLine();
   } catch(e){
     console.error('收據掃描服務辨識失敗', e);
