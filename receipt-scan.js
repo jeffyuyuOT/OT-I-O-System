@@ -351,38 +351,59 @@ async function callReceiptScanService(dataUrl, pageIndex){
     body: formData
   });
   if(!resp.ok) throw new Error(`收據掃描服務回傳錯誤 HTTP ${resp.status}`);
-  const initial = await resp.json();
-  if(initial.status === 'done') return initial; // 理論上不會馬上done,但保險起見還是處理一下
-  return await pollReceiptScanStatus(initial.scan_id);
+  return await resp.json();
 }
 
-// 收據辨識(尤其版面複雜的收據)常常跑超過100秒,Cloudflare Tunnel/邊緣節點對單一HTTP
-// 請求有預設逾時上限,硬扛著等一個request會被中途斷線,即使後端其實有算完也一樣。
-// 改成「送出後端點立刻回應scan_id,再輪詢一個很快的『查狀態』端點」——輪詢的每一次
-// 請求本身都很輕量、幾乎瞬間回應,不會被逾時規則擋住,不管背後Docling實際跑多久都
-// 不受影響。maxWaitMs抓5分鐘上限,避免真的卡死時無限輪詢下去。
-async function pollReceiptScanStatus(scanId, maxWaitMs = 5 * 60 * 1000, intervalMs = 2500){
-  const startTime = Date.now();
-  const msgEl = document.getElementById('purchaseReceiptScanMsg');
-  while(Date.now() - startTime < maxWaitMs){
-    await new Promise(r => setTimeout(r, intervalMs));
-    const resp = await fetch(`${RECEIPT_SCAN_SERVICE_URL}/v1/scan/${scanId}`, {
-      headers: { 'Authorization': `Bearer ${RECEIPT_SCAN_SERVICE_API_KEY}` }
-    });
-    if(!resp.ok) throw new Error(`查詢掃描狀態失敗 HTTP ${resp.status}`);
-    const data = await resp.json();
-    if(data.status === 'done') return data;
-    if(data.status === 'failed') throw new Error('掃描服務辨識時發生錯誤');
-    // 還是 "processing",順便更新一下畫面上的秒數,讓使用者知道還在跑、不是卡死
-    if(msgEl){
-      const elapsedSec = Math.round((Date.now() - startTime) / 1000);
-      msgEl.style.color = 'var(--ink-soft)';
-      msgEl.textContent = (lang === 'en')
-        ? `Scanning… this can take a minute or two for complex receipts (${elapsedSec}s elapsed)`
-        : `辨識中,版面複雜的收據可能需要1-2分鐘,請耐心等候(已等待${elapsedSec}秒)`;
+function findSimilarSupplier(description){
+  const descNormalized = normalizeReceiptLineText(description);
+  const descWords = descNormalized.split(/[^a-z0-9\u4e00-\u9fa5]+/).filter(w => w.length > 1);
+  if(descWords.length === 0) return [];
+  const scored = purchaseSuppliers.map(s => {
+    const nameWords = normalizeReceiptLineText(s.name).split(/[^a-z0-9\u4e00-\u9fa5]+/).filter(w => w.length > 1);
+    if(nameWords.length === 0) return { s, score: 0 };
+    let matchCount = 0;
+    for(const nw of nameWords){
+      if(descWords.some(dw => dw.includes(nw) || nw.includes(dw))) matchCount++;
     }
+    return { s, score: matchCount / nameWords.length };
+  });
+  return scored.filter(x => x.score >= 0.5).sort((a, b) => b.score - a.score).slice(0, 5).map(x => x.s);
+}
+
+// 掃描服務辨識出收據抬頭的公司名稱(data.supplier_guess)之後,先跟「進貨方管理」裡現有的供應商
+// 名單比對(邏輯跟 findSimilarProducts 比對品名一樣,用字詞重疊程度算相似度,不要求整段文字
+// 一模一樣,因為 OCR 辨識出來的公司名稱常常跟系統裡登記的簡稱/慣用寫法有些微出入)。
+// 比對到現有供應商才問「要不要自動帶入」,不會自己默默填上去——辨識萬一認錯間，帶錯供應商
+// 會導致這張進貨單記到別人頭上,一定要讓使用者自己確認過。比對不到任何現有供應商的話,
+// 還是會問要不要用辨識出來的名字「新增供應商」,但一樣要確認,不會自動新增。
+// 不管使用者選哪一種、或乾脆取消,最後都會接著往下跑品項逐行確認流程(processNextReceiptOcrLine),
+// 供應商這步只是先問一下,不會卡住後面的流程。
+function promptSupplierGuessConfirmation(guessedName){
+  const matches = findSimilarSupplier(guessedName);
+  const partyHistorySelect = document.getElementById('txPartyHistorySelect');
+  if(matches.length > 0){
+    const best = matches[0];
+    showConfirmModal(
+      tf('confirmSupplierGuessMatch', { guessed: guessedName, matched: best.name }),
+      () => {
+        if(partyHistorySelect){ partyHistorySelect.value = best.name; }
+        onTxPartyHistorySelectChange(best.name);
+        processNextReceiptOcrLine();
+      },
+      () => { processNextReceiptOcrLine(); }
+    );
+  } else {
+    showConfirmModal(
+      tf('confirmSupplierGuessNew', { guessed: guessedName }),
+      () => {
+        if(partyHistorySelect){ partyHistorySelect.value = '__new__'; }
+        onTxPartyHistorySelectChange('__new__');
+        document.getElementById('txParty').value = guessedName;
+        processNextReceiptOcrLine();
+      },
+      () => { processNextReceiptOcrLine(); }
+    );
   }
-  throw new Error('掃描逾時,請稍後再試,或改用較清晰/較簡單版面的圖片');
 }
 
 async function scanReceiptForItems(){
@@ -423,7 +444,10 @@ async function scanReceiptForItems(){
       const data = await callReceiptScanService(ocrSources[i], i);
       if(i === 0){
         currentReceiptScanId = data.scan_id; // 多頁只用第一頁的 scan_id 回報修正,見上面的說明
-        supplierGuess = data.supplier_guess;
+        // 供應商是整張收據層級的資訊(通常印在收據最上面的抬頭),不是每一行都有,所以只看第一頁
+        // 回傳的 data.supplier_guess——掃描服務辨識出收據抬頭的公司名稱時才會有這個欄位,
+        // 舊版掃描服務沒有回傳這個欄位的話就是 undefined,不影響原本的品項辨識流程。
+        supplierGuess = (data.supplier_guess || '').trim() || null;
       }
       const pageLines = (data.lines || []).map(l => ({
         description: l.name,
@@ -432,34 +456,6 @@ async function scanReceiptForItems(){
       }));
       allLines = allLines.concat(pageLines);
     }
-
-    // 掃描前「進貨方」欄位是空的、掃描服務又猜出了供應商的話,嘗試自動帶入下拉選單——
-    // 用互相包含(不分大小寫)去比對選項的value或文字,不用完全一模一樣才算,比較寬容。
-    // 只在「使用者原本沒填」的情況下才自動帶入,使用者已經自己選好supplier的話絕對不覆蓋。
-    let autoFilledSupplier = false;
-    // 「進貨方」欄位不一定是原生的<select>(可能是自訂的搜尋式選單元件,沒有.options
-    // 屬性)——這段全部包在try/catch裡,抓不到就安靜跳過,絕對不能讓「自動帶入供應商」
-    // 這種錦上添花的功能,搞壞了原本正常運作的整個掃描流程。
-    try{
-      if(!receiptOcrPartyId && supplierGuess && partyInput && partyInput.tagName === 'SELECT' && partyInput.options){
-        const guessLower = supplierGuess.trim().toLowerCase();
-        const matchedOption = Array.from(partyInput.options).find(opt => {
-          const optValue = (opt.value || '').trim().toLowerCase();
-          const optText = (opt.textContent || '').trim().toLowerCase();
-          return (optValue && (optValue.includes(guessLower) || guessLower.includes(optValue))) ||
-                 (optText && (optText.includes(guessLower) || guessLower.includes(optText)));
-        });
-        if(matchedOption){
-          partyInput.value = matchedOption.value;
-          receiptOcrPartyId = partyInput.value.trim();
-          partyInput.dispatchEvent(new Event('change', { bubbles: true }));
-          autoFilledSupplier = true;
-        }
-      }
-    } catch(e){
-      console.error('自動帶入供應商失敗(不影響掃描本身)', e);
-    }
-
     if(allLines.length === 0){
       msgEl.style.color = 'var(--crit)';
       msgEl.textContent = t('errReceiptScanNoLines');
@@ -467,16 +463,15 @@ async function scanReceiptForItems(){
     }
     pendingReceiptOcrLines = allLines;
     msgEl.style.color = 'var(--safe)';
-    // 「已自動帶入供應商」這句提示暫時寫在這個檔案自己裡面,沒有走i18n.js的翻譯字典
-    // (手上沒有那份檔案完整內容,怕貿然加新key跟另一個負責前端模組化的對話撞到)——
-    // 直接讀全域的 lang 變數判斷中/英,自己維護這一句就好,不影響i18n.js。
-    const autoFilledNote = autoFilledSupplier
-      ? (lang === 'en'
-          ? ` (Supplier: ${supplierGuess} has been auto-filled. Please verify.)`
-          : `（已自動帶入供應商:${supplierGuess},請確認是否正確）`)
-      : '';
-    msgEl.textContent = tf('receiptScanFoundLinesMsg', { n: allLines.length }) + autoFilledNote;
-    processNextReceiptOcrLine();
+    msgEl.textContent = tf('receiptScanFoundLinesMsg', { n: allLines.length });
+    // 進貨方欄位使用者已經自己填了(不管是登記進出貨一開始就選好,還是掃描等待期間手動填的),
+    // 就不要用猜的結果打擾/蓋掉——只有欄位還空著的時候才問。
+    const currentPartyVal = (document.getElementById('txParty').value || '').trim();
+    if(supplierGuess && !currentPartyVal){
+      promptSupplierGuessConfirmation(supplierGuess);
+    } else {
+      processNextReceiptOcrLine();
+    }
   } catch(e){
     console.error('收據掃描服務辨識失敗', e);
     msgEl.style.color = 'var(--crit)';
