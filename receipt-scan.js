@@ -351,7 +351,38 @@ async function callReceiptScanService(dataUrl, pageIndex){
     body: formData
   });
   if(!resp.ok) throw new Error(`收據掃描服務回傳錯誤 HTTP ${resp.status}`);
-  return await resp.json();
+  const initial = await resp.json();
+  if(initial.status === 'done') return initial; // 理論上不會馬上done,但保險起見還是處理一下
+  return await pollReceiptScanStatus(initial.scan_id);
+}
+
+// 收據辨識(尤其版面複雜的收據)常常跑超過100秒,Cloudflare Tunnel/邊緣節點對單一HTTP
+// 請求有預設逾時上限,硬扛著等一個request會被中途斷線,即使後端其實有算完也一樣。
+// 改成「送出後端點立刻回應scan_id,再輪詢一個很快的『查狀態』端點」——輪詢的每一次
+// 請求本身都很輕量、幾乎瞬間回應,不會被逾時規則擋住,不管背後Docling實際跑多久都
+// 不受影響。maxWaitMs抓5分鐘上限,避免真的卡死時無限輪詢下去。
+async function pollReceiptScanStatus(scanId, maxWaitMs = 5 * 60 * 1000, intervalMs = 2500){
+  const startTime = Date.now();
+  const msgEl = document.getElementById('purchaseReceiptScanMsg');
+  while(Date.now() - startTime < maxWaitMs){
+    await new Promise(r => setTimeout(r, intervalMs));
+    const resp = await fetch(`${RECEIPT_SCAN_SERVICE_URL}/v1/scan/${scanId}`, {
+      headers: { 'Authorization': `Bearer ${RECEIPT_SCAN_SERVICE_API_KEY}` }
+    });
+    if(!resp.ok) throw new Error(`查詢掃描狀態失敗 HTTP ${resp.status}`);
+    const data = await resp.json();
+    if(data.status === 'done') return data;
+    if(data.status === 'failed') throw new Error('掃描服務辨識時發生錯誤');
+    // 還是 "processing",順便更新一下畫面上的秒數,讓使用者知道還在跑、不是卡死
+    if(msgEl){
+      const elapsedSec = Math.round((Date.now() - startTime) / 1000);
+      msgEl.style.color = 'var(--ink-soft)';
+      msgEl.textContent = (lang === 'en')
+        ? `Scanning… this can take a minute or two for complex receipts (${elapsedSec}s elapsed)`
+        : `辨識中,版面複雜的收據可能需要1-2分鐘,請耐心等候(已等待${elapsedSec}秒)`;
+    }
+  }
+  throw new Error('掃描逾時,請稍後再試,或改用較清晰/較簡單版面的圖片');
 }
 
 function findSimilarSupplier(description){
@@ -371,16 +402,27 @@ function findSimilarSupplier(description){
 }
 
 // 掃描服務辨識出收據抬頭的公司名稱(data.supplier_guess)之後,先跟「進貨方管理」裡現有的供應商
-// 名單比對(邏輯跟 findSimilarProducts 比對品名一樣,用字詞重疊程度算相似度,不要求整段文字
-// 一模一樣,因為 OCR 辨識出來的公司名稱常常跟系統裡登記的簡稱/慣用寫法有些微出入)。
-// 比對到現有供應商才問「要不要自動帶入」,不會自己默默填上去——辨識萬一認錯間，帶錯供應商
-// 會導致這張進貨單記到別人頭上,一定要讓使用者自己確認過。比對不到任何現有供應商的話,
-// 還是會問要不要用辨識出來的名字「新增供應商」,但一樣要確認,不會自動新增。
-// 不管使用者選哪一種、或乾脆取消,最後都會接著往下跑品項逐行確認流程(processNextReceiptOcrLine),
-// 供應商這步只是先問一下,不會卡住後面的流程。
+// 名單比對:
+// ·名字完全一樣(忽略大小寫、前後空白、標點這些無關緊要的差異)→ 直接帶入,不用另外問一次,
+//   因為系統裡本來就有這個一模一樣的供應商,沒有「認錯」的疑慮。
+// ·不是完全一樣、但字詞重疊程度夠高(邏輯跟 findSimilarProducts 比對品名一樣)→ 只是「相似」,
+//   跳出確認視窗問要不要帶入,不會自己默默填上去——辨識萬一認錯,帶錯供應商會導致這張進貨單
+//   記到別人頭上,不完全確定的情況一定要讓使用者自己確認過。
+// ·完全比對不到任何現有供應商 → 一樣會問要不要用辨識出來的名字「新增供應商」,但也要確認,
+//   不會自動新增。
+// 不管走哪一條路、或使用者乾脆取消,最後都會接著往下跑品項逐行確認流程
+// (processNextReceiptOcrLine),供應商這步只是先問一下,不會卡住後面的流程。
 function promptSupplierGuessConfirmation(guessedName){
-  const matches = findSimilarSupplier(guessedName);
+  const guessedNorm = normalizeReceiptLineText(guessedName);
+  const exactMatch = purchaseSuppliers.find(s => normalizeReceiptLineText(s.name) === guessedNorm);
   const partyHistorySelect = document.getElementById('txPartyHistorySelect');
+  if(exactMatch){
+    if(partyHistorySelect){ partyHistorySelect.value = exactMatch.name; }
+    onTxPartyHistorySelectChange(exactMatch.name);
+    processNextReceiptOcrLine();
+    return;
+  }
+  const matches = findSimilarSupplier(guessedName);
   if(matches.length > 0){
     const best = matches[0];
     showConfirmModal(
@@ -456,6 +498,7 @@ async function scanReceiptForItems(){
       }));
       allLines = allLines.concat(pageLines);
     }
+
     if(allLines.length === 0){
       msgEl.style.color = 'var(--crit)';
       msgEl.textContent = t('errReceiptScanNoLines');
