@@ -437,20 +437,27 @@ async function scanReceiptForItems(){
     // 用互相包含(不分大小寫)去比對選項的value或文字,不用完全一模一樣才算,比較寬容。
     // 只在「使用者原本沒填」的情況下才自動帶入,使用者已經自己選好supplier的話絕對不覆蓋。
     let autoFilledSupplier = false;
-    if(!receiptOcrPartyId && supplierGuess && partyInput){
-      const guessLower = supplierGuess.trim().toLowerCase();
-      const matchedOption = Array.from(partyInput.options).find(opt => {
-        const optValue = (opt.value || '').trim().toLowerCase();
-        const optText = (opt.textContent || '').trim().toLowerCase();
-        return (optValue && (optValue.includes(guessLower) || guessLower.includes(optValue))) ||
-               (optText && (optText.includes(guessLower) || guessLower.includes(optText)));
-      });
-      if(matchedOption){
-        partyInput.value = matchedOption.value;
-        receiptOcrPartyId = partyInput.value.trim();
-        partyInput.dispatchEvent(new Event('change', { bubbles: true }));
-        autoFilledSupplier = true;
+    // 「進貨方」欄位不一定是原生的<select>(可能是自訂的搜尋式選單元件,沒有.options
+    // 屬性)——這段全部包在try/catch裡,抓不到就安靜跳過,絕對不能讓「自動帶入供應商」
+    // 這種錦上添花的功能,搞壞了原本正常運作的整個掃描流程。
+    try{
+      if(!receiptOcrPartyId && supplierGuess && partyInput && partyInput.tagName === 'SELECT' && partyInput.options){
+        const guessLower = supplierGuess.trim().toLowerCase();
+        const matchedOption = Array.from(partyInput.options).find(opt => {
+          const optValue = (opt.value || '').trim().toLowerCase();
+          const optText = (opt.textContent || '').trim().toLowerCase();
+          return (optValue && (optValue.includes(guessLower) || guessLower.includes(optValue))) ||
+                 (optText && (optText.includes(guessLower) || guessLower.includes(optText)));
+        });
+        if(matchedOption){
+          partyInput.value = matchedOption.value;
+          receiptOcrPartyId = partyInput.value.trim();
+          partyInput.dispatchEvent(new Event('change', { bubbles: true }));
+          autoFilledSupplier = true;
+        }
       }
+    } catch(e){
+      console.error('自動帶入供應商失敗(不影響掃描本身)', e);
     }
 
     if(allLines.length === 0){
