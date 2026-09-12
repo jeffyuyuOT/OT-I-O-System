@@ -345,6 +345,23 @@ async function callReceiptScanService(dataUrl, pageIndex){
   const blob = await (await fetch(dataUrl)).blob();
   const formData = new FormData();
   formData.append('file', blob, `receipt-page-${pageIndex + 1}.jpg`);
+
+  // 把倉庫自己「進貨方管理」裡本來就有的供應商名字一起傳給掃描服務——這樣就算
+  // 某個供應商從來沒有真的走過一次掃描+修正流程(掃描服務自己的學習資料裡完全
+  // 沒有紀錄),只要倉庫本身早就認識這家供應商(purchaseSuppliers裡找得到),
+  // 掃描服務也能拿去比對、猜出供應商,不用每個供應商都得先手動教過一次才猜得到。
+  // 這裡只負責「猜出候選名字」,猜完之後是完全比對到直接帶入、還是相似度不夠要
+  // 跳確認視窗,是 promptSupplierGuessConfirmation 那邊的事,兩段各司其職。
+  let knownSuppliers = [];
+  try{
+    if(typeof purchaseSuppliers !== 'undefined' && Array.isArray(purchaseSuppliers)){
+      knownSuppliers = purchaseSuppliers.map(s => (s.name || '').trim()).filter(Boolean);
+    }
+  } catch(e){
+    console.error('收集既有供應商清單失敗(不影響掃描本身)', e);
+  }
+  formData.append('known_suppliers', JSON.stringify(knownSuppliers));
+
   const resp = await fetch(`${RECEIPT_SCAN_SERVICE_URL}/v1/scan`, {
     method: 'POST',
     headers: { 'Authorization': `Bearer ${RECEIPT_SCAN_SERVICE_API_KEY}` },
