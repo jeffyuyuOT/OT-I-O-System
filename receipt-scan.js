@@ -351,7 +351,38 @@ async function callReceiptScanService(dataUrl, pageIndex){
     body: formData
   });
   if(!resp.ok) throw new Error(`收據掃描服務回傳錯誤 HTTP ${resp.status}`);
-  return await resp.json();
+  const initial = await resp.json();
+  if(initial.status === 'done') return initial; // 理論上不會馬上done,但保險起見還是處理一下
+  return await pollReceiptScanStatus(initial.scan_id);
+}
+
+// 收據辨識(尤其版面複雜的收據)常常跑超過100秒,Cloudflare Tunnel/邊緣節點對單一HTTP
+// 請求有預設逾時上限,硬扛著等一個request會被中途斷線,即使後端其實有算完也一樣。
+// 改成「送出後端點立刻回應scan_id,再輪詢一個很快的『查狀態』端點」——輪詢的每一次
+// 請求本身都很輕量、幾乎瞬間回應,不會被逾時規則擋住,不管背後Docling實際跑多久都
+// 不受影響。maxWaitMs抓5分鐘上限,避免真的卡死時無限輪詢下去。
+async function pollReceiptScanStatus(scanId, maxWaitMs = 5 * 60 * 1000, intervalMs = 2500){
+  const startTime = Date.now();
+  const msgEl = document.getElementById('purchaseReceiptScanMsg');
+  while(Date.now() - startTime < maxWaitMs){
+    await new Promise(r => setTimeout(r, intervalMs));
+    const resp = await fetch(`${RECEIPT_SCAN_SERVICE_URL}/v1/scan/${scanId}`, {
+      headers: { 'Authorization': `Bearer ${RECEIPT_SCAN_SERVICE_API_KEY}` }
+    });
+    if(!resp.ok) throw new Error(`查詢掃描狀態失敗 HTTP ${resp.status}`);
+    const data = await resp.json();
+    if(data.status === 'done') return data;
+    if(data.status === 'failed') throw new Error('掃描服務辨識時發生錯誤');
+    // 還是 "processing",順便更新一下畫面上的秒數,讓使用者知道還在跑、不是卡死
+    if(msgEl){
+      const elapsedSec = Math.round((Date.now() - startTime) / 1000);
+      msgEl.style.color = 'var(--ink-soft)';
+      msgEl.textContent = (lang === 'en')
+        ? `Scanning… this can take a minute or two for complex receipts (${elapsedSec}s elapsed)`
+        : `辨識中,版面複雜的收據可能需要1-2分鐘,請耐心等候(已等待${elapsedSec}秒)`;
+    }
+  }
+  throw new Error('掃描逾時,請稍後再試,或改用較清晰/較簡單版面的圖片');
 }
 
 async function scanReceiptForItems(){
