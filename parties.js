@@ -1,6 +1,11 @@
 // ============================================================
-// 出貨方(供應商)管理——新增/編輯/刪除出貨方、每個出貨方可訂購
-// 商品的個別設定(隱藏特定商品、批次設定)。
+// 交易對象管理——出貨方(訂貨頁面的客戶對象,shippingParties)跟
+// 進貨方(登記進出貨→進貨選的供應商,purchaseSuppliers)兩份名單,
+// 概念上都是「管理一份交易對象」的簡單 CRUD 後台,合併放在一起。
+//
+// 出貨方管理:新增/編輯/刪除、每個出貨方可訂購商品的個別設定
+// (隱藏特定商品、批次設定)。
+// 進貨方管理:新增/編輯/刪除。
 // ============================================================
 
 // ===== 出貨方(供應商)管理 =====
@@ -291,4 +296,103 @@ async function partyProductBulkSetHidden(partyId, hidden){
   await saveShippingParties();
   renderPartiesTable();
   renderOrderItemsTable();
+}
+
+// ===== 進貨方管理 =====
+function renderSupplierManagementTable(){
+  const container = document.getElementById('supplierManagementTable');
+  if(!container) return;
+  if(purchaseSuppliers.length === 0){
+    container.innerHTML = `<div class="empty-note">${t('noSuppliersYet')}</div>`;
+    return;
+  }
+  const sorted = purchaseSuppliers.slice().sort((a, b) => a.name.localeCompare(b.name));
+  container.innerHTML = `<table class="stock-table">
+    <thead><tr><th>${t('fieldSupplierName')}</th><th>${t('fieldSupplierPhone')}</th><th>${t('fieldSupplierAddress')}</th><th>${t('fieldSupplierNote')}</th><th></th></tr></thead>
+    <tbody>
+      ${sorted.map(s => `
+        <tr>
+          <td>${escapeHtmlForPrint(s.name)}</td>
+          <td>${escapeHtmlForPrint(s.phone || '')}</td>
+          <td>${escapeHtmlForPrint(s.address || '')}</td>
+          <td>${escapeHtmlForPrint(s.note || '')}</td>
+          <td style="white-space:nowrap;">
+            <span class="del-link" onclick="openSupplierEditModal('${s.id}')">${t('btnEdit')}</span>
+            &nbsp;·&nbsp;
+            <span class="del-link" onclick="deleteSupplier('${s.id}')">${t('btnDelete')}</span>
+          </td>
+        </tr>
+      `).join('')}
+    </tbody>
+  </table>`;
+}
+
+let editingSupplierId = null;
+function openSupplierEditModal(supplierId){
+  editingSupplierId = supplierId;
+  const s = supplierId ? purchaseSuppliers.find(x => x.id === supplierId) : null;
+  document.getElementById('supplierEditModalTitle').textContent = s ? t('modalEditSupplierTitle') : t('modalAddSupplierTitle');
+  document.getElementById('supplierNameInput').value = s ? s.name : '';
+  document.getElementById('supplierPhoneInput').value = s ? s.phone || '' : '';
+  document.getElementById('supplierAddressInput').value = s ? s.address || '' : '';
+  document.getElementById('supplierNoteInput').value = s ? s.note || '' : '';
+  document.getElementById('supplierEditModalMsg').textContent = '';
+  document.getElementById('supplierEditModalOverlay').style.display = 'flex';
+}
+function closeSupplierEditModal(){
+  editingSupplierId = null;
+  document.getElementById('supplierEditModalOverlay').style.display = 'none';
+}
+async function saveSupplierEdit(){
+  const msgEl = document.getElementById('supplierEditModalMsg');
+  const name = document.getElementById('supplierNameInput').value.trim();
+  const phone = document.getElementById('supplierPhoneInput').value.trim();
+  const address = document.getElementById('supplierAddressInput').value.trim();
+  const note = document.getElementById('supplierNoteInput').value.trim();
+  if(!name){ msgEl.className = 'msg error'; msgEl.textContent = t('errEnterSupplierName'); return; }
+  // 名稱不能跟其他供應商重複(資料庫本身也有唯一索引擋著,這裡先在前端擋一次,錯誤訊息比較
+  // 好懂,不用等資料庫回傳一串技術性的錯誤)——編輯自己的話,名稱沒變不算重複。
+  const dup = purchaseSuppliers.find(s => s.id !== editingSupplierId && s.name.toLowerCase() === name.toLowerCase());
+  if(dup){ msgEl.className = 'msg error'; msgEl.textContent = t('errSupplierNameDuplicate'); return; }
+
+  msgEl.className = 'msg'; msgEl.textContent = t('savingMsg');
+  const s = editingSupplierId ? purchaseSuppliers.find(x => x.id === editingSupplierId) : { id: genId() };
+  const oldName = s.name;
+  s.name = name; s.phone = phone; s.address = address; s.note = note;
+  try{
+    await upsertPurchaseSupplier(s);
+    if(!editingSupplierId) purchaseSuppliers.push(s);
+    // 改了名稱的話,之前收據辨識記憶對照表裡用舊名稱記錄的那些筆,一併同步改成新名稱,
+    // 不然改名之後那些記憶會變成對照不到任何供應商、之後掃描還是會重新問一次。
+    if(oldName && oldName !== name){
+      const affected = receiptLineMappings.filter(m => m.partyId === oldName);
+      for(const m of affected){
+        m.partyId = name;
+        try{ await sb.from('receipt_line_mappings').upsert(receiptMappingToRow(m)); }
+        catch(e){ console.error('同步更新收據記憶的供應商名稱失敗', e); }
+      }
+    }
+    renderSupplierManagementTable();
+    populateTxPartyHistorySelect();
+    closeSupplierEditModal();
+  } catch(e){
+    console.error('儲存供應商失敗', e);
+    msgEl.className = 'msg error';
+    msgEl.textContent = '⚠ 儲存失敗,請重新整理頁面再試一次。';
+  }
+}
+function deleteSupplier(supplierId){
+  const s = purchaseSuppliers.find(x => x.id === supplierId);
+  if(!s) return;
+  showConfirmModal(tf('confirmDeleteSupplier', { name: s.name }), async () => {
+    try{
+      await deletePurchaseSupplierRow(supplierId);
+      purchaseSuppliers = purchaseSuppliers.filter(x => x.id !== supplierId);
+      renderSupplierManagementTable();
+      populateTxPartyHistorySelect();
+    } catch(e){
+      console.error('刪除供應商失敗', e);
+      showInfoModal('⚠ 刪除失敗,請重新整理頁面再試一次。');
+    }
+  });
 }
