@@ -658,9 +658,13 @@ function renderTxBatchList(){
     container.innerHTML = `<div class="empty-note" style="padding:8px 0;" data-i18n="txBatchEmpty">${t('txBatchEmpty')}</div>`;
     return;
   }
+  // 總價這欄只有在有收據掃描模組的時候才顯示——手動登記進出貨(沒掃描收據)本來就沒有「總價」
+  // 這個概念,這欄存在的目的是讓人核對「掃描收據自動帶入商品」時有沒有把金額也正確抓進來,
+  // 沒有這個模組就沒有意義,不用佔畫面空間。
+  const showAmountCol = hasFeature('receiptScanModule');
   container.innerHTML = `
     <table class="stock-table">
-      <thead><tr><th>${t('colProduct')}</th><th class="num">${t('colQty')}</th><th></th></tr></thead>
+      <thead><tr><th>${t('colProduct')}</th><th class="num">${t('colQty')}</th>${showAmountCol ? `<th class="num">${t('colAmount')}</th>` : ''}<th></th></tr></thead>
       <tbody>
         ${txBatchItems.map(it => `
           <tr>
@@ -669,6 +673,7 @@ function renderTxBatchList(){
               <input type="number" class="order-qty-input" step="1" value="${it.qty}"
                 onchange="updateTxBatchItemQty('${it.productId}', this.value)" /><span class="row-unit">${it.unit}</span>
             </td>
+            ${showAmountCol ? `<td class="row-num">${(it.amount !== undefined && it.amount !== null) ? Number(it.amount).toFixed(2) : '–'}</td>` : ''}
             <td class="row-action">
               <button onclick="openConversionFromTxBatch('${it.productId}')" title="${t('btnConvertBatchItem')}">🔄</button>
               <button onclick="removeTxBatchItem('${it.productId}')" title="${t('btnDelete')}">✕</button>
