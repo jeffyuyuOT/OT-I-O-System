@@ -665,3 +665,127 @@ async function confirmConversion(){
   renderAll();
   renderVerifyPageRightItems();
 }
+
+// 這三個原本一直沒被前幾輪任何模組收留,留在主程式裡的孤兒函式——
+// toggleHideProduct/toggleOrderable 是商品欄位的小開關,exportStockQuantitySheet
+// 是庫存總覽的匯出功能,都跟商品/庫存總覽這個領域比較接近,歸進這裡。
+async function toggleHideProduct(id){
+  if(!hasCapability('cap-edit-overview')) return;
+  const p = products.find(x => x.id === id);
+  if(!p) return;
+  p.hidden = !p.hidden;
+  await saveProducts();
+  renderAll();
+}
+
+async function toggleOrderable(id){
+  if(!hasCapability('cap-edit-overview')) return;
+  const p = products.find(x => x.id === id);
+  if(!p) return;
+  p.orderable = !p.orderable;
+  await saveProducts();
+  renderAll();
+}
+
+// 匯出庫存總覽的庫存數量:商品照分類順序排列,每個分類前面加一列分類標題,不同分類之間
+// 再用一列空白隔開;分類欄本身可以用旁邊的checkbox選擇隱藏(隱藏後靠分類標題列辨識分類)。
+// 排除隱藏商品,版面(欄寬、邊界、A4 直印且自動縮放到一頁寬)設計成適合印在 A4 紙上。
+function exportStockQuantitySheet(){
+  const msg = document.getElementById('stockExportMsg');
+  if(typeof XLSX === 'undefined'){ msg.className = 'msg error'; msg.textContent = 'Excel 套件載入失敗,請重新整理頁面再試一次'; return; }
+
+  if(products.length === 0){
+    msg.className = 'msg error';
+    msg.textContent = '目前沒有可以匯出的商品';
+    return;
+  }
+
+  const dateStr = todayISO();
+
+  // 匯出「全部」商品(不是只匯出沒被隱藏的)——包含庫存總覽裡被全域隱藏的商品,只是隱藏的商品
+  // 那一列用 Excel 隱藏列處理掉,資料還在,只是預設不顯示、也不會被印出來。排序改用跟庫存總覽/
+  // 訂貨頁面共用的同一套邏輯(compareProductsBySortMode),跟著系統設置的「商品排序」走,
+  // 不是寫死照商品名稱排。
+  // 只排「主商品」(沒有 parentId 的商品),批量商品(子商品)緊接著排在自己的主商品下面,
+  // 不獨立參與分類排序,這樣匯出的順序才會跟庫存總覽畫面上的主/批量商品階層一致。
+  const mainRows = products
+    .filter(p => !p.parentId)
+    .map(p => ({ p, cat: p.category || '未分類', stock: computeStock(p.id), totalStock: computeTotalStock(p.id) }))
+    .sort((a,b) => {
+      const ao = categoryOrder.indexOf(a.cat);
+      const bo = categoryOrder.indexOf(b.cat);
+      const aoN = ao === -1 ? 999 : ao;
+      const boN = bo === -1 ? 999 : bo;
+      if(aoN !== boN) return aoN - boN;
+      return compareProductsBySortMode(a.p, b.p);
+    });
+
+  let totalItemCount = 0;
+  const rows = [];
+  mainRows.forEach(r => {
+    rows.push({ ...r, isChild: false });
+    totalItemCount++;
+    const children = products
+      .filter(c => c.parentId === r.p.id)
+      .map(c => ({ p: c, cat: r.cat, stock: computeStock(c.id) }))
+      .sort((a,b) => compareProductsBySortMode(a.p, b.p));
+    children.forEach(c => {
+      rows.push({ ...c, isChild: true });
+      totalItemCount++;
+    });
+  });
+
+  // 依分類分組,相鄰同分類的商品併成一組,方便逐組插入標題列跟間隔列
+  const groups = [];
+  rows.forEach(r => {
+    const g = groups[groups.length - 1];
+    if(!g || g.cat !== r.cat) groups.push({ cat: r.cat, items: [r] });
+    else g.items.push(r);
+  });
+
+  const headerRow = ['SKU','Product Name','Stock Qty','Total Stock Qty','Unit'];
+  const aoa = [];
+  const hiddenRows = new Set(); // 0-based row indices into aoa that should be hidden in the final sheet
+  aoa.push(['Date:', dateStr]);
+  aoa.push([]);
+  groups.forEach((g, gi) => {
+    const groupAllHidden = g.items.every(r => r.p.hidden);
+    if(gi > 0){
+      const sepRowIdx = aoa.length;
+      aoa.push([]); // 分類之間的空白間隔列
+      if(groupAllHidden) hiddenRows.add(sepRowIdx);
+    }
+    const catRowIdx = aoa.length;
+    aoa.push([catLabelEN(g.cat)]); // 分類標題列(保留)
+    if(groupAllHidden) hiddenRows.add(catRowIdx);
+    const headerRowIdx = aoa.length;
+    aoa.push(headerRow.slice());
+    if(groupAllHidden) hiddenRows.add(headerRowIdx);
+    g.items.forEach(r => {
+      const name = r.isChild ? `⧉ ${r.p.name}` : r.p.name;
+      const totalStockCell = r.isChild ? '—' : r.totalStock;
+      const rowIdx = aoa.length;
+      aoa.push([r.p.sku || '', name, r.stock, totalStockCell, r.p.unit]); // 不含分類欄
+      if(r.p.hidden) hiddenRows.add(rowIdx);
+    });
+  });
+
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
+  ws['!cols'] = [{wch:14},{wch:30},{wch:10},{wch:10},{wch:8}];
+  ws['!pageSetup'] = { orientation: 'portrait', fitToWidth: 1, fitToHeight: 0, paperSize: 9 }; // paperSize 9 = A4
+  ws['!margins'] = { left:0.5, right:0.5, top:0.6, bottom:0.6, header:0.3, footer:0.3 };
+  if(hiddenRows.size > 0){
+    const rowMeta = [];
+    aoa.forEach((_, i) => { rowMeta[i] = hiddenRows.has(i) ? { hidden: true } : {}; });
+    ws['!rows'] = rowMeta;
+  }
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Stock Quantity');
+
+  const filename = `stock_quantity_${dateStr}.xlsx`;
+  XLSX.writeFile(wb, filename);
+
+  msg.className = 'msg ok';
+  msg.textContent = `✓ 已匯出 ${totalItemCount} 項商品的庫存數量(${dateStr}):${filename}`;
+}
+
