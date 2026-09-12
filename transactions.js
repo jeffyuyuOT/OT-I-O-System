@@ -2383,3 +2383,28 @@ async function mergeItemsIntoCompletedOrderCore(orderId, batchItems, date, party
   logInventoryAction('order_edit', `Order ${order.orderNo || orderId} - added after verification: ${batchItems.map(it => `${it.name} ${it.qty} ${it.unit}`).join(', ')}`, order.orderNo);
   return { ok: true, order };
 }
+
+// 登記進出貨的 Excel 匯入,可以一次選多個檔案——這幾個函式管理那份待匯入的檔案清單
+// (fileKey() 這個小工具在 product-master.js,商品主檔匯入的 addMasterFiles 也共用同一份)
+function addTxFiles(fileList){
+  const newFiles = Array.from(fileList);
+  const existingKeys = new Set(pendingTxFiles.map(fileKey));
+  newFiles.forEach(f => {
+    if(!existingKeys.has(fileKey(f))) pendingTxFiles.push(f);
+  });
+  document.getElementById('txImportFile').value = '';
+  renderTxFileList();
+}
+
+function removeTxFile(index){
+  pendingTxFiles.splice(index, 1);
+  renderTxFileList();
+}
+
+function renderTxFileList(){
+  const container = document.getElementById('txFileList');
+  if(pendingTxFiles.length === 0){ container.innerHTML = ''; return; }
+  container.innerHTML = pendingTxFiles.map((f, i) => `
+    <span class="file-chip">${f.name}<button onclick="removeTxFile(${i})" title="移除">✕</button></span>
+  `).join('');
+}
