@@ -429,12 +429,39 @@ function findSimilarSupplier(description){
 //   不會自動新增。
 // 不管走哪一條路、或使用者乾脆取消,最後都會接著往下跑品項逐行確認流程
 // (processNextReceiptOcrLine),供應商這步只是先問一下,不會卡住後面的流程。
+// 直接用 select.value = 某個字串,如果那個字串沒有剛好對到任何一個 <option> 的 value
+// (哪怕只是前後多一個空白、或大小寫沒對上),瀏覽器會整個不理會這次賦值、安靜失敗,
+// 畫面上選單還是停在原本沒選的狀態,而且不會有任何錯誤訊息——很難察覺。這裡改成自己動手
+// 逐一比對每個 <option> 的文字(而且比對前先各自 trim,不要求空白也要一模一樣),對到的話
+// 用 selectedIndex 直接選定,確保「明明資料裡有這個供應商,清單卻沒被選中」不會發生;
+// 真的找不到才回傳 false,讓外面決定要怎麼處理(通常是照「新增供應商」的方式當備案)。
+function selectPartyHistoryOptionByName(selectEl, name){
+  if(!selectEl || !name) return false;
+  const target = name.trim();
+  for(let i = 0; i < selectEl.options.length; i++){
+    if(selectEl.options[i].value.trim() === target){
+      selectEl.selectedIndex = i;
+      return true;
+    }
+  }
+  console.warn('收據掃描:供應商名稱在下拉選單裡找不到對應的選項,改用新增供應商方式帶入', name);
+  return false;
+}
+
 function promptSupplierGuessConfirmation(guessedName){
   const guessedNorm = normalizeReceiptLineText(guessedName);
   const exactMatch = purchaseSuppliers.find(s => normalizeReceiptLineText(s.name) === guessedNorm);
   const partyHistorySelect = document.getElementById('txPartyHistorySelect');
   if(exactMatch){
-    if(partyHistorySelect){ partyHistorySelect.value = exactMatch.name; }
+    if(!selectPartyHistoryOptionByName(partyHistorySelect, exactMatch.name)){
+      // 選單裡對不到(理論上不該發生,但保險起見)——退回「新增供應商」模式,至少把辨識出來
+      // 的名字帶進文字輸入框,不會讓使用者以為完全沒偵測到任何東西。
+      if(partyHistorySelect){ partyHistorySelect.value = '__new__'; }
+      onTxPartyHistorySelectChange('__new__');
+      document.getElementById('txParty').value = exactMatch.name;
+      processNextReceiptOcrLine();
+      return;
+    }
     onTxPartyHistorySelectChange(exactMatch.name);
     processNextReceiptOcrLine();
     return;
@@ -445,7 +472,7 @@ function promptSupplierGuessConfirmation(guessedName){
     showConfirmModal(
       tf('confirmSupplierGuessMatch', { guessed: guessedName, matched: best.name }),
       () => {
-        if(partyHistorySelect){ partyHistorySelect.value = best.name; }
+        selectPartyHistoryOptionByName(partyHistorySelect, best.name);
         onTxPartyHistorySelectChange(best.name);
         processNextReceiptOcrLine();
       },
