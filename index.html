@@ -2955,6 +2955,17 @@ function makeSelectSearchable(selectId){
 
   function closeList(){
     list.style.display = 'none';
+    // 使用者把搜尋框清空、沒有點選任何項目就離開(blur)——如果這個下拉選單本來就有一個
+    // value="" 的空白選項,把它當成「取消選取」處理,不要自動跳回上次選的商品,不然使用者
+    // 清空搜尋框想找別的東西,卻發現打的字一放開又跳回原本選的那個,搞不清楚到底有沒有清掉。
+    if(input.value.trim() === ''){
+      const emptyOption = Array.from(select.options).find(o => o.value === '');
+      if(emptyOption && select.value !== ''){
+        select.value = '';
+        select.dispatchEvent(new Event('change', { bubbles: true }));
+        return; // select.value 的 setter(下面)已經呼叫過 syncInputFromSelect() 同步畫面了
+      }
+    }
     syncInputFromSelect();
   }
 
@@ -3887,14 +3898,18 @@ function renderStockLocationProductSelect(){
 
   const sel = document.getElementById('stockLocationProductSelect');
   const prevVal = sel.value;
-  const filteredProducts = (catFilterVal ? products.filter(p => (p.category || '未分類') === catFilterVal) : products)
+  const bulkCheckbox = document.getElementById('stockLocationShowAllUnassigned');
+  const isBulkMode = bulkCheckbox && bulkCheckbox.checked;
+  let filteredProducts = (catFilterVal ? products.filter(p => (p.category || '未分類') === catFilterVal) : products)
     .filter(p => !p.hidden);
+  // 勾選「列出所有未指派商品」時,這個下拉選單也只列出真的還有未分布庫存的商品——不然選單裡
+  // 明明列著一個已經全部指派完位置的商品,選了卻跟畫面上那份「未指派清單」對不起來,容易誤導。
+  if(isBulkMode) filteredProducts = filteredProducts.filter(p => computeUnassignedQty(p.id) > 0);
   sel.innerHTML = '<option value=""></option>' + filteredProducts.slice().sort(compareProductsBySortMode).map(p => `<option value="${p.id}">${p.sku ? p.sku + ' — ' : ''}${p.parentId ? '⧉ ' : ''}${p.name}(${p.unit})</option>`).join('');
   if(filteredProducts.some(p => p.id === prevVal)) sel.value = prevVal;
 
   makeSelectSearchable('stockLocationProductSelect');
-  const bulkCheckbox = document.getElementById('stockLocationShowAllUnassigned');
-  if(bulkCheckbox && bulkCheckbox.checked) renderStockLocationBulkUnassignedList();
+  if(isBulkMode) renderStockLocationBulkUnassignedList();
   else renderStockLocationDetail();
 }
 
@@ -3912,10 +3927,11 @@ function jumpToProductInStockLocation(p){
 // 所有還有未分布庫存的商品),商品下拉選單這時候選哪個都沒意義,所以鎖住不能選,避免使用者
 // 誤以為要先選商品才看得到清單。取消勾選就切回原本「選一項商品看詳細」的畫面。
 function toggleStockLocationBulkView(checked){
-  const sel = document.getElementById('stockLocationProductSelect');
-  if(sel) sel.disabled = checked;
-  if(checked) renderStockLocationBulkUnassignedList();
-  else renderStockLocationDetail();
+  // 這裡不再整個鎖住商品選單不能選(disabled)——改成讓選單本身依照勾選狀態,只列出真的
+  // 有未分布庫存的商品(見 renderStockLocationProductSelect),選單裡看得到的每一項都真的
+  // 對應目前這份未指派清單,不會出現「選了卻跟清單對不起來」的商品。
+  resetSearchableSelect('stockLocationProductSelect');
+  renderStockLocationProductSelect();
 }
 
 // 位置轉移/照片上傳成功之後要重新畫面——但畫面現在是「單一商品詳細」還是「未指派清單」,
@@ -5264,7 +5280,7 @@ function renderAll(){
   renderVerifyPage();
   renderPartiesTable();
   renderForecastTable();
-  renderStockLocationDetail();
+  refreshStockLocationView();
   renderPurchaseReceiptPreviewList();
   const masterTabEl = document.getElementById('tab-master');
   if(masterTabEl && masterTabEl.classList.contains('active-tab')) loadUsers().then(renderUsersTab);
