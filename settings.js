@@ -403,7 +403,8 @@ function confirmClearAllData(){
     orders: orders.length,
     logs: inventoryLogs.length,
     parties: shippingParties.length,
-    suppliers: purchaseSuppliers.length
+    suppliers: purchaseSuppliers.length,
+    emails: accountingEmails.length
   });
   showConfirmModal(msg, async () => { await clearAllData(); });
 }
@@ -442,6 +443,9 @@ async function clearAllData(){
     shippingParties = [];
     await saveShippingParties();           // 出貨方管理整批存成一份 JSON,直接蓋成空陣列即可
 
+    accountingEmails = [];
+    await saveAccountingEmails();          // 會計 Email 清單也是整批存成一份 JSON,同樣直接蓋成空陣列
+
     orderCounter = 0;
     await saveOrderCounter();
     try{ await resetOrderNoSequence(); }
@@ -461,6 +465,7 @@ async function clearAllData(){
     renderInventoryLog();
     renderDeliveryNoteLog();
     renderSupplierManagementTable();
+    renderAccountingEmailList();
     if(hasFeature('receiptScanModule')) renderOcrDbProductSelect();
     showInfoModal(t('restoreDefaultSuccessAll'));
   } catch(e){

@@ -100,15 +100,28 @@ async function updateTransaction(oldTx, newTx){
 async function replaceAllTransactions(txList){
   const { error: delErr } = await sb.from('transactions').delete().not('id', 'is', null);
   if(delErr){ console.error('清空交易紀錄失敗', delErr); throw delErr; }
+  // 防呆:資料庫的 transactions 表規定 qty 一定要是正數,方向靠 type 表達——但如果是在這個規則
+  // 修正之前存的舊備份檔,裡面可能還留著 qty 是負數的舊資料(例如當時 Credit Note 品項還是用
+  // 負數 qty 記錄的那個階段存下的備份),直接原樣插入會被資料庫擋下來,導致整份備份還原失敗。
+  // 這裡先把 qty 是負數的記錄轉成正數、方向反過來記在 type 上(轉換前後 txStockDelta 算出來的
+  // 實際庫存增減量不變,只是換一種正確的方式表達同一件事),讓舊備份也能正常還原。
+  const sanitized = txList.map(tx => {
+    if(tx.qty >= 0) return tx;
+    if(tx.type === 'in' || tx.type === 'out'){
+      return { ...tx, type: tx.type === 'in' ? 'out' : 'in', qty: -tx.qty };
+    }
+    console.warn('還原備份時發現一筆非預期的負數庫存紀錄(type 不是 in/out),已轉成正數但方向未調整', tx);
+    return { ...tx, qty: -tx.qty };
+  });
   const chunkSize = 500;
-  for(let i = 0; i < txList.length; i += chunkSize){
-    const chunk = txList.slice(i, i + chunkSize).map(txToRow);
+  for(let i = 0; i < sanitized.length; i += chunkSize){
+    const chunk = sanitized.slice(i, i + chunkSize).map(txToRow);
     if(chunk.length === 0) continue;
     const { error: insErr } = await sb.from('transactions').insert(chunk);
     if(insErr){ console.error('還原交易紀錄失敗', insErr); throw insErr; }
   }
   const stockMap = {};
-  txList.forEach(tx => { stockMap[tx.productId] = (stockMap[tx.productId] || 0) + txStockDelta(tx); });
+  sanitized.forEach(tx => { stockMap[tx.productId] = (stockMap[tx.productId] || 0) + txStockDelta(tx); });
   const { error: rsErr } = await sb.rpc('replace_stock_cache', { p_stocks: Object.entries(stockMap).map(([product_id, stock]) => ({ product_id, stock })) });
   if(rsErr){ console.error('重建庫存快取失敗', rsErr); throw rsErr; }
   productStockMap = stockMap;
