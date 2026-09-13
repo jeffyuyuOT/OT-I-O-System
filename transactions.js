@@ -651,6 +651,21 @@ function updateTxBatchItemQty(batchItemId, value){
   renderTxBatchList();
 }
 
+// 掃描收據自動帶入的金額,萬一辨識錯了,直接在登記進出貨清單這裡就能改,不用回去收據掃描
+// 的確認視窗那邊重改一次。清空欄位(留白)當作「這筆沒有金額資料」處理,不會硬塞一個 0 進去——
+// 跟原本收據掃描確認視窗「金額留空就是沒有金額」的邏輯一致。
+function updateTxBatchItemAmount(batchItemId, value){
+  const it = txBatchItems.find(x => x.batchItemId === batchItemId);
+  if(!it) return;
+  if(value === '' || value === null){
+    delete it.amount;
+  } else {
+    const amount = parseFloat(value);
+    if(!isNaN(amount) && amount >= 0) it.amount = amount;
+  }
+  renderTxBatchList();
+}
+
 function renderTxBatchList(){
   const container = document.getElementById('txBatchList');
   if(!container) return;
@@ -684,7 +699,7 @@ function renderTxBatchList(){
           <input type="number" class="order-qty-input" step="1" value="${it.qty}"
             onchange="updateTxBatchItemQty('${it.batchItemId}', this.value)" /><span class="row-unit">${it.unit}</span>
         </td>
-        ${showAmountCol ? `<td class="row-num">${(it.amount !== undefined && it.amount !== null) ? Number(it.amount).toFixed(2) : '–'}</td>` : ''}
+        ${showAmountCol ? `<td class="row-num"><input type="number" class="order-qty-input" step="0.01" min="0" value="${(it.amount !== undefined && it.amount !== null) ? it.amount : ''}" placeholder="–" onchange="updateTxBatchItemAmount('${it.batchItemId}', this.value)" /></td>` : ''}
         <td class="row-action">
           <button onclick="openConversionFromTxBatch('${it.productId}')" title="${t('btnConvertBatchItem')}">🔄</button>
           <button onclick="removeTxBatchItem('${it.batchItemId}')" title="${t('btnDelete')}">✕</button>
