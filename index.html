@@ -3909,8 +3909,7 @@ function renderStockLocationProductSelect(){
   if(filteredProducts.some(p => p.id === prevVal)) sel.value = prevVal;
 
   makeSelectSearchable('stockLocationProductSelect');
-  if(isBulkMode) renderStockLocationBulkUnassignedList();
-  else renderStockLocationDetail();
+  refreshStockLocationView();
 }
 
 // 掃碼槍在庫存分布頁面掃到商品時呼叫:直接跳去顯示這個商品的位置分布,不用手動搜尋。
@@ -3939,7 +3938,12 @@ function toggleStockLocationBulkView(checked){
 // 跳成單一商品畫面,很奇怪)。
 function refreshStockLocationView(){
   const bulkCheckbox = document.getElementById('stockLocationShowAllUnassigned');
-  if(bulkCheckbox && bulkCheckbox.checked) renderStockLocationBulkUnassignedList();
+  const sel = document.getElementById('stockLocationProductSelect');
+  // 勾了「列出所有未指派商品」不代表商品欄位就完全沒作用——選單本身還是可以選一個特定商品
+  // (畫面上會過濾成只列出真的有未分布庫存的商品),選了就是要看那個商品的詳細分布,這時候
+  // 應該顯示那個商品的詳細畫面,不是硬顯示整份清單。只有「勾選了、而且沒有選任何特定商品」
+  // 才顯示整份未指派清單。
+  if(bulkCheckbox && bulkCheckbox.checked && (!sel || !sel.value)) renderStockLocationBulkUnassignedList();
   else renderStockLocationDetail();
 }
 
