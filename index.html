@@ -3947,6 +3947,40 @@ function refreshStockLocationView(){
   else renderStockLocationDetail();
 }
 
+// 掃碼槍支援(情境二):在庫存分布頁面(不是在編輯視窗裡)掃到一個對不到任何商品條碼/SKU 的碼,
+// 當成「位置條碼」反查——列出這個位置代碼目前實際登記了哪些商品、各自多少數量。用途是站在
+// 貨架前掃一下,就知道這個位置照系統紀錄「應該」放什麼,拿來核對現場實際擺放的東西有沒有放錯。
+// 這個位置目前完全沒有任何商品登記(可能是條碼掃錯、或這個位置本來就還沒指派過任何東西),
+// 一樣會顯示出來,清楚告訴使用者「查過了,沒有任何商品登記在這裡」,不是掃描失敗。
+function showProductsAtLocation(code){
+  const bulkCheckbox = document.getElementById('stockLocationShowAllUnassigned');
+  if(bulkCheckbox) bulkCheckbox.checked = false;
+  const sel = document.getElementById('stockLocationProductSelect');
+  if(sel) sel.value = '';
+  const container = document.getElementById('stockLocationDetail');
+  if(!container) return;
+
+  const rows = productLocations
+    .filter(l => l.locationCode === code)
+    .map(l => ({ p: products.find(x => x.id === l.productId), loc: l }))
+    .filter(r => r.p)
+    .sort((a, b) => a.p.name.localeCompare(b.p.name));
+
+  container.innerHTML = `
+    <div style="margin-top:14px;">
+      <div style="font-weight:700;margin-bottom:8px;">${tf('locationLookupTitle', { code: escapeHtmlForPrint(code) })}</div>
+      ${rows.length === 0 ? `<div class="empty-note">${t('locationLookupEmptyHint')}</div>` : `
+      <table class="stock-table">
+        <thead><tr><th>SKU</th><th>${t('lblProduct')}</th><th class="num">${t('colQty')}</th></tr></thead>
+        <tbody>
+          ${rows.map(r => `<tr><td>${escapeHtmlForPrint(r.p.sku || '—')}</td><td>${escapeHtmlForPrint(r.p.name)}</td><td class="num">${r.loc.qty} ${escapeHtmlForPrint(r.p.unit)}</td></tr>`).join('')}
+        </tbody>
+      </table>
+      `}
+    </div>
+  `;
+}
+
 function renderStockLocationBulkUnassignedList(){
   const container = document.getElementById('stockLocationDetail');
   if(!container) return;
@@ -4088,6 +4122,29 @@ function getMissingStandardLocationFields(idPrefix, suffix){
     if(el && !el.value.trim()) missing.push(fieldNames[k]);
   });
   return missing;
+}
+
+// 掃碼槍支援(情境一):貨架位置上如果貼的條碼就是印這組 Zone-Aisle-Bay-Level-Bin 代碼本身
+// (跟 buildLocationCode() 存的格式一樣,用「-」接起來),掃到之後直接把對應欄位自動填好,
+// 不用一格一格手動打、也不會打錯。段數必須剛好對上系統設置裡目前有啟用的欄位數量才會生效——
+// 系統設置可以選擇只啟用其中幾個欄位(例如只開 Zone/Bay/Bin,不開 Aisle/Level),所以欄位
+// 的「順序」固定是 Zone→Aisle→Bay→Level→Bin,但實際會用到的「數量」要看系統設置,不能寫死
+// 一定是 5 段,不然自訂啟用較少欄位的倉庫,掃描永遠對不上格式。
+// 回傳 true 代表成功帶入,false 代表段數對不上(不是合法的位置代碼格式,呼叫端要自己決定怎麼
+// 提示使用者)。
+function parseLocationCodeIntoFields(code, idPrefix, suffix){
+  if(stockLocationMode === 'custom') return false;
+  idPrefix = idPrefix || 'location';
+  suffix = suffix === undefined ? 'Input' : suffix;
+  const fieldNames = { zone: 'Zone', aisle: 'Aisle', bay: 'Bay', level: 'Level', bin: 'Bin' };
+  const enabledKeys = Object.keys(fieldNames).filter(k => stockLocationEnabledFields[k] !== false);
+  const parts = code.split('-').map(s => s.trim()).filter(Boolean);
+  if(parts.length !== enabledKeys.length || parts.length === 0) return false;
+  enabledKeys.forEach((k, i) => {
+    const el = document.getElementById(idPrefix + fieldNames[k] + suffix);
+    if(el) el.value = parts[i];
+  });
+  return true;
 }
 
 function onLocationTargetSelectChange(){
@@ -5838,6 +5895,17 @@ window.addEventListener('keydown', handleGlobalScanKeydown);
 function processBarcodeScan(code){
   const trimmed = code.trim();
   if(!trimmed) return;
+
+  // 情境一:「編輯位置」視窗開著的時候,掃到的碼優先當成「位置條碼」處理,直接把 Zone/Aisle/
+  // Bay/Level/Bin(照系統設置實際啟用的欄位)自動填好,不做商品比對——這個視窗開著,代表使用者
+  // 當下的意圖是指派/確認一個位置,不會是要找商品,兩者搶著跑只會互相干擾。
+  const locationModalEl = document.getElementById('locationEditModalOverlay');
+  if(locationModalEl && locationModalEl.style.display === 'flex'){
+    const filled = parseLocationCodeIntoFields(trimmed, 'location', 'Input');
+    showScanToast(filled ? tf('scanLocationCodeFilled', { code: trimmed }) : tf('scanLocationCodeMismatch', { code: trimmed }), !filled);
+    return;
+  }
+
   // 先比對「條碼」欄位(掃描槍實際掃到的那串資料,例如商品包裝上的 UPC/EAN),
   // 沒有商品設定條碼、或掃到的碼沒對上任何條碼,才退回比對 SKU(相容還沒逐一補掃條碼的舊商品)。
   const product = products.find(p => p.barcode && p.barcode.trim().toLowerCase() === trimmed.toLowerCase())
@@ -5855,6 +5923,13 @@ function processBarcodeScan(code){
   const locationSubtabActive = isOverviewActive && !!(locationEl && locationEl.classList.contains('active-subtab'));
 
   if(!product){
+    // 情境二:在庫存分布頁面(不是在編輯視窗裡)掃到的碼,如果對不到任何商品,改當成「位置條碼」
+    // 反查——列出這個位置目前登記了哪些商品,不管有沒有查到東西都直接顯示結果(查到是空的,
+    // 也是有意義的答案:代表這個位置目前沒有登記任何商品),不會被當成「商品掃描失敗」略過。
+    if(locationSubtabActive){
+      showProductsAtLocation(trimmed);
+      return;
+    }
     if(registerSubtabActive || verifySubtabActive || isOverviewActive){
       showScanToast(tf('scanProductNotFound', { code: trimmed }), true);
     }

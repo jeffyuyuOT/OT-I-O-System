@@ -38,6 +38,8 @@ function catLabelEN(cat){
 const I18N = {
   zh: {
     scanProductNotFound: '找不到 SKU 為「{code}」的商品', scanAddedToList: '✓ 已加入「{name}」',
+    scanLocationCodeFilled: '✓ 已依掃描結果帶入位置代碼「{code}」', scanLocationCodeMismatch: '掃到的碼「{code}」段數跟目前系統設置的位置欄位對不上,請確認是不是位置條碼',
+    locationLookupTitle: '位置「{code}」目前登記的商品', locationLookupEmptyHint: '這個位置目前沒有登記任何商品。',
     selectAllLabel: '全選', btnViewNote: '▾', btnViewNoteTitle: '查看備註', mobileHomeBtnTitle: '選單',
     appTitle: 'Orange Tea AU | Inventory & Order Hub', appTitleOrderOnly: 'Orange Tea AU | Order Hub',
     appTitleSubtitle: 'Inventory & Order Hub', appTitleSubtitleOrderOnly: 'Order Hub',
@@ -584,6 +586,8 @@ const I18N = {
   },
   en: {
     scanProductNotFound: 'No product found with SKU "{code}"', scanAddedToList: '✓ Added "{name}"',
+    scanLocationCodeFilled: '✓ Filled in location code "{code}" from scan', scanLocationCodeMismatch: 'Scanned code "{code}" doesn\'t match the number of location fields set up — check it\'s actually a location barcode',
+    locationLookupTitle: 'Products currently at location "{code}"', locationLookupEmptyHint: 'No products are currently registered at this location.',
     selectAllLabel: 'Select All', btnViewNote: '▾', btnViewNoteTitle: 'View note', mobileHomeBtnTitle: 'Menu',
     appTitle: 'Orange Tea AU | Inventory & Order Hub', appTitleOrderOnly: 'Orange Tea AU | Order Hub',
     appTitleSubtitle: 'Inventory & Order Hub', appTitleSubtitleOrderOnly: 'Order Hub',
