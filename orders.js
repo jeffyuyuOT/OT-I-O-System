@@ -2,9 +2,8 @@
 // 訂貨/訂單管理——這是目前拆出來最大的一塊,涵蓋:
 // 平均訂貨量計算、購物車(加入/移除/確認送出)、待處理訂單、
 // 已完成訂單列表/歷史/修改記錄、品項數量/備註編輯、訂單核對
-// (Verify Page)、Picking Slip 列印、Excel 匯出。
-// 「出貨方(供應商)管理」、「切換紀錄」是相鄰但不同的功能,
-// 故意沒有一起搬,留在主程式。
+// (Verify Page)、Picking Slip 列印、Excel 匯出,以及代客戶簽收
+// (倉庫方,含手寫簽名板)。
 // ============================================================
 
 // 這個出貨方在「訂貨」分頁能看到的商品:全域標記可訂貨、沒有被全域隱藏、
@@ -2291,4 +2290,142 @@ function exportSingleOrderSheet(orderId){
   const noPart = order.orderNo ? `${order.orderNo.replace('#','')}_` : '';
   const filename = `order_sheet_${noPart}${safeParty}_${order.date}.xlsx`;
   downloadOrderSheetXlsx(aoa, filename, hiddenRows);
+}
+
+// ===== 代客戶簽收(倉庫方)=====
+// 給收貨者不是訂貨帳號本人的情況用:訂購記錄本身已經有一個「簽收」按鈕,但那是訂貨帳號自己
+// 登入才按得到的,只會記錄「哪個帳號按的」,沒有簽名。這裡是額外的、給倉庫端用的簽收入口,
+// 多存簽收人姓名跟手寫簽名圖檔,兩種簽收方式最後都會讓 order.signedAt 有值(判斷「有沒有
+// 簽收」還是看這個欄位,兩邊共用),差別在 order.signInfo 記錄的是哪一種簽收方式、細節是什麼。
+let warehouseSignOrderId = null;
+let signaturePadHasContent = false;
+let signaturePadDrawing = false;
+let signaturePadCtx = null;
+
+function setupSignaturePadCanvas(){
+  const canvas = document.getElementById('signaturePadCanvas');
+  if(!canvas) return;
+  // canvas 的實際繪圖解析度要另外設定(不能只靠 CSS width/height),不然在高解析度螢幕
+  // (例如大多數手機)上畫出來的線條會模糊。這裡照 devicePixelRatio 放大內部畫布尺寸,
+  // 畫的時候再用同樣的比例縮放繪圖座標系統,顯示出來還是照 CSS 尺寸,但線條清晰。
+  const rect = canvas.getBoundingClientRect();
+  const ratio = window.devicePixelRatio || 1;
+  canvas.width = rect.width * ratio;
+  canvas.height = rect.height * ratio;
+  const ctx = canvas.getContext('2d');
+  ctx.scale(ratio, ratio);
+  // 畫布本身雖然有 CSS 的白色背景,但那只是 DOM 元素的背景,不是畫布「畫面內容」本身——
+  // 有些手機瀏覽器(尤其系統設定深色模式時)畫布實際內容預設是透明的,線條深色、透明背景疊在
+  // 深色系統介面上會看不清楚。另外更關鍵的是:之後用 canvas.toBlob() 存檔時,存下來的圖片
+  // 只會抓「畫面內容」本身,不會連 CSS 背景一起存進去——如果畫面內容是透明的,存出來的簽名圖
+  // 也會是透明背景,之後不管在哪裡顯示都可能看不清楚簽名筆跡。這裡直接把畫布實際內容也填成
+  // 白色,不只是靠 CSS 背景,兩個問題一次解決。
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(0, 0, rect.width, rect.height);
+  ctx.lineWidth = 2.2;
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  ctx.strokeStyle = '#1E1E1B';
+  signaturePadCtx = ctx;
+  signaturePadHasContent = false;
+
+  const getPos = (e) => {
+    const r = canvas.getBoundingClientRect();
+    const point = e.touches ? e.touches[0] : e;
+    return { x: point.clientX - r.left, y: point.clientY - r.top };
+  };
+  const start = (e) => {
+    e.preventDefault();
+    signaturePadDrawing = true;
+    const pos = getPos(e);
+    ctx.beginPath();
+    ctx.moveTo(pos.x, pos.y);
+  };
+  const move = (e) => {
+    if(!signaturePadDrawing) return;
+    e.preventDefault();
+    const pos = getPos(e);
+    ctx.lineTo(pos.x, pos.y);
+    ctx.stroke();
+    signaturePadHasContent = true;
+  };
+  const end = (e) => { signaturePadDrawing = false; };
+
+  canvas.onmousedown = start;
+  canvas.onmousemove = move;
+  canvas.onmouseup = end;
+  canvas.onmouseleave = end;
+  canvas.ontouchstart = start;
+  canvas.ontouchmove = move;
+  canvas.ontouchend = end;
+}
+
+function clearSignaturePad(){
+  const canvas = document.getElementById('signaturePadCanvas');
+  if(!canvas || !signaturePadCtx) return;
+  const ratio = window.devicePixelRatio || 1;
+  const cssWidth = canvas.width / ratio;
+  const cssHeight = canvas.height / ratio;
+  signaturePadCtx.clearRect(0, 0, cssWidth, cssHeight);
+  // 清除重簽的時候也要重新填白,不然清掉之後又變回透明背景。
+  signaturePadCtx.fillStyle = '#fff';
+  signaturePadCtx.fillRect(0, 0, cssWidth, cssHeight);
+  signaturePadHasContent = false;
+}
+
+function openWarehouseSignModal(orderId){
+  const order = orders.find(o => o.id === orderId);
+  if(!order || order.deleted || order.signedAt) return;
+  warehouseSignOrderId = orderId;
+  document.getElementById('warehouseSignerName').value = '';
+  document.getElementById('warehouseSignModalMsg').textContent = '';
+  document.getElementById('warehouseSignModalOverlay').style.display = 'flex';
+  // 畫布要等 modal 真的顯示出來、有實際寬高之後再設定尺寸,不然量到的會是 0。
+  requestAnimationFrame(setupSignaturePadCanvas);
+}
+
+function closeWarehouseSignModal(){
+  warehouseSignOrderId = null;
+  document.getElementById('warehouseSignModalOverlay').style.display = 'none';
+}
+
+async function saveWarehouseSign(){
+  const order = orders.find(o => o.id === warehouseSignOrderId);
+  const msg = document.getElementById('warehouseSignModalMsg');
+  if(!order){ closeWarehouseSignModal(); return; }
+  const signerName = document.getElementById('warehouseSignerName').value.trim();
+  if(!signerName){ msg.className = 'msg error'; msg.textContent = t('errSignerNameRequired'); return; }
+  if(!signaturePadHasContent){ msg.className = 'msg error'; msg.textContent = t('errSignatureRequired'); return; }
+
+  msg.className = 'msg'; msg.textContent = t('uploadingSignatureMsg');
+  const canvas = document.getElementById('signaturePadCanvas');
+  const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/png'));
+  const path = `${genId()}.png`;
+  try{
+    const { error: upErr } = await sb.storage.from('order-signatures').upload(path, blob, { upsert: true, contentType: 'image/png' });
+    if(upErr) throw upErr;
+    const { data } = sb.storage.from('order-signatures').getPublicUrl(path);
+
+    const prevSignedAt = order.signedAt;
+    const prevSignInfo = order.signInfo;
+    order.signedAt = new Date().toISOString();
+    order.signInfo = { type: 'warehouse', signerName, signatureUrl: data.publicUrl };
+    await upsertOrders([order]);
+    logInventoryAction('order_edit', `Order ${order.orderNo || order.id} - signed for receipt by warehouse on behalf of ${signerName}`, order.orderNo);
+    closeWarehouseSignModal();
+    renderAll();
+  } catch(e){
+    console.error('代客戶簽收失敗', e);
+    msg.className = 'msg error'; msg.textContent = t('errSignatureSaveFailed');
+  }
+}
+
+function openSignatureViewModal(url){
+  document.getElementById('signatureViewModalImg').src = url;
+  document.getElementById('signatureViewModalOverlay').style.display = 'flex';
+}
+
+function closeSignatureViewModal(){
+  document.getElementById('signatureViewModalOverlay').style.display = 'none';
+  document.getElementById('signatureViewModalImg').src = '';
 }

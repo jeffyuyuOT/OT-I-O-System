@@ -1,8 +1,10 @@
 // ============================================================
-// 系統設置——自動備份(排程/執行/選資料夾/從資料夾還原)、
-// 會計 Email 清單、Stock Location 模式/列印設定、商品排序、
-// 已完成訂單匯出格式、multipack 相關開關等系統設置分頁裡的
-// 各種讀取/存檔/切換函式。
+// 系統設置——自動備份(排程/執行/選資料夾/從資料夾還原)、完整
+// 資料備份/還原(匯出/匯入 JSON 備份檔,原本在主程式,併過來跟
+// 自動備份放一起,備份相關的東西不再分散兩處)、清除全部資料/
+// 重置後台紀錄跟訂單編號、會計 Email 清單、Stock Location 模式/
+// 列印設定、商品排序、已完成訂單匯出格式、multipack 相關開關等
+// 系統設置分頁裡的各種讀取/存檔/切換函式。
 // ============================================================
 
 // 資料異動時,等待短暫靜止期後自動備份一次,
@@ -383,4 +385,224 @@ async function toggleAutoBackup(checked){
   try{ await dbSet('autoBackupEnabled', String(checked)); }
   catch(e){ console.error('儲存自動備份設定失敗', e); }
   updateAutoBackupStatus();
+}
+
+// ===== 完整資料備份/還原(匯出/匯入 JSON) =====
+function openRestoreDefaultModal(){
+  document.getElementById('restoreDefaultModalOverlay').style.display = 'flex';
+}
+function closeRestoreDefaultModal(){
+  document.getElementById('restoreDefaultModalOverlay').style.display = 'none';
+}
+
+function confirmClearAllData(){
+  closeRestoreDefaultModal();
+  const msg = tf('confirmClearAllDataWarning', {
+    products: products.length,
+    transactions: transactions.length,
+    orders: orders.length,
+    logs: inventoryLogs.length
+  });
+  showConfirmModal(msg, async () => { await clearAllData(); });
+}
+
+function confirmClearLogsResetOrders(){
+  closeRestoreDefaultModal();
+  const msg = tf('confirmClearLogsResetOrdersWarning', {
+    orders: orders.length,
+    logs: inventoryLogs.length
+  });
+  showConfirmModal(msg, async () => { await clearInventoryLogsAndResetOrders(); });
+}
+
+// Clear All Data:商品主檔、進出貨紀錄、後台紀錄、訂單全部清空,訂單編號重設回 1。
+// 使用者管理、出貨方名單、分類順序、分頁順序等系統設定不受影響。
+async function clearAllData(){
+  try{
+    // 先確認 clear_inventory_log 這個 RPC 真的能執行成功,再動 transactions/orders/products,
+    // 避免「清到一半失敗」導致部分資料表已清空、部分還留著的不一致狀態。
+    await clearInventoryLogTable();        // 透過 RPC 清空 inventory_log(繞過 RLS 限制)
+
+    await replaceAllTransactions([]);      // 清空 transactions 表 + 重建庫存快取為空
+    await replaceAllOrders([]);            // 清空 orders 表
+    await clearAllDeliveryNotes();         // 清空 delivery_notes 表(訂單都清空了,留著也是孤兒資料)
+    await clearAllPurchases();             // 清空 purchases 表(進出貨紀錄都清空了,留著也是孤兒資料)
+
+    products = [];
+    await saveProducts();
+
+    orderCounter = 0;
+    await saveOrderCounter();
+    try{ await resetOrderNoSequence(); }
+    catch(e){ /* RPC 可能還沒建立,已在 console 記錄錯誤,不擋住其他清除動作 */ }
+
+    transactions = [];
+    orders = [];
+    deliveryNotes = [];
+    purchases = [];
+    productStockMap = {};
+
+    await loadInventoryLog();  // 重新從資料庫讀一次,確認真的清空了(而不是只清本地變數自欺欺人)
+    renderAll();
+    renderInventoryLog();
+    renderDeliveryNoteLog();
+    showInfoModal(t('restoreDefaultSuccessAll'));
+  } catch(e){
+    console.error('Clear All Data 失敗', e);
+    showInfoModal(t('restoreDefaultError'));
+  }
+}
+
+// Clear Inventory Logs & Reset Order # to 1:只清空後台紀錄跟訂單資料,商品主檔跟進出貨紀錄不受影響。
+async function clearInventoryLogsAndResetOrders(){
+  try{
+    // 一樣先確認 RPC 能成功執行,再動 orders 表,避免清到一半失敗留下不一致狀態。
+    await clearInventoryLogTable();        // 透過 RPC 清空 inventory_log(繞過 RLS 限制)
+    await replaceAllOrders([]);            // 清空 orders 表
+    await clearAllDeliveryNotes();         // 清空 delivery_notes 表(同上,訂單都清空了會變孤兒資料)
+
+    orderCounter = 0;
+    await saveOrderCounter();
+    try{ await resetOrderNoSequence(); }
+    catch(e){ /* RPC 可能還沒建立,已在 console 記錄錯誤,不擋住其他清除動作 */ }
+
+    orders = [];
+    deliveryNotes = [];
+
+    await loadInventoryLog();  // 重新從資料庫讀一次,確認真的清空了(而不是只清本地變數自欺欺人)
+    renderAll();
+    renderInventoryLog();
+    renderDeliveryNoteLog();
+    showInfoModal(t('restoreDefaultSuccessLogsOrders'));
+  } catch(e){
+    console.error('Clear Inventory Logs & Reset Order # 失敗', e);
+    showInfoModal(t('restoreDefaultError'));
+  }
+}
+
+async function exportFullBackup(){
+  const backup = {
+    exportedAt: new Date().toISOString(),
+    version: 6,
+    products,
+    transactions,
+    orders,
+    shippingParties,
+    categoryOrder,
+    inventoryLogs,
+    deliveryNotes,
+    purchases
+  };
+  const filename = `stock_ledger_backup_${todayISO()}.json`;
+  const content = JSON.stringify(backup, null, 2);
+  const msg = document.getElementById('backupMsg');
+
+  if(window.showSaveFilePicker){
+    try{
+      const handle = await window.showSaveFilePicker({
+        suggestedName: filename,
+        types: [{ description: 'JSON 備份檔', accept: { 'application/json': ['.json'] } }]
+      });
+      const writable = await handle.createWritable();
+      await writable.write(content);
+      await writable.close();
+      msg.className = 'msg ok';
+      msg.textContent = tf('exportedBackupToLocationMsg', { filename: handle.name, products: products.length, transactions: transactions.length });
+      return;
+    } catch(e){
+      if(e && e.name === 'AbortError') return; // 使用者自己取消,不用當成錯誤
+      console.error('選擇儲存位置失敗,改用一般下載', e);
+      // 往下走一般下載當備援
+    }
+  }
+
+  downloadFile(filename, content, 'application/json');
+  msg.className = 'msg ok';
+  msg.textContent = tf('exportedBackupMsg', { filename, products: products.length, transactions: transactions.length });
+}
+
+function importFullBackup(){
+  const fileInput = document.getElementById('backupImportFile');
+  const msg = document.getElementById('backupMsg');
+  const file = fileInput.files[0];
+  if(!file){ msg.className='msg error'; msg.textContent='請先選擇備份檔'; return; }
+
+  showConfirmModal('還原備份會完全覆蓋目前 App 裡的商品跟進出貨紀錄,確定要繼續嗎?', () => {
+    if(file.size === 0){
+      msg.className = 'msg error';
+      msg.textContent = '這個檔案是空的(0 bytes),請確認是不是正確的備份檔';
+      return;
+    }
+    const reader = new FileReader();
+    reader.onerror = () => {
+      msg.className = 'msg error';
+      msg.textContent = '讀取檔案失敗,瀏覽器無法存取這個檔案。請重新選擇檔案再試一次。';
+    };
+    reader.onload = async (e) => {
+      try{
+        const raw = e.target.result;
+        if(!raw || typeof raw !== 'string' || raw.trim() === ''){
+          throw new Error('檔案內容是空的');
+        }
+        let backup;
+        try{
+          backup = JSON.parse(raw);
+        } catch(parseErr){
+          throw new Error('不是有效的 JSON 檔案(' + parseErr.message + ')。開頭內容:' + raw.slice(0, 60));
+        }
+        if(!backup || typeof backup !== 'object'){
+          throw new Error('這個檔案格式不正確,不是有效的備份檔');
+        }
+        if(!Array.isArray(backup.products) || !Array.isArray(backup.transactions)){
+          throw new Error('這個檔案缺少 products 或 transactions 欄位,不是有效的備份檔');
+        }
+        products = backup.products;
+        transactions = backup.transactions;
+        orders = Array.isArray(backup.orders) ? backup.orders : [];
+        shippingParties = Array.isArray(backup.shippingParties) ? backup.shippingParties : [];
+    shippingParties.forEach(sp => { if(!Array.isArray(sp.hiddenProductIds)) sp.hiddenProductIds = []; });
+    recomputeOrderCounterFromOrders();
+        if(Array.isArray(backup.categoryOrder) && backup.categoryOrder.length > 0){
+          categoryOrder = backup.categoryOrder;
+        }
+        await saveProducts();
+        await replaceAllTransactions(transactions);
+        await replaceAllOrders(orders);
+        await saveShippingParties();
+        await saveCategoryOrder();
+        // inventory_log 是稽核用途的紀錄,故意不開放前端刪除(見 clearInventoryLogTable 旁邊的
+        // 說明)——還原備份的時候也一樣不整批覆蓋,只把備份裡的紀錄用 upsert 補進去,已經存在的
+        // (id 相同)就跳過不動,不會覆蓋掉還原當下資料庫裡已經有的紀錄。
+        if(Array.isArray(backup.inventoryLogs) && backup.inventoryLogs.length > 0){
+          try{
+            const { error: logErr } = await sb.from('inventory_log').upsert(backup.inventoryLogs, { onConflict: 'id', ignoreDuplicates: true });
+            if(logErr) throw logErr;
+          } catch(e){ console.error('還原後台紀錄失敗', e); }
+        }
+        if(Array.isArray(backup.deliveryNotes) && backup.deliveryNotes.length > 0){
+          try{ await upsertDeliveryNotes(backup.deliveryNotes); }
+          catch(e){ console.error('還原 Delivery Note 失敗', e); }
+        }
+        if(Array.isArray(backup.purchases) && backup.purchases.length > 0){
+          try{ for(const p of backup.purchases) await upsertPurchase(p); }
+          catch(e){ console.error('還原進貨單失敗', e); }
+        }
+        await loadInventoryLog();
+        await loadDeliveryNotes();
+        await loadPurchases();
+        const seqSynced = await syncOrderNoSequenceAfterRestore(orders);
+        msg.className = seqSynced ? 'msg ok' : 'msg error';
+        msg.textContent = tf('restoredBackupMsg', { products: products.length, transactions: transactions.length, orders: orders.length })
+          + (seqSynced ? '' : ' ' + t('warnOrderNoSeqSyncFailed'));
+        fileInput.value = '';
+        renderTabBar();
+        renderAll();
+        renderDeliveryNoteLog();
+      } catch(err){
+        msg.className = 'msg error';
+        msg.textContent = '還原失敗:' + err.message;
+      }
+    };
+    reader.readAsText(file);
+  });
 }
