@@ -542,13 +542,17 @@ async function scanReceiptForItems(){
   const btn = document.getElementById('btnScanReceipt');
   btn.disabled = true;
   msgEl.style.color = 'var(--ink-soft)';
+  // 宣告在 try 外面——如果宣告在 try 裡面(尤其是迴圈裡的 const/let),進到 catch 的時候
+  // 這個變數其實已經不在作用域內了,catch 裡面一用就會噴一個新的 ReferenceError,把原本
+  // 真正的錯誤蓋掉,畫面上只會看到「isPdf is not defined」,完全看不出真正是哪裡失敗的。
+  let isPdf = false;
   try{
     let allLines = [];
     let supplierGuess = null;
     for(let fileIdx = 0; fileIdx < scannableFiles.length; fileIdx++){
       const file = scannableFiles[fileIdx];
       const docType = file.docType || 'invoice';
-      const isPdf = /\.pdf$/i.test(file.filename || file.url);
+      isPdf = /\.pdf$/i.test(file.filename || file.url);
       msgEl.textContent = scannableFiles.length > 1
         ? tf('scanningFileMsg', { current: fileIdx + 1, total: scannableFiles.length, name: file.filename })
         : (isPdf ? t('convertingPdfMsg') : t('scanningReceiptMsg'));
