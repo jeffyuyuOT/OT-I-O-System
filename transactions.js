@@ -2510,3 +2510,155 @@ function renderTxFileList(){
     <span class="file-chip">${f.name}<button onclick="removeTxFile(${i})" title="移除">✕</button></span>
   `).join('');
 }
+
+// ============================================================
+// 進貨單的收據/發票附件上傳(基本功能,跟收據掃描模組是否啟用完全無關)
+// ------------------------------------------------------------
+// 這幾個函式原本放在 receipt-scan.js 裡,但附件上傳/移除本身是登記進出貨的基本功能
+// (拍照存證、留底稽核用),不管有沒有裝收據掃描模組都該正常運作——只有「掃描辨識」
+// 這個動作本身才是選配的。原本放錯地方,receipt-scan.js 沒帶的話,連基本的附件上傳都會
+// 因為呼叫到不存在的函式而整個壞掉(renderAll()/setTxType() 等好幾個核心流程都會呼叫到
+// 這裡的函式),所以搬過來歸位——receipt-scan.js 現在只保留真的屬於「掃描」這個選配
+// 功能本身的程式碼。
+// ============================================================
+// 進貨單的收據/發票附件上傳:跟商品照片上傳同一套模式,差別是這裡接受圖片「或」PDF,
+// 檔案大小上限放寬到 10MB(收據掃描檔常常比商品照片大),而且支援一次選取多個檔案——逐一
+// 上傳、逐一加進 pendingPurchaseReceiptFiles 這個陣列,其中一個檔案上傳失敗不影響其他已經
+// 上傳成功的檔案。真正送出進貨單(submitTxBatchSimple)時才會用到、寫進那張單。
+async function handlePurchaseReceiptUpload(inputEl){
+  const files = inputEl.files ? Array.from(inputEl.files) : [];
+  if(files.length === 0) return;
+  const msgEl = document.getElementById('purchaseReceiptUploadMsg');
+  const maxBytes = 10 * 1024 * 1024;
+  let successCount = 0;
+  let failCount = 0;
+  let lastFailReason = '';
+
+  for(const file of files){
+    // 手機拍照上傳(尤其是直接用相機拍、不是從相簿選)的檔案,file.type 常常是空字串——瀏覽器
+    // 沒有正確帶入 MIME type,不是檔案真的有問題。原本這裡只看 file.type,遇到空字串一律當
+    // 「格式不符」擋掉,手機拍照上傳才會一直失敗。這裡改成:file.type 有給的話正常判斷;
+    // 沒給的話(常見於手機拍照),退回看副檔名判斷,不會因為瀏覽器沒帶 MIME type 就整個擋掉。
+    const ext = (file.name.split('.').pop() || '').toLowerCase();
+    const looksLikeImageByExt = /^(jpe?g|png|gif|bmp|webp|heic|heif)$/.test(ext);
+    const looksLikePdfByExt = ext === 'pdf';
+    const validType = file.type
+      ? (file.type.startsWith('image/') || file.type === 'application/pdf')
+      : (looksLikeImageByExt || looksLikePdfByExt);
+    if(!validType){
+      failCount++;
+      lastFailReason = t('errReceiptFileTypeInvalid');
+      continue;
+    }
+    if(file.size > maxBytes){
+      failCount++;
+      lastFailReason = t('errReceiptFileTooLarge');
+      continue;
+    }
+    msgEl.style.color = 'var(--ink-soft)';
+    msgEl.textContent = tf('uploadingReceiptMsgWithName', { name: file.name });
+    // 檔名保留使用者上傳時的原始檔名(不是只留副檔名的亂數檔名),這樣點連結查看/下載附件時,
+    // 瀏覽器顯示的檔名就是原本的檔名,不會是一串亂碼——前面加一個亂數資料夾當前綴,是為了避免
+    // 不同收據剛好同名(例如都叫 IMG_1234.jpg)互相覆蓋掉,不影響顯示出來的檔名本身。
+    const safeName = file.name.replace(/[\\/:*?"<>|]/g, '_');
+    const path = `${genId()}/${safeName}`;
+    try{
+      // 從 Google Drive 這類雲端硬碟選檔案時,瀏覽器拿到的 File 物件有時候不是「已經整個讀進
+      // 記憶體」的檔案,而是要等到真的被讀取的那一刻才會去背景抓資料——直接把這個 File 物件
+      // 原封不動丟給 upload(),遇到抓取還沒完成/網路不穩的情況,常常會直接報一個很籠統的
+      // 「Failed to fetch」,看不出真正原因。這裡先明確用 file.arrayBuffer() 把整個檔案內容
+      // 讀進記憶體,確保資料真的完整拿到手上了,再轉成 Blob 送出去上傳,比較不會遇到這種問題。
+      const arrayBuffer = await file.arrayBuffer();
+      const blob = new Blob([arrayBuffer], { type: file.type || (looksLikePdfByExt ? 'application/pdf' : 'image/jpeg') });
+      let uploadError = null;
+      // 網路不穩(尤其手機行動網路)偶爾會讓上傳這個網路請求本身失敗一次,不一定是檔案或格式
+      // 的問題——失敗的話自動重試一次,大部分暫時性的網路問題重試就會成功,不用使用者自己
+      // 手動再上傳一次。
+      for(let attempt = 0; attempt < 2; attempt++){
+        const { error } = await sb.storage.from('purchase-receipts').upload(path, blob, { upsert: true });
+        uploadError = error;
+        if(!error) break;
+        if(attempt === 0) await new Promise(r => setTimeout(r, 800));
+      }
+      if(uploadError) throw uploadError;
+      const { data } = sb.storage.from('purchase-receipts').getPublicUrl(path);
+      pendingPurchaseReceiptFiles.push({ url: data.publicUrl, filename: file.name });
+      successCount++;
+    } catch(e){
+      console.error('上傳進貨單收據失敗', e);
+      failCount++;
+      // 真正上傳失敗(不是前面型別/大小這種本機就能判斷的問題)的話,把 Supabase 回傳的錯誤
+      // 訊息也一併記下來,顯示的時候比單純「上傳失敗」更容易看出是網路問題還是別的原因。
+      lastFailReason = (e && e.message) ? e.message : t('errReceiptUploadFailed');
+    }
+  }
+
+  renderPurchaseReceiptPreviewList();
+  if(failCount === 0){
+    msgEl.style.color = 'var(--safe)';
+    msgEl.textContent = t('receiptUploadedMsg');
+  } else if(successCount === 0){
+    msgEl.style.color = 'var(--crit)';
+    msgEl.textContent = failCount === 1 ? `⚠ ${lastFailReason}` : t('errReceiptUploadFailed');
+  } else {
+    msgEl.style.color = 'var(--warn)';
+    msgEl.textContent = tf('receiptUploadedPartialMsg', { success: successCount, fail: failCount });
+  }
+  inputEl.value = '';
+}
+
+function renderPurchaseReceiptPreviewList(){
+  const wrap = document.getElementById('purchaseReceiptPreviewWrap');
+  if(!wrap) return;
+  const scanWrap = document.getElementById('purchaseReceiptScanWrap');
+  if(pendingPurchaseReceiptFiles.length === 0){
+    wrap.style.display = 'none';
+    wrap.innerHTML = '';
+    if(scanWrap) scanWrap.style.display = 'none';
+    return;
+  }
+  wrap.style.display = 'flex';
+  // docType 只有在有收據掃描模組時才需要標記/顯示——沒有掃描功能的話,附件單純就是附件,
+  // 不需要區分是發票還是 Credit Note(反正也不會拿去自動加總)。預設一律當「發票」,使用者
+  // 上傳退貨/折讓單的時候要自己手動改成「Credit Note」——不用檔名關鍵字去猜,猜錯的後果
+  // 是金額方向整個算反,寧可讓使用者自己選,比較保險。
+  const showDocTypeTag = hasFeature('receiptScanModule');
+  wrap.innerHTML = pendingPurchaseReceiptFiles.map((f, i) => `
+    <div style="display:flex;align-items:center;gap:10px;">
+      <a href="${f.url}" target="_blank" style="font-size:12.5px;">📎 ${escapeHtmlForPrint(f.filename)}</a>
+      ${showDocTypeTag ? `
+        <select style="font-size:11.5px;padding:2px 4px;" onchange="setPurchaseReceiptFileDocType(${i}, this.value)">
+          <option value="invoice" ${(f.docType || 'invoice') === 'invoice' ? 'selected' : ''}>${t('optDocTypeInvoice')}</option>
+          <option value="credit_note" ${f.docType === 'credit_note' ? 'selected' : ''}>${t('optDocTypeCreditNote')}</option>
+          <option value="others" ${f.docType === 'others' ? 'selected' : ''}>${t('optDocTypeOthers')}</option>
+        </select>
+      ` : ''}
+      <span class="del-link" onclick="removePurchaseReceiptFile(${i})">${t('btnRemoveFile')}</span>
+    </div>
+  `).join('');
+  // 掃描功能支援圖片跟 PDF——PDF 的話會先在瀏覽器裡用 PDF.js 把第一頁畫成圖片,再照跟圖片
+  // 一樣的流程做文字辨識(見 scanReceiptForItems)。有上傳圖片或 PDF 檔案才顯示這個按鈕,
+  // 只上傳其他格式(理論上不該發生,上傳欄位本身就限制只能選圖片/PDF)才不顯示。
+  // Delivery Note 或其他跟這次進貨相關、但不是發票/Credit Note 的附件(標記「其他」的)不算
+  // 「可以掃描」——掃描按鈕出不出現只看有沒有發票/Credit Note 這種真的要辨識金額/數量的附件。
+  const hasScannableFile = pendingPurchaseReceiptFiles.some(f => f.docType !== 'others' && /\.(jpe?g|png|gif|bmp|webp|pdf)$/i.test(f.filename || f.url));
+  if(scanWrap) scanWrap.style.display = (hasScannableFile && hasFeature('receiptScanModule')) ? 'block' : 'none';
+}
+
+function setPurchaseReceiptFileDocType(index, docType){
+  const f = pendingPurchaseReceiptFiles[index];
+  if(f) f.docType = docType;
+}
+
+function removePurchaseReceiptFile(index){
+  pendingPurchaseReceiptFiles.splice(index, 1);
+  renderPurchaseReceiptPreviewList();
+}
+
+function removePurchaseReceipt(){
+  pendingPurchaseReceiptFiles = [];
+  const wrap = document.getElementById('purchaseReceiptPreviewWrap');
+  if(wrap){ wrap.style.display = 'none'; wrap.innerHTML = ''; }
+  const msgEl = document.getElementById('purchaseReceiptUploadMsg');
+  if(msgEl) msgEl.textContent = '';
+}

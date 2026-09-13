@@ -4585,6 +4585,8 @@ function renderAll(){
   renderPartiesTable();
   renderForecastTable();
   refreshStockLocationView();
+  // renderPurchaseReceiptPreviewList 現在在 transactions.js 裡(基本功能,不受收據掃描模組
+  // 開關影響),一定存在,不需要再用 hasFeature 判斷要不要呼叫。
   renderPurchaseReceiptPreviewList();
   const masterTabEl = document.getElementById('tab-master');
   if(masterTabEl && masterTabEl.classList.contains('active-tab')) loadUsers().then(renderUsersTab);

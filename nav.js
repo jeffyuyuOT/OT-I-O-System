@@ -230,7 +230,11 @@ function switchTab(tabId){
   }
   if(tabId === 'tab-warehouse-admin'){
     renderPartiesTable(); renderForecastTable(); populateExportPartySelect();
-    renderSupplierManagementTable(); renderOcrDbProductSelect();
+    renderSupplierManagementTable();
+    // hasFeature('receiptScanModule') 同時代表「這個功能要不要用」跟「receipt-scan.js 這個檔案
+    // 有沒有真的被載入」——這個旗標就是在 receipt-scan.js 裡面設的,檔案沒帶的話這裡一定是
+    // false,不會呼叫到一個根本不存在的函式而讓整個「倉庫後台管理」分頁壞掉。
+    if(hasFeature('receiptScanModule')) renderOcrDbProductSelect();
     // 「管理出貨方」子分頁需要 cap-manage-parties 這個權限才看得到——沒有這個權限的話,
     // 那個按鈕整個藏起來,而且如果剛好停在那個子分頁上,要導回第一個子分頁(出貨方管理
     // 這個按鈕本身就是要藏的目標,所以導去下一個「進貨方管理」)。
@@ -315,7 +319,7 @@ function switchWarehouseAdminSubTab(subtabId){
   else if(subtabId === 'subtab-purchase-mgmt-suppliers') renderSupplierManagementTable();
   else if(subtabId === 'subtab-tx-forecast') renderForecastTable();
   else if(subtabId === 'subtab-tx-data') populateExportPartySelect();
-  else if(subtabId === 'subtab-purchase-mgmt-ocrdb') renderOcrDbProductSelect();
+  else if(subtabId === 'subtab-purchase-mgmt-ocrdb' && hasFeature('receiptScanModule')) renderOcrDbProductSelect();
   document.getElementById(subtabId).classList.add('active-subtab');
   document.getElementById('btn-' + subtabId).classList.add('active');
 }
