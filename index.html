@@ -5267,6 +5267,7 @@ function renderAll(){
   renderForecastTable();
   renderStockLocationDetail();
   renderPurchaseReceiptPreviewList();
+  const masterTabEl = document.getElementById('tab-master');
   if(masterTabEl && masterTabEl.classList.contains('active-tab')) loadUsers().then(renderUsersTab);
 }
 
