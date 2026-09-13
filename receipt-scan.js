@@ -616,21 +616,31 @@ async function scanReceiptForItems(){
   }
 }
 
-// 跟手動用「+ 加入清單」加商品(addToTxBatch,同一個商品會直接把數量加總合併成一行)不一樣,
-// 這裡刻意「每一行 OCR 辨識出來的品項,不管是不是同一個商品,一律各自獨立成一行」,不會合併——
-// 目的是保留完整稽核軌跡:同一個商品如果同時出現在發票跟 Credit Note 兩個檔案裡,兩筆分開的
-// 紀錄都會照樣分別存在待送出清單、也分別存成資料庫裡的進出貨紀錄,之後要追溯「這個商品最後
-// 為什麼是這個淨數量」,可以直接查到原始發票跟退貨各自的那一筆,不會因為系統自動加總過,
-// 反而看不出計算依據。畫面上(renderTxBatchList)另外會在同一個商品有多筆的時候,顯示一行
-// 「淨」的加總方便核對,但那只是顯示層面的呈現,底層資料還是分開的。
+// 跟手動用「+ 加入清單」加商品(addToTxBatch,同一個商品一律直接把數量加總合併成一行)不一樣,
+// 這裡的規則是:同一份文件(同一個 sourceFilename + 同一個 docType)裡,同一個商品出現好幾次
+// (單純同一張收據把同商品拆成好幾行,沒有「不同來源」這回事)——直接加總合併成一行,不用堅持
+// 逐筆,合併起來反而更清楚。但「不同文件」的同一個商品(最典型的情境:發票登記了5箱,另一個
+// 檔案的 Credit Note 又退了1箱)——這個要保留分開,不合併:目的是保留完整稽核軌跡,之後要
+// 追溯「這個商品最後為什麼是這個淨數量」,可以直接查到原始發票跟退貨各自的那一筆,不會因為
+// 系統自動加總過,反而看不出計算依據。畫面上(renderTxBatchList)會在同一個商品有多筆「不同
+// 文件來源」的時候,額外顯示一行「淨」的加總方便核對,但那只是顯示層面的呈現,底層資料還是
+// 分開的。
 function addOcrLineToTxBatch(productId, qty, amount, docType, sourceFilename){
   const p = products.find(x => x.id === productId);
   if(!p) return;
-  const item = { batchItemId: genId(), productId, sku: p.sku || '', name: p.name, unit: p.unit, qty };
-  if(amount !== null && amount !== undefined) item.amount = amount;
-  if(docType) item.docType = docType;
-  if(sourceFilename) item.sourceFilename = sourceFilename;
-  txBatchItems.push(item);
+  const existing = txBatchItems.find(it =>
+    it.productId === productId && it.docType === docType && it.sourceFilename === sourceFilename
+  );
+  if(existing){
+    existing.qty += qty;
+    if(amount !== null && amount !== undefined) existing.amount = (existing.amount || 0) + amount;
+  } else {
+    const item = { batchItemId: genId(), productId, sku: p.sku || '', name: p.name, unit: p.unit, qty };
+    if(amount !== null && amount !== undefined) item.amount = amount;
+    if(docType) item.docType = docType;
+    if(sourceFilename) item.sourceFilename = sourceFilename;
+    txBatchItems.push(item);
+  }
   renderTxBatchList();
 }
 
