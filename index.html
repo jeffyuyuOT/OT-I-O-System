@@ -5896,12 +5896,19 @@ function processBarcodeScan(code){
   const trimmed = code.trim();
   if(!trimmed) return;
 
-  // 情境一:「編輯位置」視窗開著的時候,掃到的碼優先當成「位置條碼」處理,直接把 Zone/Aisle/
-  // Bay/Level/Bin(照系統設置實際啟用的欄位)自動填好,不做商品比對——這個視窗開著,代表使用者
-  // 當下的意圖是指派/確認一個位置,不會是要找商品,兩者搶著跑只會互相干擾。
+  // 情境一:「編輯位置」視窗、或「切換批量商品數量」視窗裡的「指派位置」欄位開著的時候,
+  // 掃到的碼優先當成「位置條碼」處理,直接把 Zone/Aisle/Bay/Level/Bin(照系統設置實際啟用的
+  // 欄位)自動填好,不做商品比對——這幾個視窗開著,代表使用者當下的意圖是指派/確認一個位置,
+  // 不會是要找商品,兩者搶著跑只會互相干擾。兩個視窗的欄位 id 命名方式不一樣(見
+  // parseLocationCodeIntoFields 的說明),各自對應各自的 idPrefix/suffix。
   const locationModalEl = document.getElementById('locationEditModalOverlay');
-  if(locationModalEl && locationModalEl.style.display === 'flex'){
-    const filled = parseLocationCodeIntoFields(trimmed, 'location', 'Input');
+  const conversionModalEl = document.getElementById('conversionModalOverlay');
+  const locationModalOpen = locationModalEl && locationModalEl.style.display === 'flex';
+  const conversionModalOpen = conversionModalEl && conversionModalEl.style.display === 'flex';
+  if(locationModalOpen || conversionModalOpen){
+    const filled = locationModalOpen
+      ? parseLocationCodeIntoFields(trimmed, 'location', 'Input')
+      : parseLocationCodeIntoFields(trimmed, 'conversionLoc', '');
     showScanToast(filled ? tf('scanLocationCodeFilled', { code: trimmed }) : tf('scanLocationCodeMismatch', { code: trimmed }), !filled);
     return;
   }
