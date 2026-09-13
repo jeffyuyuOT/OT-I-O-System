@@ -1696,26 +1696,60 @@ async function submitTxBatchSimple(date, msg){
     }
   }
 
-  const newTxs = txBatchItems.map(it => {
-    const p = products.find(pp => pp.id === it.productId);
-    // Credit Note(退貨/折讓單)這筆,不管表單選的類型是什麼,實際記進資料庫的交易類型都要是
-    // 'out'(這批數量沒有真的留在庫存裡)——qty 本身維持正數,跟收據上印的數字一樣,資料庫的
-    // transactions 表本來就規定 qty 一定要是正數,方向靠 type 欄位表達,不能存負的 qty。
-    const effectiveType = it.docType === 'credit_note' ? 'out' : currentTxType;
-    if(effectiveType === 'in' && p && p.parentId && p.autoConvertOnStockIn){
-      const parent = products.find(pp => pp.id === p.parentId);
-      const weight = p.childWeight || 1;
-      return {
-        id: genId(), productId: p.parentId, type: 'in', qty: it.qty * weight, date, party, invoiceNo, purchaseId,
-        note: note ? `${tf('autoConvertStockInNote', { name: p.name, qty: it.qty, unit: p.unit })}${note ? '、' + note : ''}` : tf('autoConvertStockInNote', { name: p.name, qty: it.qty, unit: p.unit })
-      };
+  // 同一批送出的品項,依商品分組——如果同一個商品「發票(或一般品項)」跟「Credit Note」都在
+  // 這批裡,代表這是同一次進貨的一部分,物理上倉庫收到的就是淨值那個數量(例如發票開5箱、
+  // Credit Note退1箱,倉庫從頭到尾只收到4箱),不會真的發生「先進5箱、又出1箱」這個事件,
+  // 所以只記一筆淨值進貨,不會憑空多一筆方向相反的出貨紀錄,進出貨紀錄也不會因此變得零碎。
+  // 反過來,如果這批裡只有 Credit Note、沒有對應的發票品項(獨立退貨——倉庫裡本來就已經有貨,
+  // 現在才要真的把貨搬出去還給供應商,是一次真實發生的出貨事件),才會記一筆真正的「出貨」。
+  // 進貨單(purchases.items,下面另外一段)不受這裡影響,還是逐筆記錄每一個來源、不會被淨值化,
+  // 稽核軌跡完整保留在那裡。
+  const productGroups = {};
+  txBatchItems.forEach(it => { (productGroups[it.productId] = productGroups[it.productId] || []).push(it); });
+
+  const buildSourceNote = (items) => {
+    const uniqueDocs = [...new Set(items.filter(it => it.docType).map(it =>
+      `${t(it.docType === 'credit_note' ? 'optDocTypeCreditNote' : 'optDocTypeInvoice')} ${it.sourceFilename || ''}`.trim()
+    ))];
+    return uniqueDocs.length > 0 ? tf('txSourceDocNoteMulti', { docs: uniqueDocs.join('、') }) : '';
+  };
+
+  const newTxs = [];
+  Object.keys(productGroups).forEach(productId => {
+    const group = productGroups[productId];
+    const p = products.find(pp => pp.id === productId);
+    const creditNoteItems = group.filter(it => it.docType === 'credit_note');
+    const incomingItems = group.filter(it => it.docType !== 'credit_note');
+
+    const pushTx = (type, qty, sourceItems) => {
+      if(type === 'in' && p && p.parentId && p.autoConvertOnStockIn){
+        const parent = products.find(pp => pp.id === p.parentId);
+        const weight = p.childWeight || 1;
+        newTxs.push({
+          id: genId(), productId: p.parentId, type: 'in', qty: qty * weight, date, party, invoiceNo, purchaseId,
+          note: note ? `${tf('autoConvertStockInNote', { name: p.name, qty, unit: p.unit })}${note ? '、' + note : ''}` : tf('autoConvertStockInNote', { name: p.name, qty, unit: p.unit })
+        });
+        return;
+      }
+      const sourceNote = buildSourceNote(sourceItems);
+      const finalNote = sourceNote ? (note ? `${note}、${sourceNote}` : sourceNote) : note;
+      newTxs.push({ id: genId(), productId, type, qty, date, party, note: finalNote, invoiceNo, purchaseId });
+    };
+
+    if(creditNoteItems.length > 0 && incomingItems.length > 0){
+      const incomingQty = incomingItems.reduce((s, it) => s + it.qty, 0);
+      const creditQty = creditNoteItems.reduce((s, it) => s + it.qty, 0);
+      const netQty = incomingQty - creditQty;
+      if(netQty > 0) pushTx(currentTxType, netQty, group);
+      else if(netQty < 0) pushTx('out', Math.abs(netQty), group); // 這批 Credit Note 退的比發票開的還多,極端情況,方向反過來記
+      // netQty === 0:發票跟 Credit Note 完全互相抵銷,倉庫淨庫存沒有變化,不用記任何紀錄
+    } else if(creditNoteItems.length > 0){
+      // 獨立退貨,沒有對應的發票品項——倉庫裡本來就有貨,現在才真的搬出去,是真實的出貨事件
+      creditNoteItems.forEach(it => pushTx('out', it.qty, [it]));
+    } else {
+      // 一般情況(沒有牽涉 Credit Note):維持原本邏輯,每個品項各自登記一筆
+      incomingItems.forEach(it => pushTx(currentTxType, it.qty, [it]));
     }
-    // 從收據掃描來的品項,如果標記了文件類型(發票/Credit Note),把來源附加進備註——這樣
-    // 「進出貨紀錄」這種只看單筆交易、不會特別去查對應進貨單明細的地方,也能直接看出這筆
-    // 是從哪個文件、哪種類型來的,不用另外點進進貨單才查得到。
-    const sourceNote = it.docType ? tf('txSourceDocNote', { docType: t(it.docType === 'credit_note' ? 'optDocTypeCreditNote' : 'optDocTypeInvoice'), filename: it.sourceFilename || '' }) : '';
-    const finalNote = sourceNote ? (note ? `${note}、${sourceNote}` : sourceNote) : note;
-    return { id: genId(), productId: it.productId, type: effectiveType, qty: it.qty, date, party, note: finalNote, invoiceNo, purchaseId };
   });
   transactions.push(...newTxs);
 
