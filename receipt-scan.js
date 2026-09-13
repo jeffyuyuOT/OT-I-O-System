@@ -289,6 +289,7 @@ function renderPurchaseReceiptPreviewList(){
         <select style="font-size:11.5px;padding:2px 4px;" onchange="setPurchaseReceiptFileDocType(${i}, this.value)">
           <option value="invoice" ${(f.docType || 'invoice') === 'invoice' ? 'selected' : ''}>${t('optDocTypeInvoice')}</option>
           <option value="credit_note" ${f.docType === 'credit_note' ? 'selected' : ''}>${t('optDocTypeCreditNote')}</option>
+          <option value="others" ${f.docType === 'others' ? 'selected' : ''}>${t('optDocTypeOthers')}</option>
         </select>
       ` : ''}
       <span class="del-link" onclick="removePurchaseReceiptFile(${i})">${t('btnRemoveFile')}</span>
@@ -297,7 +298,9 @@ function renderPurchaseReceiptPreviewList(){
   // 掃描功能支援圖片跟 PDF——PDF 的話會先在瀏覽器裡用 PDF.js 把第一頁畫成圖片,再照跟圖片
   // 一樣的流程做文字辨識(見 scanReceiptForItems)。有上傳圖片或 PDF 檔案才顯示這個按鈕,
   // 只上傳其他格式(理論上不該發生,上傳欄位本身就限制只能選圖片/PDF)才不顯示。
-  const hasScannableFile = pendingPurchaseReceiptFiles.some(f => /\.(jpe?g|png|gif|bmp|webp|pdf)$/i.test(f.filename || f.url));
+  // Delivery Note 或其他跟這次進貨相關、但不是發票/Credit Note 的附件(標記「其他」的)不算
+  // 「可以掃描」——掃描按鈕出不出現只看有沒有發票/Credit Note 這種真的要辨識金額/數量的附件。
+  const hasScannableFile = pendingPurchaseReceiptFiles.some(f => f.docType !== 'others' && /\.(jpe?g|png|gif|bmp|webp|pdf)$/i.test(f.filename || f.url));
   if(scanWrap) scanWrap.style.display = (hasScannableFile && hasFeature('receiptScanModule')) ? 'block' : 'none';
 }
 
@@ -517,7 +520,9 @@ async function scanReceiptForItems(){
   // 折讓單)。以前這裡只抓第一個能掃描的檔案,現在改成每一個能掃描的附件都各自送去辨識,
   // 依照使用者在檔案清單那邊標記的文件類型(發票/Credit Note)決定這個檔案辨識出來的數量/
   // 金額最後要用加的還是用減的。
-  const scannableFiles = pendingPurchaseReceiptFiles.filter(f => /\.(jpe?g|png|gif|bmp|webp|pdf)$/i.test(f.filename || f.url));
+  // 標記「其他」的附件(Delivery Note 之類,跟這次進貨相關但不是發票/Credit Note)不掃——
+  // 掃了也只是浪費一次呼叫掃描服務的額度,辨識出來的東西也不會是真的品項/金額。
+  const scannableFiles = pendingPurchaseReceiptFiles.filter(f => f.docType !== 'others' && /\.(jpe?g|png|gif|bmp|webp|pdf)$/i.test(f.filename || f.url));
   if(scannableFiles.length === 0){
     msgEl.style.color = 'var(--crit)';
     msgEl.textContent = t('errReceiptScanNoImage');
