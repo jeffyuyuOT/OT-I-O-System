@@ -277,9 +277,20 @@ function renderPurchaseReceiptPreviewList(){
     return;
   }
   wrap.style.display = 'flex';
+  // docType 只有在有收據掃描模組時才需要標記/顯示——沒有掃描功能的話,附件單純就是附件,
+  // 不需要區分是發票還是 Credit Note(反正也不會拿去自動加總)。預設一律當「發票」,使用者
+  // 上傳退貨/折讓單的時候要自己手動改成「Credit Note」——不用檔名關鍵字去猜,猜錯的後果
+  // 是金額方向整個算反,寧可讓使用者自己選,比較保險。
+  const showDocTypeTag = hasFeature('receiptScanModule');
   wrap.innerHTML = pendingPurchaseReceiptFiles.map((f, i) => `
     <div style="display:flex;align-items:center;gap:10px;">
       <a href="${f.url}" target="_blank" style="font-size:12.5px;">📎 ${escapeHtmlForPrint(f.filename)}</a>
+      ${showDocTypeTag ? `
+        <select style="font-size:11.5px;padding:2px 4px;" onchange="setPurchaseReceiptFileDocType(${i}, this.value)">
+          <option value="invoice" ${(f.docType || 'invoice') === 'invoice' ? 'selected' : ''}>${t('optDocTypeInvoice')}</option>
+          <option value="credit_note" ${f.docType === 'credit_note' ? 'selected' : ''}>${t('optDocTypeCreditNote')}</option>
+        </select>
+      ` : ''}
       <span class="del-link" onclick="removePurchaseReceiptFile(${i})">${t('btnRemoveFile')}</span>
     </div>
   `).join('');
@@ -288,6 +299,11 @@ function renderPurchaseReceiptPreviewList(){
   // 只上傳其他格式(理論上不該發生,上傳欄位本身就限制只能選圖片/PDF)才不顯示。
   const hasScannableFile = pendingPurchaseReceiptFiles.some(f => /\.(jpe?g|png|gif|bmp|webp|pdf)$/i.test(f.filename || f.url));
   if(scanWrap) scanWrap.style.display = (hasScannableFile && hasFeature('receiptScanModule')) ? 'block' : 'none';
+}
+
+function setPurchaseReceiptFileDocType(index, docType){
+  const f = pendingPurchaseReceiptFiles[index];
+  if(f) f.docType = docType;
 }
 
 function removePurchaseReceiptFile(index){
@@ -307,12 +323,14 @@ function removePurchaseReceiptFile(index){
 // 之前有沒有確認過這串文字對應到哪個商品」——有記憶的話不用問,直接照掃描服務回傳的數量/
 // 金額加入清單;沒有記憶的話才跳出視窗,讓使用者手動選商品、確認數量金額,選完會記住。
 let receiptOcrPartyId = null;
-// 這次掃描,目前這張收據在掃描服務那邊的 scan_id——確認完所有行之後,要靠這個 id 把使用者
-// 實際確認/修正過的結果回報回去,讓掃描服務持續學習、越用越準。
-let currentReceiptScanId = null;
+// 這次批次一次掃了好幾個檔案(發票+Credit Note之類)的話,每個檔案在掃描服務那邊各自有自己的
+// scan_id——這裡記錄這次批次總共用到哪些 scan_id(key 是 scan_id,value 固定 true,單純
+// 當一個集合用),確認完所有行之後,要照每個品項各自記錄的 scanId 分別回報給對應的那個掃描,
+// 讓掃描服務持續學習、越用越準。
+let receiptOcrScanIdsForCorrection = {};
 // 這次掃描,使用者實際確認過(選了商品、填了數量金額)的品項,先收集在這裡,等這次掃描的
 // 品項全部處理完(不管是逐一確認完,還是還沒確認完但使用者提早離開這個流程)才一次性回報,
-// 不用每確認一行就打一次 API。
+// 不用每確認一行就打一次 API。每一項自己帶著 scanId,標明是從哪個檔案的哪次掃描來的。
 let receiptOcrConfirmedLinesForCorrection = [];
 
 // PDF 收據先在瀏覽器裡用 PDF.js 把每一頁都畫成一張圖片(轉成 data URL),再照跟一般圖片一樣的
@@ -495,8 +513,12 @@ function promptSupplierGuessConfirmation(guessedName){
 async function scanReceiptForItems(){
   if(!hasFeature('receiptScanModule')) return;
   const msgEl = document.getElementById('purchaseReceiptScanMsg');
-  const file = pendingPurchaseReceiptFiles.find(f => /\.(jpe?g|png|gif|bmp|webp|pdf)$/i.test(f.filename || f.url));
-  if(!file){
+  // 同一批進貨常常會一次上傳好幾個附件——原始發票、還有後續因為缺貨開的 Credit Note(退貨/
+  // 折讓單)。以前這裡只抓第一個能掃描的檔案,現在改成每一個能掃描的附件都各自送去辨識,
+  // 依照使用者在檔案清單那邊標記的文件類型(發票/Credit Note)決定這個檔案辨識出來的數量/
+  // 金額最後要用加的還是用減的。
+  const scannableFiles = pendingPurchaseReceiptFiles.filter(f => /\.(jpe?g|png|gif|bmp|webp|pdf)$/i.test(f.filename || f.url));
+  if(scannableFiles.length === 0){
     msgEl.style.color = 'var(--crit)';
     msgEl.textContent = t('errReceiptScanNoImage');
     return;
@@ -506,41 +528,67 @@ async function scanReceiptForItems(){
     msgEl.textContent = t('errReceiptScanNotConfigured');
     return;
   }
-  const isPdf = /\.pdf$/i.test(file.filename || file.url);
   const partyInput = document.getElementById('txParty');
   receiptOcrPartyId = partyInput ? partyInput.value.trim() : null;
   receiptOcrSessionNewMappingIds = [];
-  currentReceiptScanId = null;
+  receiptOcrScanIdsForCorrection = {};
   receiptOcrConfirmedLinesForCorrection = [];
 
   const btn = document.getElementById('btnScanReceipt');
   btn.disabled = true;
   msgEl.style.color = 'var(--ink-soft)';
-  msgEl.textContent = isPdf ? t('convertingPdfMsg') : t('scanningReceiptMsg');
   try{
-    const ocrSources = isPdf ? await renderAllPdfPagesAsImageDataUrls(file.url) : [file.url];
     let allLines = [];
     let supplierGuess = null;
-    for(let i = 0; i < ocrSources.length; i++){
-      if(isPdf && ocrSources.length > 1){
-        msgEl.textContent = tf('scanningPdfPageMsg', { current: i + 1, total: ocrSources.length });
-      } else {
-        msgEl.textContent = t('scanningReceiptMsg');
+    for(let fileIdx = 0; fileIdx < scannableFiles.length; fileIdx++){
+      const file = scannableFiles[fileIdx];
+      const docType = file.docType || 'invoice';
+      const isCreditNote = docType === 'credit_note';
+      const isPdf = /\.pdf$/i.test(file.filename || file.url);
+      msgEl.textContent = scannableFiles.length > 1
+        ? tf('scanningFileMsg', { current: fileIdx + 1, total: scannableFiles.length, name: file.filename })
+        : (isPdf ? t('convertingPdfMsg') : t('scanningReceiptMsg'));
+      const ocrSources = isPdf ? await renderAllPdfPagesAsImageDataUrls(file.url) : [file.url];
+      let fileScanId = null;
+      for(let i = 0; i < ocrSources.length; i++){
+        if(isPdf && ocrSources.length > 1){
+          msgEl.textContent = tf('scanningPdfPageMsg', { current: i + 1, total: ocrSources.length });
+        } else if(scannableFiles.length === 1){
+          msgEl.textContent = t('scanningReceiptMsg');
+        }
+        const data = await callReceiptScanService(ocrSources[i], i);
+        if(i === 0){
+          fileScanId = data.scan_id; // 每個檔案自己一份 scan_id,多頁只用第一頁的,回報修正時看這個
+          if(fileIdx === 0){
+            // 供應商是整張收據層級的資訊(通常印在收據最上面的抬頭),只看第一個檔案第一頁回傳的
+            // data.supplier_guess——掃描服務辨識出收據抬頭的公司名稱時才會有這個欄位,舊版掃描
+            // 服務沒有回傳這個欄位的話就是 undefined,不影響原本的品項辨識流程。
+            supplierGuess = (data.supplier_guess || '').trim() || null;
+          }
+        }
+        const pageLines = (data.lines || []).map(l => {
+          const rawQty = (l.qty && l.qty > 0) ? l.qty : 1;
+          const rawAmount = (l.amount && l.amount > 0) ? l.amount : null;
+          return {
+            description: l.name,
+            // Credit Note(退貨/折讓單)辨識出來的數量/金額在這裡就直接轉成負數——確認視窗裡
+            // 看到的、最後記進批次清單的,都已經是「這筆對淨庫存的實際影響方向」,不會讓使用者
+            // 看到正數卻在背地裡默默轉成負的,也不會漏了在哪個環節忘記轉號。
+            qty: isCreditNote ? -rawQty : rawQty,
+            amount: (rawAmount !== null) ? (isCreditNote ? -rawAmount : rawAmount) : null,
+            // rawQty/rawAmount(一定是正的,對應文件上實際印的數字)另外留著,回報修正結果給
+            // 掃描服務的時候要用這組——掃描服務要學的是「這張圖片上寫的數字是多少」,不是我們
+            // 這裡因為 Credit Note 業務邏輯而轉的正負號,兩者不能混在一起。
+            rawQty,
+            rawAmount,
+            docType,
+            sourceFilename: file.filename,
+            scanId: fileScanId
+          };
+        });
+        allLines = allLines.concat(pageLines);
       }
-      const data = await callReceiptScanService(ocrSources[i], i);
-      if(i === 0){
-        currentReceiptScanId = data.scan_id; // 多頁只用第一頁的 scan_id 回報修正,見上面的說明
-        // 供應商是整張收據層級的資訊(通常印在收據最上面的抬頭),不是每一行都有,所以只看第一頁
-        // 回傳的 data.supplier_guess——掃描服務辨識出收據抬頭的公司名稱時才會有這個欄位,
-        // 舊版掃描服務沒有回傳這個欄位的話就是 undefined,不影響原本的品項辨識流程。
-        supplierGuess = (data.supplier_guess || '').trim() || null;
-      }
-      const pageLines = (data.lines || []).map(l => ({
-        description: l.name,
-        qty: (l.qty && l.qty > 0) ? l.qty : 1,
-        amount: (l.amount && l.amount > 0) ? l.amount : null
-      }));
-      allLines = allLines.concat(pageLines);
+      if(fileScanId) receiptOcrScanIdsForCorrection[fileScanId] = true;
     }
 
     if(allLines.length === 0){
@@ -568,18 +616,21 @@ async function scanReceiptForItems(){
   }
 }
 
-function addOcrLineToTxBatch(productId, qty, amount){
+// 跟手動用「+ 加入清單」加商品(addToTxBatch,同一個商品會直接把數量加總合併成一行)不一樣,
+// 這裡刻意「每一行 OCR 辨識出來的品項,不管是不是同一個商品,一律各自獨立成一行」,不會合併——
+// 目的是保留完整稽核軌跡:同一個商品如果同時出現在發票跟 Credit Note 兩個檔案裡,兩筆分開的
+// 紀錄都會照樣分別存在待送出清單、也分別存成資料庫裡的進出貨紀錄,之後要追溯「這個商品最後
+// 為什麼是這個淨數量」,可以直接查到原始發票跟退貨各自的那一筆,不會因為系統自動加總過,
+// 反而看不出計算依據。畫面上(renderTxBatchList)另外會在同一個商品有多筆的時候,顯示一行
+// 「淨」的加總方便核對,但那只是顯示層面的呈現,底層資料還是分開的。
+function addOcrLineToTxBatch(productId, qty, amount, docType, sourceFilename){
   const p = products.find(x => x.id === productId);
   if(!p) return;
-  const existing = txBatchItems.find(it => it.productId === productId);
-  if(existing){
-    existing.qty += qty;
-    if(amount) existing.amount = (existing.amount || 0) + amount;
-  } else {
-    const item = { productId, sku: p.sku || '', name: p.name, unit: p.unit, qty };
-    if(amount) item.amount = amount;
-    txBatchItems.push(item);
-  }
+  const item = { batchItemId: genId(), productId, sku: p.sku || '', name: p.name, unit: p.unit, qty };
+  if(amount !== null && amount !== undefined) item.amount = amount;
+  if(docType) item.docType = docType;
+  if(sourceFilename) item.sourceFilename = sourceFilename;
+  txBatchItems.push(item);
   renderTxBatchList();
 }
 
@@ -599,7 +650,13 @@ function processNextReceiptOcrLine(){
   }
   if(memory && memory.type === 'product'){
     // 已經有記憶對照過,不用問,照 OCR 讀到的數量/金額直接加入清單。
-    addOcrLineToTxBatch(memory.product.id, line.qty, line.amount);
+    addOcrLineToTxBatch(memory.product.id, line.qty, line.amount, line.docType, line.sourceFilename);
+    receiptOcrConfirmedLinesForCorrection.push({
+      name: line.description,
+      qty: Math.abs(line.rawQty !== undefined ? line.rawQty : line.qty),
+      amount: (line.rawAmount !== undefined ? line.rawAmount : line.amount) || null,
+      scanId: line.scanId
+    });
     pendingReceiptOcrLines.shift();
     processNextReceiptOcrLine();
     return;
@@ -692,26 +749,34 @@ function selectReceiptOcrSuggestedProduct(productId){
 // 「盡力而為」的背景回報:失敗不影響倉庫這邊的進貨流程(進貨批次在上一步就已經正常加進去
 // 了),所以這裡故意不擋 UI、不跳錯誤訊息,只在 console 留紀錄方便日後排查。
 async function reportReceiptScanCorrections(){
-  if(!currentReceiptScanId || receiptOcrConfirmedLinesForCorrection.length === 0){
-    currentReceiptScanId = null;
-    receiptOcrConfirmedLinesForCorrection = [];
+  if(receiptOcrConfirmedLinesForCorrection.length === 0){
+    receiptOcrScanIdsForCorrection = {};
     return;
   }
-  const scanId = currentReceiptScanId;
   const lines = receiptOcrConfirmedLinesForCorrection.slice();
-  currentReceiptScanId = null;
+  receiptOcrScanIdsForCorrection = {};
   receiptOcrConfirmedLinesForCorrection = [];
-  try{
-    await fetch(`${RECEIPT_SCAN_SERVICE_URL}/v1/scan/${scanId}/correct`, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${RECEIPT_SCAN_SERVICE_API_KEY}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({ supplier_name: receiptOcrPartyId || '', lines })
-    });
-  } catch(e){
-    console.error('回報收據掃描修正結果失敗(不影響本次進貨,只影響未來辨識準確度)', e);
+  // 每個檔案(發票、Credit Note...)各自有自己的 scan_id,回報修正結果時要照 scanId 分組,
+  // 各自送回對應的那次掃描——不能全部混在一起送給隨便一個 scan_id,不然掃描服務那邊會把
+  // 不相干的修正結果錯記到別的收據上。
+  const byScanId = {};
+  lines.forEach(l => {
+    if(!l.scanId) return; // 理論上不該發生(每一行都是掃描出來的,一定帶著 scanId)
+    (byScanId[l.scanId] = byScanId[l.scanId] || []).push({ name: l.name, qty: l.qty, amount: l.amount });
+  });
+  for(const scanId of Object.keys(byScanId)){
+    try{
+      await fetch(`${RECEIPT_SCAN_SERVICE_URL}/v1/scan/${scanId}/correct`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${RECEIPT_SCAN_SERVICE_API_KEY}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ supplier_name: receiptOcrPartyId || '', lines: byScanId[scanId] })
+      });
+    } catch(e){
+      console.error('回報收據掃描修正結果失敗(不影響本次進貨,只影響未來辨識準確度)', e);
+    }
   }
 }
 
@@ -722,15 +787,26 @@ async function confirmReceiptOcrLine(){
   const amountRaw = document.getElementById('receiptOcrAmountInput').value;
   const amount = amountRaw === '' ? null : parseFloat(amountRaw);
   if(!productId){ msgEl.className = 'msg error'; msgEl.textContent = t('errSelectProductFirst'); return; }
-  if(isNaN(qty) || qty <= 0){ msgEl.className = 'msg error'; msgEl.textContent = t('errEnterPositiveQty'); return; }
+  // Credit Note(退貨/折讓單)來的行,數量本來就是負的(代表退回去、扣減淨庫存),所以這裡
+  // 只擋 0 或空白,不要求一定要正數——是不是負數,看這一行是不是從被標記「Credit Note」的
+  // 附件辨識出來的,不是看使用者填了什麼正負號亂猜。
+  if(isNaN(qty) || qty === 0){ msgEl.className = 'msg error'; msgEl.textContent = t('errEnterNonZeroQty'); return; }
 
   const line = pendingReceiptOcrLines.shift();
-  const finalAmount = (amount && amount > 0) ? amount : null;
-  addOcrLineToTxBatch(productId, qty, finalAmount);
+  const finalAmount = (amount !== null && amount !== 0 && !isNaN(amount)) ? amount : null;
+  addOcrLineToTxBatch(productId, qty, finalAmount, line.docType, line.sourceFilename);
   await rememberReceiptLineMapping(receiptOcrPartyId, normalizeReceiptLineText(line.description), productId);
   // 收集這行使用者實際確認的結果,等這次掃描全部處理完再一次回報給掃描服務(見
   // reportReceiptScanCorrections)——略過的行(公司資訊、地址之類)不算品項,不放進來。
-  receiptOcrConfirmedLinesForCorrection.push({ name: line.description, qty, amount: finalAmount });
+  // 回報用的是「正的數量級」(不管這行是發票還是 Credit Note,文件上印的數字本來就是正的),
+  // 不是我們這邊因為 Credit Note 業務邏輯而轉的正負號——掃描服務要學的是圖片上寫了什麼,
+  // 跟這筆對我們庫存的實際影響方向是兩回事,不能混在一起回報。
+  receiptOcrConfirmedLinesForCorrection.push({
+    name: line.description,
+    qty: Math.abs(qty),
+    amount: finalAmount !== null ? Math.abs(finalAmount) : null,
+    scanId: line.scanId
+  });
   document.getElementById('receiptOcrConfirmModalOverlay').style.display = 'none';
   processNextReceiptOcrLine();
 }
@@ -759,9 +835,9 @@ async function cancelReceiptOcrSequence(){
       receiptLineMappings = receiptLineMappings.filter(m => m.id !== id);
     } catch(e){ console.error('復原取消的收據辨識記憶失敗', e); }
   }
-  // 取消掉的這次掃描,不回報任何修正結果給掃描服務——currentReceiptScanId 對應的那張收據
-  // 本來就沒有走完確認流程,不該當作「使用者確認過的正確答案」回饋進去。
-  currentReceiptScanId = null;
+  // 取消掉的這次掃描,不回報任何修正結果給掃描服務——這幾個 scan_id 對應的收據本來就沒有
+  // 走完確認流程,不該當作「使用者確認過的正確答案」回饋進去。
+  receiptOcrScanIdsForCorrection = {};
   receiptOcrConfirmedLinesForCorrection = [];
   renderTxBatchList();
 }

@@ -117,11 +117,15 @@ function buildPurchaseWorkbook(p){
   const productMap = Object.fromEntries(products.map(pp => [pp.id, pp]));
   const supplier = p.partyName || p.partyId || '';
   const hasAnyAmount = (p.items || []).some(it => it.amount);
+  const hasAnyDocType = (p.items || []).some(it => it.docType);
 
   const aoa = [];
   aoa.push([`Supplier: ${supplier}`, `Invoice No.: ${p.invoiceNo || ''}`]);
   aoa.push([`Date: ${p.date || ''}`]);
-  aoa.push(hasAnyAmount ? ['SKU', 'Name', 'Qty', 'Unit', 'Amount', 'Unit Price'] : ['SKU', 'Name', 'Qty', 'Unit']);
+  const headerRow = ['SKU', 'Name', 'Qty', 'Unit'];
+  if(hasAnyAmount) headerRow.push('Amount', 'Unit Price');
+  if(hasAnyDocType) headerRow.push('Document');
+  aoa.push(headerRow);
   (p.items || []).forEach(it => {
     const prod = productMap[it.productId];
     const row = [
@@ -134,13 +138,45 @@ function buildPurchaseWorkbook(p){
       row.push(it.amount || '');
       row.push(it.amount ? Math.round((it.amount / it.qty) * 100) / 100 : ''); // 單價用「金額 ÷ 數量」現算,不是另外存的欄位——auto convert 換算單位之後,數量已經是換算後的單位,這裡算出來的就自然是換算後單位的單價
     }
+    if(hasAnyDocType){
+      row.push(it.docType ? `${it.docType === 'credit_note' ? 'Credit Note' : 'Invoice'}${it.sourceFilename ? ' - ' + it.sourceFilename : ''}` : '');
+    }
     aoa.push(row);
   });
 
+  // 同一個商品(同一個 productId)在這張進貨單裡出現不只一筆的話——最常見的情境是原始發票
+  // 一筆、後續因為缺貨另開的 Credit Note 退貨一筆——在原始逐筆明細下面另外加一段「Net Quantity
+  // by Product」,把同一個商品的所有筆數(不管是發票還是 Credit Note)加總,顯示這個商品最終
+  // 的淨數量/淨金額。上面的逐筆明細完全不受影響,原封不動保留每一筆的來源跟數字,這段純粹是
+  // 額外附加的加總視圖,方便只想看最終結果的人一眼看到淨值,不用自己拿計算機把發票跟退貨的
+  // 數字兜起來。
+  const byProduct = {};
+  (p.items || []).forEach(it => { (byProduct[it.productId] = byProduct[it.productId] || []).push(it); });
+  const multiLineProductIds = Object.keys(byProduct).filter(pid => byProduct[pid].length > 1);
+  if(multiLineProductIds.length > 0){
+    aoa.push([]);
+    aoa.push(['Net Quantity by Product']);
+    aoa.push(hasAnyAmount ? ['SKU', 'Name', 'Net Qty', 'Unit', 'Net Amount'] : ['SKU', 'Name', 'Net Qty', 'Unit']);
+    multiLineProductIds.forEach(pid => {
+      const items = byProduct[pid];
+      const prod = productMap[pid];
+      const netQty = items.reduce((s, it) => s + it.qty, 0);
+      const netAmount = items.some(it => it.amount) ? items.reduce((s, it) => s + (it.amount || 0), 0) : '';
+      const row = [
+        prod && prod.sku ? prod.sku : (items[0].sku || ''),
+        prod ? prod.name : (items[0].name || '(deleted product)'),
+        netQty,
+        prod ? prod.unit : (items[0].unit || '')
+      ];
+      if(hasAnyAmount) row.push(netAmount);
+      aoa.push(row);
+    });
+  }
+
   const ws = XLSX.utils.aoa_to_sheet(aoa);
   ws['!cols'] = hasAnyAmount
-    ? [{wch:10},{wch:32},{wch:8},{wch:10},{wch:12},{wch:12}]
-    : [{wch:10},{wch:32},{wch:8},{wch:10}];
+    ? [{wch:10},{wch:32},{wch:8},{wch:10},{wch:12},{wch:12},{wch:24}]
+    : [{wch:10},{wch:32},{wch:8},{wch:10},{wch:24}];
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Purchase');
 

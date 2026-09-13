@@ -631,20 +631,20 @@ function addToTxBatch(){
   if(!p) return;
   const existing = txBatchItems.find(it => it.productId === productId);
   if(existing) existing.qty += qty;
-  else txBatchItems.push({ productId, sku: p.sku || '', name: p.name, unit: p.unit, qty });
+  else txBatchItems.push({ batchItemId: genId(), productId, sku: p.sku || '', name: p.name, unit: p.unit, qty });
   qtyInput.value = '';
   resetSearchableSelect('txProduct');
   msg.className = 'msg'; msg.textContent = '';
   renderTxBatchList();
 }
 
-function removeTxBatchItem(productId){
-  txBatchItems = txBatchItems.filter(it => it.productId !== productId);
+function removeTxBatchItem(batchItemId){
+  txBatchItems = txBatchItems.filter(it => it.batchItemId !== batchItemId);
   renderTxBatchList();
 }
 
-function updateTxBatchItemQty(productId, value){
-  const it = txBatchItems.find(x => x.productId === productId);
+function updateTxBatchItemQty(batchItemId, value){
+  const it = txBatchItems.find(x => x.batchItemId === batchItemId);
   if(!it) return;
   const qty = parseFloat(value);
   it.qty = (!isNaN(qty) && qty !== 0 && Number.isInteger(qty)) ? qty : it.qty;
@@ -662,25 +662,55 @@ function renderTxBatchList(){
   // 這個概念,這欄存在的目的是讓人核對「掃描收據自動帶入商品」時有沒有把金額也正確抓進來,
   // 沒有這個模組就沒有意義,不用佔畫面空間。
   const showAmountCol = hasFeature('receiptScanModule');
+  // 同一個商品在清單裡出現不只一筆(常見情境:發票登記了5箱,後來因為缺貨開的 Credit Note
+  // 退了1箱,兩筆分開登記),依 productId 分組——分組本身不影響底層資料或送出時各自登記成
+  // 獨立紀錄的行為,單純是畫面上在同一組最後一筆之後多顯示一行「淨」的加總,方便當下核對
+  // 淨值對不對,不用等送出、匯出報表才發現數字怪怪的。只有一筆的商品不會多這行,清單看起來
+  // 跟以前一樣。
+  const groups = {};
+  txBatchItems.forEach(it => { (groups[it.productId] = groups[it.productId] || []).push(it); });
+  let rowsHtml = '';
+  txBatchItems.forEach(it => {
+    let badge = '';
+    if(it.docType === 'credit_note'){
+      badge = ` <span style="color:var(--crit);font-weight:600;font-size:11px;">(${t('docTypeCreditNoteBadge')})</span>`;
+    } else if(!it.docType && it.qty < 0){
+      badge = ` <span style="color:var(--safe);font-weight:600;font-size:11px;">(${t('stockedInLabel')})</span>`;
+    }
+    rowsHtml += `
+      <tr>
+        <td class="row-name">${it.name}${badge}</td>
+        <td class="row-num">
+          <input type="number" class="order-qty-input" step="1" value="${it.qty}"
+            onchange="updateTxBatchItemQty('${it.batchItemId}', this.value)" /><span class="row-unit">${it.unit}</span>
+        </td>
+        ${showAmountCol ? `<td class="row-num">${(it.amount !== undefined && it.amount !== null) ? Number(it.amount).toFixed(2) : '–'}</td>` : ''}
+        <td class="row-action">
+          <button onclick="openConversionFromTxBatch('${it.productId}')" title="${t('btnConvertBatchItem')}">🔄</button>
+          <button onclick="removeTxBatchItem('${it.batchItemId}')" title="${t('btnDelete')}">✕</button>
+        </td>
+      </tr>
+    `;
+    const group = groups[it.productId];
+    if(group.length > 1 && group[group.length - 1] === it){
+      const netQty = group.reduce((s, g) => s + g.qty, 0);
+      const netAmount = group.some(g => g.amount !== undefined && g.amount !== null)
+        ? group.reduce((s, g) => s + (g.amount || 0), 0)
+        : null;
+      rowsHtml += `
+        <tr style="background:var(--bg-soft,#f5f5f0);font-weight:700;">
+          <td class="row-name">${tf('netQtyRowLabel', { name: it.name })}</td>
+          <td class="row-num">${netQty}<span class="row-unit">${it.unit}</span></td>
+          ${showAmountCol ? `<td class="row-num">${netAmount !== null ? Number(netAmount).toFixed(2) : '–'}</td>` : ''}
+          <td class="row-action"></td>
+        </tr>
+      `;
+    }
+  });
   container.innerHTML = `
     <table class="stock-table">
       <thead><tr><th>${t('colProduct')}</th><th class="num">${t('colQty')}</th>${showAmountCol ? `<th class="num">${t('colAmount')}</th>` : ''}<th></th></tr></thead>
-      <tbody>
-        ${txBatchItems.map(it => `
-          <tr>
-            <td class="row-name">${it.name}${it.qty < 0 ? ` <span style="color:var(--safe);font-weight:600;font-size:11px;">(${t('stockedInLabel')})</span>` : ''}</td>
-            <td class="row-num">
-              <input type="number" class="order-qty-input" step="1" value="${it.qty}"
-                onchange="updateTxBatchItemQty('${it.productId}', this.value)" /><span class="row-unit">${it.unit}</span>
-            </td>
-            ${showAmountCol ? `<td class="row-num">${(it.amount !== undefined && it.amount !== null) ? Number(it.amount).toFixed(2) : '–'}</td>` : ''}
-            <td class="row-action">
-              <button onclick="openConversionFromTxBatch('${it.productId}')" title="${t('btnConvertBatchItem')}">🔄</button>
-              <button onclick="removeTxBatchItem('${it.productId}')" title="${t('btnDelete')}">✕</button>
-            </td>
-          </tr>
-        `).join('')}
-      </tbody>
+      <tbody>${rowsHtml}</tbody>
     </table>
   `;
 }
@@ -1671,7 +1701,12 @@ async function submitTxBatchSimple(date, msg){
         note: note ? `${tf('autoConvertStockInNote', { name: p.name, qty: it.qty, unit: p.unit })}${note ? '、' + note : ''}` : tf('autoConvertStockInNote', { name: p.name, qty: it.qty, unit: p.unit })
       };
     }
-    return { id: genId(), productId: it.productId, type: currentTxType, qty: it.qty, date, party, note, invoiceNo, purchaseId };
+    // 從收據掃描來的品項,如果標記了文件類型(發票/Credit Note),把來源附加進備註——這樣
+    // 「進出貨紀錄」這種只看單筆交易、不會特別去查對應進貨單明細的地方,也能直接看出這筆
+    // 是從哪個文件、哪種類型來的,不用另外點進進貨單才查得到。
+    const sourceNote = it.docType ? tf('txSourceDocNote', { docType: t(it.docType === 'credit_note' ? 'optDocTypeCreditNote' : 'optDocTypeInvoice'), filename: it.sourceFilename || '' }) : '';
+    const finalNote = sourceNote ? (note ? `${note}、${sourceNote}` : sourceNote) : note;
+    return { id: genId(), productId: it.productId, type: currentTxType, qty: it.qty, date, party, note: finalNote, invoiceNo, purchaseId };
   });
   transactions.push(...newTxs);
 
@@ -1712,10 +1747,14 @@ async function submitTxBatchSimple(date, msg){
             unit: (parent && parent.unit) || p.unit, qty: it.qty * weight
           };
           if(it.amount) item.amount = it.amount;
+          if(it.docType) item.docType = it.docType;
+          if(it.sourceFilename) item.sourceFilename = it.sourceFilename;
           return item;
         }
         const item = { productId: it.productId, sku: it.sku || '', name: it.name, unit: it.unit, qty: it.qty };
         if(it.amount) item.amount = it.amount;
+        if(it.docType) item.docType = it.docType;
+        if(it.sourceFilename) item.sourceFilename = it.sourceFilename;
         return item;
       }),
       receiptFiles: pendingPurchaseReceiptFiles.slice(),
