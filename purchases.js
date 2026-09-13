@@ -81,9 +81,16 @@ function renderPurchaseLog(){
           <tr>
             <td colspan="4" style="background:var(--panel);">
               <table class="stock-table" style="margin:6px 0;">
-                <thead><tr><th>${t('colProduct')}</th><th class="num">${t('colQty')}</th></tr></thead>
+                <thead><tr><th>${t('colProduct')}</th><th class="num">${t('colQty')}</th>${(p.items || []).some(it => it.amount) ? `<th class="num">${t('colAmount')}</th>` : ''}</tr></thead>
                 <tbody>
-                  ${(p.items || []).map(it => `<tr><td>${escapeHtmlForPrint(it.name)}</td><td class="num">${it.qty} ${escapeHtmlForPrint(it.unit || '')}</td></tr>`).join('')}
+                  ${(p.items || []).map(it => {
+                    const isCreditNote = it.docType === 'credit_note';
+                    const displayQty = isCreditNote ? -it.qty : it.qty;
+                    const badge = isCreditNote ? ` <span style="color:var(--crit);font-weight:600;font-size:11px;">(${t('docTypeCreditNoteBadge')})</span>` : '';
+                    const amountCell = (p.items || []).some(x => x.amount)
+                      ? `<td class="num">${it.amount ? Number(isCreditNote ? -it.amount : it.amount).toFixed(2) : '–'}</td>` : '';
+                    return `<tr><td>${escapeHtmlForPrint(it.name)}${badge}</td><td class="num">${displayQty} ${escapeHtmlForPrint(it.unit || '')}</td>${amountCell}</tr>`;
+                  }).join('')}
                 </tbody>
               </table>
               ${p.note ? `<p style="font-size:12.5px;color:var(--ink);margin:0 0 8px;">${tf('purchaseNoteLabel', { note: escapeHtmlForPrint(p.note) })}</p>` : ''}
@@ -128,15 +135,21 @@ function buildPurchaseWorkbook(p){
   aoa.push(headerRow);
   (p.items || []).forEach(it => {
     const prod = productMap[it.productId];
+    const isCreditNote = it.docType === 'credit_note';
+    // Credit Note 這筆在匯出報表裡顯示成負數——存進資料裡的 qty/amount 本身是正數(對應收據上
+    // 印的數字,資料庫規定不能存負的),這裡純粹是匯出報表這層的呈現方式,讓人一眼看出這筆是
+    // 扣減方向,不用另外去看 Document 欄才知道。
+    const displayQty = isCreditNote ? -it.qty : it.qty;
+    const displayAmount = it.amount ? (isCreditNote ? -it.amount : it.amount) : it.amount;
     const row = [
       prod && prod.sku ? prod.sku : (it.sku || ''),
       prod ? prod.name : (it.name || '(deleted product)'),
-      it.qty,
+      displayQty,
       prod ? prod.unit : (it.unit || '')
     ];
     if(hasAnyAmount){
-      row.push(it.amount || '');
-      row.push(it.amount ? Math.round((it.amount / it.qty) * 100) / 100 : ''); // 單價用「金額 ÷ 數量」現算,不是另外存的欄位——auto convert 換算單位之後,數量已經是換算後的單位,這裡算出來的就自然是換算後單位的單價
+      row.push(displayAmount || '');
+      row.push(it.amount ? Math.round((displayAmount / displayQty) * 100) / 100 : ''); // 單價用「金額 ÷ 數量」現算,不是另外存的欄位——auto convert 換算單位之後,數量已經是換算後的單位,這裡算出來的就自然是換算後單位的單價(負數除負數還是正的單價,方向正確)
     }
     if(hasAnyDocType){
       row.push(it.docType ? `${it.docType === 'credit_note' ? 'Credit Note' : 'Invoice'}${it.sourceFilename ? ' - ' + it.sourceFilename : ''}` : '');
