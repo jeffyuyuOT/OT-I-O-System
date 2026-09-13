@@ -354,6 +354,24 @@ async function clearAllPurchases(){
   if(error){ console.error('清空進貨單失敗', error); throw error; }
 }
 
+// 這三個是給「System Admin → System Settings → Clear All Data」這個明確的全部重置動作用的——
+// 進貨方管理、庫存分布、收據掃描記憶對照表都是各自獨立的資料表,不像商品/出貨方是整批存成
+// 一份 JSON(可以直接 saveXxx([]) 蓋掉),要清空得個別對資料表下 DELETE。
+async function clearAllPurchaseSuppliers(){
+  const { error } = await sb.from('purchase_suppliers').delete().not('id', 'is', null);
+  if(error){ console.error('清空進貨方失敗', error); throw error; }
+}
+
+async function clearAllProductLocations(){
+  const { error } = await sb.from('product_locations').delete().not('id', 'is', null);
+  if(error){ console.error('清空庫存分布失敗', error); throw error; }
+}
+
+async function clearAllReceiptLineMappings(){
+  const { error } = await sb.from('receipt_line_mappings').delete().not('id', 'is', null);
+  if(error){ console.error('清空收據掃描記憶失敗', error); throw error; }
+}
+
 // 只有「還原備份」這個明確、具破壞性的動作才會整批覆蓋(先清空 orders 表,再整批寫回本地陣列的內容)。
 async function replaceAllOrders(orderList){
   const { error: delErr } = await sb.from('orders').delete().not('id', 'is', null);

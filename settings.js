@@ -401,7 +401,9 @@ function confirmClearAllData(){
     products: products.length,
     transactions: transactions.length,
     orders: orders.length,
-    logs: inventoryLogs.length
+    logs: inventoryLogs.length,
+    parties: shippingParties.length,
+    suppliers: purchaseSuppliers.length
   });
   showConfirmModal(msg, async () => { await clearAllData(); });
 }
@@ -427,9 +429,18 @@ async function clearAllData(){
     await replaceAllOrders([]);            // 清空 orders 表
     await clearAllDeliveryNotes();         // 清空 delivery_notes 表(訂單都清空了,留著也是孤兒資料)
     await clearAllPurchases();             // 清空 purchases 表(進出貨紀錄都清空了,留著也是孤兒資料)
+    // 「Clear All Data」既然是全部重置,倉庫後台管理那幾份資料(出貨方、進貨方、庫存分布、
+    // 收據掃描記憶對照表)也要一起清掉,不然商品/交易紀錄都清空了,這些指著已經不存在的商品的
+    // 孤兒資料卻還留著,一來沒有意義,二來使用者會誤以為「清除全部資料」沒有真的清乾淨。
+    await clearAllPurchaseSuppliers();     // 清空 purchase_suppliers 表(進貨方管理)
+    await clearAllProductLocations();      // 清空 product_locations 表(庫存分布)
+    await clearAllReceiptLineMappings();   // 清空 receipt_line_mappings 表(收據掃描數據庫)
 
     products = [];
     await saveProducts();
+
+    shippingParties = [];
+    await saveShippingParties();           // 出貨方管理整批存成一份 JSON,直接蓋成空陣列即可
 
     orderCounter = 0;
     await saveOrderCounter();
@@ -440,12 +451,17 @@ async function clearAllData(){
     orders = [];
     deliveryNotes = [];
     purchases = [];
+    purchaseSuppliers = [];
+    productLocations = [];
+    receiptLineMappings = [];
     productStockMap = {};
 
     await loadInventoryLog();  // 重新從資料庫讀一次,確認真的清空了(而不是只清本地變數自欺欺人)
     renderAll();
     renderInventoryLog();
     renderDeliveryNoteLog();
+    renderSupplierManagementTable();
+    if(hasFeature('receiptScanModule')) renderOcrDbProductSelect();
     showInfoModal(t('restoreDefaultSuccessAll'));
   } catch(e){
     console.error('Clear All Data 失敗', e);
