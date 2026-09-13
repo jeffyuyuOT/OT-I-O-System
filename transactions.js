@@ -693,9 +693,14 @@ function renderTxBatchList(){
     `;
     const group = groups[it.productId];
     if(group.length > 1 && group[group.length - 1] === it){
-      const netQty = group.reduce((s, g) => s + g.qty, 0);
+      // 淨值計算把 Credit Note 的品項當負值扣掉——底層每一筆存的 qty 本身還是正數(資料庫規定
+      // 要正數,方向靠交易類型表達),這裡純粹是顯示層面「這個商品淨庫存變化是多少」的算法,
+      // 不影響實際存進去的資料。
+      const signedQty = g => g.docType === 'credit_note' ? -g.qty : g.qty;
+      const signedAmount = g => g.docType === 'credit_note' ? -(g.amount || 0) : (g.amount || 0);
+      const netQty = group.reduce((s, g) => s + signedQty(g), 0);
       const netAmount = group.some(g => g.amount !== undefined && g.amount !== null)
-        ? group.reduce((s, g) => s + (g.amount || 0), 0)
+        ? group.reduce((s, g) => s + signedAmount(g), 0)
         : null;
       rowsHtml += `
         <tr style="background:var(--bg-soft,#f5f5f0);font-weight:700;">
@@ -1693,7 +1698,11 @@ async function submitTxBatchSimple(date, msg){
 
   const newTxs = txBatchItems.map(it => {
     const p = products.find(pp => pp.id === it.productId);
-    if(currentTxType === 'in' && p && p.parentId && p.autoConvertOnStockIn){
+    // Credit Note(退貨/折讓單)這筆,不管表單選的類型是什麼,實際記進資料庫的交易類型都要是
+    // 'out'(這批數量沒有真的留在庫存裡)——qty 本身維持正數,跟收據上印的數字一樣,資料庫的
+    // transactions 表本來就規定 qty 一定要是正數,方向靠 type 欄位表達,不能存負的 qty。
+    const effectiveType = it.docType === 'credit_note' ? 'out' : currentTxType;
+    if(effectiveType === 'in' && p && p.parentId && p.autoConvertOnStockIn){
       const parent = products.find(pp => pp.id === p.parentId);
       const weight = p.childWeight || 1;
       return {
@@ -1706,7 +1715,7 @@ async function submitTxBatchSimple(date, msg){
     // 是從哪個文件、哪種類型來的,不用另外點進進貨單才查得到。
     const sourceNote = it.docType ? tf('txSourceDocNote', { docType: t(it.docType === 'credit_note' ? 'optDocTypeCreditNote' : 'optDocTypeInvoice'), filename: it.sourceFilename || '' }) : '';
     const finalNote = sourceNote ? (note ? `${note}、${sourceNote}` : sourceNote) : note;
-    return { id: genId(), productId: it.productId, type: currentTxType, qty: it.qty, date, party, note: finalNote, invoiceNo, purchaseId };
+    return { id: genId(), productId: it.productId, type: effectiveType, qty: it.qty, date, party, note: finalNote, invoiceNo, purchaseId };
   });
   transactions.push(...newTxs);
 

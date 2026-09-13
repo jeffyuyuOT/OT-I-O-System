@@ -160,8 +160,12 @@ function buildPurchaseWorkbook(p){
     multiLineProductIds.forEach(pid => {
       const items = byProduct[pid];
       const prod = productMap[pid];
-      const netQty = items.reduce((s, it) => s + it.qty, 0);
-      const netAmount = items.some(it => it.amount) ? items.reduce((s, it) => s + (it.amount || 0), 0) : '';
+      // Credit Note 品項在這裡當負值扣掉——存進去的 qty/amount 本身都是正數(對應收據上印的
+      // 數字,資料庫規定不能存負的),這裡純粹是匯出報表這層「淨值」算法用的正負號。
+      const netQty = items.reduce((s, it) => s + (it.docType === 'credit_note' ? -it.qty : it.qty), 0);
+      const netAmount = items.some(it => it.amount)
+        ? items.reduce((s, it) => s + (it.docType === 'credit_note' ? -(it.amount || 0) : (it.amount || 0)), 0)
+        : '';
       const row = [
         prod && prod.sku ? prod.sku : (items[0].sku || ''),
         prod ? prod.name : (items[0].name || '(deleted product)'),

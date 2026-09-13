@@ -2180,11 +2180,11 @@
     <div class="form-grid" style="grid-template-columns:1fr 1fr;margin-bottom:0;">
       <div class="field">
         <label data-i18n="lblQty">數量</label>
-        <input type="number" id="receiptOcrQtyInput" step="1" style="width:100%;" />
+        <input type="number" id="receiptOcrQtyInput" min="0" step="1" style="width:100%;" />
       </div>
       <div class="field">
         <label data-i18n="fieldReceiptOcrAmount">金額(選填)</label>
-        <input type="number" id="receiptOcrAmountInput" step="0.01" style="width:100%;" />
+        <input type="number" id="receiptOcrAmountInput" min="0" step="0.01" style="width:100%;" />
       </div>
     </div>
     <div id="receiptOcrConfirmMsg" class="msg"></div>

@@ -548,7 +548,6 @@ async function scanReceiptForItems(){
     for(let fileIdx = 0; fileIdx < scannableFiles.length; fileIdx++){
       const file = scannableFiles[fileIdx];
       const docType = file.docType || 'invoice';
-      const isCreditNote = docType === 'credit_note';
       const isPdf = /\.pdf$/i.test(file.filename || file.url);
       msgEl.textContent = scannableFiles.length > 1
         ? tf('scanningFileMsg', { current: fileIdx + 1, total: scannableFiles.length, name: file.filename })
@@ -576,16 +575,13 @@ async function scanReceiptForItems(){
           const rawAmount = (l.amount && l.amount > 0) ? l.amount : null;
           return {
             description: l.name,
-            // Credit Note(退貨/折讓單)辨識出來的數量/金額在這裡就直接轉成負數——確認視窗裡
-            // 看到的、最後記進批次清單的,都已經是「這筆對淨庫存的實際影響方向」,不會讓使用者
-            // 看到正數卻在背地裡默默轉成負的,也不會漏了在哪個環節忘記轉號。
-            qty: isCreditNote ? -rawQty : rawQty,
-            amount: (rawAmount !== null) ? (isCreditNote ? -rawAmount : rawAmount) : null,
-            // rawQty/rawAmount(一定是正的,對應文件上實際印的數字)另外留著,回報修正結果給
-            // 掃描服務的時候要用這組——掃描服務要學的是「這張圖片上寫的數字是多少」,不是我們
-            // 這裡因為 Credit Note 業務邏輯而轉的正負號,兩者不能混在一起。
-            rawQty,
-            rawAmount,
+            // 資料庫的 transactions 表規定 qty 一定要是正數,方向靠 type 欄位('in'/'out'/'restock')
+            // 決定,不是靠正負號——這裡不管是不是 Credit Note,一律存正數,跟收據上印的數字一樣。
+            // Credit Note 這筆最後要記成 type='out'(代表這批數量沒有真的留在庫存裡),這個轉換
+            // 在真正送出登記進出貨(submitTxBatchSimple)那一步才做,不在這裡處理;畫面上顯示
+            // 淨值、匯出報表加總,也是各自在顯示層另外處理正負號,不會讓「負的 qty」流進資料庫。
+            qty: rawQty,
+            amount: rawAmount,
             docType,
             sourceFilename: file.filename,
             scanId: fileScanId
@@ -668,8 +664,8 @@ function processNextReceiptOcrLine(){
     addOcrLineToTxBatch(memory.product.id, line.qty, line.amount, line.docType, line.sourceFilename);
     receiptOcrConfirmedLinesForCorrection.push({
       name: line.description,
-      qty: Math.abs(line.rawQty !== undefined ? line.rawQty : line.qty),
-      amount: (line.rawAmount !== undefined ? line.rawAmount : line.amount) || null,
+      qty: line.qty,
+      amount: line.amount || null,
       scanId: line.scanId
     });
     pendingReceiptOcrLines.shift();
@@ -802,24 +798,18 @@ async function confirmReceiptOcrLine(){
   const amountRaw = document.getElementById('receiptOcrAmountInput').value;
   const amount = amountRaw === '' ? null : parseFloat(amountRaw);
   if(!productId){ msgEl.className = 'msg error'; msgEl.textContent = t('errSelectProductFirst'); return; }
-  // Credit Note(退貨/折讓單)來的行,數量本來就是負的(代表退回去、扣減淨庫存),所以這裡
-  // 只擋 0 或空白,不要求一定要正數——是不是負數,看這一行是不是從被標記「Credit Note」的
-  // 附件辨識出來的,不是看使用者填了什麼正負號亂猜。
-  if(isNaN(qty) || qty === 0){ msgEl.className = 'msg error'; msgEl.textContent = t('errEnterNonZeroQty'); return; }
+  if(isNaN(qty) || qty <= 0){ msgEl.className = 'msg error'; msgEl.textContent = t('errEnterPositiveQty'); return; }
 
   const line = pendingReceiptOcrLines.shift();
-  const finalAmount = (amount !== null && amount !== 0 && !isNaN(amount)) ? amount : null;
+  const finalAmount = (amount && amount > 0) ? amount : null;
   addOcrLineToTxBatch(productId, qty, finalAmount, line.docType, line.sourceFilename);
   await rememberReceiptLineMapping(receiptOcrPartyId, normalizeReceiptLineText(line.description), productId);
   // 收集這行使用者實際確認的結果,等這次掃描全部處理完再一次回報給掃描服務(見
   // reportReceiptScanCorrections)——略過的行(公司資訊、地址之類)不算品項,不放進來。
-  // 回報用的是「正的數量級」(不管這行是發票還是 Credit Note,文件上印的數字本來就是正的),
-  // 不是我們這邊因為 Credit Note 業務邏輯而轉的正負號——掃描服務要學的是圖片上寫了什麼,
-  // 跟這筆對我們庫存的實際影響方向是兩回事,不能混在一起回報。
   receiptOcrConfirmedLinesForCorrection.push({
     name: line.description,
-    qty: Math.abs(qty),
-    amount: finalAmount !== null ? Math.abs(finalAmount) : null,
+    qty,
+    amount: finalAmount,
     scanId: line.scanId
   });
   document.getElementById('receiptOcrConfirmModalOverlay').style.display = 'none';
