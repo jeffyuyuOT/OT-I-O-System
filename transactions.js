@@ -2720,6 +2720,20 @@ function closeCameraCaptureModal(){
   document.getElementById('cameraCaptureModalOverlay').style.display = 'none';
 }
 
+// 「從相簿選擇」:跟拍照是同一個視窗裡的另一個選項,差別是這裡用的是一般的 <input type="file">
+// (沒有 capture 屬性),手機瀏覽器點下去通常會跳出比較輕量的系統相簿選擇器(一個疊在畫面上的
+// 選取介面),不是像相機那樣整個切換到另一個 app、需要完整的 app 切換——回到頁面的時候不會有
+// 「切出去又切回來」這個動作,也就不會有分頁被系統砍掉重開、狀態遺失的問題。選好的照片一樣
+// 交給跟拍照同一個 callback(cameraCaptureOnConfirm)處理,不用另外寫一套上傳邏輯。
+function handleGalleryPickerChange(inputEl){
+  const file = inputEl.files && inputEl.files[0];
+  inputEl.value = '';
+  if(!file) return;
+  const onConfirm = cameraCaptureOnConfirm;
+  closeCameraCaptureModal();
+  if(onConfirm) onConfirm(file);
+}
+
 async function handlePurchaseReceiptUpload(inputEl){
   const files = inputEl.files ? Array.from(inputEl.files) : [];
   await uploadPurchaseReceiptFiles(files);

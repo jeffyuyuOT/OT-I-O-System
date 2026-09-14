@@ -2209,8 +2209,10 @@
       <button type="button" class="btn ghost" id="btnCameraTorch" onclick="toggleCameraTorch()" style="display:none;font-size:12.5px;padding:4px 10px;" data-i18n="btnTorchOn">🔦 開啟閃光燈</button>
     </div>
     <div id="cameraCaptureMsg" class="msg" style="margin-top:4px;"></div>
+    <input type="file" id="cameraGalleryPickerInput" accept="image/*" style="display:none;" onchange="handleGalleryPickerChange(this)" />
     <div class="modal-actions" style="justify-content:center;flex-wrap:wrap;margin-top:10px;">
       <button type="button" class="btn ghost" id="btnCameraCaptureCancel" onclick="closeCameraCaptureModal()" data-i18n="btnCancel">取消</button>
+      <button type="button" class="btn ghost" id="btnCameraOpenGallery" onclick="document.getElementById('cameraGalleryPickerInput').click()">🖼️ <span data-i18n="btnChooseFromGallery">從相簿選擇</span></button>
       <button type="button" class="btn ghost" id="btnCameraRetake" onclick="retakeCameraPhoto()" style="display:none;" data-i18n="btnRetakePhoto">重拍</button>
       <button type="button" class="btn" id="btnCameraShoot" onclick="capturePhotoFromCamera()" data-i18n="btnShootPhoto">📸 拍照</button>
       <button type="button" class="btn" id="btnCameraUsePhoto" onclick="confirmCapturedPhoto()" style="display:none;" data-i18n="btnUsePhoto">確認使用</button>
