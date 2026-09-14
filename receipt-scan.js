@@ -230,10 +230,14 @@ async function renderAllPdfPagesAsImageDataUrls(pdfUrl){
 // 把一張圖片(data URL)送到掃描服務的 /v1/scan,回傳 { scan_id, supplier_guess, lines }。
 // lines 裡每一項是 { name, qty, amount }——已經是掃描服務那邊用 Docling 表格結構辨識拆好的
 // 結果,不用再自己猜欄位位置。
-async function callReceiptScanService(dataUrl, pageIndex){
+async function callReceiptScanService(dataUrl, pageIndex, filename){
   const blob = await (await fetch(dataUrl)).blob();
   const formData = new FormData();
-  formData.append('file', blob, `receipt-page-${pageIndex + 1}.jpg`);
+  // 圖片/PDF 轉出來的每一頁,沿用原本 receipt-page-N.jpg 這個固定命名(內容本來就是圖片,
+  // 檔名對辨識沒有影響)。Excel 這種非圖片格式,呼叫端會直接把原始檔名傳進來(見
+  // scanReceiptForItems),要保留正確的副檔名,後端才能正確判斷這是 Excel 檔案去用
+  // 對應的方式解析,不能一律當成圖片命名。
+  formData.append('file', blob, filename || `receipt-page-${pageIndex + 1}.jpg`);
 
   // 把倉庫自己「進貨方管理」裡本來就有的供應商名字一起傳給掃描服務——這樣就算
   // 某個供應商從來沒有真的走過一次掃描+修正流程(掃描服務自己的學習資料裡完全
@@ -402,7 +406,7 @@ async function scanReceiptForItems(){
   // 金額最後要用加的還是用減的。
   // 標記「其他」的附件(Delivery Note 之類,跟這次進貨相關但不是發票/Credit Note)不掃——
   // 掃了也只是浪費一次呼叫掃描服務的額度,辨識出來的東西也不會是真的品項/金額。
-  const scannableFiles = pendingPurchaseReceiptFiles.filter(f => f.docType !== 'others' && /\.(jpe?g|png|gif|bmp|webp|pdf)$/i.test(f.filename || f.url));
+  const scannableFiles = pendingPurchaseReceiptFiles.filter(f => f.docType !== 'others' && /\.(jpe?g|png|gif|bmp|webp|pdf|xlsx|xls)$/i.test(f.filename || f.url));
   if(scannableFiles.length === 0){
     msgEl.style.color = 'var(--crit)';
     msgEl.textContent = t('errReceiptScanNoImage');
@@ -433,10 +437,14 @@ async function scanReceiptForItems(){
       const file = scannableFiles[fileIdx];
       const docType = file.docType || 'invoice';
       isPdf = /\.pdf$/i.test(file.filename || file.url);
+      // Excel 格式的收據(掃描服務那邊已經支援直接解析 Excel 內容,不用先轉成圖片再辨識)——
+      // 跟圖片/PDF 不一樣,不用先在瀏覽器裡轉檔,直接把原始檔案送過去,而且只有「一頁」
+      // (Excel 檔案本身就是一份完整資料,沒有「逐頁轉圖」這個概念)。
+      const isExcel = /\.(xlsx|xls)$/i.test(file.filename || file.url);
       msgEl.textContent = scannableFiles.length > 1
         ? tf('scanningFileMsg', { current: fileIdx + 1, total: scannableFiles.length, name: file.filename })
         : (isPdf ? t('convertingPdfMsg') : t('scanningReceiptMsg'));
-      const ocrSources = isPdf ? await renderAllPdfPagesAsImageDataUrls(file.url) : [file.url];
+      const ocrSources = isExcel ? [file.url] : (isPdf ? await renderAllPdfPagesAsImageDataUrls(file.url) : [file.url]);
       let fileScanId = null;
       for(let i = 0; i < ocrSources.length; i++){
         if(isPdf && ocrSources.length > 1){
@@ -444,7 +452,12 @@ async function scanReceiptForItems(){
         } else if(scannableFiles.length === 1){
           msgEl.textContent = t('scanningReceiptMsg');
         }
-        const data = await callReceiptScanService(ocrSources[i], i);
+        // Excel 檔案要保留原始檔名/副檔名一起送過去,後端才知道這是 Excel、要用解析 Excel
+        // 的方式讀,不是當成圖片辨識;圖片/PDF 轉出來的頁面沿用原本 receipt-page-N.jpg 的
+        // 命名(內容本來就是圖片,檔名本身對辨識沒有影響)。
+        const data = isExcel
+          ? await callReceiptScanService(ocrSources[i], i, file.filename)
+          : await callReceiptScanService(ocrSources[i], i);
         if(i === 0){
           fileScanId = data.scan_id; // 每個檔案自己一份 scan_id,多頁只用第一頁的,回報修正時看這個
           if(fileIdx === 0){

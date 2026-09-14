@@ -2542,9 +2542,14 @@ async function handlePurchaseReceiptUpload(inputEl){
     const ext = (file.name.split('.').pop() || '').toLowerCase();
     const looksLikeImageByExt = /^(jpe?g|png|gif|bmp|webp|heic|heif)$/.test(ext);
     const looksLikePdfByExt = ext === 'pdf';
+    const looksLikeExcelByExt = /^(xlsx|xls)$/.test(ext);
+    const excelMimeTypes = [
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', // .xlsx
+      'application/vnd.ms-excel' // .xls
+    ];
     const validType = file.type
-      ? (file.type.startsWith('image/') || file.type === 'application/pdf')
-      : (looksLikeImageByExt || looksLikePdfByExt);
+      ? (file.type.startsWith('image/') || file.type === 'application/pdf' || excelMimeTypes.includes(file.type))
+      : (looksLikeImageByExt || looksLikePdfByExt || looksLikeExcelByExt);
     if(!validType){
       failCount++;
       lastFailReason = t('errReceiptFileTypeInvalid');
@@ -2569,7 +2574,10 @@ async function handlePurchaseReceiptUpload(inputEl){
       // 「Failed to fetch」,看不出真正原因。這裡先明確用 file.arrayBuffer() 把整個檔案內容
       // 讀進記憶體,確保資料真的完整拿到手上了,再轉成 Blob 送出去上傳,比較不會遇到這種問題。
       const arrayBuffer = await file.arrayBuffer();
-      const blob = new Blob([arrayBuffer], { type: file.type || (looksLikePdfByExt ? 'application/pdf' : 'image/jpeg') });
+      const fallbackType = looksLikePdfByExt ? 'application/pdf'
+        : looksLikeExcelByExt ? (ext === 'xlsx' ? excelMimeTypes[0] : excelMimeTypes[1])
+        : 'image/jpeg';
+      const blob = new Blob([arrayBuffer], { type: file.type || fallbackType });
       let uploadError = null;
       // 網路不穩(尤其手機行動網路)偶爾會讓上傳這個網路請求本身失敗一次,不一定是檔案或格式
       // 的問題——失敗的話自動重試一次,大部分暫時性的網路問題重試就會成功,不用使用者自己
@@ -2641,7 +2649,7 @@ function renderPurchaseReceiptPreviewList(){
   // 只上傳其他格式(理論上不該發生,上傳欄位本身就限制只能選圖片/PDF)才不顯示。
   // Delivery Note 或其他跟這次進貨相關、但不是發票/Credit Note 的附件(標記「其他」的)不算
   // 「可以掃描」——掃描按鈕出不出現只看有沒有發票/Credit Note 這種真的要辨識金額/數量的附件。
-  const hasScannableFile = pendingPurchaseReceiptFiles.some(f => f.docType !== 'others' && /\.(jpe?g|png|gif|bmp|webp|pdf)$/i.test(f.filename || f.url));
+  const hasScannableFile = pendingPurchaseReceiptFiles.some(f => f.docType !== 'others' && /\.(jpe?g|png|gif|bmp|webp|pdf|xlsx|xls)$/i.test(f.filename || f.url));
   if(scanWrap) scanWrap.style.display = (hasScannableFile && hasFeature('receiptScanModule')) ? 'block' : 'none';
 }
 

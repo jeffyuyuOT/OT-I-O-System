@@ -1310,7 +1310,7 @@
       </div>
       <div id="purchaseReceiptWrap" style="display:none;margin-top:10px;">
         <label style="display:block;font-size:12.5px;font-weight:600;color:var(--ink);margin-bottom:4px;" data-i18n="fieldPurchaseReceipt">收據/發票附件(選填,圖片或 PDF,可選取多個檔案)</label>
-        <input type="file" id="purchaseReceiptInput" accept="image/*,application/pdf" multiple onchange="handlePurchaseReceiptUpload(this)" style="border:1px solid var(--line);background:#fff;border-radius:2px;padding:8px;font-family:'IBM Plex Mono',monospace;font-size:12px;" />
+        <input type="file" id="purchaseReceiptInput" accept="image/*,application/pdf,.xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel" multiple onchange="handlePurchaseReceiptUpload(this)" style="border:1px solid var(--line);background:#fff;border-radius:2px;padding:8px;font-family:'IBM Plex Mono',monospace;font-size:12px;" />
         <div id="purchaseReceiptUploadMsg" style="font-size:11.5px;margin-top:4px;"></div>
         <div id="purchaseReceiptPreviewWrap" style="display:none;margin-top:8px;flex-direction:column;gap:4px;"></div>
         <div id="purchaseReceiptScanWrap" style="display:none;margin-top:8px;">
@@ -2085,7 +2085,7 @@
     <div class="field-block">
       <label data-i18n="fieldPurchaseReceipt">收據/發票附件(選填,圖片或 PDF,可選取多個檔案)</label>
       <div id="editPurchaseReceiptExistingWrap" style="display:flex;flex-direction:column;gap:4px;margin-bottom:8px;"></div>
-      <input type="file" id="editPurchaseReceiptInput" accept="image/*,application/pdf" multiple onchange="handleEditPurchaseReceiptUpload(this)" style="border:1px solid var(--line);background:#fff;border-radius:2px;padding:8px;font-family:'IBM Plex Mono',monospace;font-size:12px;width:100%;box-sizing:border-box;" />
+      <input type="file" id="editPurchaseReceiptInput" accept="image/*,application/pdf,.xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel" multiple onchange="handleEditPurchaseReceiptUpload(this)" style="border:1px solid var(--line);background:#fff;border-radius:2px;padding:8px;font-family:'IBM Plex Mono',monospace;font-size:12px;width:100%;box-sizing:border-box;" />
       <div id="editPurchaseReceiptUploadMsg" style="font-size:11.5px;margin-top:4px;"></div>
     </div>
     <div id="editPurchaseModalMsg" class="msg"></div>

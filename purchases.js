@@ -450,7 +450,12 @@ async function handleEditPurchaseReceiptUpload(inputEl){
   const maxBytes = 10 * 1024 * 1024;
   let successCount = 0, failCount = 0;
   for(const file of files){
-    if((!file.type.startsWith('image/') && file.type !== 'application/pdf') || file.size > maxBytes){
+    const excelMimeTypes = [
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', // .xlsx
+      'application/vnd.ms-excel' // .xls
+    ];
+    const validType = file.type.startsWith('image/') || file.type === 'application/pdf' || excelMimeTypes.includes(file.type);
+    if(!validType || file.size > maxBytes){
       failCount++;
       continue;
     }
