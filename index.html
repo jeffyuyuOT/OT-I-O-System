@@ -1736,42 +1736,7 @@
 
     <div class="section">
       <div class="section-title"><span data-i18n="secAddProduct">新增商品</span></div>
-      <div class="form-grid" style="grid-template-columns:0.8fr 1.2fr 0.7fr 0.9fr 1fr 0.9fr 1.1fr auto;">
-        <div class="field">
-          <label data-i18n="fieldSku">SKU(選填)</label>
-          <input id="newProductSku" type="text" placeholder="例如:A001" data-i18n-placeholder="fieldSkuPlaceholderExample" />
-        </div>
-        <div class="field">
-          <label data-i18n="fieldName">商品名稱</label>
-          <input id="newProductName" type="text" placeholder="例如:A4影印紙" data-i18n-placeholder="fieldProductNamePlaceholderExample" />
-        </div>
-        <div class="field">
-          <label data-i18n="fieldUnit">單位</label>
-          <input id="newProductUnit" type="text" placeholder="例如:箱 / 個 / kg" data-i18n-placeholder="fieldUnitPlaceholderExample" />
-        </div>
-        <div class="field">
-          <label data-i18n="fieldCategory">分類</label>
-          <select id="newProductCategory"></select>
-        </div>
-        <div class="field">
-          <label data-i18n="fieldAvg">月均使用量(選填)</label>
-          <input id="newProductAvg" type="number" min="0" step="0.1" placeholder="沒有紀錄可留空" data-i18n-placeholder="fieldStockPlaceholderEmptyOk" />
-        </div>
-        <div class="field">
-          <label data-i18n="fieldSafety">安全庫存(月數,選填)</label>
-          <input id="newProductSafety" type="number" min="0" step="0.01" placeholder="例如 1.5" data-i18n-placeholder="fieldSafetyStockMonthsPlaceholder" />
-        </div>
-        <div class="field">
-          <label data-i18n="fieldNote">備註(選填)</label>
-          <input id="newProductNote" type="text" placeholder="例如:易碎/需冷藏" data-i18n-placeholder="fieldNotePlaceholderExample" />
-        </div>
-        <div class="field">
-          <label data-i18n="fieldOrderPageRemark">訂貨頁面附註(選填)</label>
-          <input id="newProductOrderPageRemark" type="text" placeholder="只會顯示在訂貨頁面" data-i18n-placeholder="fieldOrderPageRemarkPlaceholder" />
-        </div>
-        <button class="btn" onclick="addProduct()" data-i18n="btnAddProduct">新增商品</button>
-      </div>
-      <div id="productMsg" class="msg"></div>
+      <button class="btn" onclick="openAddNewProductModal()" data-i18n="btnAddProduct">新增商品</button>
     </div>
     </div>
     </div>
@@ -2441,6 +2406,7 @@ let tabOrder = [];
 let inventoryLogs = []; // 後台紀錄分頁用:所有操作動作的稽核紀錄(由 inventory_log 資料表載入)
 let expandedParentIds = new Set();
 let addingChildParentId = null; // 新增批量商品時暫存要掛在哪個主商品下
+let addingNewStandaloneProduct = false; // 新增(不掛在任何主商品底下的)全新商品時設成 true,跟「新增批量商品」是兩種不同的新增情境
 let pendingConversionChildId = null; // 目前開啟「切換」視窗的批量商品 id
 let conversionMode = null; // 'toParent'(批量商品→主商品,原本的切換) | 'toChild'(主商品→批量商品,組裝多入裝)
 let conversionParentId = null; // 'toChild' 模式下,來源主商品 id
@@ -3055,10 +3021,6 @@ function gaugeInfo(days){
 
 function populateCategoryDropdowns(){
   syncCategoryOrder();
-  const newCatSel = document.getElementById('newProductCategory');
-  if(newCatSel.options.length === 0){
-    newCatSel.innerHTML = categoryOrder.map(c => `<option value="${c}">${catLabel(c)}</option>`).join('');
-  }
 
   const filterSel = document.getElementById('categoryFilter');
   const prevVal = filterSel.value;

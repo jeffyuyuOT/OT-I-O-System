@@ -13,40 +13,10 @@
 // transactions.js 的 addTxFiles),放這裡,transactions.js 那邊
 // 一樣共用同一份全域作用域抓得到。
 // ============================================================
-async function addProduct(){
-  const skuEl = document.getElementById('newProductSku');
-  const nameEl = document.getElementById('newProductName');
-  const unitEl = document.getElementById('newProductUnit');
-  const avgEl = document.getElementById('newProductAvg');
-  const catEl = document.getElementById('newProductCategory');
-  const safetyEl = document.getElementById('newProductSafety');
-  const noteEl = document.getElementById('newProductNote');
-  const orderPageRemarkEl = document.getElementById('newProductOrderPageRemark');
-  const msg = document.getElementById('productMsg');
-  const sku = skuEl.value.trim();
-  const name = nameEl.value.trim();
-  const unit = unitEl.value.trim() || '個';
-  const category = catEl.value || '未分類';
-  const avgVal = avgEl.value.trim() === '' ? null : parseFloat(avgEl.value);
-  const safetyVal = safetyEl.value.trim() === '' ? null : parseFloat(safetyEl.value);
-  const note = noteEl.value.trim();
-  const orderPageRemark = orderPageRemarkEl ? orderPageRemarkEl.value.trim() : '';
-
-  if(!name){ msg.className='msg error'; msg.textContent='請輸入商品名稱'; return; }
-  if(products.some(p => p.name === name)){ msg.className='msg error'; msg.textContent='這個商品名稱已經存在'; return; }
-
-  products.push({
-    id: genId(), sku, name, unit, category,
-    manualAvg: (avgVal !== null && !isNaN(avgVal)) ? avgVal : null,
-    safetyStock: (safetyVal !== null && !isNaN(safetyVal)) ? safetyVal : null,
-    note, orderPageRemark: orderPageRemark || undefined, orderable: false, parentId: null, childWeight: null
-  });
-  await saveProducts();
-  skuEl.value = ''; nameEl.value = ''; unitEl.value = ''; avgEl.value = ''; safetyEl.value = ''; noteEl.value = '';
-  if(orderPageRemarkEl) orderPageRemarkEl.value = '';
-  msg.className='msg ok'; msg.textContent = `✓ 已新增「${name}」`;
-  renderAll();
-}
+// 手動新增單一商品(依網址開的視窗):改用跟「編輯商品」同一套視窗跟表單(products.js 的
+// openAddNewProductModal()/saveProductEditModal()),不再用這個分頁上一排小欄位——理由是
+// 那個視窗的欄位齊全很多(照片、條碼、箱子尺寸等等都有),資訊填起來比較清楚,也不用維護
+// 兩套「商品欄位長什麼樣子」的畫面。
 
 async function reapplyCategories(){
   const msg = document.getElementById('importMsg');

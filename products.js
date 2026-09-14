@@ -39,6 +39,7 @@ function openProductEditModal(id){
   editingProductId = id;
   editingProductPhotoUrl = p.photoUrl || null;
   addingChildParentId = null;
+  addingNewStandaloneProduct = false;
   pendingTotalStockBasisChoice = null;
   document.getElementById('productEditModalTitle').textContent = `${t('btnEdit')} — ${p.name}`;
   document.getElementById('productEditModalBody').innerHTML = renderProductEditModalBody(p);
@@ -54,9 +55,25 @@ function openAddChildModal(parentId){
   editingProductId = null;
   editingProductPhotoUrl = null;
   addingChildParentId = parentId;
+  addingNewStandaloneProduct = false;
   const draft = { sku: parent.sku ? guessNextChildSku(parent) : '', name: '', unit: parent.unit || '', category: parent.category, manualAvg: null, safetyStock: null, note: '', childWeight: null, parentId };
   document.getElementById('productEditModalTitle').textContent = `新增批量商品 — ${parent.name}`;
   document.getElementById('productEditModalBody').innerHTML = renderProductEditModalBody(draft, { isChild: true, parent, isNew: true });
+  document.getElementById('productEditModalMsg').textContent = '';
+  document.getElementById('productEditModalOverlay').style.display = 'flex';
+}
+
+// 新增一個全新的(不掛在任何主商品底下的)獨立商品——跟「編輯商品」共用同一個視窗跟表單,
+// 資訊填起來比原本分頁上那排小欄位清楚很多,也不用另外維護兩套「商品欄位長什麼樣子」的畫面。
+function openAddNewProductModal(){
+  editingProductId = null;
+  editingProductPhotoUrl = null;
+  addingChildParentId = null;
+  addingNewStandaloneProduct = true;
+  pendingTotalStockBasisChoice = null;
+  const draft = { sku: '', name: '', unit: '', category: '未分類', manualAvg: null, safetyStock: null, note: '', orderPageRemark: '', barcode: '', parentId: null };
+  document.getElementById('productEditModalTitle').textContent = t('btnAddProduct');
+  document.getElementById('productEditModalBody').innerHTML = renderProductEditModalBody(draft, { isNew: true });
   document.getElementById('productEditModalMsg').textContent = '';
   document.getElementById('productEditModalOverlay').style.display = 'flex';
 }
@@ -235,6 +252,7 @@ function renderProductEditModalBody(p, opts){
 function closeProductEditModal(){
   editingProductId = null;
   addingChildParentId = null;
+  addingNewStandaloneProduct = false;
   pendingTotalStockBasisChoice = null;
   document.getElementById('productEditModalOverlay').style.display = 'none';
 }
@@ -295,9 +313,10 @@ function removeProductPhoto(){
 async function saveProductEditModal(){
   const id = editingProductId;
   const isNewChild = !!addingChildParentId;
-  const p = isNewChild ? null : products.find(x => x.id === id);
+  const isNewStandalone = addingNewStandaloneProduct;
+  const p = (isNewChild || isNewStandalone) ? null : products.find(x => x.id === id);
   const msg = document.getElementById('productEditModalMsg');
-  if(!isNewChild && !p) return;
+  if(!isNewChild && !isNewStandalone && !p) return;
   const isChild = isNewChild || !!(p && p.parentId);
 
   const sku = document.getElementById('editProdSku').value.trim();
@@ -337,6 +356,20 @@ async function saveProductEditModal(){
       manualAvg: avgRaw === '' ? null : parseFloat(avgRaw),
       safetyStock: safetyRaw === '' ? null : parseFloat(safetyRaw),
       note, orderable: false, parentId: parent.id, childWeight: weightVal,
+      orderPageRemark: orderPageRemark || undefined,
+      barcode: barcode || undefined,
+      photoUrl: editingProductPhotoUrl || undefined,
+      boxLengthCm: boxLengthCm !== null && !isNaN(boxLengthCm) ? boxLengthCm : undefined,
+      boxWidthCm: boxWidthCm !== null && !isNaN(boxWidthCm) ? boxWidthCm : undefined,
+      boxHeightCm: boxHeightCm !== null && !isNaN(boxHeightCm) ? boxHeightCm : undefined
+    });
+  } else if(isNewStandalone){
+    products.push({
+      id: genId(), sku, name, unit,
+      category: document.getElementById('editProdCategory').value || '未分類',
+      manualAvg: avgRaw === '' ? null : parseFloat(avgRaw),
+      safetyStock: safetyRaw === '' ? null : parseFloat(safetyRaw),
+      note, orderable: false, parentId: null, childWeight: null,
       orderPageRemark: orderPageRemark || undefined,
       barcode: barcode || undefined,
       photoUrl: editingProductPhotoUrl || undefined,
@@ -851,7 +884,6 @@ function renderConvertHistoryTable(){
         <th>${t('colDate')}</th>
         <th>${t('convertFromLabel')}</th>
         <th>${t('convertToLabel')}</th>
-        <th></th>
       </tr></thead>
       <tbody>
         ${records.map(r => `
@@ -859,44 +891,10 @@ function renderConvertHistoryTable(){
             <td style="white-space:nowrap;">${r.date}${r.time ? ` ${r.time}` : ''}</td>
             <td>${r.fromName} −${r.fromQty} ${r.fromUnit}</td>
             <td>${r.toName} +${r.toQty} ${r.toUnit}</td>
-            <td><span class="del-link" onclick="undoConversion('${r.conversionId}')">${t('btnUndoConversion')}</span></td>
           </tr>
         `).join('')}
       </tbody>
     </table>`;
-}
-
-// 復原一組切換紀錄:把配對的兩筆交易一起刪除。由「歷史紀錄 → 切換紀錄」子分頁裡的「復原」
-// 按鈕直接呼叫。
-// 復原前要先檢查:這兩筆交易裡,「type 是 in(切換當下新增進去的那筆)」如果被移除,會不會讓那個
-// 商品現在的庫存變成負的——如果切換之後那個商品又被出貨掉了(不管是透過訂單還是登記進出貨),
-// 庫存可能已經不夠讓這筆切換完整復原,這種情況要擋下來並清楚告知是哪個商品、目前只剩多少庫存。
-// 「type 是 out(切換當下扣掉的那筆)」復原時是把庫存加回去,不會有變負的風險,不用檢查。
-async function undoConversion(conversionId){
-  const pair = transactions.filter(tx => tx.conversionId === conversionId);
-  if(pair.length === 0) return;
-
-  for(const tx of pair){
-    if(tx.type !== 'in') continue;
-    const currentStock = computeStock(tx.productId);
-    const afterRevert = currentStock - tx.qty;
-    if(afterRevert < 0){
-      const p = products.find(x => x.id === tx.productId);
-      showInfoModal(tf('errUndoConversionWouldGoNegative', {
-        name: p ? p.name : tx.productId,
-        stock: currentStock,
-        unit: p ? p.unit : '',
-        needed: tx.qty
-      }));
-      return;
-    }
-  }
-
-  transactions = transactions.filter(tx => tx.conversionId !== conversionId);
-  await deleteTransactions(pair);
-  logInventoryAction('conversion_undo', `Reverted conversion (id ${conversionId})`, null);
-  renderAll();
-  renderConvertHistoryTable();
 }
 
 // ===== 商品編輯視窗:「顯示於總庫存量」=====
