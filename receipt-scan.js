@@ -626,13 +626,21 @@ function openReceiptOcrConfirmModal(line){
   const usedCats = categoryOrder.filter(c => products.some(p => (p.category || '未分類') === c));
   catSel.innerHTML = `<option value="">${t('catFilterAll')}</option>` + usedCats.map(c => `<option value="${c}">${catLabel(c)}</option>`).join('');
   catSel.value = '';
+  // 「顯示隱藏商品」預設不勾——每一行重新跳出確認視窗時都重設回不勾,理由跟分類篩選重設一樣:
+  // 這是針對「這一行」的暫時性篩選調整,不該不小心延續到下一行,讓人誤以為隱藏商品一直都有
+  // 顯示出來。
+  const showHiddenCheckbox = document.getElementById('receiptOcrShowHiddenToggle');
+  if(showHiddenCheckbox) showHiddenCheckbox.checked = false;
   renderReceiptOcrProductOptions();
   document.getElementById('receiptOcrConfirmModalOverlay').style.display = 'flex';
 }
 function renderReceiptOcrProductOptions(){
   const catFilterVal = document.getElementById('receiptOcrCategoryFilter').value;
+  const showHiddenCheckbox = document.getElementById('receiptOcrShowHiddenToggle');
+  const showHidden = showHiddenCheckbox && showHiddenCheckbox.checked;
   const sel = document.getElementById('receiptOcrProductSelect');
-  const candidateProducts = (catFilterVal ? products.filter(p => (p.category || '未分類') === catFilterVal) : products).filter(p => !p.hidden);
+  const candidateProducts = (catFilterVal ? products.filter(p => (p.category || '未分類') === catFilterVal) : products)
+    .filter(p => showHidden || !p.hidden);
   sel.innerHTML = '<option value=""></option>' + candidateProducts.slice().sort(compareProductsBySortMode)
     .map(p => `<option value="${p.id}">${p.sku ? p.sku + ' — ' : ''}${p.parentId ? '⧉ ' : ''}${p.name}(${p.unit})</option>`).join('');
   makeSelectSearchable('receiptOcrProductSelect');
