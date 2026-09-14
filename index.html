@@ -2174,7 +2174,7 @@
       <select id="receiptOcrCategoryFilter" onchange="renderReceiptOcrProductOptions()" style="width:100%;"></select>
     </div>
     <label style="display:flex;align-items:center;gap:6px;font-size:12.5px;color:var(--ink-soft);margin:8px 0 14px;cursor:pointer;">
-      <input type="checkbox" id="receiptOcrShowHiddenToggle" onchange="renderReceiptOcrProductOptions()" />
+      <input type="checkbox" id="receiptOcrShowHiddenToggle" onchange="renderReceiptOcrSuggestions(); renderReceiptOcrProductOptions();" />
       <span data-i18n="showHiddenProducts">顯示隱藏商品</span>
     </label>
     <div class="field-block">

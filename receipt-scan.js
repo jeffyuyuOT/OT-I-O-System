@@ -194,6 +194,9 @@ function deleteOcrMapping(mappingId){
 // 之前有沒有確認過這串文字對應到哪個商品」——有記憶的話不用問,直接照掃描服務回傳的數量/
 // 金額加入清單;沒有記憶的話才跳出視窗,讓使用者手動選商品、確認數量金額,選完會記住。
 let receiptOcrPartyId = null;
+// 目前確認視窗顯示的這一行,收據上讀到的描述文字——「顯示隱藏商品」勾選框改變時要重新算一次
+// 建議商品(renderReceiptOcrSuggestions),那個時間點沒有 line 這個參數可用,所以存起來備用。
+let currentReceiptOcrLineDescription = '';
 // 這次批次一次掃了好幾個檔案(發票+Credit Note之類)的話,每個檔案在掃描服務那邊各自有自己的
 // scan_id——這裡記錄這次批次總共用到哪些 scan_id(key 是 scan_id,value 固定 true,單純
 // 當一個集合用),確認完所有行之後,要照每個品項各自記錄的 scanId 分別回報給對應的那個掃描,
@@ -587,11 +590,11 @@ function processNextReceiptOcrLine(){
 // (畢竟 OCR 跟商品主檔的措辭本來就不會完全一樣),而是把兩邊都拆成一個一個的字/詞,看商品
 // 名稱裡有多少比例的字有出現在 OCR 文字裡,比例越高排越前面。回傳最多 5 個候選,比例太低的
 // (完全沾不上邊的)不列入,避免整排都是不相干的商品,反而干擾判斷。
-function findSimilarProducts(description){
+function findSimilarProducts(description, includeHidden){
   const descNormalized = normalizeReceiptLineText(description);
   const descWords = descNormalized.split(/[^a-z0-9\u4e00-\u9fa5]+/).filter(w => w.length > 1);
   if(descWords.length === 0) return [];
-  const scored = products.filter(p => !p.hidden).map(p => {
+  const scored = products.filter(p => includeHidden || !p.hidden).map(p => {
     const nameWords = normalizeReceiptLineText(p.name).split(/[^a-z0-9\u4e00-\u9fa5]+/).filter(w => w.length > 1);
     if(nameWords.length === 0) return { p, score: 0 };
     let matchCount = 0;
@@ -613,10 +616,33 @@ function openReceiptOcrConfirmModal(line){
   // (那是以前 Tesseract 逐字猜位置時代的產物),這個顯示區塊固定清空。
   const numbersDisplay = document.getElementById('receiptOcrRawNumbersDisplay');
   if(numbersDisplay) numbersDisplay.textContent = '';
-  // 先用商品名稱的文字相似度,找幾個可能符合的商品當快速選項——找得到的話,列在最上面,
-  // 點一下就直接選定,不用再去下面那個完整清單裡搜尋;完全找不到符合的,這個區塊就不顯示,
-  // 直接用下面的分類篩選+完整清單選就好。
-  const suggestions = findSimilarProducts(line.description);
+  // 記著目前這一行的描述文字——「顯示隱藏商品」勾選框改變時要重新算一次建議商品,
+  // 到時候不會再有 line 這個參數可以用,所以先存起來。
+  currentReceiptOcrLineDescription = line.description;
+  syncCategoryOrder();
+  const catSel = document.getElementById('receiptOcrCategoryFilter');
+  const usedCats = categoryOrder.filter(c => products.some(p => (p.category || '未分類') === c));
+  catSel.innerHTML = `<option value="">${t('catFilterAll')}</option>` + usedCats.map(c => `<option value="${c}">${catLabel(c)}</option>`).join('');
+  catSel.value = '';
+  // 「顯示隱藏商品」預設不勾——每一行重新跳出確認視窗時都重設回不勾,理由跟分類篩選重設一樣:
+  // 這是針對「這一行」的暫時性篩選調整,不該不小心延續到下一行,讓人誤以為隱藏商品一直都有
+  // 顯示出來。
+  const showHiddenCheckbox = document.getElementById('receiptOcrShowHiddenToggle');
+  if(showHiddenCheckbox) showHiddenCheckbox.checked = false;
+  renderReceiptOcrSuggestions();
+  renderReceiptOcrProductOptions();
+  document.getElementById('receiptOcrConfirmModalOverlay').style.display = 'flex';
+}
+
+// 先用商品名稱的文字相似度,找幾個可能符合的商品當快速選項——找得到的話,列在最上面,點一下
+// 就直接選定,不用再去下面那個完整清單裡搜尋;完全找不到符合的,這個區塊就不顯示,直接用
+// 下面的分類篩選+完整清單選就好。是不是要把隱藏商品也考慮進去,跟下面完整清單同一個
+// 「顯示隱藏商品」勾選框——勾選框改變時(見 HTML 上的 onchange)也會重新呼叫這個函式,
+// 不是只有跳出新的一行才算一次。
+function renderReceiptOcrSuggestions(){
+  const showHiddenCheckbox = document.getElementById('receiptOcrShowHiddenToggle');
+  const showHidden = showHiddenCheckbox && showHiddenCheckbox.checked;
+  const suggestions = findSimilarProducts(currentReceiptOcrLineDescription, showHidden);
   const suggestWrap = document.getElementById('receiptOcrSuggestionsWrap');
   if(suggestions.length > 0){
     suggestWrap.style.display = 'block';
@@ -629,18 +655,6 @@ function openReceiptOcrConfirmModal(line){
     suggestWrap.style.display = 'none';
     document.getElementById('receiptOcrSuggestionsList').innerHTML = '';
   }
-  syncCategoryOrder();
-  const catSel = document.getElementById('receiptOcrCategoryFilter');
-  const usedCats = categoryOrder.filter(c => products.some(p => (p.category || '未分類') === c));
-  catSel.innerHTML = `<option value="">${t('catFilterAll')}</option>` + usedCats.map(c => `<option value="${c}">${catLabel(c)}</option>`).join('');
-  catSel.value = '';
-  // 「顯示隱藏商品」預設不勾——每一行重新跳出確認視窗時都重設回不勾,理由跟分類篩選重設一樣:
-  // 這是針對「這一行」的暫時性篩選調整,不該不小心延續到下一行,讓人誤以為隱藏商品一直都有
-  // 顯示出來。
-  const showHiddenCheckbox = document.getElementById('receiptOcrShowHiddenToggle');
-  if(showHiddenCheckbox) showHiddenCheckbox.checked = false;
-  renderReceiptOcrProductOptions();
-  document.getElementById('receiptOcrConfirmModalOverlay').style.display = 'flex';
 }
 function renderReceiptOcrProductOptions(){
   const catFilterVal = document.getElementById('receiptOcrCategoryFilter').value;
