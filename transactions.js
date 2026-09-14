@@ -2562,11 +2562,13 @@ async function handlePurchaseReceiptUpload(inputEl){
     }
     msgEl.style.color = 'var(--ink-soft)';
     msgEl.textContent = tf('uploadingReceiptMsgWithName', { name: file.name });
-    // 檔名保留使用者上傳時的原始檔名(不是只留副檔名的亂數檔名),這樣點連結查看/下載附件時,
-    // 瀏覽器顯示的檔名就是原本的檔名,不會是一串亂碼——前面加一個亂數資料夾當前綴,是為了避免
-    // 不同收據剛好同名(例如都叫 IMG_1234.jpg)互相覆蓋掉,不影響顯示出來的檔名本身。
-    const safeName = file.name.replace(/[\\/:*?"<>|]/g, '_');
-    const path = `${genId()}/${safeName}`;
+    // 存進 Supabase Storage 的「路徑」本身改成純英數(亂數 id + 副檔名),不要直接把使用者的
+    // 原始檔名(可能有中文/特殊符號)放進去——雲端儲存的路徑/公開網址如果混了非 ASCII 字元,
+    // 有些情況下會處理不好(例如組出來的網址沒有正確編碼、下載時檔名變亂碼、甚至上傳失敗)。
+    // 原始檔名(不管是不是中文)完整保留在 filename 這個欄位裡,畫面上顯示的、之後下載回來的,
+    // 用的都是這個欄位,不受儲存路徑本身限制,不會因為改了路徑就看不到原本的中文檔名。
+    const safeExt = (file.name.split('.').pop() || 'dat').toLowerCase().replace(/[^a-z0-9]/g, '') || 'dat';
+    const path = `${genId()}.${safeExt}`;
     try{
       // 從 Google Drive 這類雲端硬碟選檔案時,瀏覽器拿到的 File 物件有時候不是「已經整個讀進
       // 記憶體」的檔案,而是要等到真的被讀取的那一刻才會去背景抓資料——直接把這個 File 物件
@@ -2633,7 +2635,7 @@ function renderPurchaseReceiptPreviewList(){
   const showDocTypeTag = hasFeature('receiptScanModule');
   wrap.innerHTML = pendingPurchaseReceiptFiles.map((f, i) => `
     <div style="display:flex;align-items:center;gap:10px;">
-      <a href="${f.url}" target="_blank" style="font-size:12.5px;">📎 ${escapeHtmlForPrint(f.filename)}</a>
+      <a href="${f.url}" target="_blank" download="${escapeHtmlForPrint(f.filename)}" style="font-size:12.5px;">📎 ${escapeHtmlForPrint(f.filename)}</a>
       ${showDocTypeTag ? `
         <select style="font-size:11.5px;padding:2px 4px;" onchange="setPurchaseReceiptFileDocType(${i}, this.value)">
           <option value="invoice" ${(f.docType || 'invoice') === 'invoice' ? 'selected' : ''}>${t('optDocTypeInvoice')}</option>

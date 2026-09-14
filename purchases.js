@@ -434,7 +434,7 @@ function renderEditPurchaseReceiptList(){
   }
   wrap.innerHTML = editPurchaseWorkingReceiptFiles.map((f, i) => `
     <div style="display:flex;align-items:center;gap:10px;">
-      <a href="${f.url}" target="_blank" style="font-size:12.5px;">📎 ${escapeHtmlForPrint(f.filename || '')}</a>
+      <a href="${f.url}" target="_blank" download="${escapeHtmlForPrint(f.filename || '')}" style="font-size:12.5px;">📎 ${escapeHtmlForPrint(f.filename || '')}</a>
       <span class="del-link" onclick="removeEditPurchaseReceiptFile(${i})">${t('btnRemoveFile')}</span>
     </div>
   `).join('');
@@ -461,8 +461,11 @@ async function handleEditPurchaseReceiptUpload(inputEl){
     }
     msgEl.style.color = 'var(--ink-soft)';
     msgEl.textContent = tf('uploadingReceiptMsgWithName', { name: file.name });
-    const safeName = file.name.replace(/[\\/:*?"<>|]/g, '_');
-    const path = `${genId()}/${safeName}`;
+    // 儲存路徑改成純英數(亂數 id + 副檔名),不直接放使用者的原始檔名(可能有中文/特殊符號)——
+    // 理由跟 transactions.js 的 handlePurchaseReceiptUpload 一樣,原始檔名完整保留在 filename
+    // 欄位,不受儲存路徑限制。
+    const safeExt = (file.name.split('.').pop() || 'dat').toLowerCase().replace(/[^a-z0-9]/g, '') || 'dat';
+    const path = `${genId()}.${safeExt}`;
     try{
       const { error } = await sb.storage.from('purchase-receipts').upload(path, file, { upsert: true });
       if(error) throw error;
