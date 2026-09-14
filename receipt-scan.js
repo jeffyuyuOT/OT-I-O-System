@@ -356,10 +356,12 @@ function promptSupplierGuessConfirmation(guessedName){
       if(partyHistorySelect){ partyHistorySelect.value = '__new__'; }
       onTxPartyHistorySelectChange('__new__');
       document.getElementById('txParty').value = exactMatch.name;
+      receiptOcrPartyId = exactMatch.name; // 同步更新,不然接下來 confirmReceiptOcrLine() 記憶對照表還是會存成掃描前那個舊值(通常是空的)
       processNextReceiptOcrLine();
       return;
     }
     onTxPartyHistorySelectChange(exactMatch.name);
+    receiptOcrPartyId = exactMatch.name; // 同上,確認完供應商要同步更新,不能只改畫面上的下拉選單
     processNextReceiptOcrLine();
     return;
   }
@@ -371,6 +373,7 @@ function promptSupplierGuessConfirmation(guessedName){
       () => {
         selectPartyHistoryOptionByName(partyHistorySelect, best.name);
         onTxPartyHistorySelectChange(best.name);
+        receiptOcrPartyId = best.name; // 同上
         processNextReceiptOcrLine();
       },
       () => { processNextReceiptOcrLine(); }
@@ -382,6 +385,7 @@ function promptSupplierGuessConfirmation(guessedName){
         if(partyHistorySelect){ partyHistorySelect.value = '__new__'; }
         onTxPartyHistorySelectChange('__new__');
         document.getElementById('txParty').value = guessedName;
+        receiptOcrPartyId = guessedName; // 同上,新增供應商確認後一樣要同步
         processNextReceiptOcrLine();
       },
       () => { processNextReceiptOcrLine(); }
