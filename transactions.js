@@ -2549,8 +2549,114 @@ function renderTxFileList(){
 // 檔案大小上限放寬到 10MB(收據掃描檔常常比商品照片大),而且支援一次選取多個檔案——逐一
 // 上傳、逐一加進 pendingPurchaseReceiptFiles 這個陣列,其中一個檔案上傳失敗不影響其他已經
 // 上傳成功的檔案。真正送出進貨單(submitTxBatchSimple)時才會用到、寫進那張單。
+// ===== 拍照上傳(頁面內建相機,不跳出 app)=====
+// 用 <input type="file" capture> 這種做法,手機瀏覽器(尤其 iOS Safari)實際上還是會整個
+// 切換到系統相機 app 拍完再切回來——切出去再切回來的這個過程,iOS 常常會因為記憶體不夠,直接
+// 把切出去之前那個瀏覽器分頁殺掉重開,回到 app 裡的東西(還沒送出的清單、填到一半的表單)就
+// 全部不見了,要重新來過。真正能做到「拍照全程都在這個網頁裡面、不會跳出去」的做法,是直接用
+// getUserMedia() 把相機畫面即時顯示在頁面上的 <video> 裡,使用者在這個頁面內建的相機介面裡
+// 按「拍照」,擷取當下那一格畫面存成圖片——全程都待在這個瀏覽器分頁裡,不會有切出去 app 的
+// 動作,自然也不會被系統以為背景分頁太久沒用而砍掉重開。
+// 這個功能一定要在「安全連線」(HTTPS,或本機開發用的 localhost)下才能用——這是瀏覽器自己的
+// 安全限制,不是這裡能控制的,不管是 HTTPS 還是 <input capture>,存取相機都一定要滿足這個
+// 前提;但光是滿足 HTTPS 這個前提本身,並不會讓 <input capture> 自動變成「留在頁面內」的相機,
+// 兩者是分開的兩件事——這裡改用 getUserMedia 自己畫相機介面,才是真正解決「切出去又跳回來」
+// 這個問題的做法。
+let cameraCaptureStream = null;
+let cameraCapturedBlob = null;
+
+function isCameraCaptureSupported(){
+  return !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
+}
+
+async function openCameraCaptureModal(){
+  if(!isCameraCaptureSupported()) return;
+  const video = document.getElementById('cameraCaptureVideo');
+  const previewImg = document.getElementById('cameraCapturePreviewImg');
+  const msgEl = document.getElementById('cameraCaptureMsg');
+  cameraCapturedBlob = null;
+  msgEl.textContent = '';
+  msgEl.className = 'msg';
+  video.style.display = '';
+  previewImg.style.display = 'none';
+  document.getElementById('btnCameraShoot').style.display = '';
+  document.getElementById('btnCameraRetake').style.display = 'none';
+  document.getElementById('btnCameraUsePhoto').style.display = 'none';
+  document.getElementById('cameraCaptureModalOverlay').style.display = 'flex';
+  try{
+    // facingMode: 'environment' 優先用後鏡頭(拍收據這種情境一定是用後鏡頭拍外面的東西,
+    // 不是自拍)——裝置沒有後鏡頭(例如筆電內建鏡頭)的話,瀏覽器會自動退回用僅有的那一顆。
+    cameraCaptureStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' }, audio: false });
+    video.srcObject = cameraCaptureStream;
+  } catch(e){
+    console.error('開啟相機失敗', e);
+    msgEl.className = 'msg error';
+    msgEl.textContent = t('errCameraAccessFailed');
+  }
+}
+
+function capturePhotoFromCamera(){
+  const video = document.getElementById('cameraCaptureVideo');
+  if(!video.videoWidth || !video.videoHeight) return; // 相機畫面還沒真的準備好,不要拍到空白
+  const canvas = document.createElement('canvas');
+  canvas.width = video.videoWidth;
+  canvas.height = video.videoHeight;
+  canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
+  canvas.toBlob(blob => {
+    if(!blob) return;
+    cameraCapturedBlob = blob;
+    const previewImg = document.getElementById('cameraCapturePreviewImg');
+    previewImg.src = URL.createObjectURL(blob);
+    previewImg.style.display = '';
+    video.style.display = 'none';
+    document.getElementById('btnCameraShoot').style.display = 'none';
+    document.getElementById('btnCameraRetake').style.display = '';
+    document.getElementById('btnCameraUsePhoto').style.display = '';
+  }, 'image/jpeg', 0.92);
+}
+
+function retakeCameraPhoto(){
+  cameraCapturedBlob = null;
+  const video = document.getElementById('cameraCaptureVideo');
+  const previewImg = document.getElementById('cameraCapturePreviewImg');
+  video.style.display = '';
+  previewImg.style.display = 'none';
+  document.getElementById('btnCameraShoot').style.display = '';
+  document.getElementById('btnCameraRetake').style.display = 'none';
+  document.getElementById('btnCameraUsePhoto').style.display = 'none';
+}
+
+async function confirmCapturedPhoto(){
+  if(!cameraCapturedBlob) return;
+  const filename = `camera-${todayISO()}-${Date.now()}.jpg`;
+  const file = new File([cameraCapturedBlob], filename, { type: 'image/jpeg' });
+  closeCameraCaptureModal();
+  await uploadPurchaseReceiptFiles([file]);
+}
+
+function closeCameraCaptureModal(){
+  // 關掉視窗(不管是使用者按取消、還是拍完確認使用之後)都要把相機的媒體串流停掉——不停掉的話,
+  // 瀏覽器/系統會以為相機還在使用中(畫面上通常會有一個持續亮著的相機使用中指示燈),既耗電、
+  // 也讓使用者搞不清楚相機到底關了沒有。
+  if(cameraCaptureStream){
+    cameraCaptureStream.getTracks().forEach(track => track.stop());
+    cameraCaptureStream = null;
+  }
+  cameraCapturedBlob = null;
+  document.getElementById('cameraCaptureModalOverlay').style.display = 'none';
+}
+
 async function handlePurchaseReceiptUpload(inputEl){
   const files = inputEl.files ? Array.from(inputEl.files) : [];
+  await uploadPurchaseReceiptFiles(files);
+  inputEl.value = '';
+}
+
+// 實際上傳的核心邏輯,抽出來讓「選檔案」(handlePurchaseReceiptUpload)、「拍照上傳」
+// (見 capturePhotoFromCamera)兩條路徑共用同一套驗證/上傳/防呆,不用維護兩份幾乎一樣的程式碼。
+// 拍照上傳時,相機拍出來的畫面會先包成一個正常的 File 物件再傳進來,這個函式看到的就是一個
+// 普通的 File 陣列,不知道也不需要知道這個檔案原本是選的還是拍的。
+async function uploadPurchaseReceiptFiles(files){
   if(files.length === 0) return;
   const msgEl = document.getElementById('purchaseReceiptUploadMsg');
   const maxBytes = 10 * 1024 * 1024;
@@ -2638,10 +2744,15 @@ async function handlePurchaseReceiptUpload(inputEl){
     msgEl.style.color = 'var(--warn)';
     msgEl.textContent = tf('receiptUploadedPartialMsg', { success: successCount, fail: failCount });
   }
-  inputEl.value = '';
 }
 
 function renderPurchaseReceiptPreviewList(){
+  // 拍照上傳的按鈕要不要顯示,跟目前有沒有已上傳的附件無關,所以放在下面「還沒有任何附件」
+  // 提早 return 之前先判斷——瀏覽器/連線本身不支援相機的話(例如不是 HTTPS 安全連線,或
+  // 桌機瀏覽器沒有相機裝置),直接把按鈕藏起來,不要讓人點了才發現不能用。
+  const cameraBtn = document.getElementById('btnOpenCameraCapture');
+  if(cameraBtn) cameraBtn.style.display = isCameraCaptureSupported() ? '' : 'none';
+
   const wrap = document.getElementById('purchaseReceiptPreviewWrap');
   if(!wrap) return;
   const scanWrap = document.getElementById('purchaseReceiptScanWrap');
