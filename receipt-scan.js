@@ -420,16 +420,25 @@ function promptSupplierGuessConfirmation(guessedName){
 // processNextReceiptOcrLine 呼叫 addOcrLineToTxBatch 那幾處);但確認完品項之後、真正按下
 // 「提交」之前,使用者還是可能會再改一次「進貨方」欄位(例如發現剛剛猜錯了、或掃描時忘了先選)。
 // 這種情況下,記憶對照表存的供應商就會跟這次「實際送出去、記進資料庫的進貨單」用的供應商
-// 對不起來——這裡在真正送出之前,把這次批次裡每一筆來自收據掃描的品項(txBatchItems 上帶著
-// ocrDescriptions 的),依它們各自的描述文字,檢查記憶對照表存的供應商是不是最終送出去這個
-// (finalParty),不是的話直接修正過去(不是新增一筆、是真的改掉錯的那筆;如果剛好已經有一筆
-// 記在正確供應商底下,就把錯的那筆刪掉,不留兩筆重複的孤兒資料)。
+// 對不起來,需要校正。
+//
+// 但只能校正「這次掃描過程中剛剛新建立的」那幾筆記憶(receiptOcrSessionNewMappingIds 追蹤的),
+// 不能去動任何「文字對得上、但供應商不一樣」的舊記憶——同一種東西完全可能是跟好幾個不同
+// 供應商叫的(例如「紅糖」這個品項,Asian Gold 跟另一家供應商都有在賣),資料庫裡本來就該、
+// 也預期會同時保留好幾個供應商各自的對照記錄,不是重複或衝突的資料,絕對不能因為這次送出的
+// 供應商不一樣,就把屬於「不同一張進貨單」的舊記憶覆蓋或刪掉。
 async function syncOcrMemoryToFinalParty(finalParty){
   const normalizedFinalParty = finalParty || null;
+  const sessionMappingIds = new Set(receiptOcrSessionNewMappingIds);
+  if(sessionMappingIds.size === 0) return; // 這次掃描根本沒有新建任何記憶,不用檢查
   const descriptionsToCheck = new Set();
   txBatchItems.forEach(it => { (it.ocrDescriptions || []).forEach(d => descriptionsToCheck.add(d)); });
   for(const desc of descriptionsToCheck){
-    const wrongMappings = receiptLineMappings.filter(m => m.normalizedText === desc && (m.partyId || null) !== normalizedFinalParty);
+    // 只挑「這次掃描新建立的」那幾筆裡,供應商跟最終送出去的不一樣的——不是這次新建的一律
+    // 跳過,不管文字對不對得上、供應商是不是不一樣,都當成別的進貨單的合法既有記錄,不去動它。
+    const wrongMappings = receiptLineMappings.filter(m =>
+      m.normalizedText === desc && (m.partyId || null) !== normalizedFinalParty && sessionMappingIds.has(m.id)
+    );
     if(wrongMappings.length === 0) continue;
     const alreadyCorrect = receiptLineMappings.find(m => m.normalizedText === desc && (m.partyId || null) === normalizedFinalParty);
     for(const wrong of wrongMappings){
