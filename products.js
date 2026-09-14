@@ -2,7 +2,8 @@
 // 商品編輯——刪除/編輯商品、新增批量商品(子商品)、編輯視窗
 // 內容渲染與存檔、商品照片上傳、批量商品↔主商品數量切換
 // (轉換視窗跟確認邏輯),以及切換紀錄(Convert History,同一個
-// 功能的歷史記錄/復原畫面,原本是獨立檔案,併進來這裡)。收據
+// 功能的歷史記錄/復原畫面,原本是獨立檔案,併進來這裡)、商品
+// 編輯視窗裡「顯示於總庫存量」相關的選擇/確認邏輯。收據
 // 掃描/進貨收據上傳是登記進出貨流程的一部分,不算這裡,留在主程式。
 // ============================================================
 // 刪除商品現在只會從「編輯商品」畫面裡呼叫(庫存總覽清單本身不再放刪除按鈕,省空間),
@@ -896,4 +897,143 @@ async function undoConversion(conversionId){
   logInventoryAction('conversion_undo', `Reverted conversion (id ${conversionId})`, null);
   renderAll();
   renderConvertHistoryTable();
+}
+
+// ===== 商品編輯視窗:「顯示於總庫存量」=====
+// 決定「庫存總覽」清單裡代表這個商品家族(主商品+底下所有 multipack 商品)的是哪一個商品:
+// 優先看有沒有在某個成員的編輯畫面勾選過「顯示於總庫存量」(parent.totalStockBasisId);
+// 沒勾選過(或勾選的那個商品已經被刪除了)就預設用主商品自己代表。
+function getTotalStockBasisProduct(parent){
+  if(!parent || parent.parentId) return parent;
+  if(parent.totalStockBasisId && parent.totalStockBasisId !== parent.id){
+    const chosen = getChildProducts(parent.id).find(c => c.id === parent.totalStockBasisId);
+    if(chosen) return chosen;
+  }
+  return parent;
+}
+
+// 代表商品是主商品自己的話,權重是 1(不用換算);是某個 multipack 子商品的話,權重就是它的加權數。
+function getBasisWeight(basisProduct, parent){
+  if(!basisProduct || !parent || basisProduct.id === parent.id) return 1;
+  const w = basisProduct.childWeight;
+  return (w !== null && w !== undefined && !isNaN(w) && w > 0) ? w : 1;
+}
+
+// 決定「訂貨時自動轉換 multipack」要用哪一個 multipack 商品:優先用「顯示於總庫存量」勾選的那個
+// (如果剛好勾的就是某個 multipack 子商品);沒勾選的話,主商品剛好只有一種 multipack 商品就直接用
+// 那一個;有兩種以上又沒勾選,回傳 null(不自動轉換,避免系統自己亂猜要用哪一個加權數)。
+function getBasisMultipackChild(p){
+  if(!p || p.parentId) return null;
+  const children = getChildProducts(p.id).filter(c =>
+    c.childWeight !== null && c.childWeight !== undefined && !isNaN(c.childWeight) && c.childWeight > 0
+  );
+  if(children.length === 0) return null;
+  if(p.totalStockBasisId){
+    const chosen = children.find(c => c.id === p.totalStockBasisId);
+    if(chosen) return chosen;
+  }
+  if(children.length === 1) return children[0];
+  return null;
+}
+
+// 把一個數字格式化成 multipack 單位顯示用的字串:最多兩位小數,去掉多餘的尾端 0
+// (例如 2.50 顯示成 2.5,3.00 顯示成 3)。
+function formatMultipackQty(n){
+  if(!isFinite(n)) return '—';
+  const rounded = Math.round(n * 100) / 100;
+  return String(rounded);
+}
+
+// 設定/取消「顯示於總覽量」:productId 可以是主商品自己的 id,也可以是它某個 multipack 子商品的 id。
+// 整個商品家族(主商品+全部 multipack 子商品)共用同一個欄位(記在主商品身上),所以勾選其中一個,
+// 其他成員原本的勾選會自動被取消 —— 不用另外寫同步邏輯,天生就只會有一個生效。
+let showInTotalPickerCheckboxEl = null; // 「顯示於庫存總覽」選擇視窗開著的時候,記住是哪一個 checkbox 觸發的,取消選擇時要復原勾選狀態
+
+// 商品編輯視窗裡「顯示於庫存總覽」勾選框被使用者手動切換時呼叫——切換當下就要驗證/處理,不是
+// 等按下「儲存」才發現,因為取消勾選可能需要跳出視窗讓使用者選接手的商品。
+function handleShowInTotalToggle(checkboxEl, productId){
+  const p = products.find(x => x.id === productId);
+  if(!p) return;
+  if(checkboxEl.checked){
+    // 勾選:隱藏商品不能被設成代表(checkbox 本來就是 disabled,這裡多一層防呆)。
+    if(p.hidden){ checkboxEl.checked = false; showInfoModal(t('errHiddenCannotShowInTotal')); return; }
+    pendingTotalStockBasisChoice = null;
+    return;
+  }
+  // 取消勾選:找同一個商品家族(主商品+底下所有批量商品)裡,除了自己以外的其他成員,
+  // 優先考慮還沒被隱藏的那些,決定接下來要換誰當「顯示於庫存總覽」的代表。
+  const familyParent = p.parentId ? products.find(x => x.id === p.parentId) : p;
+  if(!familyParent) return;
+  const members = [familyParent, ...getChildProducts(familyParent.id)].filter(m => m.id !== p.id);
+  const visibleCandidates = members.filter(m => !m.hidden);
+
+  if(visibleCandidates.length === 0){
+    // 沒有其他非隱藏的相關商品可以接手,不能取消——維持勾選狀態,說明原因。
+    checkboxEl.checked = true;
+    showInfoModal(t('errCannotUnsetShowInTotalAllHidden'));
+    return;
+  }
+  if(visibleCandidates.length === 1){
+    pendingTotalStockBasisChoice = visibleCandidates[0].id;
+    return;
+  }
+  // 兩個以上候選,跳出視窗讓使用者自己選。選擇視窗開著期間先讓 checkbox 維持未勾選的畫面狀態,
+  // 如果使用者按「取消」不選,cancelShowInTotalPicker() 會把 checkbox 復原成勾選。
+  openShowInTotalPickerModal(checkboxEl, visibleCandidates);
+}
+
+function toggleHideFromExportModeVisibility(checkboxEl){
+  const wrap = document.getElementById('hideFromExportModeWrap');
+  if(wrap) wrap.style.display = checkboxEl.checked ? 'block' : 'none';
+}
+function toggleHideFromExportHintVisibility(selectEl){
+  const hint = document.getElementById('hideFromExportHint');
+  if(hint) hint.style.display = selectEl.value === 'switchOnly' ? 'block' : 'none';
+}
+
+function openShowInTotalPickerModal(checkboxEl, candidates){
+  showInTotalPickerCheckboxEl = checkboxEl;
+  const body = document.getElementById('showInTotalPickerBody');
+  body.innerHTML = `
+    <p style="font-size:12.5px;color:var(--ink-soft);margin:0 0 12px;">${t('showInTotalPickerDesc')}</p>
+    ${candidates.map(c => `
+      <button class="btn ghost" style="width:100%;text-align:left;margin-bottom:8px;" onclick="chooseShowInTotalCandidate('${c.id}')">${c.name.replace(/"/g,'&quot;')}${c.sku ? ` (${c.sku})` : ''}</button>
+    `).join('')}
+  `;
+  document.getElementById('showInTotalPickerOverlay').style.display = 'flex';
+}
+
+function chooseShowInTotalCandidate(candidateId){
+  pendingTotalStockBasisChoice = candidateId;
+  showInTotalPickerCheckboxEl = null;
+  document.getElementById('showInTotalPickerOverlay').style.display = 'none';
+}
+
+function cancelShowInTotalPicker(){
+  if(showInTotalPickerCheckboxEl) showInTotalPickerCheckboxEl.checked = true;
+  showInTotalPickerCheckboxEl = null;
+  pendingTotalStockBasisChoice = null;
+  document.getElementById('showInTotalPickerOverlay').style.display = 'none';
+}
+
+// 儲存商品編輯視窗時真正套用「顯示於庫存總覽」的選擇。checked=true 就直接把這個商品設成代表;
+// checked=false 且這個商品原本就是代表(不管是明確設定的,還是沒設定時預設用主商品自己代表),
+// 就改用 handleShowInTotalToggle() 當下已經自動算好、或使用者在選擇視窗裡選好的接手商品
+// (pendingTotalStockBasisChoice),而不是直接歸零——如果因為某種原因(例如使用者跳過切換直接
+// 按存檔)沒有算出接手商品,就維持原狀不變更,不會讓庫存總覽突然沒有代表商品可顯示。
+function applyTotalStockBasisChoice(product, checked){
+  if(!product) return;
+  const parent = product.parentId ? products.find(x => x.id === product.parentId) : product;
+  if(!parent) return;
+  if(checked){
+    if(product.hidden) return;
+    parent.totalStockBasisId = product.id;
+    pendingTotalStockBasisChoice = null;
+    return;
+  }
+  const isCurrentlyBasis = parent.totalStockBasisId ? (parent.totalStockBasisId === product.id) : (parent.id === product.id);
+  if(isCurrentlyBasis && pendingTotalStockBasisChoice){
+    parent.totalStockBasisId = pendingTotalStockBasisChoice;
+  }
+  pendingTotalStockBasisChoice = null;
 }

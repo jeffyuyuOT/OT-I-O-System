@@ -3,8 +3,9 @@
 // 資料備份/還原(匯出/匯入 JSON 備份檔,原本在主程式,併過來跟
 // 自動備份放一起,備份相關的東西不再分散兩處)、清除全部資料/
 // 重置後台紀錄跟訂單編號、會計 Email 清單、Stock Location 模式/
-// 列印設定、商品排序、已完成訂單匯出格式、multipack 相關開關等
-// 系統設置分頁裡的各種讀取/存檔/切換函式。
+// 列印設定、商品排序、已完成訂單匯出格式、multipack 相關開關、
+// 分類排序(拖曳調整分類順序、自動併掉大小寫/空白不同但其實是
+// 同一個分類的寫法)等系統設置分頁裡的各種讀取/存檔/切換函式。
 // ============================================================
 
 // 資料異動時,等待短暫靜止期後自動備份一次,
@@ -626,4 +627,203 @@ function importFullBackup(){
     };
     reader.readAsText(file);
   });
+}
+
+// ===== 分類排序 =====
+// ensure every category actually present in products is included in categoryOrder (appended if new),
+// so custom / uploaded categories are never silently hidden. "未分類" always stays last.
+//
+// 這個函式也會順便修正分類篩選「選項不全 / 選了分類後對應商品兜不起來」的問題:
+// 分類文字如果只是大小寫或前後空白不同(例如 Excel 匯入時打成 " Tea"、"tea"、"TEA "),
+// 以前會被當成好幾個不同的分類,導致同一個分類被拆成好幾筆、篩選清單看起來不完整,
+// 選其中一筆又只看得到部分商品。現在會自動把這些寫法併回同一個正式分類名稱
+// (以第一次出現的寫法為準),並直接修正商品資料上的分類文字。
+function syncCategoryOrder(){
+  const keyOf = s => s.trim().toLowerCase();
+
+  // 1) categoryOrder 裡本身如果有「忽略大小寫/空白後其實是同一個」的重複項目,先併起來。
+  const canonicalByKey = new Map();
+  let order = [];
+  categoryOrder.forEach(cat => {
+    if(cat === '未分類') return;
+    const k = keyOf(cat);
+    if(!canonicalByKey.has(k)){ canonicalByKey.set(k, cat); order.push(cat); }
+  });
+
+  // 2) 把每個商品的分類文字對應回已知的正式名稱;全新的分類字串才新增一筆正式名稱。
+  let changed = false;
+  const present = new Set(['未分類']);
+  products.forEach(p => {
+    const raw = (p.category || '').trim();
+    if(!raw || raw === '未分類'){
+      present.add('未分類');
+      if(p.category !== '未分類'){ p.category = '未分類'; changed = true; }
+      return;
+    }
+    const k = keyOf(raw);
+    let canonical = canonicalByKey.get(k);
+    if(!canonical){ canonical = raw; canonicalByKey.set(k, canonical); order.push(canonical); }
+    present.add(canonical);
+    if(p.category !== canonical){ p.category = canonical; changed = true; }
+  });
+
+  products.forEach(p => present.add(p.category || '未分類'));
+
+  order = order.filter(cat => present.has(cat));
+  categoryOrder = [...order, '未分類'];
+  if(changed) categoryNeedsResave = true;
+}
+
+async function saveCategoryOrder(){
+  try{ await dbSet('categoryOrder', JSON.stringify(categoryOrder)); }
+  catch(e){ console.error('儲存分類順序失敗', e); }
+}
+
+async function loadCategoryOrder(){
+  try{
+    const r = await dbGet('categoryOrder');
+    if(r && r.value){
+      const stored = JSON.parse(r.value);
+      if(Array.isArray(stored) && stored.length > 0) categoryOrder = stored;
+    }
+  } catch(e){ /* no stored order yet, keep default */ }
+}
+
+const IMPORTED_STOCK_DATA = [
+  {"sku":"A001","name":"Concentrated Passion fruit (Local)","unit":"Boxes","qty":32.0,"avg":20.7,"category":"Frozen Beverages","safetyStock":3},
+  {"sku":"A002","name":"Grape","unit":"Bottles","qty":439.0,"avg":75.9,"category":"Frozen Beverages","safetyStock":3},
+  {"sku":"A003","name":"Grapefruit","unit":"Bottles","qty":761.0,"avg":174.3,"category":"Frozen Beverages","safetyStock":3},
+  {"sku":"A004","name":"Guava","unit":"Bottles","qty":1171.0,"avg":181.6,"category":"Frozen Beverages","safetyStock":3},
+  {"sku":"A005","name":"Kumquat","unit":"Bottles","qty":112.0,"avg":36.5,"category":"Frozen Beverages","safetyStock":3},
+  {"sku":"A006","name":"Lemon","unit":"Bottles","qty":472.0,"avg":91.4,"category":"Frozen Beverages","safetyStock":3},
+  {"sku":"A007","name":"Lychee","unit":"Bottles","qty":1030.0,"avg":182.5,"category":"Frozen Beverages","safetyStock":3},
+  {"sku":"A008","name":"Orange","unit":"Bottles","qty":1597.0,"avg":289.2,"category":"Frozen Beverages","safetyStock":3},
+  {"sku":"A009","name":"Passion fruit","unit":"Bottles","qty":2279.0,"avg":397.7,"category":"Frozen Beverages","safetyStock":3},
+  {"sku":"A010","name":"Mango Puree","unit":"Bottles","qty":575.0,"avg":77.9,"category":"Frozen Beverages","safetyStock":3},
+  {"sku":"A011","name":"Sweet Taro Paste","unit":"Bag","qty":1208.0,"avg":198.0,"category":"Frozen Beverages","safetyStock":3},
+  {"sku":"A012","name":"Frozen Mango Chunks (Costco 2kg)","unit":"Bag","qty":10.0,"avg":19.5,"category":"Frozen Beverages","safetyStock":3},
+  {"sku":"B001","name":"Earl Grey Tea Gelato","unit":"Tub","qty":9.0,"avg":5.9,"category":"Gelato","safetyStock":3},
+  {"sku":"B002","name":"Smoked Oolong Tea Gelato","unit":"Tub","qty":9.0,"avg":5.0,"category":"Gelato","safetyStock":3},
+  {"sku":"B003","name":"Vanilla Gelato","unit":"Tub","qty":15.0,"avg":10.3,"category":"Gelato","safetyStock":3},
+  {"sku":"B004","name":"Bayberry Tea Gelato","unit":"Tub","qty":16.0,"avg":1.4,"category":"Gelato","safetyStock":3},
+  {"sku":"C001","name":"Matcha Powder","unit":"Bag","qty":87.0,"avg":24.9,"category":"Other Beverages/ Ingredients","safetyStock":3},
+  {"sku":"C002","name":"Wintermelon block","unit":"CTN","qty":13.0,"avg":8.7,"category":"Other Beverages/ Ingredients","safetyStock":3},
+  {"sku":"C003","name":"Dry Plum","unit":"Bag","qty":5.0,"avg":2.9,"category":"Other Beverages/ Ingredients","safetyStock":3},
+  {"sku":"C004","name":"HQ Non-dairy Creamer","unit":"CTN","qty":0.0,"avg":32.1,"category":"Other Beverages/ Ingredients","safetyStock":3},
+  {"sku":"C005","name":"Raw Sugar","unit":"Bag","qty":231.0,"avg":353.3,"category":"Other Beverages/ Ingredients","safetyStock":3},
+  {"sku":"C006","name":"Brown Sugar","unit":"CTN","qty":9.0,"avg":10.5,"category":"Other Beverages/ Ingredients","safetyStock":3},
+  {"sku":"C007","name":"Red Sugar","unit":"CTN","qty":10.0,"avg":8.1,"category":"Other Beverages/ Ingredients","safetyStock":3},
+  {"sku":"C008","name":"Sesame powder","unit":"Bag","qty":124.0,"avg":7.1,"category":"Other Beverages/ Ingredients","safetyStock":3},
+  {"sku":"C009","name":"Vanilla Ice powder","unit":"Bag","qty":12.0,"avg":1.8,"category":"Other Beverages/ Ingredients","safetyStock":3},
+  {"sku":"C010","name":"Choolate powder","unit":"Bag","qty":18.0,"avg":2.5,"category":"Other Beverages/ Ingredients","safetyStock":3},
+  {"sku":"C011","name":"Dried Hawthorn Fruit","unit":"Bag","qty":38.0,"avg":54.3,"category":"Other Beverages/ Ingredients","safetyStock":3},
+  {"sku":"D001","name":"Black Tea","unit":"Bag","qty":166.0,"avg":102.3,"category":"Tea","safetyStock":3},
+  {"sku":"D002","name":"Mountain Green Tea","unit":"Bag","qty":26.0,"avg":72.0,"category":"Tea","safetyStock":3},
+  {"sku":"D003","name":"Jasmine Green Tea","unit":"Bag","qty":30.0,"avg":98.9,"category":"Tea","safetyStock":3},
+  {"sku":"D004","name":"Oolong Tea","unit":"Bag","qty":89.0,"avg":42.9,"category":"Tea","safetyStock":3},
+  {"sku":"D005","name":"Buckwheat Tea","unit":"Bag","qty":22.0,"avg":38.3,"category":"Tea","safetyStock":3},
+  {"sku":"D006","name":"Bayberry Tea","unit":"Bag","qty":62.0,"avg":11.8,"category":"Tea","safetyStock":3},
+  {"sku":"E001","name":"Black Tapioca Pearls 2.0","unit":"CTN","qty":81.0,"avg":39.3,"category":"Toppings","safetyStock":3},
+  {"sku":"E002","name":"Black Tapioca Pearls 2.5","unit":"CTN","qty":33.0,"avg":13.7,"category":"Toppings","safetyStock":3},
+  {"sku":"E003","name":"Coconut Jelly","unit":"Can","qty":2.0,"avg":26.9,"category":"Toppings","safetyStock":3},
+  {"sku":"E004","name":"Aloe Vera","unit":"Can","qty":169.0,"avg":99.7,"category":"Toppings","safetyStock":3},
+  {"sku":"E005","name":"Grass (Herbal) Jelly Juice","unit":"Can","qty":25.0,"avg":27.0,"category":"Toppings","safetyStock":3},
+  {"sku":"E006","name":"Red Bean Paste","unit":"Can","qty":60.0,"avg":27.4,"category":"Toppings","safetyStock":3},
+  {"sku":"E007","name":"Sweet Taro Lump","unit":"Can","qty":40.0,"avg":30.6,"category":"Toppings","safetyStock":3},
+  {"sku":"E008","name":"Fig (Aiyu) Jelly Powder","unit":"Bag","qty":73.0,"avg":3.9,"category":"Toppings","safetyStock":3},
+  {"sku":"E009","name":"Konjac Jelly Powder","unit":"Bag","qty":105.0,"avg":24.1,"category":"Toppings","safetyStock":3},
+  {"sku":"E010","name":"Tapioca Starch","unit":"Bag","qty":16.0,"avg":6.6,"category":"Toppings","safetyStock":3},
+  {"sku":"E011","name":"12x Yolk Flavour Pudding","unit":"Bag","qty":35.0,"avg":4.9,"category":"Toppings","safetyStock":3},
+  {"sku":"E012","name":"Chia Seed","unit":"Bottle","qty":17.0,"avg":2.3,"category":"Toppings","safetyStock":3},
+  {"sku":"E013","name":"Oero Crumb","unit":"Bag","qty":49.0,"avg":10.0,"category":"Toppings","safetyStock":3},
+  {"sku":"E014","name":"Osmanthus Jelly","unit":"Bag","qty":62.0,"avg":4.0,"category":"Toppings","safetyStock":3},
+  {"sku":"E015","name":"Coffee Jelly","unit":"Can","qty":12.0,"avg":null,"category":"Toppings","safetyStock":3},
+  {"sku":"F001","name":"Big Paper straw","unit":"CTN","qty":1.0,"avg":0.3,"category":"Packaging","safetyStock":3},
+  {"sku":"F002","name":"Big Straw","unit":"CTN","qty":7.0,"avg":12.5,"category":"Packaging","safetyStock":3},
+  {"sku":"F003","name":"Small Straw","unit":"CTN","qty":5.0,"avg":1.5,"category":"Packaging","safetyStock":3},
+  {"sku":"F004","name":"Cup Sleeve","unit":"CTN","qty":6.0,"avg":0.3,"category":"Packaging","safetyStock":3},
+  {"sku":"F005","name":"500cc Paper Cup","unit":"CTN","qty":42.0,"avg":0.3,"category":"Packaging","safetyStock":3},
+  {"sku":"F006","name":"700cc Paper Cup","unit":"CTN","qty":99.0,"avg":1.5,"category":"Packaging","safetyStock":3},
+  {"sku":"F007","name":"360cc PP Cup","unit":"CTN","qty":0.0,"avg":0.0,"category":"Packaging","safetyStock":3},
+  {"sku":"F008","name":"500cc PP Cup","unit":"CTN","qty":0.0,"avg":5.5,"category":"Packaging","safetyStock":3},
+  {"sku":"F009","name":"700cc PP Cup","unit":"CTN","qty":35.0,"avg":24.7,"category":"Packaging","safetyStock":3},
+  {"sku":"F010","name":"90 Round Cover","unit":"CTN","qty":4.0,"avg":0.5,"category":"Packaging","safetyStock":3},
+  {"sku":"F011","name":"Smart Lid (clear)","unit":"CTN","qty":5.0,"avg":0.0,"category":"Packaging","safetyStock":3},
+  {"sku":"F012","name":"Sealing Film","unit":"Roll","qty":18.0,"avg":8.9,"category":"Packaging","safetyStock":3},
+  {"sku":"F013","name":"Takeaway bag (4-cup)","unit":"Pack","qty":89.0,"avg":8.9,"category":"Packaging","safetyStock":3},
+  {"sku":"F014","name":"Paper Tray","unit":"Pieces","qty":866.0,"avg":161.0,"category":"Packaging","safetyStock":3},
+  {"sku":"F015","name":"Stamp cards","unit":"Stacks","qty":103.0,"avg":9.4,"category":"Packaging","safetyStock":3},
+  {"sku":"F016","name":"Testing cup","unit":"CTN","qty":4.0,"avg":0.3,"category":"Packaging","safetyStock":3},
+  {"sku":"F017","name":"700cc Paper Cup (local)","unit":"Pieces","qty":4.0,"avg":0.8,"category":"Packaging","safetyStock":3},
+  {"sku":"F018","name":"500cc PP Cup (1000 pcs) - Local","unit":"Pieces","qty":20.0,"avg":5.0,"category":"Packaging","safetyStock":3}
+];
+
+
+function toggleCategoryOrderPanel(){
+  const panel = document.getElementById('categoryOrderPanel');
+  if(panel.style.display === 'none'){
+    syncCategoryOrder();
+    renderCategoryOrderPanel();
+    panel.style.display = 'block';
+  } else {
+    panel.style.display = 'none';
+  }
+}
+
+function renderCategoryOrderPanel(){
+  const panel = document.getElementById('categoryOrderPanel');
+  const movable = categoryOrder.filter(c => c !== '未分類'); // 未分類 always stays last
+  panel.innerHTML = `
+    <div class="cat-order-panel">
+      <p style="font-size:12px;color:var(--ink-soft);margin:0 0 10px;">${t('catOrderPanelDesc')}</p>
+      ${movable.map((cat, i) => `
+        <div class="cat-order-row">
+          <span class="cat-order-name">${catLabel(cat)}</span>
+          <button onclick="moveCategoryOrder(${i}, -1)" ${i === 0 ? 'disabled' : ''} title="${t('titleMoveUp')}">↑</button>
+          <button onclick="moveCategoryOrder(${i}, 1)" ${i === movable.length - 1 ? 'disabled' : ''} title="${t('titleMoveDown')}">↓</button>
+          <button class="cat-order-rename-btn" onclick="renameCategoryAt(${i})" title="${t('titleRenameCategory')}">${t('btnRenameCategory')}</button>
+        </div>
+      `).join('')}
+    </div>
+  `;
+}
+
+// 重新命名一個分類;如果輸入的新名稱(忽略大小寫/前後空白)剛好跟另一個已存在的分類相同,
+// 就直接把這個分類的商品併過去那個分類,而不是留下兩筆重複的分類。
+async function renameCategoryAt(index){
+  const movable = categoryOrder.filter(c => c !== '未分類');
+  const oldName = movable[index];
+  if(!oldName) return;
+  const input = window.prompt(tf('renameCategoryPrompt', { name: catLabel(oldName) }), oldName);
+  if(input === null) return;
+  const newName = input.trim();
+  if(!newName || newName === oldName) return;
+
+  const keyOf = s => s.trim().toLowerCase();
+  const existing = categoryOrder.find(c => c !== '未分類' && c !== oldName && keyOf(c) === keyOf(newName));
+  const finalName = existing || newName;
+
+  products.forEach(p => { if((p.category || '未分類') === oldName) p.category = finalName; });
+
+  if(existing){
+    categoryOrder = categoryOrder.filter(c => c !== oldName);
+  } else {
+    categoryOrder = categoryOrder.map(c => c === oldName ? finalName : c);
+  }
+
+  await saveProducts();
+  await saveCategoryOrder();
+  renderCategoryOrderPanel();
+  renderAll();
+}
+
+async function moveCategoryOrder(index, direction){
+  const movable = categoryOrder.filter(c => c !== '未分類');
+  const target = index + direction;
+  if(target < 0 || target >= movable.length) return;
+  [movable[index], movable[target]] = [movable[target], movable[index]];
+  categoryOrder = [...movable, '未分類'];
+  await saveCategoryOrder();
+  renderCategoryOrderPanel();
+  renderStockCards();
 }

@@ -2672,3 +2672,49 @@ function removePurchaseReceipt(){
   const msgEl = document.getElementById('purchaseReceiptUploadMsg');
   if(msgEl) msgEl.textContent = '';
 }
+
+// 登記進出貨→新增商品的下拉選單(依分類篩選、隱藏商品一律不列入,不管哪種登記類型)
+function renderProductSelect(){
+  syncCategoryOrder();
+  const catSel = document.getElementById('txProductCategoryFilter');
+  const prevCat = catSel.value;
+  const usedCats = categoryOrder.filter(c => products.some(p => (p.category || '未分類') === c));
+  catSel.innerHTML = `<option value="">${t('catFilterAll')}</option>` +
+    usedCats.map(c => `<option value="${c}">${catLabel(c)}</option>`).join('');
+  if(usedCats.includes(prevCat)) catSel.value = prevCat;
+  const catFilterVal = catSel.value;
+
+  const sel = document.getElementById('txProduct');
+  const prevVal = sel.value;
+  // 庫存總覽設定隱藏的商品,登記進出貨新增商品時的下拉選單一律不顯示(不管是進貨/出貨/庫存調整
+  // 或任何其他模式)——隱藏通常代表這項商品已經停用/不再進貨,不應該還讓人選到去登記異動。
+  let filteredProducts = (catFilterVal ? products.filter(p => (p.category || '未分類') === catFilterVal) : products)
+    .filter(p => !p.hidden);
+
+  // load-pending/load-completed 新增商品的下拉選單:預設只顯示這個出貨方訂貨時實際看得到的商品
+  // (跟訂貨頁面同一套篩選邏輯:orderable、沒有全域隱藏、也沒有針對這個出貨方個別隱藏),
+  // 勾選「瀏覽所有商品」才會放寬成庫存總覽裡的全部商品(全域隱藏的還是不顯示)。
+  // 其他模式(進貨/入庫/新增訂單/庫存調整)不受影響,維持原本的行為。
+  if(registerOutFlowType === 'load-pending' || registerOutFlowType === 'load-completed'){
+    const browseAllEl = document.getElementById('txBrowseAllProducts');
+    const browseAll = !!(browseAllEl && browseAllEl.checked);
+    if(browseAll){
+      filteredProducts = filteredProducts.filter(p => !p.hidden);
+    } else {
+      const order = registerLoadedOrderId ? orders.find(o => o.id === registerLoadedOrderId) : null;
+      const partyObj = order ? shippingParties.find(sp => sp.id === order.partyId) : null;
+      const hiddenForParty = partyObj && Array.isArray(partyObj.hiddenProductIds) ? partyObj.hiddenProductIds : [];
+      filteredProducts = filteredProducts.filter(p => p.orderable && !p.hidden && !hiddenForParty.includes(p.id));
+    }
+  }
+
+  sel.innerHTML = '<option value=""></option>' + filteredProducts.slice().sort(compareProductsBySortMode).map(p => `<option value="${p.id}">${p.parentId ? '⧉ ' : ''}${p.name}(${p.unit})</option>`).join('');
+  if(filteredProducts.some(p => p.id === prevVal)) sel.value = prevVal;
+
+  const browseAllRow = document.getElementById('txBrowseAllProductsRow');
+  if(browseAllRow) browseAllRow.style.display = (registerOutFlowType === 'load-pending' || registerOutFlowType === 'load-completed') ? '' : 'none';
+
+  makeSelectSearchable('txProduct');
+  populateCategoryDropdowns();
+}
+
