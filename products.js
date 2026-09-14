@@ -148,6 +148,7 @@ function renderProductEditModalBody(p, opts){
         <span class="del-link" onclick="removeProductPhoto()" style="display:inline-block;margin-top:4px;">${t('btnRemovePhoto')}</span>
       </div>
       <input type="file" id="editProdPhotoInput" accept="image/*" onchange="handleProductPhotoUpload(this)" />
+      <button type="button" class="btn ghost camera-capture-btn" onclick="openCameraCaptureModal(uploadProductPhotoFile)" style="${isCameraCaptureSupported() ? '' : 'display:none;'}margin-left:6px;">📷 ${t('btnTakePhoto')}</button>
       <div id="editProdPhotoUploadMsg" style="font-size:11.5px;margin-top:4px;"></div>
     </div>
     ${isChild ? `
@@ -264,18 +265,21 @@ function closeProductEditModal(){
 async function handleProductPhotoUpload(inputEl){
   const file = inputEl.files && inputEl.files[0];
   if(!file) return;
+  await uploadProductPhotoFile(file);
+  inputEl.value = '';
+}
+
+async function uploadProductPhotoFile(file){
   const msgEl = document.getElementById('editProdPhotoUploadMsg');
   if(!file.type.startsWith('image/')){
     msgEl.style.color = 'var(--crit)';
     msgEl.textContent = t('errPhotoMustBeImage');
-    inputEl.value = '';
     return;
   }
   const maxBytes = 5 * 1024 * 1024; // 5MB——單純避免有人選到超大原始檔拖慢上傳/日後載入速度
   if(file.size > maxBytes){
     msgEl.style.color = 'var(--crit)';
     msgEl.textContent = t('errPhotoTooLarge');
-    inputEl.value = '';
     return;
   }
   msgEl.style.color = 'var(--ink-soft)';
@@ -296,7 +300,6 @@ async function handleProductPhotoUpload(inputEl){
     msgEl.style.color = 'var(--crit)';
     msgEl.textContent = t('errPhotoUploadFailed');
   }
-  inputEl.value = '';
 }
 
 // 移除照片:只是把暫存的網址清掉、預覽藏起來,實際上不會去刪 Storage 裡的檔案(留著也無妨,

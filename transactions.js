@@ -2562,18 +2562,26 @@ function renderTxFileList(){
 // 前提;但光是滿足 HTTPS 這個前提本身,並不會讓 <input capture> 自動變成「留在頁面內」的相機,
 // 兩者是分開的兩件事——這裡改用 getUserMedia 自己畫相機介面,才是真正解決「切出去又跳回來」
 // 這個問題的做法。
+//
+// 這個相機介面是共用的(收據附件、庫存分布位置照片、商品照片三個地方都會用到)——用一個
+// callback(cameraCaptureOnConfirm)決定「拍完確認使用之後,這張照片要交給誰處理」,呼叫端
+// 自己決定要怎麼上傳/存到哪裡,這裡只負責「拍照」這件事本身。
 let cameraCaptureStream = null;
 let cameraCapturedBlob = null;
+let cameraCaptureOnConfirm = null;
+let cameraCaptureTrack = null; // 目前這個串流的視訊軌——點按對焦、開關手電筒都是對它下指令
 
 function isCameraCaptureSupported(){
   return !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
 }
 
-async function openCameraCaptureModal(){
+async function openCameraCaptureModal(onConfirm){
   if(!isCameraCaptureSupported()) return;
+  cameraCaptureOnConfirm = onConfirm;
   const video = document.getElementById('cameraCaptureVideo');
   const previewImg = document.getElementById('cameraCapturePreviewImg');
   const msgEl = document.getElementById('cameraCaptureMsg');
+  const torchBtn = document.getElementById('btnCameraTorch');
   cameraCapturedBlob = null;
   msgEl.textContent = '';
   msgEl.className = 'msg';
@@ -2582,17 +2590,80 @@ async function openCameraCaptureModal(){
   document.getElementById('btnCameraShoot').style.display = '';
   document.getElementById('btnCameraRetake').style.display = 'none';
   document.getElementById('btnCameraUsePhoto').style.display = 'none';
+  if(torchBtn){ torchBtn.style.display = 'none'; torchBtn.dataset.on = 'false'; torchBtn.textContent = t('btnTorchOn'); }
   document.getElementById('cameraCaptureModalOverlay').style.display = 'flex';
   try{
-    // facingMode: 'environment' 優先用後鏡頭(拍收據這種情境一定是用後鏡頭拍外面的東西,
-    // 不是自拍)——裝置沒有後鏡頭(例如筆電內建鏡頭)的話,瀏覽器會自動退回用僅有的那一顆。
+    // facingMode: 'environment' 優先用後鏡頭(拍收據/位置/商品這種情境一定是用後鏡頭拍外面的
+    // 東西,不是自拍)——裝置沒有後鏡頭(例如筆電內建鏡頭)的話,瀏覽器會自動退回用僅有的那一顆。
     cameraCaptureStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' }, audio: false });
     video.srcObject = cameraCaptureStream;
+    cameraCaptureTrack = cameraCaptureStream.getVideoTracks()[0];
+    // 手電筒(torch)是不是能用,要看裝置/瀏覽器支不支援——目前只有部分 Android 上的 Chrome 系
+    // 瀏覽器支援,iOS Safari 完全不支援透過網頁控制手電筒(這是瀏覽器本身的限制,不是這裡能
+    // 解決的)。這裡用 getCapabilities() 偵測,支援才顯示按鈕,不支援就直接藏起來,不會讓人
+    // 點了才發現沒反應——也沒有做到真正「自動」判斷該不該打閃光燈這種程度(網頁的相機
+    // API 目前沒有開放這麼細的控制),只能做到手動開關手電筒這一步。
+    if(torchBtn && cameraCaptureTrack.getCapabilities){
+      try{
+        const caps = cameraCaptureTrack.getCapabilities();
+        torchBtn.style.display = caps.torch ? '' : 'none';
+      } catch(e){ torchBtn.style.display = 'none'; }
+    }
   } catch(e){
     console.error('開啟相機失敗', e);
     msgEl.className = 'msg error';
     msgEl.textContent = t('errCameraAccessFailed');
   }
+}
+
+async function toggleCameraTorch(){
+  if(!cameraCaptureTrack) return;
+  const torchBtn = document.getElementById('btnCameraTorch');
+  const isOn = torchBtn.dataset.on === 'true';
+  try{
+    await cameraCaptureTrack.applyConstraints({ advanced: [{ torch: !isOn }] });
+    torchBtn.dataset.on = (!isOn).toString();
+    torchBtn.textContent = !isOn ? t('btnTorchOff') : t('btnTorchOn');
+  } catch(e){
+    console.error('切換手電筒失敗', e);
+  }
+}
+
+// 點一下相機畫面對焦——畫面上顯示一個白色方框的動畫給使用者回饋(不管瀏覽器實不實際支援
+// 「指定對焦點」這個功能,這個視覺回饋都會顯示,至少讓人感覺得到「有點到、有在反應」);
+// 實際指定對焦點這件事,目前只有少數瀏覽器透過非標準的 pointsOfInterest 這個 constraint 支援,
+// 大部分情況下這段會安靜失敗、沒有實際效果,但失敗不影響拍照本身,所以直接忽略錯誤。
+function handleCameraVideoTap(evt){
+  const wrap = document.getElementById('cameraCaptureVideoWrap');
+  const rect = wrap.getBoundingClientRect();
+  const point = evt.touches && evt.touches[0] ? evt.touches[0] : evt;
+  const x = point.clientX - rect.left;
+  const y = point.clientY - rect.top;
+  if(x < 0 || y < 0 || x > rect.width || y > rect.height) return;
+  showCameraFocusBoxAt(x, y);
+  if(cameraCaptureTrack && cameraCaptureTrack.getCapabilities){
+    try{
+      const caps = cameraCaptureTrack.getCapabilities();
+      if(caps.focusMode && caps.focusMode.includes('single-shot') && caps.focusDistance){
+        cameraCaptureTrack.applyConstraints({
+          advanced: [{ focusMode: 'single-shot', pointsOfInterest: [{ x: x / rect.width, y: y / rect.height }] }]
+        }).catch(() => {});
+      }
+    } catch(e){ /* 不支援指定對焦點,忽略——畫面上的白框動畫本身還是有正常顯示 */ }
+  }
+}
+
+function showCameraFocusBoxAt(x, y){
+  const box = document.getElementById('cameraFocusBox');
+  if(!box) return;
+  box.style.left = `${x}px`;
+  box.style.top = `${y}px`;
+  box.style.display = 'block';
+  box.classList.remove('camera-focus-box-anim');
+  void box.offsetWidth; // 強制 reflow,讓動畫在連續點好幾下的時候都能重新觸發,不是只有第一次有效果
+  box.classList.add('camera-focus-box-anim');
+  clearTimeout(showCameraFocusBoxAt._timer);
+  showCameraFocusBoxAt._timer = setTimeout(() => { box.style.display = 'none'; }, 700);
 }
 
 function capturePhotoFromCamera(){
@@ -2630,8 +2701,9 @@ async function confirmCapturedPhoto(){
   if(!cameraCapturedBlob) return;
   const filename = `camera-${todayISO()}-${Date.now()}.jpg`;
   const file = new File([cameraCapturedBlob], filename, { type: 'image/jpeg' });
+  const onConfirm = cameraCaptureOnConfirm;
   closeCameraCaptureModal();
-  await uploadPurchaseReceiptFiles([file]);
+  if(onConfirm) await onConfirm(file);
 }
 
 function closeCameraCaptureModal(){
@@ -2642,7 +2714,9 @@ function closeCameraCaptureModal(){
     cameraCaptureStream.getTracks().forEach(track => track.stop());
     cameraCaptureStream = null;
   }
+  cameraCaptureTrack = null;
   cameraCapturedBlob = null;
+  cameraCaptureOnConfirm = null;
   document.getElementById('cameraCaptureModalOverlay').style.display = 'none';
 }
 

@@ -431,6 +431,11 @@ function openLocationEditModal(locationId, productIdIfNew){
   const photoPreviewWrap = document.getElementById('locationEditPhotoPreviewWrap');
   const photoMsg = document.getElementById('locationEditPhotoMsg');
   photoMsg.textContent = '';
+  // 拍照上傳的按鈕要不要顯示,只看瀏覽器/連線支不支援(見 isCameraCaptureSupported,定義在
+  // transactions.js,全站共用同一份判斷邏輯)——每次開這個視窗都重新判斷一次,不用擔心裝置
+  // 中途換了瀏覽器這種極端情況,反正每次開視窗都會重新檢查。
+  const locationCameraBtn = document.querySelector('#locationEditPhotoSection .camera-capture-btn');
+  if(locationCameraBtn) locationCameraBtn.style.display = isCameraCaptureSupported() ? '' : 'none';
   document.getElementById('locationEditModalMsg').textContent = '';
   document.getElementById('locationTransferQtyInput').value = '';
   ['locationZoneInput','locationAisleInput','locationBayInput','locationLevelInput','locationBinInput','locationCustomCodeInput'].forEach(id => {
@@ -483,12 +488,17 @@ function closeLocationEditModal(){
 async function handleLocationPhotoUpload(inputEl){
   const file = inputEl.files && inputEl.files[0];
   if(!file) return;
+  await uploadLocationPhotoFile(file);
+  inputEl.value = '';
+}
+
+async function uploadLocationPhotoFile(file){
   const msgEl = document.getElementById('locationEditPhotoMsg');
   if(!file.type.startsWith('image/')){
-    msgEl.style.color = 'var(--crit)'; msgEl.textContent = t('errPhotoMustBeImage'); inputEl.value = ''; return;
+    msgEl.style.color = 'var(--crit)'; msgEl.textContent = t('errPhotoMustBeImage'); return;
   }
   if(file.size > 5 * 1024 * 1024){
-    msgEl.style.color = 'var(--crit)'; msgEl.textContent = t('errPhotoTooLarge'); inputEl.value = ''; return;
+    msgEl.style.color = 'var(--crit)'; msgEl.textContent = t('errPhotoTooLarge'); return;
   }
   msgEl.style.color = 'var(--ink-soft)'; msgEl.textContent = t('uploadingPhotoMsg');
   const ext = (file.name.split('.').pop() || 'jpg').toLowerCase().replace(/[^a-z0-9]/g, '') || 'jpg';
@@ -512,7 +522,6 @@ async function handleLocationPhotoUpload(inputEl){
     console.error('上傳位置照片失敗', e);
     msgEl.style.color = 'var(--crit)'; msgEl.textContent = t('errReceiptUploadFailed');
   }
-  inputEl.value = '';
 }
 
 function viewLocationPhoto(locationId){
