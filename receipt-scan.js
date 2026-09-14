@@ -471,7 +471,15 @@ async function scanReceiptForItems(){
           }
         }
         const pageLines = (data.lines || []).map(l => {
-          const rawQty = (l.qty && l.qty > 0) ? l.qty : 1;
+          // 掃描服務回傳 qty 是 null/0(或乾脆沒有這個欄位)的話,代表那一格本來就是空白——
+          // 尤其常見於 Excel 格式的收據/清單:整份表格列出所有商品,只有這次真的要訂的品項才會
+          // 填數量,空白代表「這次不訂這項」,不是「讀不到、隨便猜一個」。以前這裡會把這種情況
+          // 預設成數量 1,結果整份清單裡「本來沒有要訂」的商品也被當成「訂 1 個」一起加進去——
+          // 改成直接跳過這一行(回傳 null,下面用 filter 篩掉),當作這次沒有要訂這個商品處理。
+          // 對圖片/PDF 掃描來說一樣合理:真的完全讀不到數量的那一行,比較可能是表頭/小計列被
+          // 誤判成品項,而不是使用者真的要訂 1 個——與其默默猜一個數字讓人沒注意到就送出去,
+          // 跳過、不列進待確認清單反而更安全。
+          if(!l.qty || l.qty <= 0) return null;
           const rawAmount = (l.amount && l.amount > 0) ? l.amount : null;
           return {
             description: l.name,
@@ -480,13 +488,13 @@ async function scanReceiptForItems(){
             // Credit Note 這筆最後要記成 type='out'(代表這批數量沒有真的留在庫存裡),這個轉換
             // 在真正送出登記進出貨(submitTxBatchSimple)那一步才做,不在這裡處理;畫面上顯示
             // 淨值、匯出報表加總,也是各自在顯示層另外處理正負號,不會讓「負的 qty」流進資料庫。
-            qty: rawQty,
+            qty: l.qty,
             amount: rawAmount,
             docType,
             sourceFilename: file.filename,
             scanId: fileScanId
           };
-        });
+        }).filter(Boolean);
         allLines = allLines.concat(pageLines);
       }
       if(fileScanId) receiptOcrScanIdsForCorrection[fileScanId] = true;
