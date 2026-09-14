@@ -194,6 +194,9 @@ function deleteOcrMapping(mappingId){
 // 之前有沒有確認過這串文字對應到哪個商品」——有記憶的話不用問,直接照掃描服務回傳的數量/
 // 金額加入清單;沒有記憶的話才跳出視窗,讓使用者手動選商品、確認數量金額,選完會記住。
 let receiptOcrPartyId = null;
+// 這次掃描過程中,實際加進登記進出貨清單(txBatchItems)的那幾筆的 batchItemId——「取消全部」
+// 的時候要用這個把這次掃描加的商品也一併移除,不是只清掉還沒確認的品項跟記憶對照表。
+let receiptOcrSessionBatchItemIds = [];
 // 目前確認視窗顯示的這一行,收據上讀到的描述文字——「顯示隱藏商品」勾選框改變時要重新算一次
 // 建議商品(renderReceiptOcrSuggestions),那個時間點沒有 line 這個參數可用,所以存起來備用。
 let currentReceiptOcrLineDescription = '';
@@ -423,6 +426,7 @@ async function scanReceiptForItems(){
   const partyInput = document.getElementById('txParty');
   receiptOcrPartyId = partyInput ? partyInput.value.trim() : null;
   receiptOcrSessionNewMappingIds = [];
+  receiptOcrSessionBatchItemIds = [];
   receiptOcrScanIdsForCorrection = {};
   receiptOcrConfirmedLinesForCorrection = [];
 
@@ -543,16 +547,22 @@ function addOcrLineToTxBatch(productId, qty, amount, docType, sourceFilename){
   const existing = txBatchItems.find(it =>
     it.productId === productId && it.docType === docType && it.sourceFilename === sourceFilename
   );
+  let affectedBatchItemId;
   if(existing){
     existing.qty += qty;
     if(amount !== null && amount !== undefined) existing.amount = (existing.amount || 0) + amount;
+    affectedBatchItemId = existing.batchItemId;
   } else {
     const item = { batchItemId: genId(), productId, sku: p.sku || '', name: p.name, unit: p.unit, qty };
     if(amount !== null && amount !== undefined) item.amount = amount;
     if(docType) item.docType = docType;
     if(sourceFilename) item.sourceFilename = sourceFilename;
     txBatchItems.push(item);
+    affectedBatchItemId = item.batchItemId;
   }
+  // 記住這筆這次掃描有動到(不管是新增一行、還是加到這次掃描自己稍早已經加過的同一行)——
+  // 「取消全部」的時候要靠這個知道哪些是這次掃描造成的,才能正確移除。
+  if(!receiptOcrSessionBatchItemIds.includes(affectedBatchItemId)) receiptOcrSessionBatchItemIds.push(affectedBatchItemId);
   renderTxBatchList();
 }
 
@@ -758,10 +768,17 @@ function skipReceiptOcrLine(){
 async function cancelReceiptOcrSequence(){
   pendingReceiptOcrLines = [];
   document.getElementById('receiptOcrConfirmModalOverlay').style.display = 'none';
-  // 「取消全部」要是真的取消掉這整次掃描的所有影響,不只是清空還沒確認的品項——這次掃描過程中
-  // 如果已經有幾筆新建的記憶(不管是「確認並加入」還是「略過這一行」建立的),一併復原刪除,
-  // 不然下次同一張收據重新掃描,那幾筆被略過/確認的行會照舊記憶直接跳過,使用者會覺得「明明
-  // 取消了,怎麼還是沒有跳出來問」,搞不清楚發生了什麼事。
+  // 「取消全部」要是真的取消掉這整次掃描的所有影響——不只是清空還沒確認的品項,這次掃描過程中
+  // 已經「確認並加入」到登記進出貨清單的品項,也要一併移除,不然使用者會看到清單裡多了幾筆
+  // 明明按了取消卻還在的商品,搞不清楚發生了什麼事。
+  const batchItemIdsToRemove = receiptOcrSessionBatchItemIds.slice();
+  receiptOcrSessionBatchItemIds = [];
+  if(batchItemIdsToRemove.length > 0){
+    txBatchItems = txBatchItems.filter(it => !batchItemIdsToRemove.includes(it.batchItemId));
+  }
+  // 這次掃描過程中如果已經有幾筆新建的記憶(不管是「確認並加入」還是「略過這一行」建立的),
+  // 一併復原刪除,不然下次同一張收據重新掃描,那幾筆被略過/確認的行會照舊記憶直接跳過,
+  // 使用者會覺得「明明取消了,怎麼還是沒有跳出來問」,搞不清楚發生了什麼事。
   const idsToRevert = receiptOcrSessionNewMappingIds.slice();
   receiptOcrSessionNewMappingIds = [];
   for(const id of idsToRevert){
