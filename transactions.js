@@ -1508,24 +1508,43 @@ async function runStockImportCore(items, skippedRows, clearBlanksMode, dryRun){
 async function submitTxBatch(action){
   const msg = document.getElementById('txMsg');
   const date = document.getElementById('txDate').value;
+  // 送出區塊(#txSubmitArea)裡的按鈕是 renderTxSubmitArea() 依目前的類型/子流程動態產生的
+  // (進貨只有一顆「提交」,出貨依子流程可能是兩三顆不同動作的按鈕),不是固定寫死同一顆,所以
+  // 這裡不能只鎖住某一顆按鈕的 id,而是把這個區塊裡「當下顯示的所有按鈕」一起鎖住。
+  // 送出的當下先鎖住,等這次送出真的跑完(不管成功還是失敗)才解鎖——避免畫面卡頓的時候手滑
+  // 點快兩下,兩次點擊中間送出的動作還沒跑完按鍵卻沒鎖住,結果同一批品項被送出兩次、資料庫
+  // 多出重複的進出貨紀錄。用 try/finally 包住整個函式,不管最後是哪一種類型各自的送出流程
+  // (submitAdjustmentFlow/submitTxBatchSimple/submitNewOrderFlow/submitLoadPendingFlow/
+  // submitLoadCompletedFlow),都一定會等它真的跑完才解鎖,不是送出去就馬上解鎖不管後續。
+  const submitButtons = Array.from(document.querySelectorAll('#txSubmitArea button'));
+  if(submitButtons.some(b => b.disabled)) return; // 已經在送出中,這次點擊直接忽略
+  submitButtons.forEach(b => { b.disabled = true; });
+  try{
+    if(currentTxType === 'adjustment'){
+      await submitAdjustmentFlow(date, msg);
+      return;
+    }
 
-  if(currentTxType === 'adjustment'){
-    return submitAdjustmentFlow(date, msg);
+    if(currentTxType !== 'out'){
+      await submitTxBatchSimple(date, msg);
+      return;
+    }
+
+    if(!registerOutFlowType){
+      msg.className = 'msg error'; msg.textContent = t('errSelectOutFlowTypeFirst');
+      return;
+    }
+    if(!date){ msg.className = 'msg error'; msg.textContent = '請選擇日期'; return; }
+
+    if(registerOutFlowType === 'new-order'){ await submitNewOrderFlow(action, date, msg); return; }
+    if(registerOutFlowType === 'load-pending'){ await submitLoadPendingFlow(action, msg); return; }
+    if(registerOutFlowType === 'load-completed'){ await submitLoadCompletedFlow(date, msg); return; }
+  } finally {
+    // 送出流程跑完之後,畫面通常已經重新渲染過(renderTxSubmitArea 可能已經換了一批新的按鈕
+    // 元素,例如送出成功後清單清空、畫面切換),這裡統一重新查一次目前畫面上實際的按鈕來解鎖,
+    // 不是沿用送出前那份舊的按鈕參照(舊的元素可能已經被換掉了,解鎖也解不到現在畫面上的)。
+    Array.from(document.querySelectorAll('#txSubmitArea button')).forEach(b => { b.disabled = false; });
   }
-
-  if(currentTxType !== 'out'){
-    return submitTxBatchSimple(date, msg);
-  }
-
-  if(!registerOutFlowType){
-    msg.className = 'msg error'; msg.textContent = t('errSelectOutFlowTypeFirst');
-    return;
-  }
-  if(!date){ msg.className = 'msg error'; msg.textContent = '請選擇日期'; return; }
-
-  if(registerOutFlowType === 'new-order') return submitNewOrderFlow(action, date, msg);
-  if(registerOutFlowType === 'load-pending') return submitLoadPendingFlow(action, msg);
-  if(registerOutFlowType === 'load-completed') return submitLoadCompletedFlow(date, msg);
 }
 
 // 進貨/入庫維持原本邏輯,不受出貨這次改版影響:一批共用同一個類型/日期/對象/備註,
