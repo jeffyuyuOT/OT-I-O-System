@@ -2193,7 +2193,8 @@
     </div>
     <div id="receiptOcrConfirmMsg" class="msg"></div>
     <div class="modal-actions">
-      <button class="btn ghost" onclick="skipReceiptOcrLine()" data-i18n="btnSkip">略過這一行</button>
+      <button class="btn ghost" onclick="skipReceiptOcrLineOnce()" data-i18n="btnSkipOnce">跳過此商品(不記住)</button>
+      <button class="btn ghost" onclick="skipReceiptOcrLine()" data-i18n="btnSkip">略過這一行(以後自動跳過)</button>
       <button class="btn ghost" onclick="cancelReceiptOcrSequence()" data-i18n="btnCancel">取消全部</button>
       <button class="btn" onclick="confirmReceiptOcrLine()" data-i18n="btnConfirmAndAdd">確認並加入</button>
     </div>

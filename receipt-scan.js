@@ -756,6 +756,16 @@ async function confirmReceiptOcrLine(){
   processNextReceiptOcrLine();
 }
 
+// 跟「略過這一行」(skipReceiptOcrLine)不一樣:這個「跳過此商品」不會存進記憶對照表——
+// 只是這次掃描不想加這個品項而已,不代表以後每次掃到同一個供應商、同樣的文字都要自動跳過。
+// 「略過這一行」比較適合公司資訊、地址這種真的不是商品、以後也不會是商品的雜訊;這個「跳過
+// 此商品」則適合「這次剛好不訂這個」但下次可能還是要問的情況,不會把這個判斷永久記住。
+function skipReceiptOcrLineOnce(){
+  pendingReceiptOcrLines.shift();
+  document.getElementById('receiptOcrConfirmModalOverlay').style.display = 'none';
+  processNextReceiptOcrLine();
+}
+
 function skipReceiptOcrLine(){
   const line = pendingReceiptOcrLines.shift();
   // 記住「這個供應商 + 這行文字」不是商品資訊(公司資訊、地址這類常見的收據雜訊)——下次掃
