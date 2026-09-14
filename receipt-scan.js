@@ -471,18 +471,23 @@ async function scanReceiptForItems(){
         } else if(scannableFiles.length === 1){
           msgEl.textContent = t('scanningReceiptMsg');
         }
-        // Excel 檔案要保留正確的副檔名一起送過去,後端才知道這是 Excel、要用解析 Excel 的方式
-        // 讀,不是當成圖片辨識。檔名本體改用使用者上傳時的原始檔名(file.filename)——之前這裡
-        // 曾經故意改成固定的英文名,是擔心原始檔名如果有中文,後端處理 multipart 表單的非 ASCII
-        // 檔名可能會出狀況,但這個顧慮沒有根據、卻造成了真的會發生的問題:後端 guess_supplier()
-        // 其中一層比對是看檔名(例如檔名本身就帶供應商名稱),固定成同一個檔名會讓這層比對永遠
-        // 失效,退回去只靠 OCR 文字內容猜,準確度變差、更容易猜錯供應商。瀏覽器的
-        // FormData/multipart 本身對 UTF-8 檔名處理沒有問題,改回用原始檔名。
-        // 圖片/PDF 轉出來的頁面沿用原本 receipt-page-N.jpg 的命名(內容本來就是圖片,檔名本身
-        // 對辨識沒有影響)。
-        const data = isExcel
-          ? await callReceiptScanService(ocrSources[i], i, file.filename)
-          : await callReceiptScanService(ocrSources[i], i);
+        // 送給掃描服務的檔名,三種來源分別處理,但共同原則是:能保留原始檔名就保留,後端
+        // guess_supplier() 其中一層比對是看檔名(很多收據檔名本身就帶供應商名稱,例如
+        // "2026_08_08_Asian_Gold_00041365.pdf"),固定成同一個檔名會讓這層比對永遠失效,
+        // 逼得後端只能退回準確度較低的 OCR 文字內容比對,更容易猜錯供應商。
+        // ·Excel:直接用原始檔名(file.filename)。
+        // ·PDF 轉出來的頁面:保留原始 PDF 檔名(去掉副檔名的主體部分)+ 頁碼,例如
+        // "2026_08_08_Asian_Gold_00041365-page-1.png"——多頁的話頁碼資訊也保留,副檔名
+        // 用 .png(renderAllPdfPagesAsImageDataUrls 實際上是用 canvas.toDataURL('image/png')
+        // 畫出來的,之前寫死的 .jpg 其實從一開始格式就標錯了,一併修正)。
+        // ·純圖片:直接用原始檔名(file.filename),不需要另外組。
+        const pdfBaseName = (file.filename || 'receipt').replace(/\.[^.]+$/, '');
+        const pageFilename = isExcel
+          ? file.filename
+          : isPdf
+            ? (ocrSources.length > 1 ? `${pdfBaseName}-page-${i + 1}.png` : `${pdfBaseName}.png`)
+            : file.filename;
+        const data = await callReceiptScanService(ocrSources[i], i, pageFilename);
         if(i === 0){
           fileScanId = data.scan_id; // 每個檔案自己一份 scan_id,多頁只用第一頁的,回報修正時看這個
           if(fileIdx === 0){
