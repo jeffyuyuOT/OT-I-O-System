@@ -472,13 +472,16 @@ async function scanReceiptForItems(){
           msgEl.textContent = t('scanningReceiptMsg');
         }
         // Excel 檔案要保留正確的副檔名一起送過去,後端才知道這是 Excel、要用解析 Excel 的方式
-        // 讀,不是當成圖片辨識。檔名本體特意用固定的英文名(不是原始檔名)——原始檔名如果有
-        // 中文,送到後端的 multipart 表單裡有些後端框架處理非 ASCII 檔名會出狀況,反正後端
-        // 只需要看副檔名判斷格式,不需要知道原始檔名是什麼,用安全的固定名字比較保險。
+        // 讀,不是當成圖片辨識。檔名本體改用使用者上傳時的原始檔名(file.filename)——之前這裡
+        // 曾經故意改成固定的英文名,是擔心原始檔名如果有中文,後端處理 multipart 表單的非 ASCII
+        // 檔名可能會出狀況,但這個顧慮沒有根據、卻造成了真的會發生的問題:後端 guess_supplier()
+        // 其中一層比對是看檔名(例如檔名本身就帶供應商名稱),固定成同一個檔名會讓這層比對永遠
+        // 失效,退回去只靠 OCR 文字內容猜,準確度變差、更容易猜錯供應商。瀏覽器的
+        // FormData/multipart 本身對 UTF-8 檔名處理沒有問題,改回用原始檔名。
         // 圖片/PDF 轉出來的頁面沿用原本 receipt-page-N.jpg 的命名(內容本來就是圖片,檔名本身
         // 對辨識沒有影響)。
         const data = isExcel
-          ? await callReceiptScanService(ocrSources[i], i, `receipt.${(file.filename || '').split('.').pop().toLowerCase()}`)
+          ? await callReceiptScanService(ocrSources[i], i, file.filename)
           : await callReceiptScanService(ocrSources[i], i);
         if(i === 0){
           fileScanId = data.scan_id; // 每個檔案自己一份 scan_id,多頁只用第一頁的,回報修正時看這個
