@@ -194,6 +194,22 @@ function deleteOcrMapping(mappingId){
 // 之前有沒有確認過這串文字對應到哪個商品」——有記憶的話不用問,直接照掃描服務回傳的數量/
 // 金額加入清單;沒有記憶的話才跳出視窗,讓使用者手動選商品、確認數量金額,選完會記住。
 let receiptOcrPartyId = null;
+// receiptOcrPartyId 只用在一個地方:掃描開始那一刻,把「當時」選的供應商當 supplier_hint 傳給
+// 後端(callReceiptScanService)——這個本來就該是「掃描前」的快照,不該隨掃描過程中使用者
+// 改選供應商而變動,所以維持是一個在掃描開始時賦值一次、之後不再更新的變數沒有問題。
+//
+// 但凡是「記住這筆對照關係要記在哪個供應商底下」的地方(rememberReceiptLineMapping、
+// findReceiptLineMapping、回報修正結果),都不該用這個快照值——之前試過在
+// promptSupplierGuessConfirmation() confirm 之後手動同步這個變數,但漏算了一種情況:使用者
+// 不是透過系統猜的供應商去確認,而是直接手動去改「進貨方」下拉選單本身(onTxPartyHistorySelectChange
+// 這個下拉選單自己的 onchange,根本不知道 receiptOcrPartyId 這個變數存在,不會幫忙同步)——
+// 這種情況下 receiptOcrPartyId 一樣會是舊的。與其在每個「可能改變供應商」的地方各自手動同步
+// (容易漏,這已經是第二次抓到漏同步的地方了),不如每次要用的時候直接讀畫面上「進貨方」欄位
+// 當下真正的值,一定跟畫面顯示的一致,不會再有「跟畫面看到的不一樣」這種問題。
+function getLiveReceiptPartyValue(){
+  const el = document.getElementById('txParty');
+  return el ? el.value.trim() : (receiptOcrPartyId || '');
+}
 // 這次掃描過程中,實際加進登記進出貨清單(txBatchItems)的那幾筆的 batchItemId——「取消全部」
 // 的時候要用這個把這次掃描加的商品也一併移除,不是只清掉還沒確認的品項跟記憶對照表。
 let receiptOcrSessionBatchItemIds = [];
@@ -366,12 +382,10 @@ function promptSupplierGuessConfirmation(guessedName){
       if(partyHistorySelect){ partyHistorySelect.value = '__new__'; }
       onTxPartyHistorySelectChange('__new__');
       document.getElementById('txParty').value = exactMatch.name;
-      receiptOcrPartyId = exactMatch.name; // 同步更新,不然接下來 confirmReceiptOcrLine() 記憶對照表還是會存成掃描前那個舊值(通常是空的)
       processNextReceiptOcrLine();
       return;
     }
     onTxPartyHistorySelectChange(exactMatch.name);
-    receiptOcrPartyId = exactMatch.name; // 同上,確認完供應商要同步更新,不能只改畫面上的下拉選單
     processNextReceiptOcrLine();
     return;
   }
@@ -383,7 +397,6 @@ function promptSupplierGuessConfirmation(guessedName){
       () => {
         selectPartyHistoryOptionByName(partyHistorySelect, best.name);
         onTxPartyHistorySelectChange(best.name);
-        receiptOcrPartyId = best.name; // 同上
         processNextReceiptOcrLine();
       },
       () => { processNextReceiptOcrLine(); }
@@ -395,7 +408,6 @@ function promptSupplierGuessConfirmation(guessedName){
         if(partyHistorySelect){ partyHistorySelect.value = '__new__'; }
         onTxPartyHistorySelectChange('__new__');
         document.getElementById('txParty').value = guessedName;
-        receiptOcrPartyId = guessedName; // 同上,新增供應商確認後一樣要同步
         processNextReceiptOcrLine();
       },
       () => { processNextReceiptOcrLine(); }
@@ -573,7 +585,7 @@ function processNextReceiptOcrLine(){
     return;
   }
   const line = pendingReceiptOcrLines[0];
-  const memory = findReceiptLineMapping(receiptOcrPartyId, line.description);
+  const memory = findReceiptLineMapping(getLiveReceiptPartyValue(), line.description);
   if(memory && memory.type === 'skip'){
     // 之前確認過這行不是商品資訊(公司資訊、地址這類),不用再問,直接跳過。
     pendingReceiptOcrLines.shift();
@@ -723,7 +735,7 @@ async function reportReceiptScanCorrections(){
           'Authorization': `Bearer ${RECEIPT_SCAN_SERVICE_API_KEY}`,
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify({ supplier_name: receiptOcrPartyId || '', lines: byScanId[scanId] })
+        body: JSON.stringify({ supplier_name: getLiveReceiptPartyValue(), lines: byScanId[scanId] })
       });
     } catch(e){
       console.error('回報收據掃描修正結果失敗(不影響本次進貨,只影響未來辨識準確度)', e);
@@ -743,7 +755,7 @@ async function confirmReceiptOcrLine(){
   const line = pendingReceiptOcrLines.shift();
   const finalAmount = (amount && amount > 0) ? amount : null;
   addOcrLineToTxBatch(productId, qty, finalAmount, line.docType, line.sourceFilename);
-  await rememberReceiptLineMapping(receiptOcrPartyId, normalizeReceiptLineText(line.description), productId);
+  await rememberReceiptLineMapping(getLiveReceiptPartyValue(), normalizeReceiptLineText(line.description), productId);
   // 收集這行使用者實際確認的結果,等這次掃描全部處理完再一次回報給掃描服務(見
   // reportReceiptScanCorrections)——略過的行(公司資訊、地址之類)不算品項,不放進來。
   receiptOcrConfirmedLinesForCorrection.push({
@@ -770,7 +782,7 @@ function skipReceiptOcrLine(){
   const line = pendingReceiptOcrLines.shift();
   // 記住「這個供應商 + 這行文字」不是商品資訊(公司資訊、地址這類常見的收據雜訊)——下次掃
   // 同一個供應商的收據,同樣的文字會直接自動跳過,不用每次都手動略過一次。
-  if(line) rememberReceiptLineMapping(receiptOcrPartyId, normalizeReceiptLineText(line.description), RECEIPT_SKIP_SENTINEL);
+  if(line) rememberReceiptLineMapping(getLiveReceiptPartyValue(), normalizeReceiptLineText(line.description), RECEIPT_SKIP_SENTINEL);
   document.getElementById('receiptOcrConfirmModalOverlay').style.display = 'none';
   processNextReceiptOcrLine();
 }
