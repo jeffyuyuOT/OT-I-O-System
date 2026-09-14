@@ -415,6 +415,38 @@ function promptSupplierGuessConfirmation(guessedName){
   }
 }
 
+// 真正送出登記進出貨的時候(submitTxBatchSimple 呼叫)才做這個檢查——使用者掃描、確認品項
+// 的當下,「進貨方」欄位是什麼,記憶對照表就記在那個供應商底下(見 confirmReceiptOcrLine /
+// processNextReceiptOcrLine 呼叫 addOcrLineToTxBatch 那幾處);但確認完品項之後、真正按下
+// 「提交」之前,使用者還是可能會再改一次「進貨方」欄位(例如發現剛剛猜錯了、或掃描時忘了先選)。
+// 這種情況下,記憶對照表存的供應商就會跟這次「實際送出去、記進資料庫的進貨單」用的供應商
+// 對不起來——這裡在真正送出之前,把這次批次裡每一筆來自收據掃描的品項(txBatchItems 上帶著
+// ocrDescriptions 的),依它們各自的描述文字,檢查記憶對照表存的供應商是不是最終送出去這個
+// (finalParty),不是的話直接修正過去(不是新增一筆、是真的改掉錯的那筆;如果剛好已經有一筆
+// 記在正確供應商底下,就把錯的那筆刪掉,不留兩筆重複的孤兒資料)。
+async function syncOcrMemoryToFinalParty(finalParty){
+  const normalizedFinalParty = finalParty || null;
+  const descriptionsToCheck = new Set();
+  txBatchItems.forEach(it => { (it.ocrDescriptions || []).forEach(d => descriptionsToCheck.add(d)); });
+  for(const desc of descriptionsToCheck){
+    const wrongMappings = receiptLineMappings.filter(m => m.normalizedText === desc && (m.partyId || null) !== normalizedFinalParty);
+    if(wrongMappings.length === 0) continue;
+    const alreadyCorrect = receiptLineMappings.find(m => m.normalizedText === desc && (m.partyId || null) === normalizedFinalParty);
+    for(const wrong of wrongMappings){
+      if(alreadyCorrect){
+        try{
+          await sb.from('receipt_line_mappings').delete().eq('id', wrong.id);
+          receiptLineMappings = receiptLineMappings.filter(m => m.id !== wrong.id);
+        } catch(e){ console.error('清除錯誤的收據記憶失敗', e); }
+      } else {
+        wrong.partyId = normalizedFinalParty;
+        try{ await sb.from('receipt_line_mappings').upsert(receiptMappingToRow(wrong)); }
+        catch(e){ console.error('修正收據記憶供應商失敗', e); }
+      }
+    }
+  }
+}
+
 async function scanReceiptForItems(){
   if(!hasFeature('receiptScanModule')) return;
   const msgEl = document.getElementById('purchaseReceiptScanMsg');
@@ -561,7 +593,7 @@ async function scanReceiptForItems(){
 // 系統自動加總過,反而看不出計算依據。畫面上(renderTxBatchList)會在同一個商品有多筆「不同
 // 文件來源」的時候,額外顯示一行「淨」的加總方便核對,但那只是顯示層面的呈現,底層資料還是
 // 分開的。
-function addOcrLineToTxBatch(productId, qty, amount, docType, sourceFilename){
+function addOcrLineToTxBatch(productId, qty, amount, docType, sourceFilename, ocrDescription){
   const p = products.find(x => x.id === productId);
   if(!p) return;
   const existing = txBatchItems.find(it =>
@@ -571,12 +603,23 @@ function addOcrLineToTxBatch(productId, qty, amount, docType, sourceFilename){
   if(existing){
     existing.qty += qty;
     if(amount !== null && amount !== undefined) existing.amount = (existing.amount || 0) + amount;
+    if(ocrDescription){
+      existing.ocrDescriptions = existing.ocrDescriptions || [];
+      if(!existing.ocrDescriptions.includes(ocrDescription)) existing.ocrDescriptions.push(ocrDescription);
+    }
     affectedBatchItemId = existing.batchItemId;
   } else {
     const item = { batchItemId: genId(), productId, sku: p.sku || '', name: p.name, unit: p.unit, qty };
     if(amount !== null && amount !== undefined) item.amount = amount;
     if(docType) item.docType = docType;
     if(sourceFilename) item.sourceFilename = sourceFilename;
+    // 記住這一行原本收據上讀到的描述文字(可能不只一個,同一個商品在同一份文件裡出現好幾次
+    // 會合併成一行,但各自的描述文字都要記住)——之後真正送出登記進出貨時,要用這個回頭去
+    // 更新記憶對照表(見 submitTxBatchSimple 裡的 syncOcrMemoryToFinalParty),確保記憶對照表
+    // 存的供應商,是使用者最後真的送出去那個,不是掃描/確認品項當下畫面上剛好顯示的那個——
+    // 使用者掃描完、確認完品項之後,送出之前還可能會再改一次「進貨方」欄位,那次修改也要
+    // 反映回記憶對照表才對。
+    if(ocrDescription) item.ocrDescriptions = [ocrDescription];
     txBatchItems.push(item);
     affectedBatchItemId = item.batchItemId;
   }
@@ -602,7 +645,7 @@ function processNextReceiptOcrLine(){
   }
   if(memory && memory.type === 'product'){
     // 已經有記憶對照過,不用問,照 OCR 讀到的數量/金額直接加入清單。
-    addOcrLineToTxBatch(memory.product.id, line.qty, line.amount, line.docType, line.sourceFilename);
+    addOcrLineToTxBatch(memory.product.id, line.qty, line.amount, line.docType, line.sourceFilename, normalizeReceiptLineText(line.description));
     receiptOcrConfirmedLinesForCorrection.push({
       name: line.description,
       qty: line.qty,
@@ -762,7 +805,7 @@ async function confirmReceiptOcrLine(){
 
   const line = pendingReceiptOcrLines.shift();
   const finalAmount = (amount && amount > 0) ? amount : null;
-  addOcrLineToTxBatch(productId, qty, finalAmount, line.docType, line.sourceFilename);
+  addOcrLineToTxBatch(productId, qty, finalAmount, line.docType, line.sourceFilename, normalizeReceiptLineText(line.description));
   await rememberReceiptLineMapping(getLiveReceiptPartyValue(), normalizeReceiptLineText(line.description), productId);
   // 收集這行使用者實際確認的結果,等這次掃描全部處理完再一次回報給掃描服務(見
   // reportReceiptScanCorrections)——略過的行(公司資訊、地址之類)不算品項,不放進來。

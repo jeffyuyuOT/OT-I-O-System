@@ -1697,6 +1697,11 @@ async function submitTxBatchSimple(date, msg){
     }
   }
 
+  // 掃描收據確認品項的當下,「進貨方」欄位是什麼,記憶對照表就記在那個供應商底下——但確認完
+  // 品項之後、真正送出之前,使用者還是可能再改一次「進貨方」,這裡在真正送出前先把記憶對照表
+  // 校正成這次實際送出去的供應商,確保兩者一致。
+  if(hasFeature('receiptScanModule')) await syncOcrMemoryToFinalParty(party);
+
   const purchaseId = currentTxType === 'in' ? genId() : null; // 一整批進貨(不管品項有幾個)共用同一個進貨單 ID
 
   // 「直接出貨」(currentTxType === 'out')的話,扣庫存之前先問清楚每個商品要從哪個位置扣——
