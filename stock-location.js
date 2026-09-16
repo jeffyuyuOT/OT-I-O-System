@@ -457,7 +457,7 @@ function openLocationEditModal(locationId, productIdIfNew){
     photoSection.style.display = 'block';
     if(loc.photoUrl){
       pendingLocationPhotoUrl = loc.photoUrl;
-      photoPreviewWrap.innerHTML = `<a href="${loc.photoUrl}" target="_blank" style="font-size:12.5px;">📎 ${t('linkViewUploadedReceipt')}</a>`;
+      photoPreviewWrap.innerHTML = `<a href="${loc.photoUrl}" target="_blank" style="font-size:12.5px;">📎 ${t('linkViewUploadedReceipt')}</a> <span class="del-link" onclick="removeLocationPhoto()" style="margin-left:8px;">${t('btnRemovePhoto')}</span>`;
       photoPreviewWrap.style.display = 'block';
     } else {
       photoPreviewWrap.style.display = 'none';
@@ -515,12 +515,37 @@ async function uploadLocationPhotoFile(file){
       if(loc){ loc.photoUrl = pendingLocationPhotoUrl; await upsertProductLocation(loc); }
       refreshStockLocationView();
     }
-    document.getElementById('locationEditPhotoPreviewWrap').innerHTML = `<a href="${pendingLocationPhotoUrl}" target="_blank" style="font-size:12.5px;">📎 ${t('linkViewUploadedReceipt')}</a>`;
+    document.getElementById('locationEditPhotoPreviewWrap').innerHTML = `<a href="${pendingLocationPhotoUrl}" target="_blank" style="font-size:12.5px;">📎 ${t('linkViewUploadedReceipt')}</a> <span class="del-link" onclick="removeLocationPhoto()" style="margin-left:8px;">${t('btnRemovePhoto')}</span>`;
     document.getElementById('locationEditPhotoPreviewWrap').style.display = 'block';
     msgEl.style.color = 'var(--safe)'; msgEl.textContent = t('receiptUploadedMsg');
   } catch(e){
     console.error('上傳位置照片失敗', e);
     msgEl.style.color = 'var(--crit)'; msgEl.textContent = t('errReceiptUploadFailed');
+  }
+}
+
+// 移除位置照片:跟商品照片的邏輯不同——位置照片上傳當下就已經寫進資料庫了(見上面
+// uploadLocationPhotoFile),不是等按「確認轉移」才生效,所以這裡點移除也要立刻回寫資料庫,
+// 不能只清暫存變數。未分布(locationEditTargetId 是 null)還沒有位置資料可以寫,只要清掉
+// 暫存的網址、把預覽藏起來就好——不影響任何功能,實際上也不會去刪 Storage 裡的檔案。
+async function removeLocationPhoto(){
+  const msgEl = document.getElementById('locationEditPhotoMsg');
+  const wrap = document.getElementById('locationEditPhotoPreviewWrap');
+  pendingLocationPhotoUrl = null;
+  if(wrap){ wrap.style.display = 'none'; wrap.innerHTML = ''; }
+  if(msgEl) msgEl.textContent = '';
+  if(locationEditTargetId){
+    const loc = productLocations.find(l => l.id === locationEditTargetId);
+    if(loc){
+      loc.photoUrl = null;
+      try{
+        await upsertProductLocation(loc);
+        refreshStockLocationView();
+      } catch(e){
+        console.error('移除位置照片失敗', e);
+        if(msgEl){ msgEl.style.color = 'var(--crit)'; msgEl.textContent = t('errReceiptUploadFailed'); }
+      }
+    }
   }
 }
 

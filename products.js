@@ -147,8 +147,7 @@ function renderProductEditModalBody(p, opts){
         <img id="editProdPhotoPreview" src="${editingProductPhotoUrl || ''}" style="max-width:120px;max-height:120px;border-radius:4px;border:1px solid var(--line);display:block;" />
         <span class="del-link" onclick="removeProductPhoto()" style="display:inline-block;margin-top:4px;">${t('btnRemovePhoto')}</span>
       </div>
-      <input type="file" id="editProdPhotoInput" accept="image/*" onchange="handleProductPhotoUpload(this)" />
-      <button type="button" class="btn ghost camera-capture-btn" onclick="openCameraCaptureModal(uploadProductPhotoFile)" style="${isCameraCaptureSupported() ? '' : 'display:none;'}margin-left:6px;">📷 ${t('btnTakePhoto')}</button>
+      <button type="button" class="btn ghost camera-capture-btn" onclick="openCameraCaptureModal(uploadProductPhotoFile)" style="${isCameraCaptureSupported() ? '' : 'display:none;'}">📷 ${t('btnTakePhoto')}</button>
       <div id="editProdPhotoUploadMsg" style="font-size:11.5px;margin-top:4px;"></div>
     </div>
     ${isChild ? `
