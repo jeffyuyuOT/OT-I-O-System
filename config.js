@@ -11,6 +11,10 @@
 const SUPABASE_URL = 'https://lstckpzmtacttwbmmbof.supabase.co';
 const SUPABASE_ANON_KEY = 'sb_publishable_dBwODRl6OdU-_TVPBi1TKA_Feoq7EDa';
 
+// 是否為測試環境——正式環境固定是 false,畫面上的「(Test Version)」標籤跟分頁標題後綴
+// 就會自動不顯示。
+const IS_TEST_ENV = false;
+
 // 收據掃描服務(receipt-scan-service)這個倉庫登記用的 API key——warehouses 這張表就在這個
 // 專案裡(不是另一個獨立的 Supabase 專案,這點之前的註解寫錯了,已經更正),去 Table Editor
 // 查 warehouses 表對應這個正式倉庫的那一列即可。填的是原始 key(不是 hash 過的那份)。
