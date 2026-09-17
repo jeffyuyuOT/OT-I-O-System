@@ -2321,14 +2321,32 @@
 <script src="stock-overview.js"></script>
 <script src="product-master.js"></script>
 <script>
-// 依 config.js 的 IS_TEST_ENV 決定要不要顯示「(Test Version)」標籤、分頁標題後綴,
-// 以及桌面圖示(test 用灰階版,正式版用彩色版)。
-// index.html 本身在 test/正式兩邊保持一模一樣,只靠 config.js 這個開關切換。
 (function(){
+// 依 config.js 的 IS_TEST_ENV 決定要不要顯示「(Test Version)」標籤、分頁標題後綴,
+// 桌面圖示(test 用灰階版,正式版用彩色版),以及 manifest 裡的 name/short_name(這兩個
+// 欄位是瀏覽器「加到主畫面/開啟應用程式」視窗標題列實際顯示的文字,跟分頁標題是分開的,
+// 之前漏改過這裡,導致正式版視窗標題列還是印著「(Test)」)。
+// index.html 本身在 test/正式兩邊保持一模一樣,只靠 config.js 這個開關切換。
   var IS_TEST = (typeof IS_TEST_ENV !== 'undefined') ? IS_TEST_ENV : true;
+
+  function updateManifest(mutate){
+    var manifestLink = document.querySelector('link[rel="manifest"]');
+    if (!manifestLink) return;
+    try {
+      var b64 = manifestLink.href.split(',')[1];
+      var manifest = JSON.parse(atob(b64));
+      mutate(manifest);
+      manifestLink.href = 'data:application/manifest+json;base64,' + btoa(unescape(encodeURIComponent(JSON.stringify(manifest))));
+    } catch (e) { /* manifest 更新失敗時,維持原本的內容即可,不影響其他功能 */ }
+  }
+
   if (!IS_TEST) {
     document.querySelectorAll('.app-title-testtag').forEach(function(el){ el.style.display = 'none'; });
     document.title = document.title.replace(/\s*\(Test Version\)\s*$/, '');
+    updateManifest(function(manifest){
+      manifest.name = (manifest.name || '').replace(/\s*\(Test\)\s*$/, '');
+      manifest.short_name = (manifest.short_name || '').replace(/\s*\(Test\)\s*$/, '');
+    });
     return;
   }
   // test 環境:把彩色圖示換成灰階版,方便跟正式版區分。
@@ -2340,18 +2358,12 @@
   var appleIcon = document.querySelector('link[rel="apple-touch-icon"]');
   if (appleIcon) appleIcon.href = GRAY_192;
 
-  var manifestLink = document.querySelector('link[rel="manifest"]');
-  if (manifestLink) {
-    try {
-      var b64 = manifestLink.href.split(',')[1];
-      var manifest = JSON.parse(atob(b64));
-      (manifest.icons || []).forEach(function(icon){
-        if (icon.sizes === '192x192') icon.src = GRAY_192;
-        if (icon.sizes === '512x512') icon.src = GRAY_512;
-      });
-      manifestLink.href = 'data:application/manifest+json;base64,' + btoa(unescape(encodeURIComponent(JSON.stringify(manifest))));
-    } catch (e) { /* 灰階圖示切換失敗時,維持原本的彩色圖示即可,不影響其他功能 */ }
-  }
+  updateManifest(function(manifest){
+    (manifest.icons || []).forEach(function(icon){
+      if (icon.sizes === '192x192') icon.src = GRAY_192;
+      if (icon.sizes === '512x512') icon.src = GRAY_512;
+    });
+  });
 })();
 
 const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
