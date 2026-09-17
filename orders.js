@@ -689,9 +689,10 @@ function renderOrders(){
   const dateFrom = document.getElementById('completedOrderDateFrom') ? document.getElementById('completedOrderDateFrom').value : '';
   const dateTo = document.getElementById('completedOrderDateTo') ? document.getElementById('completedOrderDateTo').value : '';
 
-  // 已完成訂單清單只顯示真的核對過、已經扣庫存的訂單(狀態 'confirmed');'pending'(待處理,尚未
-  // 核對)的訂單改到「待處理訂單」子分頁顯示,'cancelled' 是舊版本可能留下的測試資料,直接排除。
-  let list = orders.filter(o => orderStatus(o) === 'confirmed');
+  // 這裡改成兩種訂單都收:真的核對過、已經扣庫存出貨的('confirmed'),以及已經取消的待處理/
+  // 處理中訂單(o.deleted 但從沒被核對過)。取消的訂單不會再回到「待處理訂單」清單卡著(那邊
+  // 已經把它們排除),移來這邊用不同的狀態標籤(已出貨 / 已取消)區分,方便一起查歷史紀錄。
+  let list = orders.filter(o => orderStatus(o) === 'confirmed' || o.deleted);
   if(partyFilter) list = list.filter(o => o.partyId === partyFilter);
   if(dateFrom) list = list.filter(o => o.date >= dateFrom);
   if(dateTo) list = list.filter(o => o.date <= dateTo);
@@ -738,7 +739,7 @@ function renderOrders(){
             ${o.remark ? `<span title="${t('orderHasRemarkTitle')}" style="margin-left:6px;color:var(--yellow-dark);">📝</span>` : ''}
             ${wasModified ? `<span title="${t('orderWasModifiedTitle')}" style="margin-left:6px;color:var(--warn);">✎</span>` : ''}
           </span>
-          <span class="order-status-pill ${o.deleted ? 'deleted' : 'confirmed'}">${o.deleted ? t('statusOrderDeleted') : t('statusCompleted')}</span>${o.signedAt ? `<span title="${tf('orderSignedAtTitle', {datetime: formatOrderDateTime(o.signedAt)})}" style="margin-left:6px;color:var(--safe);">✔ ${t('statusSigned')}</span>` : ''}${o.emailedAt ? `<span style="margin-left:6px;color:var(--safe);font-size:12px;" title="${tf('emailedToTitle', { email: o.emailedTo || '', when: o.emailedAt })}">${t('alreadyEmailedBadge')}</span><span style="margin-left:4px;color:var(--ink-soft);font-size:10.5px;">${formatEmailedTimeShort(o.emailedAt)}</span>` : ''}
+          <span class="order-status-pill ${o.deleted ? 'deleted' : 'confirmed'}">${o.deleted ? t('statusOrderCancelled') : t('statusCompleted')}</span>${o.signedAt ? `<span title="${tf('orderSignedAtTitle', {datetime: formatOrderDateTime(o.signedAt)})}" style="margin-left:6px;color:var(--safe);">✔ ${t('statusSigned')}</span>` : ''}${o.emailedAt ? `<span style="margin-left:6px;color:var(--safe);font-size:12px;" title="${tf('emailedToTitle', { email: o.emailedTo || '', when: o.emailedAt })}">${t('alreadyEmailedBadge')}</span><span style="margin-left:4px;color:var(--ink-soft);font-size:10.5px;">${formatEmailedTimeShort(o.emailedAt)}</span>` : ''}
         </div>
         ${isExpanded ? `
           <div class="order-items">${itemsHtml}</div>
@@ -1078,7 +1079,9 @@ function renderPendingOrders(){
   const dateFrom = document.getElementById('pendingOrderDateFrom') ? document.getElementById('pendingOrderDateFrom').value : '';
   const dateTo = document.getElementById('pendingOrderDateTo') ? document.getElementById('pendingOrderDateTo').value : '';
 
-  let list = orders.filter(o => isPreVerificationStatus(o));
+  // 已取消的訂單改到「已完成訂單」那邊用「已取消」標籤顯示(跟已出貨的放在一起查歷史),
+  // 這裡不再列出,不然使用者要處理的訂單裡會一直卡著已經不用管的取消訂單。
+  let list = orders.filter(o => isPreVerificationStatus(o) && !o.deleted);
   if(partyFilter) list = list.filter(o => o.partyId === partyFilter);
   if(dateFrom) list = list.filter(o => o.date >= dateFrom);
   if(dateTo) list = list.filter(o => o.date <= dateTo);
