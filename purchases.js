@@ -318,6 +318,9 @@ let sendEmailTargetType = 'purchase'; // 'purchase' 或 'order'
 function openSendPurchaseEmailModal(purchaseId){
   const p = purchases.find(x => x.id === purchaseId);
   if(!p) return;
+  sendPurchaseEmailInFlight = false;
+  const _btn1 = document.getElementById('btnConfirmSendPurchaseEmail');
+  if(_btn1) _btn1.disabled = false;
   sendEmailTargetType = 'purchase';
   sendPurchaseEmailTargetId = purchaseId;
   const defaults = getAccountingEmailToAndCc();
@@ -329,6 +332,9 @@ function openSendPurchaseEmailModal(purchaseId){
 function openSendOrderEmailModal(orderId){
   const order = orders.find(o => o.id === orderId);
   if(!order) return;
+  sendPurchaseEmailInFlight = false;
+  const _btn2 = document.getElementById('btnConfirmSendPurchaseEmail');
+  if(_btn2) _btn2.disabled = false;
   sendEmailTargetType = 'order';
   sendPurchaseEmailTargetId = orderId;
   const defaults = getAccountingEmailToAndCc();
@@ -341,8 +347,16 @@ function closeSendPurchaseEmailModal(){
   sendPurchaseEmailTargetId = null;
   document.getElementById('sendPurchaseEmailModalOverlay').style.display = 'none';
 }
+// 寄送進貨單/訂貨單 email 的按鈕本來沒有防止連點的保護,手指按快一點或網路慢的時候容易
+// 一次觸發送出兩三封重複的 email。這裡用一個進行中旗標 + 停用按鈕雙重保護:按下就立刻鎖住,
+// 不管成功或失敗最後都會解鎖(成功的話 modal 也會關閉,解鎖與否其實不影響使用者觀感,但還是
+// 解開比較保險,避免 modal 被其他流程重新打開時按鈕還是鎖住的)。
+let sendPurchaseEmailInFlight = false;
 async function confirmSendPurchaseEmail(){
-  if(!sendPurchaseEmailTargetId) return;
+  if(!sendPurchaseEmailTargetId || sendPurchaseEmailInFlight) return;
+  sendPurchaseEmailInFlight = true;
+  const btn = document.getElementById('btnConfirmSendPurchaseEmail');
+  if(btn) btn.disabled = true;
   const msgEl = document.getElementById('sendPurchaseEmailModalMsg');
   const email = (document.getElementById('sendPurchaseEmailInput').value || '').trim();
   const cc = (document.getElementById('sendPurchaseCcInput').value || '').trim();
@@ -361,6 +375,9 @@ async function confirmSendPurchaseEmail(){
     console.error('寄送 email 失敗', e);
     msgEl.className = 'msg error';
     msgEl.textContent = `⚠ ${e.message || t('errEmailSendFailed')}`;
+  } finally {
+    sendPurchaseEmailInFlight = false;
+    if(btn) btn.disabled = false;
   }
 }
 
