@@ -576,9 +576,14 @@
   @media (max-width:768px){
     /* 下拉重新整理/邊緣滑動返回這些手機瀏覽器手勢造成的閃畫面問題,只在手機版寬度下擋掉——
        桌機版滑鼠滾輪捲動不會用到這個瀏覽器行為,加在桌機版反而會讓有些瀏覽器整個滾動失效,
-       所以侷限在這個 @media 裡面,不要放在外面全域套用。 */
-    html{ overscroll-behavior:none; }
-    body{ overscroll-behavior:none; }
+       所以侷限在這個 @media 裡面,不要放在外面全域套用。
+       原本 x/y 兩個方向都設 overscroll-behavior:none,結果在部分 Android Chrome 版本上會
+       連累到正常的單指下滑捲動整個失效(要改用兩指才能滑),Samsung Internet 等其他瀏覽器
+       沒有這個毛病。拆成兩個方向分開設定:左右滑動(邊緣滑動返回)還是用 none 完全擋掉;
+       上下滑動改用比較不激進的 contain(一樣會擋住「滑到頂端繼續下拉」觸發的下拉重新整理跟
+       往上層 scroll chaining,但不會把整個垂直捲動手勢吃掉),避開這個 Chrome 的已知問題。 */
+    html{ overscroll-behavior-x:none; }
+    body{ overscroll-behavior-x:none; overscroll-behavior-y:contain; }
 
     /* 管理出貨方:手機版原本只靠左右滑動當退路,欄位一多(尤其「設定可訂購商品」這個連結文字
        比較長)整張表格還是會超出螢幕寬度。改成跟訂貨頁面商品清單一樣的卡片式排版,每個出貨方
