@@ -866,31 +866,41 @@ function exportStockQuantitySheet(opts){
   // 那一列用 Excel 隱藏列處理掉,資料還在,只是預設不顯示、也不會被印出來。排序改用跟庫存總覽/
   // 訂貨頁面共用的同一套邏輯(compareProductsBySortMode),跟著系統設置的「商品排序」走,
   // 不是寫死照商品名稱排。
-  // 只排「主商品」(沒有 parentId 的商品),批量商品(子商品)緊接著排在自己的主商品下面,
-  // 不獨立參與分類排序,這樣匯出的順序才會跟庫存總覽畫面上的主/批量商品階層一致。
-  const mainRows = products
+  // 每個商品家族(主商品+底下所有批量子商品)第一列要用哪個商品的身份代表、顯示 Total Stock Qty,
+  // 要跟庫存總覽畫面完全一致(getTotalStockBasisProduct):預設是主商品自己,但如果曾經在某個
+  // 家族成員的編輯畫面勾選過「顯示於總庫存量」,代表列就換成那一個(可能是主商品,也可能是某個
+  // 批量子商品),Total Stock Qty 也跟著換算成代表商品自己的單位;沒被選為代表的其他家族成員
+  // (可能包含主商品自己)退到代表列底下當作子列,Total Stock Qty 欄位一律顯示「—」——
+  // 這樣匯出的檔案才會跟頁面上看到的主/代表列階層、數字一致。
+  const familyRows = products
     .filter(p => !p.parentId)
-    .map(p => ({ p, cat: p.category || '未分類', stock: getStock(p.id), totalStock: getTotalStock(p.id) }))
+    .map(p => {
+      const basis = getTotalStockBasisProduct(p);
+      const weight = getBasisWeight(basis, p);
+      const rawTotal = getTotalStock(p.id); // 家族總量,永遠先用「真正主商品」的單位算出來
+      const totalStock = weight === 1 ? rawTotal : Math.round((rawTotal / weight) * 100) / 100;
+      const subMembers = [];
+      if(basis.id !== p.id) subMembers.push(p);
+      getChildProducts(p.id).forEach(c => { if(c.id !== basis.id) subMembers.push(c); });
+      return { cat: p.category || '未分類', basis, totalStock, subMembers };
+    })
     .sort((a,b) => {
       const ao = categoryOrder.indexOf(a.cat);
       const bo = categoryOrder.indexOf(b.cat);
       const aoN = ao === -1 ? 999 : ao;
       const boN = bo === -1 ? 999 : bo;
       if(aoN !== boN) return aoN - boN;
-      return compareProductsBySortMode(a.p, b.p);
+      return compareProductsBySortMode(a.basis, b.basis);
     });
 
   let totalItemCount = 0;
   const rows = [];
-  mainRows.forEach(r => {
-    rows.push({ ...r, isChild: false });
+  familyRows.forEach(r => {
+    rows.push({ p: r.basis, cat: r.cat, stock: getStock(r.basis.id), totalStock: r.totalStock, isChild: false });
     totalItemCount++;
-    const children = products
-      .filter(c => c.parentId === r.p.id)
-      .map(c => ({ p: c, cat: r.cat, stock: getStock(c.id) }))
-      .sort((a,b) => compareProductsBySortMode(a.p, b.p));
+    const children = r.subMembers.slice().sort(compareProductsBySortMode);
     children.forEach(c => {
-      rows.push({ ...c, isChild: true });
+      rows.push({ p: c, cat: r.cat, stock: getStock(c.id), isChild: true });
       totalItemCount++;
     });
   });
