@@ -28,5 +28,10 @@ Object.assign(window.FEATURES, {
 
   // Picking Slip 上的「箱數參考」欄(數量參考欄):把訂貨數量換算成幾箱+剩餘幾件,
   // 給揀貨的人參考用
-  pickingSlipQtyReference: true
+  pickingSlipQtyReference: true,
+
+  // 庫存總覽 →「匯出庫存數量」視窗下方的「扣除特定分店這段期間的出庫紀錄」區塊——
+  // 只有 Orange Tea 自己需要這種「假裝沒出貨給某幾間分店」的盤點情境,不是每家公司
+  // 都需要,所以做成這裡的開關,關掉的話匯出視窗只會剩「以哪一天的庫存為準」那部分。
+  stockExportExcludeBranches: true
 });
