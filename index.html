@@ -517,6 +517,14 @@
      (其實是背後那個問位置的視窗在等使用者選,只是完全被蓋住看不到)。這裡一樣給它更高的
      z-index,確保不管當下開著哪個 modal,這個問位置的視窗都能正常疊在最上面。 */
   #locationChoiceModalOverlay{ z-index:1100; }
+  /* 拍照視窗(cameraCaptureModalOverlay)是從很多其他視窗裡面被叫出來的(新增/編輯商品、
+     庫存分布位置、進貨單、廠商等等的「拍照上傳」按鈕都是先開好自己的編輯視窗,再從裡面
+     疊一層拍照視窗上去)——如果跟那些視窗共用同一個 z-index(1000),誰疊在上面純粹看
+     HTML 裡誰寫在後面,而不是看「誰後開」,所以只要呼叫拍照的那個編輯視窗剛好排在
+     HTML 比較後面(例如商品編輯視窗),拍照視窗就會被蓋在底下,使用者完全看不到鏡頭畫面、
+     以為拍照壞掉了。這裡給拍照視窗更高的 z-index,確保不管是從哪個視窗叫出來的,
+     拍照視窗都會正常疊在最上面。 */
+  #cameraCaptureModalOverlay{ z-index:1150; }
   /* 系統處理中的鎖定畫面——按了「確定」之後,只要那個動作還在跑(包含中間可能還要跳出來問
      位置這種巢狀視窗),就整個鎖住底下畫面不能按,避免使用者以為沒按到、又按第二次觸發重複
      的操作。z-index 故意比一般的 modal-overlay(1000)低一點,這樣如果處理過程中還要跳出
@@ -1451,7 +1459,7 @@
             <option value="none" data-i18n="statusFilterNone">⚪ 灰燈(無出貨紀錄)</option>
           </select>
           <button class="btn ghost" onclick="toggleCategoryOrderPanel()" data-i18n="tabOrderBtn">調整分類順序</button>
-          <button class="btn ghost" onclick="exportStockQuantitySheet()" data-i18n="btnExportStockQty">📊 匯出庫存數量</button>
+          <button class="btn ghost" onclick="openStockExportModal()" data-i18n="btnExportStockQty">📊 匯出庫存數量</button>
           <button class="btn ghost" onclick="switchTab('tab-log');switchLogSubTab('subtab-log-convert');" data-i18n="btnConvertHistory">🕘 切換紀錄</button>
           <label style="display:flex;align-items:center;gap:5px;font-size:12px;color:var(--ink-soft);cursor:pointer;">
             <input type="checkbox" id="showHiddenProducts" onchange="toggleShowHiddenProducts(this.checked)" />
@@ -2024,6 +2032,42 @@
     <div class="modal-actions">
       <button class="btn ghost" onclick="closeSendPurchaseEmailModal()" data-i18n="btnCancel">取消</button>
       <button class="btn" id="btnConfirmSendPurchaseEmail" onclick="confirmSendPurchaseEmail()" data-i18n="btnConfirmSend">確認寄送</button>
+    </div>
+  </div>
+</div>
+
+<div id="stockExportModalOverlay" class="modal-overlay" style="display:none;" onclick="if(event.target===this) closeStockExportModal();">
+  <div class="modal-box" style="max-width:min(480px, 94vw);">
+    <div class="section-title" style="margin-bottom:12px;" data-i18n="modalStockExportTitle">匯出庫存數量</div>
+    <div class="field-block">
+      <label data-i18n="stockExportAsOfDateLabel">以哪一天的庫存為準</label>
+      <input type="date" id="stockExportAsOfDateInput" style="width:100%;" />
+      <div style="font-size:11.5px;color:var(--ink-soft);margin-top:4px;" data-i18n="stockExportAsOfDateHint">預設為今天,也可以選更早的日期,匯出那一天當時的庫存量。</div>
+    </div>
+    <div id="stockExportExcludeBranchesSection" style="display:none;border-top:1px solid var(--line);margin-top:14px;padding-top:14px;">
+      <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;margin-bottom:8px;">
+        <input type="checkbox" id="stockExportExcludeToggle" onchange="toggleStockExportExcludeSection(this.checked)" />
+        <span data-i18n="stockExportExcludeToggleLabel">扣除特定分店這段期間的出庫紀錄(加回庫存)</span>
+      </label>
+      <div id="stockExportExcludeDetail" style="display:none;padding-left:2px;">
+        <div style="font-size:11.5px;color:var(--ink-soft);margin-bottom:8px;" data-i18n="stockExportExcludeHint">勾選的分店,在下面這段期間內出貨給他們的數量,會加回匯出的庫存數字裡(當作這段期間沒有出貨給他們)。</div>
+        <div id="stockExportBranchCheckboxWrap" style="display:flex;flex-direction:column;gap:4px;max-height:160px;overflow-y:auto;margin-bottom:10px;border:1px solid var(--line);border-radius:2px;padding:8px;"></div>
+        <div class="form-grid" style="grid-template-columns:1fr 1fr;margin-bottom:0;">
+          <div class="field">
+            <label data-i18n="lblFromDate">從日期</label>
+            <input type="date" id="stockExportExcludeFromInput" style="width:100%;" />
+          </div>
+          <div class="field">
+            <label data-i18n="lblToDate">到日期</label>
+            <input type="date" id="stockExportExcludeToInput" style="width:100%;" />
+          </div>
+        </div>
+      </div>
+    </div>
+    <div id="stockExportModalMsg" class="msg"></div>
+    <div class="modal-actions">
+      <button class="btn ghost" onclick="closeStockExportModal()" data-i18n="btnCancel">取消</button>
+      <button class="btn" onclick="confirmStockExport()" data-i18n="btnExportStockQty">📊 匯出庫存數量</button>
     </div>
   </div>
 </div>

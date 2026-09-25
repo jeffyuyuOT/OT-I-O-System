@@ -724,10 +724,133 @@ async function toggleOrderable(id){
   renderAll();
 }
 
+// ===== 匯出庫存數量:選擇時間點/排除分店出庫紀錄的視窗 =====
+// 「以哪一天的庫存為準」跟「扣除特定分店這段期間的出庫紀錄」是兩個獨立的調整,可以疊加:
+// 先算出指定日期當天的庫存(把那天之後的所有進出貨都倒算回去),再把勾選分店在指定期間內的
+// 出貨量加回去(當作那段期間沒有出貨給他們)。兩個都不選就等於原本「匯出今天的庫存」的行為。
+function openStockExportModal(){
+  const asOfInput = document.getElementById('stockExportAsOfDateInput');
+  asOfInput.value = todayISO();
+  asOfInput.max = todayISO(); // 只能選今天或更早,選未來日期沒有意義,算不出「當時」的庫存
+  document.getElementById('stockExportModalMsg').textContent = '';
+
+  const section = document.getElementById('stockExportExcludeBranchesSection');
+  const showExclude = hasFeature('stockExportExcludeBranches');
+  section.style.display = showExclude ? 'block' : 'none';
+  if(showExclude){
+    document.getElementById('stockExportExcludeToggle').checked = false;
+    document.getElementById('stockExportExcludeDetail').style.display = 'none';
+    document.getElementById('stockExportExcludeFromInput').value = '';
+    document.getElementById('stockExportExcludeToInput').value = '';
+    const wrap = document.getElementById('stockExportBranchCheckboxWrap');
+    const sortedParties = shippingParties.slice().sort((a,b) => (a.name||'').localeCompare(b.name||''));
+    wrap.innerHTML = sortedParties.length === 0
+      ? `<div style="font-size:12px;color:var(--ink-soft);">${t('noShippingPartiesForExport')}</div>`
+      : sortedParties.map(p => `
+        <label style="display:flex;align-items:center;gap:6px;font-size:12.5px;cursor:pointer;">
+          <input type="checkbox" class="stockExportBranchCheckbox" value="${escapeHtmlForPrint(p.name)}" />
+          <span>${escapeHtmlForPrint(p.name)}</span>
+        </label>
+      `).join('');
+  }
+  document.getElementById('stockExportModalOverlay').style.display = 'flex';
+}
+function closeStockExportModal(){
+  document.getElementById('stockExportModalOverlay').style.display = 'none';
+}
+function toggleStockExportExcludeSection(checked){
+  document.getElementById('stockExportExcludeDetail').style.display = checked ? 'block' : 'none';
+}
+
+// 算出某商品在某一天「當天結束時」的庫存:從目前的庫存快取(productStockMap,即時值)開始,
+// 把「那天之後」發生的每一筆進出貨都倒算回去(進貨/restock 退回去要減、出貨退回去要加),
+// 剩下的就是那一天當時的庫存。asOfDate 是今天的話,不用算,直接沿用即時值即可。
+function computeHistoricalStock(productId, asOfDate){
+  if(!asOfDate || asOfDate >= todayISO()) return computeStock(productId);
+  let laterDelta = 0;
+  transactions.forEach(tx => {
+    if(tx.productId === productId && tx.date > asOfDate) laterDelta += txStockDelta(tx);
+  });
+  return computeStock(productId) - laterDelta;
+}
+// 跟 computeTotalStock 一樣的邏輯(主商品庫存 + 各批量子商品換算後的庫存),
+// 只是每一項都改用 computeHistoricalStock 算某一天當時的量,不是即時庫存。
+function computeHistoricalTotalStock(productId, asOfDate){
+  const p = products.find(x => x.id === productId);
+  if(!p) return 0;
+  const children = getChildProducts(productId);
+  let total = computeHistoricalStock(productId, asOfDate);
+  children.forEach(c => {
+    const w = (c.childWeight !== null && c.childWeight !== undefined && !isNaN(c.childWeight)) ? c.childWeight : 1;
+    total += computeHistoricalStock(c.id, asOfDate) * w;
+  });
+  return total;
+}
+// 算某商品要「加回」多少庫存:勾選的分店,在 fromDate~toDate 這段期間內,出貨給他們的總數量
+// (只算 type==='out' 的紀錄,party 要完全對上勾選的分店名稱——party 存的是文字名稱,不是 id,
+// 這裡直接比對名稱字串)。
+function computeExcludeBranchAddBack(productId, partyNameSet, fromDate, toDate){
+  let addBack = 0;
+  transactions.forEach(tx => {
+    if(tx.productId !== productId || tx.type !== 'out') return;
+    if(!partyNameSet.has(tx.party)) return;
+    if(fromDate && tx.date < fromDate) return;
+    if(toDate && tx.date > toDate) return;
+    addBack += tx.qty;
+  });
+  return addBack;
+}
+
+function confirmStockExport(){
+  const msgEl = document.getElementById('stockExportModalMsg');
+  const asOfDate = document.getElementById('stockExportAsOfDateInput').value || todayISO();
+  let excludeInfo = null;
+  if(hasFeature('stockExportExcludeBranches') && document.getElementById('stockExportExcludeToggle').checked){
+    const checkedBoxes = Array.from(document.querySelectorAll('.stockExportBranchCheckbox:checked'));
+    const partyNames = checkedBoxes.map(cb => cb.value);
+    const fromDate = document.getElementById('stockExportExcludeFromInput').value;
+    const toDate = document.getElementById('stockExportExcludeToInput').value;
+    if(partyNames.length > 0){
+      if(!fromDate || !toDate){
+        msgEl.className = 'msg error';
+        msgEl.textContent = t('errStockExportNoExcludeDates');
+        return;
+      }
+      excludeInfo = { partyNameSet: new Set(partyNames), partyNames, fromDate, toDate };
+    }
+  }
+  closeStockExportModal();
+  exportStockQuantitySheet({ asOfDate, excludeInfo });
+}
+
 // 匯出庫存總覽的庫存數量:商品照分類順序排列,每個分類前面加一列分類標題,不同分類之間
 // 再用一列空白隔開;分類欄本身可以用旁邊的checkbox選擇隱藏(隱藏後靠分類標題列辨識分類)。
 // 排除隱藏商品,版面(欄寬、邊界、A4 直印且自動縮放到一頁寬)設計成適合印在 A4 紙上。
-function exportStockQuantitySheet(){
+// opts.asOfDate:要匯出哪一天當時的庫存(預設今天,不傳的話就是原本「匯出即時庫存」的行為)。
+// opts.excludeInfo:{partyNameSet, partyNames, fromDate, toDate} — 把這些分店在這段期間的
+// 出貨量加回庫存數字裡,不傳就不調整。
+function exportStockQuantitySheet(opts){
+  opts = opts || {};
+  const asOfDate = opts.asOfDate || todayISO();
+  const excludeInfo = opts.excludeInfo || null;
+  const isHistorical = asOfDate < todayISO();
+  const getStock = (pid) => {
+    let v = isHistorical ? computeHistoricalStock(pid, asOfDate) : computeStock(pid);
+    if(excludeInfo) v += computeExcludeBranchAddBack(pid, excludeInfo.partyNameSet, excludeInfo.fromDate, excludeInfo.toDate);
+    return v;
+  };
+  const getTotalStock = (pid) => {
+    const p = products.find(x => x.id === pid);
+    if(!p) return 0;
+    const children = getChildProducts(pid);
+    let total = getStock(pid);
+    children.forEach(c => {
+      const w = (c.childWeight !== null && c.childWeight !== undefined && !isNaN(c.childWeight)) ? c.childWeight : 1;
+      total += getStock(c.id) * w;
+    });
+    return total;
+  };
+
   const msg = document.getElementById('stockExportMsg');
   if(typeof XLSX === 'undefined'){ msg.className = 'msg error'; msg.textContent = 'Excel 套件載入失敗,請重新整理頁面再試一次'; return; }
 
@@ -743,31 +866,41 @@ function exportStockQuantitySheet(){
   // 那一列用 Excel 隱藏列處理掉,資料還在,只是預設不顯示、也不會被印出來。排序改用跟庫存總覽/
   // 訂貨頁面共用的同一套邏輯(compareProductsBySortMode),跟著系統設置的「商品排序」走,
   // 不是寫死照商品名稱排。
-  // 只排「主商品」(沒有 parentId 的商品),批量商品(子商品)緊接著排在自己的主商品下面,
-  // 不獨立參與分類排序,這樣匯出的順序才會跟庫存總覽畫面上的主/批量商品階層一致。
-  const mainRows = products
+  // 每個商品家族(主商品+底下所有批量子商品)第一列要用哪個商品的身份代表、顯示 Total Stock Qty,
+  // 要跟庫存總覽畫面完全一致(getTotalStockBasisProduct):預設是主商品自己,但如果曾經在某個
+  // 家族成員的編輯畫面勾選過「顯示於總庫存量」,代表列就換成那一個(可能是主商品,也可能是某個
+  // 批量子商品),Total Stock Qty 也跟著換算成代表商品自己的單位;沒被選為代表的其他家族成員
+  // (可能包含主商品自己)退到代表列底下當作子列,Total Stock Qty 欄位一律顯示「—」——
+  // 這樣匯出的檔案才會跟頁面上看到的主/代表列階層、數字一致。
+  const familyRows = products
     .filter(p => !p.parentId)
-    .map(p => ({ p, cat: p.category || '未分類', stock: computeStock(p.id), totalStock: computeTotalStock(p.id) }))
+    .map(p => {
+      const basis = getTotalStockBasisProduct(p);
+      const weight = getBasisWeight(basis, p);
+      const rawTotal = getTotalStock(p.id); // 家族總量,永遠先用「真正主商品」的單位算出來
+      const totalStock = weight === 1 ? rawTotal : Math.round((rawTotal / weight) * 100) / 100;
+      const subMembers = [];
+      if(basis.id !== p.id) subMembers.push(p);
+      getChildProducts(p.id).forEach(c => { if(c.id !== basis.id) subMembers.push(c); });
+      return { cat: p.category || '未分類', basis, totalStock, subMembers };
+    })
     .sort((a,b) => {
       const ao = categoryOrder.indexOf(a.cat);
       const bo = categoryOrder.indexOf(b.cat);
       const aoN = ao === -1 ? 999 : ao;
       const boN = bo === -1 ? 999 : bo;
       if(aoN !== boN) return aoN - boN;
-      return compareProductsBySortMode(a.p, b.p);
+      return compareProductsBySortMode(a.basis, b.basis);
     });
 
   let totalItemCount = 0;
   const rows = [];
-  mainRows.forEach(r => {
-    rows.push({ ...r, isChild: false });
+  familyRows.forEach(r => {
+    rows.push({ p: r.basis, cat: r.cat, stock: getStock(r.basis.id), totalStock: r.totalStock, isChild: false });
     totalItemCount++;
-    const children = products
-      .filter(c => c.parentId === r.p.id)
-      .map(c => ({ p: c, cat: r.cat, stock: computeStock(c.id) }))
-      .sort((a,b) => compareProductsBySortMode(a.p, b.p));
+    const children = r.subMembers.slice().sort(compareProductsBySortMode);
     children.forEach(c => {
-      rows.push({ ...c, isChild: true });
+      rows.push({ p: c, cat: r.cat, stock: getStock(c.id), isChild: true });
       totalItemCount++;
     });
   });
@@ -783,7 +916,10 @@ function exportStockQuantitySheet(){
   const headerRow = ['SKU','Product Name','Stock Qty','Total Stock Qty','Unit'];
   const aoa = [];
   const hiddenRows = new Set(); // 0-based row indices into aoa that should be hidden in the final sheet
-  aoa.push(['Date:', dateStr]);
+  aoa.push(['Date:', isHistorical ? `${asOfDate} (as of)` : dateStr]);
+  if(excludeInfo){
+    aoa.push(['Excludes stock-out to:', excludeInfo.partyNames.join(', '), `${excludeInfo.fromDate} ~ ${excludeInfo.toDate}`]);
+  }
   aoa.push([]);
   groups.forEach((g, gi) => {
     const groupAllHidden = g.items.every(r => r.p.hidden);
@@ -819,11 +955,11 @@ function exportStockQuantitySheet(){
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Stock Quantity');
 
-  const filename = `stock_quantity_${dateStr}.xlsx`;
+  const filename = `stock_quantity_${asOfDate}${excludeInfo ? '_excl' : ''}.xlsx`;
   XLSX.writeFile(wb, filename);
 
   msg.className = 'msg ok';
-  msg.textContent = `✓ 已匯出 ${totalItemCount} 項商品的庫存數量(${dateStr}):${filename}`;
+  msg.textContent = `✓ 已匯出 ${totalItemCount} 項商品的庫存數量(${isHistorical ? `以 ${asOfDate} 為準` : dateStr}${excludeInfo ? `,已扣除 ${excludeInfo.partyNames.join('、')} 在 ${excludeInfo.fromDate}~${excludeInfo.toDate} 的出庫紀錄` : ''}):${filename}`;
 }
 
 
