@@ -39,11 +39,18 @@
   }
   *{box-sizing:border-box;}
   @keyframes appLoadingSpin{ to{ transform:rotate(360deg); } }
-  html{ overflow-x:hidden; width:100%; }
+  /* html/body 原本這裡各自還多寫了一個 width:100%(html/body 本來就是滿版的區塊元素,
+     不用特別指定寬度)。查出來 Android Chrome 有個已知的怪異行為:根元素(html/body)
+     同時設定 overflow-x:hidden 又明確指定 width:100% 的話,部分 Android Chrome 版本的
+     觸控手勢判斷會出問題,導致單指下滑捲動完全沒反應、要改用兩指才能捲動(用 Chrome 的
+     「簡化網頁檢視/閱讀模式」把所有自訂 CSS 拔掉之後單指馬上恢復正常,就是在查這個問題時
+     發現的關鍵線索)。overflow-x:hidden(防止表格太寬把整個頁面往右推出去)還是保留,
+     只拿掉多餘、會誘發這個問題的 width:100%。 */
+  html{ overflow-x:hidden; }
   body{
     margin:0; background:var(--bg); color:var(--ink);
     font-family:'Inter',sans-serif; -webkit-font-smoothing:antialiased;
-    overflow-x:hidden; width:100%;
+    overflow-x:hidden;
   }
   .wrap{ max-width:1080px; margin:0 auto; padding:0 0 60px; }
 
