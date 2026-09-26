@@ -3519,6 +3519,32 @@ function showScanToast(text, isError){
   } catch(e){ /* history API 不可用(極少見)就放棄,不影響其他功能 */ }
 })();
 
+// ===== 擋掉「捲到頁面最上面還繼續下拉」觸發的瀏覽器下拉重新整理 =====
+// 原本這個是用 CSS 的 overscroll-behavior 擋(見上面 @media (max-width:768px) 那段的說明),
+// 後來實測發現這個 CSS 屬性在使用者實際的 Android Chrome 上會連累到正常的單指下滑捲動整個
+// 失效(要改用兩指才能捲動),已經改成完全不使用這個屬性。但拿掉 CSS 那道防線之後,原本被擋住
+// 的「捲到最上面、手指繼續往下拉」就會觸發瀏覽器原生的下拉重新整理,使用者常常搞不清楚自己
+// 已經滑到最上面了,以為只是正常下滑捲動,結果整個網頁重新整理、被踢回登入後的第一個分頁,
+// 資料也可能來不及存檔。改用 JS 精準擋:只有「單一手指」+「目前已經在頁面最上方(scrollTop<=0)」
+// +「手指正在往下移動」這三個條件同時成立時才 preventDefault 擋住這次滑動,其餘情況(包含
+// 已經往下捲動一點之後的單指下滑)完全不受影響,不會重蹈 overscroll-behavior 那個問題。
+(function preventPullToRefreshReload(){
+  try{
+    var startY = null;
+    document.addEventListener('touchstart', function(e){
+      startY = (e.touches && e.touches.length === 1) ? e.touches[0].clientY : null;
+    }, { passive: true });
+    document.addEventListener('touchmove', function(e){
+      if(startY === null || !e.touches || e.touches.length !== 1) return;
+      var scrollTop = (document.scrollingElement || document.documentElement).scrollTop;
+      var movedDown = e.touches[0].clientY - startY;
+      if(scrollTop <= 0 && movedDown > 0){
+        e.preventDefault();
+      }
+    }, { passive: false });
+  } catch(e){ /* 不影響其他功能 */ }
+})();
+
 // ===== 訂貨頁面商品名稱的 SKU 提示 =====
 // 訂貨頁面不再直接把 SKU 顯示成一個小標籤,改成:滑鼠停留在商品名稱上(桌面版)、或手指按住
 // 商品名稱 1 秒不放(手機版),才從名稱正上方彈出一個小視窗顯示 SKU。
