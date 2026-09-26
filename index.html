@@ -39,11 +39,18 @@
   }
   *{box-sizing:border-box;}
   @keyframes appLoadingSpin{ to{ transform:rotate(360deg); } }
-  html{ overflow-x:hidden; width:100%; }
+  /* html/body 原本這裡各自還多寫了一個 width:100%(html/body 本來就是滿版的區塊元素,
+     不用特別指定寬度)。查出來 Android Chrome 有個已知的怪異行為:根元素(html/body)
+     同時設定 overflow-x:hidden 又明確指定 width:100% 的話,部分 Android Chrome 版本的
+     觸控手勢判斷會出問題,導致單指下滑捲動完全沒反應、要改用兩指才能捲動(用 Chrome 的
+     「簡化網頁檢視/閱讀模式」把所有自訂 CSS 拔掉之後單指馬上恢復正常,就是在查這個問題時
+     發現的關鍵線索)。overflow-x:hidden(防止表格太寬把整個頁面往右推出去)還是保留,
+     只拿掉多餘、會誘發這個問題的 width:100%。 */
+  html{ overflow-x:hidden; }
   body{
     margin:0; background:var(--bg); color:var(--ink);
     font-family:'Inter',sans-serif; -webkit-font-smoothing:antialiased;
-    overflow-x:hidden; width:100%;
+    overflow-x:hidden;
   }
   .wrap{ max-width:1080px; margin:0 auto; padding:0 0 60px; }
 
@@ -574,11 +581,15 @@
   .preview-actions-top{ margin-top:0; margin-bottom:14px; }
 
   @media (max-width:768px){
-    /* 下拉重新整理/邊緣滑動返回這些手機瀏覽器手勢造成的閃畫面問題,只在手機版寬度下擋掉——
-       桌機版滑鼠滾輪捲動不會用到這個瀏覽器行為,加在桌機版反而會讓有些瀏覽器整個滾動失效,
-       所以侷限在這個 @media 裡面,不要放在外面全域套用。 */
-    html{ overscroll-behavior:none; }
-    body{ overscroll-behavior:none; }
+    /* 原本這裡想用 overscroll-behavior(不管是整個 none,還是後來拆成 x:none/y:contain)
+       擋掉「下拉重新整理/邊緣滑動返回」這兩個手機瀏覽器手勢造成的閃畫面問題,結果實測發現
+       在使用者實際的 Android Chrome 上,只要 html/body 有設定 overscroll-behavior-x 或
+       overscroll-behavior-y(不管值是什麼),就會整個觸發一個怪異行為:單指下滑捲動完全沒
+       反應,要改用兩指才能捲動;Samsung Internet 等其他瀏覽器沒有這個毛病,拿掉這兩個屬性、
+       其他都不動之後,單指捲動立刻恢復正常,是實機測試(靠除錯開關逐一排除其他嫌疑後)才
+       抓到的真兇。所以這裡刻意不使用 overscroll-behavior 的任何寫法——下拉重新整理跟邊緣滑動
+       返回造成的偶發閃畫面,用下面 trapBrowserBackButton()那段 JS 機制(history.pushState)
+       頂著擋,雖然不像 CSS 這麼徹底,但換來單指捲動正常這個更基本的使用體驗。 */
 
     /* 管理出貨方:手機版原本只靠左右滑動當退路,欄位一多(尤其「設定可訂購商品」這個連結文字
        比較長)整張表格還是會超出螢幕寬度。改成跟訂貨頁面商品清單一樣的卡片式排版,每個出貨方
@@ -3492,13 +3503,13 @@ function showScanToast(text, isError){
 // 分頁按鈕操作,這個機制只是防止「不小心用系統返回把 App 弄丟」。
 (function trapBrowserBackButton(){
   try{
-    // 一次塞一整疊(50 筆)假的 history 狀態進去,不是只塞一筆——原本只塞一筆的話,如果使用者
-    // 連續、快速地按了好幾次「上一頁」(或手勢很快),有可能在 JS 補塞下一筆之前,瀏覽器已經
-    // 連續彈出好幾層,結果真的彈出到「進入這個 App 之前」的那一頁,造成整個網頁重新載入
-    // (畫面上就會看到 App 自己的載入畫面一閃,然後回到預設的第一個分頁,感覺像是「跳到別的
-    // 分頁」)。塞一大疊之後,實務上不可能連續按這麼多次,等於完全不會真的離開 App、也不會
-    // 重新整理。
-    var TRAP_DEPTH = 50;
+    // 原本一次塞 50 筆假的 history 狀態進去(怕使用者連續快速按好幾次「上一頁」,JS 補塞的速度
+    // 跟不上)。但這樣會把 history.length 一次墊高 50 筆,懷疑是這個導致 Android Chrome 判斷
+    // 「這一頁後面還有很深的瀏覽紀錄」,連帶讓它處理邊緣滑動返回手勢的判斷邏輯變得比較「重」,
+    // 干擾到單指下滑捲動(需要改用兩指才能滑)。改成只墊 1 筆——popstate 的事件處理器是同步立刻
+    // 再補一筆回去,實際操作上使用者不可能比這個補塞速度更快連續觸發第二次「上一頁」,1 筆已經
+    // 足夠擋住,不需要墊到 50 筆這麼深。
+    var TRAP_DEPTH = 1;
     for(var i = 0; i < TRAP_DEPTH; i++){
       history.pushState({ appTrap: true }, '');
     }
@@ -3506,6 +3517,32 @@ function showScanToast(text, isError){
       history.pushState({ appTrap: true }, '');
     });
   } catch(e){ /* history API 不可用(極少見)就放棄,不影響其他功能 */ }
+})();
+
+// ===== 擋掉「捲到頁面最上面還繼續下拉」觸發的瀏覽器下拉重新整理 =====
+// 原本這個是用 CSS 的 overscroll-behavior 擋(見上面 @media (max-width:768px) 那段的說明),
+// 後來實測發現這個 CSS 屬性在使用者實際的 Android Chrome 上會連累到正常的單指下滑捲動整個
+// 失效(要改用兩指才能捲動),已經改成完全不使用這個屬性。但拿掉 CSS 那道防線之後,原本被擋住
+// 的「捲到最上面、手指繼續往下拉」就會觸發瀏覽器原生的下拉重新整理,使用者常常搞不清楚自己
+// 已經滑到最上面了,以為只是正常下滑捲動,結果整個網頁重新整理、被踢回登入後的第一個分頁,
+// 資料也可能來不及存檔。改用 JS 精準擋:只有「單一手指」+「目前已經在頁面最上方(scrollTop<=0)」
+// +「手指正在往下移動」這三個條件同時成立時才 preventDefault 擋住這次滑動,其餘情況(包含
+// 已經往下捲動一點之後的單指下滑)完全不受影響,不會重蹈 overscroll-behavior 那個問題。
+(function preventPullToRefreshReload(){
+  try{
+    var startY = null;
+    document.addEventListener('touchstart', function(e){
+      startY = (e.touches && e.touches.length === 1) ? e.touches[0].clientY : null;
+    }, { passive: true });
+    document.addEventListener('touchmove', function(e){
+      if(startY === null || !e.touches || e.touches.length !== 1) return;
+      var scrollTop = (document.scrollingElement || document.documentElement).scrollTop;
+      var movedDown = e.touches[0].clientY - startY;
+      if(scrollTop <= 0 && movedDown > 0){
+        e.preventDefault();
+      }
+    }, { passive: false });
+  } catch(e){ /* 不影響其他功能 */ }
 })();
 
 // ===== 訂貨頁面商品名稱的 SKU 提示 =====
