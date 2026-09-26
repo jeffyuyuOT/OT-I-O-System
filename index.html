@@ -22,13 +22,21 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <!-- ===== 排查「手機 Chrome 單指下滑失效」問題用的暫時性除錯開關 =====
-     在網址後面加 ?debug=nocss / ?debug=nomanifest / ?debug=notrap(可以用逗號同時疊加,
-     例如 ?debug=nocss,nomanifest,notrap)可以個別關掉某一塊懷疑會造成這個問題的東西,
-     方便直接在使用者手機上一個一個排除,不用每次都改程式碼重新部署一輪。查完問題之後記得
-     把這整段(包含下面 debugscroll 那段 <script>)一起刪掉,連同上面三個 id="app...")都不用留。
+     在網址後面加 ?debug=nocss / ?debug=nomanifest / ?debug=notrap / ?debug=cssdrop:A-B
+     (可以用逗號同時疊加,例如 ?debug=nocss,notrap)可以個別關掉某一塊懷疑會造成這個問題的
+     東西,方便直接在使用者手機上一個一個排除,不用每次都改程式碼重新部署一輪。查完問題之後
+     記得把這整段(包含下面這個 <script>)一起刪掉,連同上面三個 id="app...")都不用留。
      - nocss:整段自訂 <style>(id="appMainStyle")拿掉,只剩瀏覽器預設樣式
      - nomanifest:manifest <link> 跟 mobile-web-app-capable/apple-mobile-web-app-* 這幾個 meta 拿掉
-     - notrap:不執行「鎖住上一頁」那段 history.pushState 機制 -->
+     - notrap:不執行「鎖住上一頁」那段 history.pushState 機制
+     - cssdrop:A-B:把 id="appMainStyle" 這個 <style> 裡面第 A 條到第 B 條(不含 B,0 起算)
+       的規則整批刪掉——這個方法測出來「刪前半段、刪後半段都還是不行」,懷疑是砍掉一整段規則
+       連帶把「哪些分頁該隱藏」這類跟捲動高度有關的規則也砍掉了,導致頁面結構整個變了、
+       測不出真正兇手,先保留這個工具但改用下面 noprop 繼續查
+     - noprop:屬性名稱:不砍整條規則,只從所有規則(含 @media 裡面的)精準拿掉某一個 CSS
+       屬性,其他樣式完全不動,避免像 cssdrop 那樣把頁面結構弄亂。可以疊加多個,例如
+       ?debug=noprop:overscroll-behavior-x,noprop:overscroll-behavior-y 一次測兩個屬性 -->
+
 <script>
   (function(){
     try{
@@ -47,6 +55,41 @@
             var el = document.getElementById(id);
             if(el) el.remove();
           });
+        });
+      }
+      flags.forEach(function(f){
+        var m = f.match(/^cssdrop:(\d+)-(\d+)$/);
+        if(!m) return;
+        document.addEventListener('DOMContentLoaded', function(){
+          var el = document.getElementById('appMainStyle');
+          var sheet = el && el.sheet;
+          if(!sheet) return;
+          var start = parseInt(m[1], 10);
+          var end = Math.min(parseInt(m[2], 10), sheet.cssRules.length);
+          for(var i = end - 1; i >= start; i--){
+            try{ sheet.deleteRule(i); } catch(e){}
+          }
+        });
+      });
+      var propsToStrip = flags.filter(function(f){ return f.indexOf('noprop:') === 0; })
+        .map(function(f){ return f.slice('noprop:'.length); });
+      if(propsToStrip.length > 0){
+        document.addEventListener('DOMContentLoaded', function(){
+          var el = document.getElementById('appMainStyle');
+          var sheet = el && el.sheet;
+          if(!sheet) return;
+          function walk(rules){
+            for(var i = 0; i < rules.length; i++){
+              var rule = rules[i];
+              if(rule.style){
+                propsToStrip.forEach(function(p){
+                  try{ rule.style.removeProperty(p); } catch(e){}
+                });
+              }
+              if(rule.cssRules){ walk(rule.cssRules); }
+            }
+          }
+          walk(sheet.cssRules);
         });
       }
     } catch(e){}
