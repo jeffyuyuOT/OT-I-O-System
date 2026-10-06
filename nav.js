@@ -29,46 +29,174 @@ async function loadTabOrder(){
   syncTabOrder();
 }
 
+// ===== 子分頁排序 =====
+// 每個主分頁底下的子分頁按鈕(.subtab-bar 裡的 .subtab-btn)是直接寫在 index.html 裡的,
+// 所以這裡不另外維護一份子分頁清單,而是直接從畫面上抓:每個子分頁用它按鈕的 id(btn-subtab-xxx)
+// 當 key,存一份 { 主分頁id: [子分頁按鈕id, ...] } 到資料庫,載入後再把按鈕在 .subtab-bar 裡
+// 重新排好順序。新增的子分頁(存檔裡還沒有的)自動排在最後。
+let subTabOrder = {};
+let tabOrderDraft = null;      // 「調整分頁順序」面板開著時的暫存順序,按 Save Order 才會真的套用
+let subTabOrderDraft = null;
+const tabOrderExpanded = new Set(); // 面板裡目前展開了哪幾個主分頁的子分頁清單
+
+function getSubTabBar(tabId){
+  const container = document.getElementById(tabId);
+  return container ? container.querySelector('.subtab-bar') : null;
+}
+
+// 子分頁列裡的每一個項目(按鈕本身,或像「待處理訂單」那樣外面包了一層 span 的情況)
+function getSubTabBarItems(bar){
+  const items = [];
+  Array.from(bar.children).forEach(el => {
+    const btn = el.classList && el.classList.contains('subtab-btn') ? el : el.querySelector && el.querySelector('.subtab-btn');
+    if(btn && btn.id) items.push({ key: btn.id, el, btn });
+  });
+  return items;
+}
+
+function getSubTabLabel(btn){
+  const key = btn.getAttribute('data-i18n');
+  return key ? t(key) : btn.textContent.trim();
+}
+
+// 目前畫面上某個主分頁的子分頁順序(按鈕 id 陣列);沒有子分頁的主分頁回傳空陣列。
+function getCurrentSubTabKeys(tabId){
+  const bar = getSubTabBar(tabId);
+  return bar ? getSubTabBarItems(bar).map(i => i.key) : [];
+}
+
+function applySubTabOrder(){
+  TAB_DEFS.forEach(def => {
+    const bar = getSubTabBar(def.id);
+    if(!bar) return;
+    const saved = Array.isArray(subTabOrder[def.id]) ? subTabOrder[def.id] : [];
+    if(saved.length === 0) return;
+    const items = getSubTabBarItems(bar);
+    const byKey = new Map(items.map(i => [i.key, i]));
+    const ordered = [];
+    saved.forEach(k => { if(byKey.has(k)){ ordered.push(byKey.get(k)); byKey.delete(k); } });
+    items.forEach(i => { if(byKey.has(i.key)) ordered.push(i); }); // 存檔裡沒有的(新增的子分頁)接在最後
+    ordered.forEach(i => bar.appendChild(i.el));
+  });
+}
+
+async function loadSubTabOrder(){
+  try{
+    const r = await dbGet('subTabOrder');
+    if(r && r.value){
+      const stored = JSON.parse(r.value);
+      if(stored && typeof stored === 'object' && !Array.isArray(stored)) subTabOrder = stored;
+    }
+  } catch(e){ /* 還沒存過順序,維持預設 */ }
+  applySubTabOrder();
+}
+
 function toggleTabOrderPanel(){
   const panel = document.getElementById('tabOrderPanel');
   if(!panel) return;
   if(panel.style.display === 'none'){
     syncTabOrder();
+    tabOrderDraft = tabOrder.slice();
+    subTabOrderDraft = {};
+    TAB_DEFS.forEach(def => { subTabOrderDraft[def.id] = getCurrentSubTabKeys(def.id); });
     renderTabOrderPanel();
     panel.style.display = 'block';
   } else {
-    panel.style.display = 'none';
+    panel.style.display = 'none'; // 沒按 Save Order 就收起來 = 放棄這次還沒儲存的調整
+    tabOrderDraft = null;
+    subTabOrderDraft = null;
   }
 }
 
 function renderTabOrderPanel(){
   const panel = document.getElementById('tabOrderPanel');
-  if(!panel) return;
+  if(!panel || !tabOrderDraft) return;
   panel.innerHTML = `
     <div class="cat-order-panel">
       <p style="font-size:12px;color:var(--ink-soft);margin:0 0 10px;">${t('tabOrderPanelDesc')}</p>
-      ${tabOrder.map((id, i) => {
+      ${tabOrderDraft.map((id, i) => {
         const def = TAB_DEFS.find(d => d.id === id);
         if(!def) return '';
+        const subKeys = subTabOrderDraft[id] || [];
+        const expanded = tabOrderExpanded.has(id);
+        const subRows = expanded ? `
+          <div style="margin:0 0 10px 18px;padding-left:10px;border-left:3px solid var(--yellow);">
+            ${subKeys.map((key, si) => {
+              const btn = document.getElementById(key);
+              if(!btn) return '';
+              return `
+              <div class="cat-order-row">
+                <span class="cat-order-name">${escapeHtmlText(getSubTabLabel(btn))}</span>
+                <button onclick="moveSubTabOrderDraft('${id}', ${si}, -1)" ${si === 0 ? 'disabled' : ''} title="${t('titleMoveUp')}">↑</button>
+                <button onclick="moveSubTabOrderDraft('${id}', ${si}, 1)" ${si === subKeys.length - 1 ? 'disabled' : ''} title="${t('titleMoveDown')}">↓</button>
+              </div>`;
+            }).join('')}
+          </div>` : '';
         return `
         <div class="cat-order-row">
           <span class="cat-order-name">${t(def.labelKey)}</span>
-          <button onclick="moveTabOrder(${i}, -1)" ${i === 0 ? 'disabled' : ''} title="${t('titleMoveUp')}">↑</button>
-          <button onclick="moveTabOrder(${i}, 1)" ${i === tabOrder.length - 1 ? 'disabled' : ''} title="${t('titleMoveDown')}">↓</button>
+          ${subKeys.length > 1 ? `<button class="cat-order-rename-btn" onclick="toggleTabOrderExpand('${id}')">${expanded ? '▾' : '▸'} ${t('btnSubTabOrder')}</button>` : ''}
+          <button onclick="moveTabOrderDraft(${i}, -1)" ${i === 0 ? 'disabled' : ''} title="${t('titleMoveUp')}">↑</button>
+          <button onclick="moveTabOrderDraft(${i}, 1)" ${i === tabOrderDraft.length - 1 ? 'disabled' : ''} title="${t('titleMoveDown')}">↓</button>
         </div>
+        ${subRows}
       `;
       }).join('')}
+      <div style="display:flex;gap:10px;align-items:center;margin-top:12px;flex-wrap:wrap;">
+        <button class="btn" onclick="saveTabOrderPanel()">${t('btnSaveOrder')}</button>
+        <span id="tabOrderSaveMsg" style="font-size:12px;"></span>
+      </div>
     </div>
   `;
 }
 
-async function moveTabOrder(index, direction){
-  const target = index + direction;
-  if(target < 0 || target >= tabOrder.length) return;
-  [tabOrder[index], tabOrder[target]] = [tabOrder[target], tabOrder[index]];
-  await saveTabOrder();
+function toggleTabOrderExpand(tabId){
+  if(tabOrderExpanded.has(tabId)) tabOrderExpanded.delete(tabId);
+  else tabOrderExpanded.add(tabId);
   renderTabOrderPanel();
+}
+
+// 只改暫存順序,不存檔——要按「Save Order」才會真的儲存、套用到上方分頁列。
+function moveTabOrderDraft(index, direction){
+  const target = index + direction;
+  if(!tabOrderDraft || target < 0 || target >= tabOrderDraft.length) return;
+  [tabOrderDraft[index], tabOrderDraft[target]] = [tabOrderDraft[target], tabOrderDraft[index]];
+  renderTabOrderPanel();
+}
+
+function moveSubTabOrderDraft(tabId, index, direction){
+  const arr = subTabOrderDraft && subTabOrderDraft[tabId];
+  const target = index + direction;
+  if(!arr || target < 0 || target >= arr.length) return;
+  [arr[index], arr[target]] = [arr[target], arr[index]];
+  renderTabOrderPanel();
+}
+
+async function saveTabOrderPanel(){
+  if(!tabOrderDraft) return;
+  const msgEl = document.getElementById('tabOrderSaveMsg');
+  const prevTabOrder = tabOrder.slice();
+  const prevSubTabOrder = subTabOrder;
+  tabOrder = tabOrderDraft.slice();
+  const nextSub = {};
+  TAB_DEFS.forEach(def => {
+    const keys = subTabOrderDraft[def.id] || [];
+    if(keys.length > 1) nextSub[def.id] = keys.slice();
+  });
+  subTabOrder = nextSub;
+  try{
+    await dbSet('tabOrder', JSON.stringify(tabOrder));
+    await dbSet('subTabOrder', JSON.stringify(subTabOrder));
+  } catch(e){
+    console.error('儲存分頁順序失敗', e);
+    tabOrder = prevTabOrder;
+    subTabOrder = prevSubTabOrder;
+    if(msgEl){ msgEl.style.color = 'var(--crit)'; msgEl.textContent = t('errSaveOrderFailed'); }
+    return;
+  }
+  applySubTabOrder();
   renderTabBar();
+  if(msgEl){ msgEl.style.color = 'var(--safe)'; msgEl.textContent = t('msgOrderSaved'); }
 }
 
 
@@ -229,7 +357,7 @@ function switchTab(tabId){
     populateCompletedOrderPartyFilter(); renderOrders();
   }
   if(tabId === 'tab-warehouse-admin'){
-    renderPartiesTable(); renderForecastTable(); populateExportPartySelect();
+    renderPartiesTable(); renderForecastTable(); populateExportPartySelect(); renderExportProductList();
     renderSupplierManagementTable();
     // hasFeature('receiptScanModule') 同時代表「這個功能要不要用」跟「receipt-scan.js 這個檔案
     // 有沒有真的被載入」——這個旗標就是在 receipt-scan.js 裡面設的,檔案沒帶的話這裡一定是
@@ -318,7 +446,8 @@ function switchWarehouseAdminSubTab(subtabId){
   if(subtabId === 'subtab-order-parties') renderPartiesTable();
   else if(subtabId === 'subtab-purchase-mgmt-suppliers') renderSupplierManagementTable();
   else if(subtabId === 'subtab-tx-forecast') renderForecastTable();
-  else if(subtabId === 'subtab-tx-data') populateExportPartySelect();
+  else if(subtabId === 'subtab-tx-data'){ populateExportPartySelect(); renderExportProductList(); }
+  else if(subtabId === 'subtab-quicklist-mgmt') renderQuickListMgmt();
   else if(subtabId === 'subtab-purchase-mgmt-ocrdb' && hasFeature('receiptScanModule')) renderOcrDbProductSelect();
   document.getElementById(subtabId).classList.add('active-subtab');
   document.getElementById('btn-' + subtabId).classList.add('active');

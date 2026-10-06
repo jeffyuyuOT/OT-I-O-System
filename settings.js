@@ -759,20 +759,29 @@ const IMPORTED_STOCK_DATA = [
 ];
 
 
+// 分類順序的暫存版本:面板開著的時候上下移動只改這份暫存,按「Save Order」才會真的存檔、
+// 套用到庫存總覽等地方;沒按就把面板收起來等於放棄這次調整。
+let categoryOrderDraft = null;
+
 function toggleCategoryOrderPanel(){
   const panel = document.getElementById('categoryOrderPanel');
+  if(!panel) return;
   if(panel.style.display === 'none'){
     syncCategoryOrder();
+    categoryOrderDraft = categoryOrder.filter(c => c !== '未分類');
     renderCategoryOrderPanel();
     panel.style.display = 'block';
   } else {
     panel.style.display = 'none';
+    categoryOrderDraft = null;
   }
 }
 
 function renderCategoryOrderPanel(){
   const panel = document.getElementById('categoryOrderPanel');
-  const movable = categoryOrder.filter(c => c !== '未分類'); // 未分類 always stays last
+  if(!panel) return;
+  if(!categoryOrderDraft) categoryOrderDraft = categoryOrder.filter(c => c !== '未分類'); // 未分類 always stays last
+  const movable = categoryOrderDraft;
   panel.innerHTML = `
     <div class="cat-order-panel">
       <p style="font-size:12px;color:var(--ink-soft);margin:0 0 10px;">${t('catOrderPanelDesc')}</p>
@@ -784,14 +793,38 @@ function renderCategoryOrderPanel(){
           <button class="cat-order-rename-btn" onclick="renameCategoryAt(${i})" title="${t('titleRenameCategory')}">${t('btnRenameCategory')}</button>
         </div>
       `).join('')}
+      <div style="display:flex;gap:10px;align-items:center;margin-top:12px;flex-wrap:wrap;">
+        <button class="btn" onclick="saveCategoryOrderPanel()">${t('btnSaveOrder')}</button>
+        <span id="categoryOrderSaveMsg" style="font-size:12px;"></span>
+      </div>
     </div>
   `;
+}
+
+async function saveCategoryOrderPanel(){
+  if(!categoryOrderDraft) return;
+  const msgEl = document.getElementById('categoryOrderSaveMsg');
+  const prev = categoryOrder.slice();
+  categoryOrder = [...categoryOrderDraft, '未分類'];
+  try{
+    await dbSet('categoryOrder', JSON.stringify(categoryOrder));
+  } catch(e){
+    console.error('儲存分類順序失敗', e);
+    categoryOrder = prev;
+    if(msgEl){ msgEl.style.color = 'var(--crit)'; msgEl.textContent = t('errSaveOrderFailed'); }
+    return;
+  }
+  renderStockCards();
+  populateCategoryDropdowns();
+  if(msgEl){ msgEl.style.color = 'var(--safe)'; msgEl.textContent = t('msgOrderSaved'); }
 }
 
 // 重新命名一個分類;如果輸入的新名稱(忽略大小寫/前後空白)剛好跟另一個已存在的分類相同,
 // 就直接把這個分類的商品併過去那個分類,而不是留下兩筆重複的分類。
 async function renameCategoryAt(index){
-  const movable = categoryOrder.filter(c => c !== '未分類');
+  // 重新命名是立刻生效的(會直接改商品資料),不屬於「Save Order」要等儲存的排序調整;面板上顯示的是
+  // 暫存順序,所以這裡用暫存順序找出要改的分類,改完之後把暫存順序也跟著換成新名稱,不會丟掉還沒儲存的移動。
+  const movable = (categoryOrderDraft || categoryOrder.filter(c => c !== '未分類')).slice();
   const oldName = movable[index];
   if(!oldName) return;
   const input = window.prompt(tf('renameCategoryPrompt', { name: catLabel(oldName) }), oldName);
@@ -807,8 +840,10 @@ async function renameCategoryAt(index){
 
   if(existing){
     categoryOrder = categoryOrder.filter(c => c !== oldName);
+    if(categoryOrderDraft) categoryOrderDraft = categoryOrderDraft.filter(c => c !== oldName);
   } else {
     categoryOrder = categoryOrder.map(c => c === oldName ? finalName : c);
+    if(categoryOrderDraft) categoryOrderDraft = categoryOrderDraft.map(c => c === oldName ? finalName : c);
   }
 
   await saveProducts();
@@ -817,13 +852,11 @@ async function renameCategoryAt(index){
   renderAll();
 }
 
-async function moveCategoryOrder(index, direction){
-  const movable = categoryOrder.filter(c => c !== '未分類');
+// 只改暫存順序(不存檔),要按面板下面的「Save Order」才會真的儲存。
+function moveCategoryOrder(index, direction){
+  if(!categoryOrderDraft) categoryOrderDraft = categoryOrder.filter(c => c !== '未分類');
   const target = index + direction;
-  if(target < 0 || target >= movable.length) return;
-  [movable[index], movable[target]] = [movable[target], movable[index]];
-  categoryOrder = [...movable, '未分類'];
-  await saveCategoryOrder();
+  if(target < 0 || target >= categoryOrderDraft.length) return;
+  [categoryOrderDraft[index], categoryOrderDraft[target]] = [categoryOrderDraft[target], categoryOrderDraft[index]];
   renderCategoryOrderPanel();
-  renderStockCards();
 }

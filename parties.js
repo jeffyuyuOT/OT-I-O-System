@@ -404,12 +404,36 @@ function deleteSupplier(supplierId){
 // 純粹試算用的畫面,不會真的異動庫存或建立任何紀錄:目前庫存可撐直接沿用庫存總覽同一套算法
 // (computeTotalStock + getEffectiveAvg + daysRemaining),填了「預計進貨數量」之後即時算出
 // (預計進貨數量 + 目前庫存量)÷ 平均用量,估計進貨之後大概還能撐多久。
-let forecastQtyDraft = {}; // productId -> 使用者輸入的預計進貨數量(字串,留著畫面切換/重畫時不會歸零)
+//
+// 每一列代表一個商品家族(主商品 + 底下的 multipack 商品),進貨數量用「這一列目前選的進貨單位」
+// 填——單位按列尾的 ⇄ 圖示切換,選的是家族裡哪一個商品,就用那個商品的單位、名稱、箱子體積。
+// 選擇會存起來,下次打開還是同一個,直到使用者再改。(以前是「庫存總覽顯示哪個代表商品,這裡就跟著用
+// 哪個單位」,現在這個對應關係取消了,完全以這裡選的為主。)
+let forecastQtyDraft = {}; // anchorId -> 使用者輸入的預計進貨數量(字串,留著畫面切換/重畫時不會歸零)
 let forecastVolumeUnit = 'cm3'; // 'cm3'(材積,預設) 或 'm3'(cubic meter)
+let forecastUnitChoice = {};    // anchorId -> 進貨單位對應的商品 id(會存進資料庫)
+let forecastBoxBasis = {};      // anchorId -> 換算「總箱數」要用哪一個商品當一箱(會存進資料庫)
+let forecastRemovedIds = new Set(); // 使用者在目前篩選結果裡手動刪掉的商品(只管目前這次篩選)
+let forecastAddedIds = new Set();   // 使用者在目前篩選結果之外額外手動加進來的商品
+
+async function loadForecastPrefs(){
+  try{
+    const r = await dbGet('forecastPrefs');
+    if(r && r.value){
+      const s = JSON.parse(r.value);
+      forecastUnitChoice = (s && s.unitChoice) || {};
+      forecastBoxBasis = (s && s.boxBasis) || {};
+    }
+  } catch(e){ /* 還沒存過,維持預設 */ }
+}
+
+async function saveForecastPrefs(){
+  try{ await dbSet('forecastPrefs', JSON.stringify({ unitChoice: forecastUnitChoice, boxBasis: forecastBoxBasis })); }
+  catch(e){ console.error('儲存進貨預估單位選擇失敗', e); }
+}
 
 // 商品箱子體積(cm³):要長寬高三個都有填才算得出來,缺一個就回傳 null(表示這個商品目前
-// 沒辦法算體積,畫面上顯示「-」)。體積是看 basis(畫面上實際顯示的代表商品)自己填的尺寸,
-// 跟名稱/單位一樣的判斷方式。
+// 沒辦法算體積,畫面上顯示「-」)。體積是看「進貨單位對應的那個商品」自己填的尺寸。
 function computeBoxVolumeCm3(basis){
   if(basis.boxLengthCm == null || basis.boxWidthCm == null || basis.boxHeightCm == null) return null;
   if(isNaN(basis.boxLengthCm) || isNaN(basis.boxWidthCm) || isNaN(basis.boxHeightCm)) return null;
@@ -422,6 +446,71 @@ function formatForecastVolume(cm3){
   return `${cm3.toLocaleString(undefined, {maximumFractionDigits:0})} cm³`;
 }
 
+// ----- 進貨單位 / 換算箱數 -----
+function forecastFamilyMembers(anchor){
+  return [anchor].concat(getChildProducts(anchor.id));
+}
+
+// 這一列目前選的進貨單位對應的商品;沒選過(或選的那個商品已被刪除)就用主商品自己。
+function getForecastUnitProduct(anchor){
+  const chosenId = forecastUnitChoice[anchor.id];
+  if(chosenId && chosenId !== anchor.id){
+    const chosen = getChildProducts(anchor.id).find(c => c.id === chosenId);
+    if(chosen) return chosen;
+  }
+  return anchor;
+}
+
+function isCartonUnit(unit){
+  return /^(ctn|ctns|carton|cartons|box|boxes|箱)$/i.test((unit || '').trim());
+}
+
+function hasValidChildWeight(c){
+  return c.childWeight !== null && c.childWeight !== undefined && !isNaN(c.childWeight) && c.childWeight > 0;
+}
+
+// 「一箱」可以用家族裡哪些商品來當:優先找單位本身就是 CTN(箱)的成員(主商品或 multipack 都算);
+// 家族裡沒有任何成員的單位是 CTN 的話,才退而求其次用 multipack 商品(有填加權數的子商品)。
+function getForecastBoxCandidates(anchor){
+  const members = forecastFamilyMembers(anchor).filter(m => m.id === anchor.id || hasValidChildWeight(m));
+  const cartonMembers = members.filter(m => isCartonUnit(m.unit));
+  if(cartonMembers.length > 0) return cartonMembers;
+  return getChildProducts(anchor.id).filter(hasValidChildWeight);
+}
+
+// 決定換算總箱數要用哪一個商品當一箱;只有一個選項直接用,有多個選項又還沒選過就回傳 null(要請使用者選)。
+function resolveForecastBoxProduct(anchor){
+  const candidates = getForecastBoxCandidates(anchor);
+  if(candidates.length === 0) return null;
+  const stored = forecastBoxBasis[anchor.id];
+  if(stored){
+    const found = candidates.find(c => c.id === stored);
+    if(found) return found;
+  }
+  return candidates.length === 1 ? candidates[0] : null;
+}
+
+function forecastNeedsBoxChoice(anchor){
+  return getForecastBoxCandidates(anchor).length > 1 && !resolveForecastBoxProduct(anchor);
+}
+
+// 把使用者填的數量(用這一列選的進貨單位)換算成「箱數」。回傳 { boxes: 數字或 null, needsChoice, noBasis }:
+//  - 進貨單位本身就是 CTN → 填多少就是多少箱,不用換算。
+//  - 不是 CTN → 先乘上這個商品的加權數換回主商品單位,再除以「一箱」商品的加權數(= 一箱裡有多少主商品單位)。
+//  - 找不到可以當一箱的商品(沒有 multipack)→ boxes 為 null、noBasis 為 true,不計入總箱數。
+//  - 有多個 multipack 又還沒選要用哪一個 → boxes 為 null、needsChoice 為 true。
+function computeForecastBoxes(anchor, qty){
+  const unitProd = getForecastUnitProduct(anchor);
+  if(isCartonUnit(unitProd.unit)) return { boxes: qty, needsChoice: false, noBasis: false };
+  const boxProd = resolveForecastBoxProduct(anchor);
+  if(!boxProd){
+    return { boxes: null, needsChoice: getForecastBoxCandidates(anchor).length > 1, noBasis: getForecastBoxCandidates(anchor).length === 0 };
+  }
+  const anchorQty = qty * getBasisWeight(unitProd, anchor);
+  return { boxes: anchorQty / getBasisWeight(boxProd, anchor), needsChoice: false, noBasis: false };
+}
+
+// ----- 篩選 / 顯示哪些商品 -----
 function populateForecastPartyFilter(){
   const sel = document.getElementById('forecastPartyFilter');
   if(!sel) return;
@@ -449,14 +538,11 @@ function populateForecastCategoryFilter(){
   if(usedCats.includes(prev)) sel.value = prev;
 }
 
-function renderForecastTable(){
-  const container = document.getElementById('forecastTableContainer');
-  if(!container) return;
-  populateForecastPartyFilter();
-  populateForecastCategoryFilter();
+// 依三個篩選條件(進貨對象、快捷清單、分類,是「且」的關係)算出的商品清單,還沒套用使用者手動刪除/新增。
+function getForecastBaseItems(){
   const partyFilter = document.getElementById('forecastPartyFilter') ? document.getElementById('forecastPartyFilter').value : '';
   const catFilter = document.getElementById('forecastCategoryFilter') ? document.getElementById('forecastCategoryFilter').value : '';
-  const now = new Date();
+  const quickListId = document.getElementById('forecastQuickListFilter') ? document.getElementById('forecastQuickListFilter').value : '';
 
   // 顯示的商品跟庫存總覽預設看到的一樣:只看主商品(批量商品的量已經併進主商品的
   // computeTotalStock 裡,不用重複列出),而且不含被勾選「隱藏」的商品(庫存總覽預設也是這樣,
@@ -471,10 +557,71 @@ function renderForecastTable(){
     );
     items = items.filter(p => productIdsFromParty.has(p.id));
   }
-  // 再依分類篩選(兩個篩選條件是「且」的關係,都有選的話兩個條件都要符合)。
+  if(quickListId){
+    const qlSet = getQuickListAnchorIds(quickListId);
+    items = items.filter(p => qlSet.has(p.id));
+  }
   if(catFilter) items = items.filter(p => (p.category || '未分類') === catFilter);
+  return items;
+}
 
-  items = items.slice().sort(compareProductsBySortMode);
+// 畫面上實際列出的商品 = 篩選結果,扣掉使用者手動刪掉的,再加上使用者手動新增的。
+function getForecastDisplayItems(){
+  const base = getForecastBaseItems();
+  const baseIds = new Set(base.map(p => p.id));
+  const items = base.filter(p => !forecastRemovedIds.has(p.id));
+  forecastAddedIds.forEach(id => {
+    if(baseIds.has(id)) return;
+    const p = products.find(x => x.id === id && !x.parentId && !x.hidden);
+    if(p) items.push(p);
+  });
+  return items.slice().sort(compareProductsBySortMode);
+}
+
+// 換了任何一個篩選條件,視為重新開始看一份新的清單:之前手動刪掉/新增的調整只對「上一份」篩選結果有意義,清掉。
+function onForecastFilterChange(){
+  forecastRemovedIds = new Set();
+  forecastAddedIds = new Set();
+  renderForecastTable();
+  if(document.getElementById('forecastAddPanel').style.display !== 'none') refreshProductPicker('fc');
+}
+
+function removeForecastRow(anchorId){
+  forecastAddedIds.delete(anchorId);
+  forecastRemovedIds.add(anchorId);
+  renderForecastTable();
+  if(document.getElementById('forecastAddPanel').style.display !== 'none') refreshProductPicker('fc');
+}
+
+function toggleForecastAddPanel(){
+  const panel = document.getElementById('forecastAddPanel');
+  if(!panel) return;
+  if(panel.style.display === 'none'){
+    panel.style.display = 'block';
+    mountProductPicker('forecastAddPanel', 'fc', {
+      getExcludedIds: () => getForecastDisplayItems().map(p => p.id),
+      onAdd: (id, batch) => {
+        forecastRemovedIds.delete(id);
+        forecastAddedIds.add(id);
+        if(!batch) renderForecastTable();
+      },
+      onAddBatchDone: () => renderForecastTable()
+    });
+  } else {
+    panel.style.display = 'none';
+    panel.innerHTML = '';
+  }
+}
+
+function renderForecastTable(){
+  const container = document.getElementById('forecastTableContainer');
+  if(!container) return;
+  populateForecastPartyFilter();
+  populateForecastCategoryFilter();
+  populateQuickListSelect('forecastQuickListFilter', 'quickListFilterAll');
+  const now = new Date();
+
+  const items = getForecastDisplayItems();
 
   // 篩選列右邊的「總箱數」「總體積」:交給共用的 updateForecastSummary() 算,避免這裡重複一份邏輯。
   updateForecastSummary();
@@ -487,7 +634,7 @@ function renderForecastTable(){
   container.innerHTML = `
     <table class="stock-table forecast-table">
       <colgroup>
-        <col class="fc-col-name"><col class="fc-col-current"><col class="fc-col-qty"><col class="fc-col-after">
+        <col class="fc-col-name"><col class="fc-col-current"><col class="fc-col-qty"><col class="fc-col-after"><col class="fc-col-del">
       </colgroup>
       <thead>
         <tr>
@@ -495,6 +642,7 @@ function renderForecastTable(){
           <th class="num">${t('colCurrentRemain')}</th>
           <th class="qty-col-header">${t('colForecastQty')}</th>
           <th class="num">${t('colAfterRemain')}</th>
+          <th></th>
         </tr>
       </thead>
       <tbody>
@@ -504,33 +652,42 @@ function renderForecastTable(){
   `;
 }
 
-// p 一律是「主商品」(family 的錨點,用來算加總庫存/平均出貨);畫面上實際顯示的名稱/SKU/單位,
-// 跟庫存總覽一樣改成看「顯示於庫存總覽」目前選的是哪個代表商品(getTotalStockBasisProduct)——
-// 如果庫存總覽那邊選的是某個 multipack 子商品當代表,這裡的商品名稱、單位也要跟著換,不能一直
-// 顯示主商品自己的名字。draft 數量還是用主商品的 id 存(family 的 key),不會因為代表換了就不見。
+// 「庫存可撐」小視窗的內容:目前(或進貨後)總數、月平均銷量,單位跟著這一列選的進貨單位走。
+function forecastTipText(unitProd, weight, rawStockForTip, rawAvg, totalLabelKey){
+  const unit = unitProd.unit || '';
+  const totalText = `${formatMultipackQty(rawStockForTip / weight)} ${unit}`;
+  const avgText = rawAvg > 0 ? `${formatMultipackQty(rawAvg / weight)} ${unit}${t('avgSuffixMonth')}` : '—';
+  return `${t(totalLabelKey)}${totalText}\n${t('tipAvgMonthlySales')}${avgText}`;
+}
+
+// p 一律是「主商品」(family 的錨點,用來算加總庫存/平均出貨);這一列顯示的名稱/SKU/單位是使用者
+// 選的進貨單位對應的商品(getForecastUnitProduct)。draft 數量用主商品的 id 存(family 的 key),
+// 不會因為換了進貨單位就不見。
 function forecastRowHtml(p, now){
-  const basis = getTotalStockBasisProduct(p);
-  const weight = getBasisWeight(basis, p);
+  const unitProd = getForecastUnitProduct(p);
+  const weight = getBasisWeight(unitProd, p);
   const rawStock = computeTotalStock(p.id);
   const { avg: rawAvg } = getEffectiveAvg(p, now);
   const currentGauge = gaugeInfo(daysRemaining(rawStock, rawAvg));
   const draftVal = forecastQtyDraft[p.id] != null ? forecastQtyDraft[p.id] : '';
   const enteredQty = parseFloat(draftVal);
-  // 使用者填的「預計進貨數量」是用代表商品的單位填的(例如選了 x20 的箱子就是填箱數),
+  // 使用者填的「預計進貨數量」是用這一列選的進貨單位填的(例如選了 x20 的箱子就是填箱數),
   // 要先乘上加權數換算回主商品自己的單位,才能跟原始庫存量、平均出貨量放在一起算天數。
   const rawAddition = isNaN(enteredQty) ? 0 : enteredQty * weight;
   const afterGauge = gaugeInfo(daysRemaining(rawStock + rawAddition, rawAvg));
+  const hasFamily = getChildProducts(p.id).length > 0;
   return `
     <tr id="forecastRow_${p.id}">
-      <td class="row-name">${basis.sku ? `<span class="sku-badge">${basis.sku}</span>` : ''}${basis.name}</td>
-      <td class="num"><span class="dot dot-${currentGauge.cls}" style="margin-right:5px;"></span>${currentGauge.label}</td>
+      <td class="row-name">${unitProd.sku ? `<span class="sku-badge">${escapeHtmlText(unitProd.sku)}</span>` : ''}${escapeHtmlText(unitProd.name)}</td>
+      <td class="num fc-remain-tip" data-tip="${escapeAttr(forecastTipText(unitProd, weight, rawStock, rawAvg, 'tipTotalNow'))}"><span class="dot dot-${currentGauge.cls}" style="margin-right:5px;"></span>${currentGauge.label}</td>
       <td class="qty-col-data">
         <div class="fc-qty-cell-inner">
-          <input type="number" min="0" step="1" value="${draftVal}" class="fc-qty-input" id="forecastQtyInput_${p.id}"
-            oninput="updateForecastRow('${p.id}')" /><span class="fc-unit-label">${basis.unit}</span>
+          <input type="number" min="0" step="any" value="${draftVal}" class="fc-qty-input" id="forecastQtyInput_${p.id}"
+            oninput="updateForecastRow('${p.id}')" onchange="onForecastQtyCommit('${p.id}')" /><span class="fc-unit-label" title="${escapeAttr(unitProd.unit || '')}">${escapeHtmlText(unitProd.unit || '')}</span>${hasFamily ? `<span class="fc-unit-switch" onclick="openForecastUnitMenu(event,'${p.id}')" title="${escapeAttr(t('titleSwitchForecastUnit'))}">⇄</span>` : ''}
         </div>
       </td>
-      <td class="num" id="forecastAfterCell_${p.id}"><span class="dot dot-${afterGauge.cls}" style="margin-right:5px;"></span>${afterGauge.label}</td>
+      <td class="num fc-remain-tip" id="forecastAfterCell_${p.id}" data-tip="${escapeAttr(forecastTipText(unitProd, weight, rawStock + rawAddition, rawAvg, 'tipTotalAfter'))}"><span class="dot dot-${afterGauge.cls}" style="margin-right:5px;"></span>${afterGauge.label}</td>
+      <td><span class="fc-row-del" onclick="removeForecastRow('${p.id}')" title="${escapeAttr(t('titleRemoveForecastRow'))}">✕</span></td>
     </tr>
   `;
 }
@@ -545,51 +702,219 @@ function updateForecastRow(productId){
   forecastQtyDraft[productId] = input.value;
   const p = products.find(x => x.id === productId);
   if(!p) return;
-  const basis = getTotalStockBasisProduct(p);
-  const weight = getBasisWeight(basis, p);
+  const unitProd = getForecastUnitProduct(p);
+  const weight = getBasisWeight(unitProd, p);
   const rawStock = computeTotalStock(p.id);
   const { avg: rawAvg } = getEffectiveAvg(p, new Date());
   const qty = parseFloat(input.value);
   const rawAddition = isNaN(qty) ? 0 : qty * weight;
   const afterGauge = gaugeInfo(daysRemaining(rawStock + rawAddition, rawAvg));
   const cell = document.getElementById(`forecastAfterCell_${productId}`);
-  if(cell) cell.innerHTML = `<span class="dot dot-${afterGauge.cls}" style="margin-right:5px;"></span>${afterGauge.label}`;
+  if(cell){
+    cell.innerHTML = `<span class="dot dot-${afterGauge.cls}" style="margin-right:5px;"></span>${afterGauge.label}`;
+    cell.setAttribute('data-tip', forecastTipText(unitProd, weight, rawStock + rawAddition, rawAvg, 'tipTotalAfter'));
+  }
 
   updateForecastSummary();
+}
+
+// 數量輸入完成(離開欄位/按 Enter)才檢查要不要請使用者選「換算總箱數用哪個 multipack」——不在打字
+// 當下就跳視窗,不然使用者連一個數字都還沒打完就被打斷。
+function onForecastQtyCommit(productId){
+  const p = products.find(x => x.id === productId);
+  if(!p) return;
+  const qty = parseFloat(forecastQtyDraft[productId]);
+  if(isNaN(qty) || qty <= 0) return;
+  if(isCartonUnit(getForecastUnitProduct(p).unit)) return; // 單位本身就是 CTN,不用換算
+  if(forecastNeedsBoxChoice(p)) openForecastBoxBasisModal(productId);
 }
 
 // 只重算、重畫上面那條「總箱數 / 總體積」的加總小字,不動整個表格(避免打字時整表重畫打斷輸入)。
 function updateForecastSummary(){
   const summaryBar = document.getElementById('forecastSummaryBar');
   if(!summaryBar) return;
-  const partyFilter = document.getElementById('forecastPartyFilter') ? document.getElementById('forecastPartyFilter').value : '';
-  const catFilter = document.getElementById('forecastCategoryFilter') ? document.getElementById('forecastCategoryFilter').value : '';
-  let items = products.filter(p => !p.parentId && !p.hidden);
-  if(partyFilter){
-    const productIdsFromParty = new Set(
-      transactions.filter(tItem => tItem.type === 'in' && (tItem.party || '').trim() === partyFilter).map(tItem => tItem.productId)
-    );
-    items = items.filter(p => productIdsFromParty.has(p.id));
-  }
-  if(catFilter) items = items.filter(p => (p.category || '未分類') === catFilter);
+  const items = getForecastDisplayItems();
 
-  let totalBoxes = 0, totalVolumeCm3 = 0;
+  let totalBoxes = 0, totalVolumeCm3 = 0, notConvertible = 0;
   items.forEach(p => {
-    const basis = getTotalStockBasisProduct(p);
     const qty = parseFloat(forecastQtyDraft[p.id]);
-    if(!isNaN(qty)){
-      totalBoxes += qty;
-      const boxVol = computeBoxVolumeCm3(basis);
-      if(boxVol !== null) totalVolumeCm3 += boxVol * qty;
-    }
+    if(isNaN(qty) || qty <= 0) return;
+    const unitProd = getForecastUnitProduct(p);
+    const boxVol = computeBoxVolumeCm3(unitProd);
+    if(boxVol !== null) totalVolumeCm3 += boxVol * qty;
+    const res = computeForecastBoxes(p, qty);
+    if(res.boxes === null) notConvertible++;
+    else totalBoxes += res.boxes;
   });
 
   summaryBar.innerHTML = `
-    <span>${t('lblTotalBoxes')}<strong>${totalBoxes ? totalBoxes.toLocaleString() : '0'}</strong></span>
-    <span style="margin-left:14px;">${t('lblTotalVolume')}<strong>${formatForecastVolume(totalVolumeCm3 || 0)}</strong></span>
+    <span style="white-space:nowrap;">${t('lblTotalBoxes')}<strong>${totalBoxes ? (Math.round(totalBoxes * 100) / 100).toLocaleString() : '0'}</strong></span>
+    <span style="margin-left:14px;white-space:nowrap;">${t('lblTotalVolume')}<strong>${formatForecastVolume(totalVolumeCm3 || 0)}</strong></span>
     <select id="forecastVolumeUnitSelect" onchange="forecastVolumeUnit=this.value;renderForecastTable();" style="margin-left:8px;font-size:13.5px;padding:3px 5px;">
       <option value="cm3" ${forecastVolumeUnit === 'cm3' ? 'selected' : ''}>cm³ (${t('lblVolumeDefaultUnit')})</option>
       <option value="m3" ${forecastVolumeUnit === 'm3' ? 'selected' : ''}>m³ (cubic meter)</option>
     </select>
+    ${notConvertible > 0 ? `<div style="font-size:11.5px;color:var(--warn);margin-top:4px;">${tn('noteBoxesNotConvertible', notConvertible)}</div>` : ''}
   `;
 }
+
+// ----- 切換進貨單位選單(+ 換算總箱數依據) -----
+function closeForecastUnitMenu(){
+  const old = document.getElementById('forecastUnitMenu');
+  if(old) old.remove();
+}
+
+function openForecastUnitMenu(ev, anchorId){
+  ev.stopPropagation();
+  closeForecastUnitMenu();
+  const p = products.find(x => x.id === anchorId);
+  if(!p) return;
+  const current = getForecastUnitProduct(p);
+  const members = forecastFamilyMembers(p);
+  const boxCandidates = getForecastBoxCandidates(p);
+  const boxCurrent = resolveForecastBoxProduct(p);
+
+  const menu = document.createElement('div');
+  menu.id = 'forecastUnitMenu';
+  menu.className = 'fc-unit-menu';
+  menu.innerHTML = `
+    <div class="fc-menu-title">${t('menuTitleForecastUnit')}</div>
+    ${members.map(m => `
+      <div class="fc-menu-item ${m.id === current.id ? 'selected' : ''}" onclick="selectForecastUnit('${anchorId}','${m.id}')">
+        <span>${m.id === current.id ? '✓' : '&nbsp;&nbsp;'}</span>
+        <span>${escapeHtmlText(m.name)} <span style="color:var(--ink-soft);">(${escapeHtmlText(m.unit || '')})</span></span>
+      </div>`).join('')}
+    ${boxCandidates.length > 1 ? `
+      <div class="fc-menu-sep"></div>
+      <div class="fc-menu-title">${t('menuTitleForecastBoxBasis')}</div>
+      ${boxCandidates.map(m => `
+        <div class="fc-menu-item ${boxCurrent && m.id === boxCurrent.id ? 'selected' : ''}" onclick="selectForecastBoxBasis('${anchorId}','${m.id}')">
+          <span>${boxCurrent && m.id === boxCurrent.id ? '✓' : '&nbsp;&nbsp;'}</span>
+          <span>${escapeHtmlText(m.name)} <span style="color:var(--ink-soft);">(${escapeHtmlText(m.unit || '')})</span></span>
+        </div>`).join('')}` : ''}
+  `;
+  document.body.appendChild(menu);
+
+  const rect = ev.currentTarget.getBoundingClientRect();
+  const mw = menu.offsetWidth, mh = menu.offsetHeight;
+  let left = Math.min(Math.max(8, rect.right - mw), window.innerWidth - mw - 8);
+  let top = rect.bottom + 4;
+  if(top + mh > window.innerHeight - 8) top = Math.max(8, rect.top - mh - 4);
+  menu.style.left = left + 'px';
+  menu.style.top = top + 'px';
+
+  // 點選單以外的地方就收起來;延後一下才開始監聽,避免打開選單的這次點擊本身被當成「點了外面」。
+  setTimeout(() => {
+    function onOutside(e){
+      if(menu.contains(e.target)) return;
+      closeForecastUnitMenu();
+      document.removeEventListener('mousedown', onOutside, true);
+      document.removeEventListener('touchstart', onOutside, true);
+    }
+    document.addEventListener('mousedown', onOutside, true);
+    document.addEventListener('touchstart', onOutside, true);
+  }, 0);
+}
+
+async function selectForecastUnit(anchorId, memberId){
+  forecastUnitChoice[anchorId] = memberId;
+  closeForecastUnitMenu();
+  await saveForecastPrefs();
+  renderForecastTable();
+  onForecastQtyCommit(anchorId); // 切換後如果變成需要選「換算箱數依據」,馬上詢問
+}
+
+async function selectForecastBoxBasis(anchorId, memberId){
+  forecastBoxBasis[anchorId] = memberId;
+  closeForecastUnitMenu();
+  await saveForecastPrefs();
+  updateForecastSummary();
+}
+
+// 這個商品家族有多個可以當「一箱」的商品、又還沒選過用哪一個換算總箱數時,跳出視窗請使用者選一個。
+function openForecastBoxBasisModal(anchorId){
+  const p = products.find(x => x.id === anchorId);
+  if(!p) return;
+  const candidates = getForecastBoxCandidates(p);
+  const unitProd = getForecastUnitProduct(p);
+  const overlay = document.getElementById('forecastBoxBasisModalOverlay');
+  document.getElementById('forecastBoxBasisModalDesc').textContent =
+    tf('forecastBoxBasisModalDesc', { name: p.name, unit: unitProd.unit || '' });
+  document.getElementById('forecastBoxBasisModalList').innerHTML = candidates.map(m => `
+    <div class="fc-menu-item" style="border:1px solid var(--line);border-radius:3px;margin-bottom:8px;padding:10px 12px;" onclick="chooseForecastBoxBasisFromModal('${anchorId}','${m.id}')">
+      ${escapeHtmlText(m.name)} <span style="color:var(--ink-soft);">(${escapeHtmlText(m.unit || '')})</span>
+    </div>`).join('');
+  overlay.style.display = 'flex';
+}
+
+function closeForecastBoxBasisModal(){
+  document.getElementById('forecastBoxBasisModalOverlay').style.display = 'none';
+}
+
+async function chooseForecastBoxBasisFromModal(anchorId, memberId){
+  forecastBoxBasis[anchorId] = memberId;
+  closeForecastBoxBasisModal();
+  await saveForecastPrefs();
+  updateForecastSummary();
+}
+
+// 「庫存可撐」小視窗:桌面版滑鼠移過去就顯示、移開就收起來;手機版點一下顯示,之後只要做其他動作
+// (滑動、點別的地方)就收起來。用事件代理綁在 document 上只需要綁一次,表格重畫幾次都繼續生效。
+(function initForecastTip(){
+  function getTip(){ return document.getElementById('forecastTip'); }
+  function showTip(target){
+    const tip = getTip();
+    if(!tip || !target.dataset.tip) return;
+    tip.textContent = target.dataset.tip;
+    tip.style.display = 'block';
+    const rect = target.getBoundingClientRect();
+    const tw = tip.offsetWidth, th = tip.offsetHeight;
+    let left = rect.left + rect.width / 2 - tw / 2;
+    left = Math.max(4, Math.min(left, window.innerWidth - tw - 4));
+    let top = rect.top - th - 6;
+    if(top < 4) top = rect.bottom + 6;
+    tip.style.left = left + 'px';
+    tip.style.top = top + 'px';
+    target.classList.add('fc-tip-open');
+  }
+  function hideTip(){
+    const tip = getTip();
+    if(tip) tip.style.display = 'none';
+    document.querySelectorAll('.fc-tip-open').forEach(el => el.classList.remove('fc-tip-open'));
+  }
+  const hoverCapable = window.matchMedia && window.matchMedia('(hover:hover)').matches;
+
+  if(hoverCapable){
+    document.addEventListener('mouseover', function(e){
+      const el = e.target.closest && e.target.closest('.fc-remain-tip');
+      if(el) showTip(el);
+    });
+    document.addEventListener('mouseout', function(e){
+      const el = e.target.closest && e.target.closest('.fc-remain-tip');
+      if(!el) return;
+      const related = e.relatedTarget && e.relatedTarget.closest ? e.relatedTarget.closest('.fc-remain-tip') : null;
+      if(el !== related) hideTip();
+    });
+  } else {
+    function armDismiss(){
+      let dismissed = false;
+      function dismissOnce(){
+        if(dismissed) return;
+        dismissed = true;
+        hideTip();
+        window.removeEventListener('scroll', dismissOnce, true);
+        document.removeEventListener('touchstart', dismissOnce, true);
+      }
+      setTimeout(function(){
+        window.addEventListener('scroll', dismissOnce, true);
+        document.addEventListener('touchstart', dismissOnce, true);
+      }, 250);
+    }
+    document.addEventListener('click', function(e){
+      const el = e.target.closest && e.target.closest('.fc-remain-tip');
+      if(!el) return;
+      showTip(el);
+      armDismiss();
+    });
+  }
+})();
