@@ -296,6 +296,8 @@ const EXPORT_TYPE_META = {
   restock: { labelKey: 'exportTypeRestock', partyLabelKey: 'exportPartyLabelRestock',   partyCol: 'Source',   filePrefix: 'stock_restock', sheetName: 'Restock' }
 };
 
+const EXPORT_MULTI_STORE_VALUE = '__multi__'; // 「對象」下拉選單裡「Multiple store」這個選項的值
+
 function populateExportPartySelect(){
   const typeSel = document.getElementById('exportTypeSelect');
   const type = typeSel ? typeSel.value : 'out';
@@ -305,29 +307,169 @@ function populateExportPartySelect(){
 
   const sel = document.getElementById('exportPartySelect');
   const prevVal = sel.value;
-  const parties = [...new Set(transactions.filter(t => t.type === type && t.party).map(t => t.party))].sort();
-  sel.innerHTML = `<option value="">${t('logPartyAll')}</option>` + parties.map(p => `<option value="${p.replace(/"/g,'&quot;')}">${p}</option>`).join('');
-  if(parties.includes(prevVal)) sel.value = prevVal;
+  const parties = getExportPartyNames(type);
+  // 第一項「全部對象」、第二項「Multiple store」(勾選要匯出哪幾個對象),後面才是各個對象。
+  sel.innerHTML = `<option value="">${t('logPartyAll')}</option>` +
+    `<option value="${EXPORT_MULTI_STORE_VALUE}">${t('exportPartyMultiple')}</option>` +
+    parties.map(p => `<option value="${p.replace(/"/g,'&quot;')}">${p}</option>`).join('');
+  if(prevVal === EXPORT_MULTI_STORE_VALUE || parties.includes(prevVal)) sel.value = prevVal;
+  renderExportMultiStoreChecklist();
 }
 
-function exportShipmentSheet(){
-  const msg = document.getElementById('exportShipmentMsg');
+function getExportPartyNames(type){
+  return [...new Set(transactions.filter(t => t.type === type && t.party).map(t => t.party))].sort();
+}
+
+// 選了「Multiple store」才顯示的勾選清單;重畫時保留原本已經勾選的對象。
+function renderExportMultiStoreChecklist(){
+  const wrap = document.getElementById('exportMultiStoreWrap');
+  const sel = document.getElementById('exportPartySelect');
+  if(!wrap || !sel) return;
+  if(sel.value !== EXPORT_MULTI_STORE_VALUE){ wrap.style.display = 'none'; return; }
+  const type = document.getElementById('exportTypeSelect').value;
+  const prevChecked = new Set(getExportCheckedStores());
+  const parties = getExportPartyNames(type);
+  wrap.style.display = 'block';
+  wrap.innerHTML = parties.length === 0
+    ? `<div style="font-size:12px;color:var(--ink-soft);">${t('noExportPartiesYet')}</div>`
+    : `
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:8px;">
+        <span style="font-size:12px;font-weight:700;color:var(--ink);">${t('exportPickStoresLabel')}</span>
+        <span class="del-link" onclick="setAllExportStoresChecked(true)">${t('btnSelectAll')}</span>
+        <span class="del-link" onclick="setAllExportStoresChecked(false)">${t('btnClearAll')}</span>
+      </div>
+      <div style="display:flex;flex-wrap:wrap;gap:6px 18px;">
+        ${parties.map(p => `
+          <label style="display:flex;align-items:center;gap:6px;font-size:12.5px;cursor:pointer;">
+            <input type="checkbox" class="exportStoreCheckbox" value="${escapeAttr(p)}" ${prevChecked.has(p) ? 'checked' : ''} />
+            <span>${escapeHtmlText(p)}</span>
+          </label>`).join('')}
+      </div>`;
+}
+
+function getExportCheckedStores(){
+  return Array.from(document.querySelectorAll('.exportStoreCheckbox:checked')).map(el => el.value);
+}
+
+function setAllExportStoresChecked(checked){
+  document.querySelectorAll('.exportStoreCheckbox').forEach(el => { el.checked = checked; });
+}
+
+// ===== 匯出特定商品資料 =====
+// 跟上面「匯出報表」共用同一組「類型 / 對象 / 日期區間」設定,差別只在多了一份「商品清單」:清單是空的就匯出全部
+// 商品(預設);清單裡有商品的話,只匯出清單裡這些商品(以家族為單位,主商品跟它底下的 multipack 都算)的資料。
+// 商品可以一個一個「新增商品」(有分類篩選跟名稱搜尋),也可以直接「Import quick list」把一份快捷清單整個帶進來。
+let exportProductIds = []; // 家族主商品 id
+
+function renderExportProductList(){
+  const listEl = document.getElementById('exportProductList');
+  if(!listEl) return;
+  exportProductIds = exportProductIds.filter(id => products.some(p => p.id === id && !p.parentId));
+  populateQuickListSelect('exportQuickListSelect', 'optSelectQuickList');
+  if(exportProductIds.length === 0){
+    listEl.innerHTML = `<div class="empty-note" style="padding:10px 0;">${t('exportNoProductsHint')}</div>`;
+    return;
+  }
+  listEl.innerHTML = `
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:6px;">
+      <span style="font-size:12px;font-weight:700;">${tn('lblSelectedProductsCount', exportProductIds.length)}</span>
+      <span class="del-link" onclick="clearExportProducts()">${t('btnClearAll')}</span>
+    </div>
+    <div class="pp-list" style="margin-bottom:10px;">
+      ${exportProductIds.map(id => anchorDisplayRowHtml(id, `removeExportProduct('${id}')`)).join('')}
+    </div>`;
+}
+
+function toggleExportProductPicker(){
+  const mount = document.getElementById('exportProductPickerMount');
+  if(!mount) return;
+  if(mount.style.display === 'none'){
+    mount.style.display = 'block';
+    mountProductPicker('exportProductPickerMount', 'ex', {
+      getExcludedIds: () => exportProductIds,
+      onAdd: (id) => { if(!exportProductIds.includes(id)) exportProductIds.push(id); renderExportProductList(); }
+    });
+  } else {
+    mount.style.display = 'none';
+    mount.innerHTML = '';
+  }
+}
+
+function removeExportProduct(id){
+  exportProductIds = exportProductIds.filter(x => x !== id);
+  renderExportProductList();
+  if(document.getElementById('exportProductPickerMount').style.display !== 'none') refreshProductPicker('ex');
+}
+
+function clearExportProducts(){
+  exportProductIds = [];
+  renderExportProductList();
+  if(document.getElementById('exportProductPickerMount').style.display !== 'none') refreshProductPicker('ex');
+}
+
+function importQuickListToExport(){
+  const msg = document.getElementById('exportSpecificMsg');
+  const sel = document.getElementById('exportQuickListSelect');
+  if(!sel || !sel.value){ msg.className = 'msg error'; msg.textContent = t('errPickQuickListFirst'); return; }
+  const ql = getQuickListById(sel.value);
+  if(!ql) return;
+  let added = 0;
+  getQuickListAnchorIds(ql.id).forEach(id => { if(!exportProductIds.includes(id)){ exportProductIds.push(id); added++; } });
+  renderExportProductList();
+  if(document.getElementById('exportProductPickerMount').style.display !== 'none') refreshProductPicker('ex');
+  msg.className = 'msg ok';
+  msg.textContent = tf('msgQuickListImported', { name: ql.name, n: added });
+}
+
+// ===== 匯出報表 =====
+// opts.useProductFilter:true(從「匯出特定商品資料」按鈕進來)才會套用商品清單;
+// 一般的「匯出報表」按鈕不管商品清單,維持原本匯出全部商品的行為。
+//
+// 對象的三種情況:
+//  - 選了某一個對象:單一個分頁(跟以前一樣)。
+//  - 選「全部對象」或「Multiple store」:第一個分頁是彙總(All Store / All Selected Store,同一個商品跨店加總),
+//    後面每一個對象各一個分頁,只放那個對象自己的資料。
+function exportShipmentSheet(opts){
+  opts = opts || {};
+  const msg = document.getElementById(opts.useProductFilter ? 'exportSpecificMsg' : 'exportShipmentMsg');
   if(typeof XLSX === 'undefined'){ msg.className='msg error'; msg.textContent='Excel 套件載入失敗,請重新整理頁面再試一次'; return; }
 
   const type = document.getElementById('exportTypeSelect').value;
   const meta = EXPORT_TYPE_META[type] || EXPORT_TYPE_META.out;
   const party = document.getElementById('exportPartySelect').value;
+  const isMulti = party === EXPORT_MULTI_STORE_VALUE;
+  const selectedStores = isMulti ? getExportCheckedStores() : [];
   const dateFrom = document.getElementById('exportDateFrom').value;
   const dateTo = document.getElementById('exportDateTo').value;
   const productMap = Object.fromEntries(products.map(p => [p.id, p]));
+
+  if(isMulti && selectedStores.length === 0){
+    msg.className = 'msg error';
+    msg.textContent = t('errPickAtLeastOneStore');
+    return;
+  }
 
   // 報表要把跟訂單/實際進出貨有關的紀錄都算進去(包含從訂貨頁面送出的訂單、登記進出貨時
   // 有勾選「併入已完成訂單」的出貨,這兩種都會標記 system=true 且帶 orderId)。只排除跟訂單無關的
   // 系統紀錄,例如 Excel 匯入的初始庫存調整、批量/主商品轉換紀錄(system=true 但沒有 orderId)。
   let rows = transactions.filter(t => t.type === type && (!t.system || t.orderId));
-  if(party) rows = rows.filter(t => t.party === party);
+  if(isMulti) rows = rows.filter(t => selectedStores.includes(t.party));
+  else if(party) rows = rows.filter(t => t.party === party);
   if(dateFrom) rows = rows.filter(t => t.date >= dateFrom);
   if(dateTo) rows = rows.filter(t => t.date <= dateTo);
+
+  // 匯出特定商品資料:商品清單有東西才篩選(以家族為單位,主商品+底下全部 multipack);清單是空的 = 匯出全部商品。
+  let familyFilterApplied = false;
+  if(opts.useProductFilter && exportProductIds.length > 0){
+    const allowed = new Set();
+    exportProductIds.forEach(id => {
+      if(!productMap[id]) return;
+      allowed.add(id);
+      getChildProducts(id).forEach(c => allowed.add(c.id));
+    });
+    rows = rows.filter(t => allowed.has(t.productId));
+    familyFilterApplied = true;
+  }
 
   if(rows.length === 0){
     msg.className = 'msg error';
@@ -335,9 +477,92 @@ function exportShipmentSheet(){
     return;
   }
 
-  if(type === 'in'){
-    return exportStockInSheet(rows, productMap, dateFrom, dateTo, msg);
+  const splitByParty = !party || isMulti; // 全部對象 / Multiple store → 彙總分頁 + 每個對象各一個分頁
+  const sheetEntries = []; // { name, ws }
+  const usedSheetNames = new Set();
+  function uniqueSheetName(raw){
+    let base = (raw || 'Sheet').replace(/[\\\/\?\*\[\]:]/g, '-').trim().slice(0, 31) || 'Sheet';
+    let name = base, n = 2;
+    while(usedSheetNames.has(name.toLowerCase())){
+      const suffix = ` (${n++})`;
+      name = base.slice(0, 31 - suffix.length) + suffix;
+    }
+    usedSheetNames.add(name.toLowerCase());
+    return name;
   }
+  const partiesInRows = [...new Set(rows.map(t => t.party || ''))].sort((a, b) => a.localeCompare(b));
+  const NO_PARTY_LABEL = '(no name)';
+
+  let summaryText = '';
+  if(type === 'in'){
+    // 進貨:每一筆各自一列、不彙總(原因見 buildStockInSheet)。有多個對象的話,第一個分頁放全部,後面各供應商各一個分頁。
+    if(splitByParty){
+      sheetEntries.push({ name: uniqueSheetName(isMulti ? 'All Selected Store' : 'All Store'), ws: buildStockInSheet(rows, productMap) });
+      partiesInRows.forEach(p => {
+        sheetEntries.push({ name: uniqueSheetName(p || NO_PARTY_LABEL), ws: buildStockInSheet(rows.filter(t => (t.party || '') === p), productMap) });
+      });
+    } else {
+      sheetEntries.push({ name: uniqueSheetName(meta.sheetName), ws: buildStockInSheet(rows, productMap) });
+    }
+    summaryText = `${rows.length}`;
+  } else {
+    const dateLabel = dateFrom && dateTo
+      ? (dateFrom === dateTo ? dateFrom : `${dateFrom} ~ ${dateTo}`)
+      : (dateFrom ? `After ${dateFrom}` : (dateTo ? `Before ${dateTo}` : 'All Dates'));
+    const partyLabelEN = type === 'restock' ? 'Source/Party' : 'Store/Party';
+    const ctx = { type, meta, productMap, dateLabel };
+    if(splitByParty){
+      const allLabel = isMulti ? `All Selected ${partyLabelEN}: ${selectedStores.join(', ')}` : `All ${partyLabelEN}`;
+      const all = buildShipmentSheet(rows, allLabel, true, ctx);
+      sheetEntries.push({ name: uniqueSheetName(isMulti ? 'All Selected Store' : 'All Store'), ws: all.ws });
+      partiesInRows.forEach(p => {
+        const sub = buildShipmentSheet(rows.filter(t => (t.party || '') === p), p || NO_PARTY_LABEL, false, ctx);
+        sheetEntries.push({ name: uniqueSheetName(p || NO_PARTY_LABEL), ws: sub.ws });
+      });
+      summaryText = `${all.groupCount}`;
+    } else {
+      const one = buildShipmentSheet(rows, party, false, ctx);
+      sheetEntries.push({ name: uniqueSheetName(meta.sheetName), ws: one.ws });
+      summaryText = `${one.groupCount}`;
+    }
+  }
+
+  const wb = XLSX.utils.book_new();
+  sheetEntries.forEach(s => XLSX.utils.book_append_sheet(wb, s.ws, s.name));
+
+  let filename;
+  if(type === 'in'){
+    // 檔名格式:「Opulent - Stock in 日期」,單日只顯示那一天,區間就寫成 "date1 to date2";
+    // 兩個日期篩選都沒填(匯出全部進貨紀錄)的話,用資料裡實際最早/最晚的日期組成區間,
+    // 確保檔名還是能反映實際涵蓋的期間,不會什麼日期資訊都沒有。
+    let dateForFilename;
+    if(dateFrom && dateTo){
+      dateForFilename = dateFrom === dateTo ? dateFrom : `${dateFrom} to ${dateTo}`;
+    } else if(dateFrom || dateTo){
+      dateForFilename = dateFrom || dateTo;
+    } else {
+      const allDates = rows.map(t => t.date).filter(Boolean).sort();
+      const earliest = allDates[0], latest = allDates[allDates.length - 1];
+      dateForFilename = (earliest && latest) ? (earliest === latest ? earliest : `${earliest} to ${latest}`) : todayISO();
+    }
+    filename = `Opulent - Stock in ${dateForFilename}${familyFilterApplied ? ' (selected products)' : ''}.xlsx`;
+  } else {
+    const label = isMulti ? 'Selected' : (party ? (party.replace(/[^a-zA-Z0-9]/g, '') || 'Party') : 'All');
+    const rangeLabel = (dateFrom || dateTo) ? `_${dateFrom || 'start'}_${dateTo || 'end'}` : '';
+    filename = `${meta.filePrefix}_${label || 'export'}${rangeLabel}${familyFilterApplied ? '_selected-products' : ''}.xlsx`;
+  }
+
+  XLSX.writeFile(wb, filename);
+  msg.className = 'msg ok';
+  msg.textContent = type === 'in'
+    ? `✓ 已匯出 ${rows.length} 筆進貨紀錄(${sheetEntries.length} 個分頁):${filename}`
+    : `✓ 已匯出 ${summaryText} 筆彙總品項(來自 ${rows.length} 筆原始紀錄,${sheetEntries.length} 個分頁):${filename}`;
+}
+
+// 把一批出貨/入庫紀錄(rows)整理成一個分頁。mergeParties=true(彙總分頁)時,同一個商品不分對象加總成一筆;
+// false 時維持「同一對象 + 同一商品」加總成一筆。回傳 { ws, groupCount }。
+function buildShipmentSheet(rows, shopLabel, mergeParties, ctx){
+  const { type, meta, productMap, dateLabel } = ctx;
 
   // aggregate: same party + same product within the selected period gets summed into one line
   //
@@ -359,8 +584,9 @@ function exportShipmentSheet(){
   const processedSwitchKeys = new Set();
   const groups = {};
   function addToShipmentGroup(partyVal, productId, qty){
-    const key = (partyVal || '') + '||' + productId;
-    if(!groups[key]) groups[key] = { party: partyVal || '', productId, qty: 0 };
+    const effectiveParty = mergeParties ? '' : (partyVal || '');
+    const key = effectiveParty + '||' + productId;
+    if(!groups[key]) groups[key] = { party: effectiveParty, productId, qty: 0 };
     groups[key].qty += qty;
   }
   rows.forEach(t => {
@@ -384,12 +610,6 @@ function exportShipmentSheet(){
     addToShipmentGroup(t.party, t.productId, t.qty);
   });
   const aggregated = Object.values(groups);
-
-  const dateLabel = dateFrom && dateTo
-    ? (dateFrom === dateTo ? dateFrom : `${dateFrom} ~ ${dateTo}`)
-    : (dateFrom ? `After ${dateFrom}` : (dateTo ? `Before ${dateTo}` : 'All Dates'));
-  const partyLabelEN = type === 'in' ? 'Supplier/Party' : type === 'restock' ? 'Source/Party' : 'Store/Party';
-  const shopLabel = party || `All ${partyLabelEN}`;
 
   // group aggregated lines by category (following the app's category order), matching the
   // uploaded template's structure of a QTY/Unit sub-header row before each category block
@@ -464,24 +684,15 @@ function exportShipmentSheet(){
     {wch:16}                // Note
   ];
   ws['!rows'] = [{ hidden: true }]; // hide the column-header row (metadata rows below still show Shop/Date)
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, meta.sheetName);
-
-  const label = party ? (party.replace(/[^a-zA-Z0-9]/g, '') || 'Party') : 'All';
-  const rangeLabel = (dateFrom || dateTo) ? `_${dateFrom || 'start'}_${dateTo || 'end'}` : '';
-  const filename = `${meta.filePrefix}_${label || 'export'}${rangeLabel}.xlsx`;
-
-  XLSX.writeFile(wb, filename);
-  msg.className = 'msg ok';
-  msg.textContent = `✓ 已匯出 ${aggregated.length} 筆彙總品項(來自 ${rows.length} 筆原始紀錄):${filename}`;
+  return { ws, groupCount: aggregated.length };
 }
 
-// 進貨(type='in')專用的匯出——跟出貨/入庫共用的那套「Shop:/Date: 表頭 + 依商品彙總數量」邏輯
+// 進貨(type='in')專用的分頁——跟出貨/入庫共用的那套「Shop:/Date: 表頭 + 依商品彙總數量」邏輯
 // 不一樣,原因是:(1) 進貨方本來就不是「Shop」,用同一套表頭措辭不準確;(2) 匯出一段時間的進貨
 // 紀錄時,同一個商品在不同時間點可能是跟不同的供應商、不同的 Invoice 進的貨,彙總成一筆會把
 // 這些細節混在一起、也沒辦法各自對應到一個 Invoice 號碼——所以這裡完全不彙總,每一筆進貨
 // 交易紀錄各自佔一列,各自帶自己的進貨方/Invoice號/日期。
-function exportStockInSheet(rows, productMap, dateFrom, dateTo, msg){
+function buildStockInSheet(rows, productMap){
   const sorted = rows.slice().sort((a, b) => {
     if(a.date !== b.date) return (a.date || '').localeCompare(b.date || '');
     const pa = productMap[a.productId], pb = productMap[b.productId];
@@ -513,25 +724,5 @@ function exportStockInSheet(rows, productMap, dateFrom, dateTo, msg){
     {wch:16}, // Invoice No.
     {wch:12}  // Date
   ];
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, 'Stock In');
-
-  // 檔名格式:「Opulent - Stock in 日期」,單日只顯示那一天,區間就寫成 "date1 to date2";
-  // 兩個日期篩選都沒填(匯出全部進貨紀錄)的話,用資料裡實際最早/最晚的日期組成區間,
-  // 確保檔名還是能反映實際涵蓋的期間,不會什麼日期資訊都沒有。
-  let dateForFilename;
-  if(dateFrom && dateTo){
-    dateForFilename = dateFrom === dateTo ? dateFrom : `${dateFrom} to ${dateTo}`;
-  } else if(dateFrom || dateTo){
-    dateForFilename = dateFrom || dateTo;
-  } else {
-    const allDates = sorted.map(t => t.date).filter(Boolean).sort();
-    const earliest = allDates[0], latest = allDates[allDates.length - 1];
-    dateForFilename = (earliest && latest) ? (earliest === latest ? earliest : `${earliest} to ${latest}`) : todayISO();
-  }
-  const filename = `Opulent - Stock in ${dateForFilename}.xlsx`;
-
-  XLSX.writeFile(wb, filename);
-  msg.className = 'msg ok';
-  msg.textContent = `✓ 已匯出 ${sorted.length} 筆進貨紀錄:${filename}`;
+  return ws;
 }

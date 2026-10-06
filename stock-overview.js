@@ -12,6 +12,11 @@ function renderStockCards(){
   syncCategoryOrder();
   const now = new Date();
   const catFilter = document.getElementById('categoryFilter').value;
+  // 快捷清單篩選:有選一份清單的話,只列出清單裡的商品(以家族主商品為單位),而且還是會再套用
+  // 旁邊的分類、燈號篩選——三個篩選條件是「且」的關係,彼此可以任意搭配。
+  const quickListSelect = document.getElementById('quickListFilter');
+  const quickListId = quickListSelect ? quickListSelect.value : '';
+  const quickListSet = quickListId ? getQuickListAnchorIds(quickListId) : null;
 
   function rowHtml(p, opts){
     opts = opts || {};
@@ -131,6 +136,7 @@ function renderStockCards(){
     // 只列出「主商品」(沒有 parentId 的商品),批量商品會依展開狀態顯示在主商品下面
     let items = products.filter(p => (p.category || '未分類') === cat && !p.parentId);
     if(!showHidden) items = items.filter(p => !p.hidden);
+    if(quickListSet) items = items.filter(p => quickListSet.has(p.id));
     if(statusFilter){
       items = items.filter(p => {
         const gaugeStock = computeTotalStock(p.id);
@@ -173,7 +179,7 @@ function renderStockCards(){
   });
 
   if(!anyItems){
-    container.innerHTML = `<div class="empty-note">${statusFilter ? '沒有符合這個燈號篩選條件的商品。' : '這個分類目前沒有商品。'}</div>`;
+    container.innerHTML = `<div class="empty-note">${(statusFilter || quickListSet) ? t('noProductsMatchFilters') : '這個分類目前沒有商品。'}</div>`;
     return;
   }
 
@@ -316,6 +322,11 @@ function toggleSelectAllProducts(checked){
   const showHidden = document.getElementById('showHiddenProducts') && document.getElementById('showHiddenProducts').checked;
   let visible = products.filter(p => categoriesToShow.includes(p.category || '未分類'));
   if(!showHidden) visible = visible.filter(p => !p.hidden);
+  const qlSel = document.getElementById('quickListFilter');
+  if(qlSel && qlSel.value){
+    const qlSet = getQuickListAnchorIds(qlSel.value);
+    visible = visible.filter(p => qlSet.has(p.parentId || p.id));
+  }
   if(statusFilter){
     visible = visible.filter(p => {
       const stock = computeStock(p.id);
