@@ -654,10 +654,9 @@ const I18N = {
     btnClearAll: '全部取消',
     errPickAtLeastOneStore: '請至少勾選一個對象。',
     secExportSpecificProducts: '匯出特定商品資料',
-    exportSpecificProductsDesc: '套用上面選的類型、對象、日期區間,但只匯出下面清單裡的商品。清單是空的就匯出全部商品。',
+    exportSpecificProductsDesc: '下方「匯出報表」會套用上面選的類型、對象、日期區間;清單是空的就匯出全部商品,清單有商品就只匯出清單裡的商品。',
     btnAddProductToExport: '＋ 新增商品',
     btnImportQuickList: 'Import quick list',
-    btnExportSpecificProducts: '📄 匯出特定商品資料(Excel)',
     exportNoProductsHint: '目前沒有指定商品,匯出時會包含全部商品。',
     errPickQuickListFirst: '請先選擇一份快捷清單。',
     msgQuickListImported: '✓ 已匯入快捷清單「{name}」,新增 {n} 個商品到清單。'
@@ -1280,10 +1279,9 @@ const I18N = {
     btnClearAll: 'Clear all',
     errPickAtLeastOneStore: 'Please tick at least one party.',
     secExportSpecificProducts: 'Export Specific Products',
-    exportSpecificProductsDesc: 'Uses the type, party and date range chosen above, but only exports the products in the list below. An empty list exports all products.',
+    exportSpecificProductsDesc: 'The Export Report button below uses the type, party and date range chosen above. An empty list exports all products; if the list has products, only those are exported.',
     btnAddProductToExport: '＋ Add product',
     btnImportQuickList: 'Import quick list',
-    btnExportSpecificProducts: '📄 Export specific products (Excel)',
     exportNoProductsHint: 'No products picked — the export will include all products.',
     errPickQuickListFirst: 'Please pick a quick list first.',
     msgQuickListImported: '✓ Imported quick list "{name}" — {n} product(s) added to the list.'

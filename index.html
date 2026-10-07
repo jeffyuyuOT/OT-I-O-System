@@ -1809,10 +1809,8 @@
           <label data-i18n="fieldToDate">到日期</label>
           <input type="date" id="exportDateTo" />
         </div>
-        <button class="btn" onclick="exportShipmentSheet()" data-i18n="btnExportReport">📄 匯出報表(Excel)</button>
       </div>
       <div id="exportMultiStoreWrap" style="display:none;margin-top:12px;background:#fff;border:1px solid var(--line);border-radius:2px;padding:12px 14px;"></div>
-      <div id="exportShipmentMsg" class="msg"></div>
 
       <div style="margin-top:20px;padding-top:16px;border-top:1px dashed var(--line);">
         <div class="section-title" style="font-size:13px;margin:0 0 6px;" data-i18n="secExportSpecificProducts">匯出特定商品資料</div>
@@ -1830,8 +1828,8 @@
         </div>
         <div id="exportProductPickerMount" style="display:none;margin-bottom:12px;"></div>
         <div id="exportProductList"></div>
-        <button class="btn" onclick="exportShipmentSheet({useProductFilter:true})" data-i18n="btnExportSpecificProducts">📄 匯出特定商品資料(Excel)</button>
-        <div id="exportSpecificMsg" class="msg"></div>
+        <button class="btn" onclick="exportShipmentSheet()" data-i18n="btnExportReport">📄 匯出報表(Excel)</button>
+        <div id="exportShipmentMsg" class="msg"></div>
       </div>
     </div>
 
