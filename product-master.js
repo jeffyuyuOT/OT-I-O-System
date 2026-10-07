@@ -293,8 +293,24 @@ function parseMasterExcelFile(){
 const EXPORT_TYPE_META = {
   out:     { labelKey: 'exportTypeOut', partyLabelKey: 'exportPartyLabelOut', partyCol: 'Customer', filePrefix: 'stock_out',     sheetName: 'Stock Out' },
   in:      { labelKey: 'exportTypeIn', partyLabelKey: 'exportPartyLabelIn', partyCol: 'Supplier', filePrefix: 'stock_in',      sheetName: 'Stock In' },
-  restock: { labelKey: 'exportTypeRestock', partyLabelKey: 'exportPartyLabelRestock',   partyCol: 'Source',   filePrefix: 'stock_restock', sheetName: 'Restock' }
+  restock: { labelKey: 'exportTypeRestock', partyLabelKey: 'exportPartyLabelRestock',   partyCol: 'Source',   filePrefix: 'stock_restock', sheetName: 'Restock' },
+  // 待處理訂單出貨:還沒實際出貨的訂單(狀態是待處理/處理中,未完成、未取消)裡各商品訂的數量
+  pending: { labelKey: 'exportTypePending', partyLabelKey: 'exportPartyLabelOut', partyCol: 'Customer', filePrefix: 'pending_orders', sheetName: 'Pending Orders' }
 };
+
+// 把「待處理訂單」攤平成跟交易紀錄同樣格式的列(party/productId/qty/date/orderId),讓匯出流程可以共用。
+// 只算還沒實際出貨的訂單(status 不是 confirmed、沒被取消),被刪掉的品項跟負數(入庫/退貨)品項不算。
+function getPendingOrderExportRows(){
+  const out = [];
+  (orders || []).forEach(o => {
+    if(o.deleted || o.status === 'confirmed' || o.signedAt) return;
+    (o.items || []).forEach(it => {
+      if(it.deleted || !(it.qty > 0)) return;
+      out.push({ type: 'pending', productId: it.productId, qty: it.qty, date: o.date || '', party: o.partyName || '', orderId: o.id });
+    });
+  });
+  return out;
+}
 
 const EXPORT_MULTI_STORE_VALUE = '__multi__'; // 「對象」下拉選單裡「Multiple store」這個選項的值
 
@@ -317,7 +333,8 @@ function populateExportPartySelect(){
 }
 
 function getExportPartyNames(type){
-  return [...new Set(transactions.filter(t => t.type === type && t.party).map(t => t.party))].sort();
+  const src = type === 'pending' ? getPendingOrderExportRows() : transactions.filter(t => t.type === type);
+  return [...new Set(src.filter(t => t.party).map(t => t.party))].sort();
 }
 
 // 選了「Multiple store」才顯示的勾選清單;重畫時保留原本已經勾選的對象。
@@ -451,7 +468,9 @@ function exportShipmentSheet(opts){
   // 報表要把跟訂單/實際進出貨有關的紀錄都算進去(包含從訂貨頁面送出的訂單、登記進出貨時
   // 有勾選「併入已完成訂單」的出貨,這兩種都會標記 system=true 且帶 orderId)。只排除跟訂單無關的
   // 系統紀錄,例如 Excel 匯入的初始庫存調整、批量/主商品轉換紀錄(system=true 但沒有 orderId)。
-  let rows = transactions.filter(t => t.type === type && (!t.system || t.orderId));
+  let rows = type === 'pending'
+    ? getPendingOrderExportRows()
+    : transactions.filter(t => t.type === type && (!t.system || t.orderId));
   if(isMulti) rows = rows.filter(t => selectedStores.includes(t.party));
   else if(party) rows = rows.filter(t => t.party === party);
   if(dateFrom) rows = rows.filter(t => t.date >= dateFrom);
@@ -590,7 +609,7 @@ function buildShipmentSheet(rows, shopLabel, mergeParties, ctx){
   }
   rows.forEach(t => {
     const p = productMap[t.productId];
-    if(wholeFamilyHiddenIdsForShipment.has(t.productId)) return; // 整個家族都不顯示
+    if(type !== 'pending' && wholeFamilyHiddenIdsForShipment.has(t.productId)) return; // 整個家族都不顯示(待處理訂單不套用「已完成訂單匯出不顯示」)
 
     if(type === 'out' && t.orderId && p && p.hideFromCompletedOrderExport && !p.parentId){
       const switchKey = t.orderId + '||' + t.productId;
