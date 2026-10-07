@@ -408,7 +408,7 @@ function clearExportProducts(){
 }
 
 function importQuickListToExport(){
-  const msg = document.getElementById('exportSpecificMsg');
+  const msg = document.getElementById('exportShipmentMsg');
   const sel = document.getElementById('exportQuickListSelect');
   if(!sel || !sel.value){ msg.className = 'msg error'; msg.textContent = t('errPickQuickListFirst'); return; }
   const ql = getQuickListById(sel.value);
@@ -422,8 +422,7 @@ function importQuickListToExport(){
 }
 
 // ===== 匯出報表 =====
-// opts.useProductFilter:true(從「匯出特定商品資料」按鈕進來)才會套用商品清單;
-// 一般的「匯出報表」按鈕不管商品清單,維持原本匯出全部商品的行為。
+// 只有一個匯出按鈕:「匯出特定商品資料」的商品清單是空的 = 匯出全部商品;清單有商品 = 只匯出清單裡的商品。
 //
 // 對象的三種情況:
 //  - 選了某一個對象:單一個分頁(跟以前一樣)。
@@ -431,7 +430,7 @@ function importQuickListToExport(){
 //    後面每一個對象各一個分頁,只放那個對象自己的資料。
 function exportShipmentSheet(opts){
   opts = opts || {};
-  const msg = document.getElementById(opts.useProductFilter ? 'exportSpecificMsg' : 'exportShipmentMsg');
+  const msg = document.getElementById('exportShipmentMsg');
   if(typeof XLSX === 'undefined'){ msg.className='msg error'; msg.textContent='Excel 套件載入失敗,請重新整理頁面再試一次'; return; }
 
   const type = document.getElementById('exportTypeSelect').value;
@@ -460,7 +459,7 @@ function exportShipmentSheet(opts){
 
   // 匯出特定商品資料:商品清單有東西才篩選(以家族為單位,主商品+底下全部 multipack);清單是空的 = 匯出全部商品。
   let familyFilterApplied = false;
-  if(opts.useProductFilter && exportProductIds.length > 0){
+  if(exportProductIds.length > 0){
     const allowed = new Set();
     exportProductIds.forEach(id => {
       if(!productMap[id]) return;
