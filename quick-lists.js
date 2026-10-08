@@ -128,7 +128,8 @@ function getProductPickerCandidates(prefix){
   const q = searchEl ? searchEl.value.trim().toLowerCase() : '';
   const excluded = new Set(cfg.getExcludedIds ? Array.from(cfg.getExcludedIds()) : []);
 
-  let items = products.filter(p => !p.parentId && !p.hidden && !excluded.has(p.id));
+  // 快捷清單、匯出特定商品可以選到「隱藏」的商品(cfg.includeHidden);進貨預估維持不列隱藏商品。
+  let items = products.filter(p => !p.parentId && (cfg.includeHidden || !p.hidden) && !excluded.has(p.id));
   if(cat) items = items.filter(p => (p.category || '未分類') === cat);
   if(q){
     items = items.filter(p => {
@@ -161,7 +162,7 @@ function refreshProductPicker(prefix){
     const basis = getTotalStockBasisProduct(p);
     return `
       <div class="pp-row">
-        <span class="pp-name">${basis.sku ? `<span class="sku-badge">${escapeHtmlText(basis.sku)}</span>` : ''}${escapeHtmlText(basis.name)}<span class="pp-unit">${escapeHtmlText(basis.unit || '')}</span></span>
+        <span class="pp-name">${basis.sku ? `<span class="sku-badge">${escapeHtmlText(basis.sku)}</span>` : ''}${escapeHtmlText(basis.name)}<span class="pp-unit">${escapeHtmlText(basis.unit || '')}</span>${p.hidden ? `<span class="pp-unit">(${t('tagHiddenProduct')})</span>` : ''}</span>
         <span class="pp-cat">${escapeHtmlText(catLabel(p.category || '未分類'))}</span>
         <button type="button" class="pp-add-btn" onclick="productPickerAdd('${prefix}','${p.id}')">＋ ${t('btnAddShort')}</button>
       </div>`;
@@ -273,6 +274,7 @@ function renderQuickListEditor(){
   `;
   renderQuickListSelected();
   mountProductPicker('qlPickerMount', 'ql', {
+    includeHidden: true,
     getExcludedIds: () => qlEditor.productIds,
     onAdd: (id) => { if(!qlEditor.productIds.includes(id)) qlEditor.productIds.push(id); renderQuickListSelected(); }
   });
