@@ -207,7 +207,7 @@ function buildPurchaseWorkbook(p){
 // 在 Edge Function 真的部署、Resend 網域驗證通過之前,這裡呼叫一定會失敗,錯誤訊息會清楚地
 // 告訴使用者「email 還沒設定好」,不會讓人誤以為信已經寄出去了。寄成功後,在這張進貨單上記錄
 // emailedTo/emailedAt,歷史紀錄清單就會顯示「已寄過」的小圖示。
-async function sendPurchaseEmail(purchaseId, toEmail, ccEmail, msgEl){
+async function sendPurchaseEmail(purchaseId, toEmail, ccEmail, msgEl, note){
   const p = purchases.find(x => x.id === purchaseId);
   if(!p) throw new Error('找不到這張進貨單');
   // 支援逗號分隔的多個收件人地址,每一個都要各自驗證格式對不對,任何一個格式錯就整個擋下來,
@@ -246,7 +246,8 @@ async function sendPurchaseEmail(purchaseId, toEmail, ccEmail, msgEl){
       receiptFiles: getPurchaseReceiptFileList(p),
       date: p.date || '',
       supplier: p.partyName || p.partyId || '',
-      invoiceNo: p.invoiceNo || ''
+      invoiceNo: p.invoiceNo || '',
+      note: (note || '').trim() // 附註:後端會把它接在信件原本內容下面,顯示成「Note: ...」
     }
   });
   if(fnError) throw new Error(t('errEmailSendFailed'));
@@ -262,7 +263,7 @@ async function sendPurchaseEmail(purchaseId, toEmail, ccEmail, msgEl){
 // purchase-exports bucket(單純是「寄信前暫存附件」用途,不是真的只限進貨單使用,不用另外
 //開一個 bucket)。Edge Function 那邊 invoiceNo 這個欄位借來放訂單編號,信件內文標籤是通用的
 // 「Reference No.」,不是寫死「Invoice No.」,兩種情境共用同一支函式不會顯示錯欄位名稱。
-async function sendOrderEmail(orderId, toEmail, ccEmail, msgEl){
+async function sendOrderEmail(orderId, toEmail, ccEmail, msgEl, note){
   const order = orders.find(o => o.id === orderId);
   if(!order) throw new Error('找不到這張訂單');
   const toEmails = (toEmail || '').split(',').map(e => e.trim()).filter(Boolean);
@@ -298,7 +299,8 @@ async function sendOrderEmail(orderId, toEmail, ccEmail, msgEl){
       receiptFiles: [],
       date: order.date || '',
       supplier: order.partyName || '',
-      invoiceNo: order.orderNo || ''
+      invoiceNo: order.orderNo || '',
+      note: (note || '').trim()
     }
   });
   if(fnError) throw new Error(t('errEmailSendFailed'));
@@ -327,6 +329,7 @@ function openSendPurchaseEmailModal(purchaseId){
   document.getElementById('sendPurchaseEmailInput').value = p.emailedTo || defaults.to || '';
   document.getElementById('sendPurchaseCcInput').value = p.emailedCc !== undefined ? p.emailedCc : (defaults.cc || '');
   document.getElementById('sendPurchaseEmailModalMsg').textContent = '';
+  document.getElementById('sendPurchaseEmailNoteInput').value = '';
   document.getElementById('sendPurchaseEmailModalOverlay').style.display = 'flex';
 }
 function openSendOrderEmailModal(orderId){
@@ -341,6 +344,7 @@ function openSendOrderEmailModal(orderId){
   document.getElementById('sendPurchaseEmailInput').value = order.emailedTo || defaults.to || '';
   document.getElementById('sendPurchaseCcInput').value = order.emailedCc !== undefined ? order.emailedCc : (defaults.cc || '');
   document.getElementById('sendPurchaseEmailModalMsg').textContent = '';
+  document.getElementById('sendPurchaseEmailNoteInput').value = '';
   document.getElementById('sendPurchaseEmailModalOverlay').style.display = 'flex';
 }
 function closeSendPurchaseEmailModal(){
@@ -360,12 +364,13 @@ async function confirmSendPurchaseEmail(){
   const msgEl = document.getElementById('sendPurchaseEmailModalMsg');
   const email = (document.getElementById('sendPurchaseEmailInput').value || '').trim();
   const cc = (document.getElementById('sendPurchaseCcInput').value || '').trim();
+  const note = (document.getElementById('sendPurchaseEmailNoteInput').value || '').trim();
   try{
     if(sendEmailTargetType === 'order'){
-      await sendOrderEmail(sendPurchaseEmailTargetId, email, cc, msgEl);
+      await sendOrderEmail(sendPurchaseEmailTargetId, email, cc, msgEl, note);
       renderOrders();
     } else {
-      await sendPurchaseEmail(sendPurchaseEmailTargetId, email, cc, msgEl);
+      await sendPurchaseEmail(sendPurchaseEmailTargetId, email, cc, msgEl, note);
       renderPurchaseLog();
     }
     msgEl.className = 'msg ok';

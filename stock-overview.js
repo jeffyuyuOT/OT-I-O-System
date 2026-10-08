@@ -394,3 +394,28 @@ function bulkDeleteProducts(){
     renderAll();
   });
 }
+
+
+// ===== 庫存總覽右上角的 Action 選單:從快捷清單篩選 / 匯出庫存數量 =====
+// 選「從快捷清單篩選」會在 Action 下面多出快捷清單下拉;選「匯出庫存數量」開匯出視窗,
+// 開完後 Action 回到原本的選項(所以已經套用的快捷清單篩選不會被匯出動作洗掉)。
+let stockActionCurrent = '';
+function onStockActionChange(v){
+  const actionSel = document.getElementById('stockActionSelect');
+  const qlSel = document.getElementById('quickListFilter');
+  if(v === 'export'){
+    actionSel.value = stockActionCurrent;
+    openStockExportModal();
+    return;
+  }
+  stockActionCurrent = v;
+  if(v === 'quicklist'){
+    qlSel.style.display = '';
+  } else {
+    // 回到預設 Action:收起快捷清單下拉,並取消快捷清單篩選
+    const hadFilter = !!qlSel.value;
+    qlSel.value = '';
+    qlSel.style.display = 'none';
+    if(hadFilter) renderStockCards();
+  }
+}

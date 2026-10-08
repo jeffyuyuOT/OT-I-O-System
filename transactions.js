@@ -1865,7 +1865,9 @@ async function submitTxBatchSimple(date, msg){
       const ccEl = document.getElementById('purchaseEmailCc');
       const ccAddr = ccEl ? (ccEl.value || '').trim() : (getAccountingEmailToAndCc().cc || '');
       try{
-        await sendPurchaseEmail(purchase.id, emailAddr, ccAddr, msg);
+        const noteEl = document.getElementById('purchaseEmailNote');
+        await sendPurchaseEmail(purchase.id, emailAddr, ccAddr, msg, noteEl ? noteEl.value : '');
+        if(noteEl) noteEl.value = '';
       } catch(e){
         console.error('寄送進貨單 email 失敗', e);
         msg.className = 'msg error';

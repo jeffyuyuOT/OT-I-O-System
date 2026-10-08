@@ -540,9 +540,12 @@ function populateForecastCategoryFilter(){
 
 // 依三個篩選條件(進貨對象、快捷清單、分類,是「且」的關係)算出的商品清單,還沒套用使用者手動刪除/新增。
 function getForecastBaseItems(){
-  const partyFilter = document.getElementById('forecastPartyFilter') ? document.getElementById('forecastPartyFilter').value : '';
+  // 「篩選對象」下拉選了「依進貨對象」或「依快捷清單」,才會套用對應的那一個下拉;沒選就是全部商品。
+  const modeEl = document.getElementById('forecastFilterMode');
+  const mode = modeEl ? modeEl.value : '';
+  const partyFilter = (mode === 'party' && document.getElementById('forecastPartyFilter')) ? document.getElementById('forecastPartyFilter').value : '';
   const catFilter = document.getElementById('forecastCategoryFilter') ? document.getElementById('forecastCategoryFilter').value : '';
-  const quickListId = document.getElementById('forecastQuickListFilter') ? document.getElementById('forecastQuickListFilter').value : '';
+  const quickListId = (mode === 'quicklist' && document.getElementById('forecastQuickListFilter')) ? document.getElementById('forecastQuickListFilter').value : '';
 
   // 顯示的商品跟庫存總覽預設看到的一樣:只看主商品(批量商品的量已經併進主商品的
   // computeTotalStock 裡,不用重複列出),而且不含被勾選「隱藏」的商品(庫存總覽預設也是這樣,
@@ -576,6 +579,41 @@ function getForecastDisplayItems(){
     if(p) items.push(p);
   });
   return items.slice().sort(compareProductsBySortMode);
+}
+
+// 切換「篩選對象」(依進貨對象 / 依快捷清單):顯示對應的下拉選單,收起另一個(並清掉它的選擇),然後當作換了篩選條件。
+function onForecastFilterModeChange(){
+  const mode = document.getElementById('forecastFilterMode').value;
+  const partySel = document.getElementById('forecastPartyFilter');
+  const qlSel = document.getElementById('forecastQuickListFilter');
+  partySel.style.display = mode === 'party' ? '' : 'none';
+  qlSel.style.display = mode === 'quicklist' ? '' : 'none';
+  if(mode !== 'party') partySel.value = '';
+  if(mode !== 'quicklist') qlSel.value = '';
+  onForecastFilterChange();
+}
+
+// 匯出進貨預估:依目前畫面列出的商品,把有填「預計進貨數量」的商品匯出成 Excel(商品名、進貨量、單位)。
+function exportForecastSheet(){
+  const msg = document.getElementById('forecastMsg');
+  if(typeof XLSX === 'undefined'){ msg.className = 'msg error'; msg.textContent = 'Excel 套件載入失敗,請重新整理頁面再試一次'; return; }
+  const rows = [];
+  getForecastDisplayItems().forEach(p => {
+    const qty = parseFloat(forecastQtyDraft[p.id]);
+    if(isNaN(qty) || qty <= 0) return;
+    const unitProd = getForecastUnitProduct(p);
+    rows.push([unitProd.name, qty, unitProd.unit || '']);
+  });
+  if(rows.length === 0){ msg.className = 'msg error'; msg.textContent = t('errForecastNothingToExport'); return; }
+  const aoa = [[t('colProductName'), t('colForecastQtyExport'), t('colUnit')], ...rows];
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
+  ws['!cols'] = [{ wch: 40 }, { wch: 12 }, { wch: 12 }];
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Stock In Forecast');
+  const filename = `stock_in_forecast_${todayISO()}.xlsx`;
+  XLSX.writeFile(wb, filename);
+  msg.className = 'msg ok';
+  msg.textContent = tf('msgForecastExported', { n: rows.length, file: filename });
 }
 
 // 換了任何一個篩選條件,視為重新開始看一份新的清單:之前手動刪掉/新增的調整只對「上一份」篩選結果有意義,清掉。

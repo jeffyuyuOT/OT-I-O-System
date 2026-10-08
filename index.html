@@ -976,9 +976,11 @@
 
     .row-action-inner{ justify-content:flex-start; }
     .toolbar{ align-items:stretch; }
-    .overview-toolbar-controls{ flex-wrap:wrap; width:100%; gap:8px !important; }
-    .overview-toolbar-controls select, .overview-toolbar-controls button.btn.ghost{ flex:1 1 auto; min-width:0; }
-    .overview-toolbar-controls label{ flex:1 1 100%; }
+    .overview-toolbar-left, .overview-toolbar-right{ width:100%; gap:8px !important; }
+    .overview-toolbar-left .section-title{ flex:1 1 100%; }
+    .overview-toolbar-left select{ flex:1 1 auto; min-width:0; }
+    .overview-toolbar-right{ justify-content:space-between !important; }
+    .overview-action-box{ flex:1 1 auto; }
   }
   @media (max-width:720px){
     .card-grid{ grid-template-columns:1fr 1fr; }
@@ -1417,6 +1419,8 @@
           <input type="email" id="purchaseEmailAddress" placeholder="accounting@example.com" style="max-width:280px;" />
           <label style="display:block;font-size:11.5px;color:var(--ink-soft);margin:8px 0 2px;" data-i18n="fieldCcEmail">副本 CC(選填)</label>
           <input type="email" id="purchaseEmailCc" placeholder="accounting@example.com, another@example.com" data-i18n-placeholder="multiEmailPlaceholder" style="max-width:280px;" multiple />
+          <label style="display:block;font-size:11.5px;color:var(--ink-soft);margin:8px 0 2px;" data-i18n="fieldEmailNote">附註(選填)</label>
+          <textarea id="purchaseEmailNote" rows="2" style="max-width:280px;width:100%;resize:vertical;" data-i18n-placeholder="emailNotePlaceholder" placeholder="想在 email 裡補充的內容"></textarea>
           <p style="font-size:11.5px;color:var(--ink-soft);margin:4px 0 0;" data-i18n="purchaseEmailHint">送出進貨單時,會把這張單匯出的 Excel 檔跟收據附件(如果有上傳)一起寄到這個地址。</p>
         </div>
       </div>
@@ -1526,13 +1530,10 @@
     <div id="subtab-overview-summary" class="subtab-content active-subtab">
     <div class="section">
       <div class="toolbar">
-        <div class="section-title" style="margin:0;"><span data-i18n="secStockOverview">庫存總覽</span></div>
-        <div class="overview-toolbar-controls" style="display:flex;gap:10px;align-items:center;">
+        <div class="overview-toolbar-left" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+          <div class="section-title" style="margin:0;"><span data-i18n="secStockOverview">庫存總覽</span></div>
           <select id="categoryFilter" onchange="renderStockCards()">
             <option value="" data-i18n="catFilterAll">全部分類</option>
-          </select>
-          <select id="quickListFilter" onchange="renderStockCards()">
-            <option value="" data-i18n="quickListFilterAll">快捷清單:全部商品</option>
           </select>
           <select id="statusFilter" onchange="renderStockCards()">
             <option value="" data-i18n="statusFilterAll">燈號:全部</option>
@@ -1541,11 +1542,22 @@
             <option value="safe" data-i18n="statusFilterSafe">🟢 綠燈(庫存充足)</option>
             <option value="none" data-i18n="statusFilterNone">⚪ 灰燈(無出貨紀錄)</option>
           </select>
-          <button class="btn ghost" onclick="openStockExportModal()" data-i18n="btnExportStockQty">📊 匯出庫存數量</button>
-          <label style="display:flex;align-items:center;gap:5px;font-size:12px;color:var(--ink-soft);cursor:pointer;">
+        </div>
+        <div class="overview-toolbar-right" style="display:flex;gap:10px;align-items:flex-start;flex-wrap:wrap;justify-content:flex-end;">
+          <label style="display:flex;align-items:center;gap:5px;font-size:12px;color:var(--ink-soft);cursor:pointer;padding-top:8px;">
             <input type="checkbox" id="showHiddenProducts" onchange="toggleShowHiddenProducts(this.checked)" />
             <span data-i18n="showHiddenProducts">顯示隱藏商品</span>
           </label>
+          <div class="overview-action-box" style="display:flex;flex-direction:column;gap:6px;align-items:stretch;">
+            <select id="stockActionSelect" onchange="onStockActionChange(this.value)">
+              <option value="" data-i18n="stockActionPlaceholder">Action</option>
+              <option value="quicklist" data-i18n="stockActionQuickList">從快捷清單篩選</option>
+              <option value="export" data-i18n="stockActionExport">匯出庫存數量</option>
+            </select>
+            <select id="quickListFilter" onchange="renderStockCards()" style="display:none;">
+              <option value="" data-i18n="quickListFilterAll">快捷清單:全部商品</option>
+            </select>
+          </div>
         </div>
       </div>
       <div id="stockExportMsg" class="msg"></div>
@@ -1758,12 +1770,14 @@
       </p>
       <div style="display:flex;align-items:end;gap:16px;margin-bottom:14px;flex-wrap:wrap;">
         <div class="field" style="width:220px;">
-          <label data-i18n="fieldFilterByForecastParty">依進貨對象篩選商品</label>
-          <select id="forecastPartyFilter" onchange="onForecastFilterChange()"></select>
-        </div>
-        <div class="field" style="width:220px;">
-          <label data-i18n="fieldFilterByQuickList">依快捷清單篩選商品</label>
-          <select id="forecastQuickListFilter" onchange="onForecastFilterChange()">
+          <label data-i18n="fieldForecastFilterTarget">篩選對象</label>
+          <select id="forecastFilterMode" onchange="onForecastFilterModeChange()">
+            <option value="" data-i18n="forecastFilterModeNone">全部商品</option>
+            <option value="party" data-i18n="forecastFilterModeParty">依進貨對象</option>
+            <option value="quicklist" data-i18n="forecastFilterModeQuickList">依快捷清單</option>
+          </select>
+          <select id="forecastPartyFilter" onchange="onForecastFilterChange()" style="display:none;margin-top:6px;"></select>
+          <select id="forecastQuickListFilter" onchange="onForecastFilterChange()" style="display:none;margin-top:6px;">
             <option value="" data-i18n="quickListFilterAll">快捷清單:全部商品</option>
           </select>
         </div>
@@ -1773,9 +1787,11 @@
         </div>
         <div id="forecastSummaryBar" style="margin-left:auto;font-size:15px;color:var(--ink-soft);padding-bottom:9px;"></div>
       </div>
-      <div style="margin-bottom:12px;">
+      <div style="margin-bottom:12px;display:flex;gap:10px;flex-wrap:wrap;">
         <button class="btn ghost" onclick="toggleForecastAddPanel()" id="forecastAddToggleBtn" data-i18n="btnAddProductToForecast">＋ 新增商品</button>
+        <button class="btn ghost" onclick="exportForecastSheet()" data-i18n="btnExportForecast">📄 匯出進貨預估(Excel)</button>
       </div>
+      <div id="forecastMsg" class="msg"></div>
       <div id="forecastAddPanel" class="fc-add-panel" style="display:none;"></div>
       <div id="forecastTableContainer"></div>
     </div>
@@ -2146,6 +2162,10 @@
     <div class="field-block">
       <label data-i18n="fieldCcEmail">副本 CC(選填)</label>
       <input type="email" id="sendPurchaseCcInput" style="width:100%;" placeholder="accounting@example.com, another@example.com" multiple data-i18n-placeholder="multiEmailPlaceholder" />
+    </div>
+    <div class="field-block">
+      <label data-i18n="fieldEmailNote">附註(選填)</label>
+      <textarea id="sendPurchaseEmailNoteInput" rows="3" style="width:100%;resize:vertical;" data-i18n-placeholder="emailNotePlaceholder" placeholder="想在 email 裡補充的內容"></textarea>
     </div>
     <div id="sendPurchaseEmailModalMsg" class="msg"></div>
     <div class="modal-actions">
