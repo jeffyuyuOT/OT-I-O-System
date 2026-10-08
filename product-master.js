@@ -403,6 +403,7 @@ function toggleExportProductPicker(){
   if(mount.style.display === 'none'){
     mount.style.display = 'block';
     mountProductPicker('exportProductPickerMount', 'ex', {
+      includeHidden: true,
       getExcludedIds: () => exportProductIds,
       onAdd: (id) => { if(!exportProductIds.includes(id)) exportProductIds.push(id); renderExportProductList(); }
     });
