@@ -20,7 +20,8 @@ async function loadQuickLists(){
     if(r && r.value){
       const stored = JSON.parse(r.value);
       if(Array.isArray(stored)) quickLists = stored.filter(q => q && q.id && typeof q.name === 'string')
-        .map(q => ({ id: q.id, name: q.name, productIds: Array.isArray(q.productIds) ? q.productIds : [] }));
+        .map(q => ({ id: q.id, name: q.name, productIds: Array.isArray(q.productIds) ? q.productIds : [],
+          pickingNoteEnabled: !!q.pickingNoteEnabled, pickingNoteText: typeof q.pickingNoteText === 'string' ? q.pickingNoteText : '' }));
     }
   } catch(e){ /* 還沒存過清單,維持空的 */ }
 }
@@ -198,7 +199,7 @@ function anchorDisplayRowHtml(anchorId, removeOnclick){
 
 // ===== 倉庫後台管理 → 快捷清單管理 =====
 let qlMgmtView = 'menu';       // 'menu' | 'new' | 'list' | 'edit'
-let qlEditor = { id: null, name: '', productIds: [] };
+let qlEditor = { id: null, name: '', productIds: [], pickingNoteEnabled: false, pickingNoteText: '' };
 
 function renderQuickListMgmt(){
   const root = document.getElementById('quickListMgmtRoot');
@@ -235,10 +236,10 @@ function openQuickListEditor(id){
   if(id){
     const ql = getQuickListById(id);
     if(!ql) return;
-    qlEditor = { id: ql.id, name: ql.name, productIds: Array.from(getQuickListAnchorIds(ql.id)) };
+    qlEditor = { id: ql.id, name: ql.name, productIds: Array.from(getQuickListAnchorIds(ql.id)), pickingNoteEnabled: !!ql.pickingNoteEnabled, pickingNoteText: ql.pickingNoteText || '' };
     qlMgmtView = 'edit';
   } else {
-    qlEditor = { id: null, name: '', productIds: [] };
+    qlEditor = { id: null, name: '', productIds: [], pickingNoteEnabled: false, pickingNoteText: '' };
     qlMgmtView = 'new';
   }
   renderQuickListMgmt();
@@ -252,6 +253,15 @@ function renderQuickListEditor(){
       <label>${t('fieldQuickListName')}</label>
       <input type="text" id="qlNameInput" value="${escapeAttr(qlEditor.name)}" oninput="qlEditor.name=this.value" placeholder="${escapeAttr(t('placeholderQuickListName'))}" maxlength="60" />
     </div>
+    ${hasFeature('quickListPickingSlipNote') ? `
+    <div style="max-width:360px;margin-bottom:14px;">
+      <label style="display:flex;align-items:center;gap:6px;font-size:12.5px;font-weight:600;cursor:pointer;">
+        <input type="checkbox" id="qlPickingNoteToggle" ${qlEditor.pickingNoteEnabled ? 'checked' : ''} onchange="onQlPickingNoteToggle(this.checked)" />
+        <span>${t('chkQuickListPickingNote')}</span>
+      </label>
+      <input type="text" id="qlPickingNoteInput" value="${escapeAttr(qlEditor.pickingNoteText)}" oninput="qlEditor.pickingNoteText=this.value"
+        placeholder="${escapeAttr(t('placeholderQuickListPickingNote'))}" maxlength="100" style="width:100%;margin-top:6px;${qlEditor.pickingNoteEnabled ? '' : 'display:none;'}" />
+    </div>` : ''}
     <div class="section-title" style="font-size:12px;margin:0 0 6px;"><span id="qlSelectedTitle"></span></div>
     <div id="qlSelectedList" class="pp-list"></div>
     <div class="section-title" style="font-size:12px;margin:16px 0 6px;">${t('secAddProductsToList')}</div>
@@ -266,6 +276,28 @@ function renderQuickListEditor(){
     getExcludedIds: () => qlEditor.productIds,
     onAdd: (id) => { if(!qlEditor.productIds.includes(id)) qlEditor.productIds.push(id); renderQuickListSelected(); }
   });
+}
+
+function onQlPickingNoteToggle(checked){
+  qlEditor.pickingNoteEnabled = checked;
+  const input = document.getElementById('qlPickingNoteInput');
+  if(input){ input.style.display = checked ? '' : 'none'; if(checked) input.focus(); }
+}
+
+// Picking Slip 附註:這個商品(以家族為單位)所在的所有「有勾選顯示附註」的快捷清單,各自輸入的內容用逗號接起來;
+// 相同的內容只出現一次。沒有任何符合的清單就回傳空字串。
+function getQuickListPickingNoteForProduct(productId){
+  if(!hasFeature('quickListPickingSlipNote')) return '';
+  const anchor = normalizeToAnchorId(productId);
+  if(!anchor) return '';
+  const texts = [];
+  quickLists.forEach(ql => {
+    const txt = (ql.pickingNoteText || '').trim();
+    if(!ql.pickingNoteEnabled || !txt) return;
+    if(!getQuickListAnchorIds(ql.id).has(anchor)) return;
+    if(!texts.includes(txt)) texts.push(txt);
+  });
+  return texts.join(', ');
 }
 
 function renderQuickListSelected(){
@@ -289,7 +321,7 @@ function removeProductFromQuickListEditor(id){
 
 function cancelQuickListEditor(){
   qlMgmtView = qlEditor.id ? 'list' : 'menu';
-  qlEditor = { id: null, name: '', productIds: [] };
+  qlEditor = { id: null, name: '', productIds: [], pickingNoteEnabled: false, pickingNoteText: '' };
   renderQuickListMgmt();
 }
 
@@ -301,12 +333,14 @@ async function saveQuickListEditor(){
   const ids = qlEditor.productIds.filter(id => products.some(p => p.id === id));
   if(ids.length === 0){ setQuickListMgmtMsg(t('errQuickListNoProducts'), true); return; }
 
+  if(hasFeature('quickListPickingSlipNote') && qlEditor.pickingNoteEnabled && !(qlEditor.pickingNoteText || '').trim()){ setQuickListMgmtMsg(t('errQuickListPickingNoteEmpty'), true); return; }
+
   const prevSnapshot = JSON.stringify(quickLists);
   if(qlEditor.id){
     const ql = getQuickListById(qlEditor.id);
-    if(ql){ ql.name = name; ql.productIds = ids; }
+    if(ql){ ql.name = name; ql.productIds = ids; ql.pickingNoteEnabled = !!qlEditor.pickingNoteEnabled; ql.pickingNoteText = (qlEditor.pickingNoteText || '').trim(); }
   } else {
-    quickLists.push({ id: 'ql_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), name, productIds: ids });
+    quickLists.push({ id: 'ql_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), name, productIds: ids, pickingNoteEnabled: !!qlEditor.pickingNoteEnabled, pickingNoteText: (qlEditor.pickingNoteText || '').trim() });
   }
   try{
     await saveQuickLists();
@@ -317,7 +351,7 @@ async function saveQuickListEditor(){
     return;
   }
   const wasEdit = !!qlEditor.id;
-  qlEditor = { id: null, name: '', productIds: [] };
+  qlEditor = { id: null, name: '', productIds: [], pickingNoteEnabled: false, pickingNoteText: '' };
   qlMgmtView = 'list';
   populateAllQuickListSelects();
   renderQuickListMgmt();

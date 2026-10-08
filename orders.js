@@ -1255,8 +1255,16 @@ async function printOrderDocument(orderId, opts){
   // 空出這一欄);已完成訂單本來沒有這種備註欄,加在最右邊。兩邊都是「整張單子完全沒有任何一項
   // 商品有備註」才整欄隱藏,不是逐列判斷──某一列沒有備註,那一列的儲存格照樣印出來(空白),
   // 只是整欄的表頭/欄位在沒人填的時候才不出現。
+  // Picking Slip(includeCheck)的附註,除了訂貨時加的備註,還會接上「快捷清單」裡設定的「在 picking slip 附註顯示內容」
+  // (客製功能 quickListPickingSlipNote,見 quick-lists.js 的 getQuickListPickingNoteForProduct),用逗號隔開。
   function itemNoteFor(it){
-    return it.note ? escapeHtmlForPrint(it.note) : '';
+    const parts = [];
+    if(it.note) parts.push(it.note);
+    if(includeCheck && typeof getQuickListPickingNoteForProduct === 'function'){
+      const qn = getQuickListPickingNoteForProduct(it.productId);
+      if(qn) parts.push(qn);
+    }
+    return parts.length ? escapeHtmlForPrint(parts.join(', ')) : '';
   }
   const hasAnyNote = items.some(it => itemNoteFor(it));
 
