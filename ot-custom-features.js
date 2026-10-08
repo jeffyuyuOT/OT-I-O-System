@@ -33,5 +33,9 @@ Object.assign(window.FEATURES, {
   // 庫存總覽 →「匯出庫存數量」視窗下方的「扣除特定分店這段期間的出庫紀錄」區塊——
   // 只有 Orange Tea 自己需要這種「假裝沒出貨給某幾間分店」的盤點情境,不是每家公司
   // 都需要,所以做成這裡的開關,關掉的話匯出視窗只會剩「以哪一天的庫存為準」那部分。
-  stockExportExcludeBranches: true
+  stockExportExcludeBranches: true,
+
+  // 快捷清單編輯畫面裡的「在 Picking Slip 附註顯示內容」勾選+輸入欄:勾選後,清單內每個商品
+  // 在 Picking Slip 的附註欄都會印出輸入的內容(同一商品在多份清單都有設定時,內容用逗號隔開)。
+  quickListPickingSlipNote: true
 });
