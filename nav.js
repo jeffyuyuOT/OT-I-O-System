@@ -446,6 +446,7 @@ function switchWarehouseAdminSubTab(subtabId){
   if(subtabId === 'subtab-order-parties') renderPartiesTable();
   else if(subtabId === 'subtab-purchase-mgmt-suppliers') renderSupplierManagementTable();
   else if(subtabId === 'subtab-tx-forecast') renderForecastTable();
+  else if(subtabId === 'subtab-forecast-records') loadForecastRecords().then(renderForecastRecords);
   else if(subtabId === 'subtab-tx-data'){ populateExportPartySelect(); renderExportProductList(); }
   else if(subtabId === 'subtab-quicklist-mgmt') renderQuickListMgmt();
   else if(subtabId === 'subtab-purchase-mgmt-ocrdb' && hasFeature('receiptScanModule')) renderOcrDbProductSelect();

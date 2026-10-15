@@ -956,3 +956,159 @@ async function chooseForecastBoxBasisFromModal(anchorId, memberId){
     });
   }
 })();
+
+
+// ===== 進貨預估紀錄(儲存 / 載入 / 刪除) =====
+// 一筆紀錄 = { id, name, savedAt, items: [{ anchorId, qty, unitId, boxBasisId }] }
+// 存的是「當下畫面上列出的商品清單」跟每個商品的預計進貨數量(以及當時選的進貨單位)。
+let forecastRecords = [];
+
+async function loadForecastRecords(){
+  try{
+    const r = await dbGet('forecastRecords');
+    if(r && r.value){
+      const arr = JSON.parse(r.value);
+      if(Array.isArray(arr)) forecastRecords = arr.filter(x => x && x.id && Array.isArray(x.items));
+    }
+  } catch(e){ /* 還沒存過 */ }
+}
+
+async function saveForecastRecords(){
+  await dbSet('forecastRecords', JSON.stringify(forecastRecords));
+}
+
+function defaultForecastRecordName(){
+  return `${t('subtabTxForecast')} ${formatOrderDateTime(new Date().toISOString())}`;
+}
+
+function openSaveForecastModal(){
+  const msg = document.getElementById('forecastMsg');
+  if(getForecastDisplayItems().length === 0){
+    msg.className = 'msg error'; msg.textContent = t('errForecastNothingToSave'); return;
+  }
+  document.getElementById('saveForecastNameInput').value = defaultForecastRecordName();
+  document.getElementById('saveForecastModalMsg').textContent = '';
+  document.getElementById('saveForecastModalOverlay').style.display = 'flex';
+  setTimeout(() => { const i = document.getElementById('saveForecastNameInput'); if(i){ i.focus(); i.select(); } }, 50);
+}
+function closeSaveForecastModal(){
+  document.getElementById('saveForecastModalOverlay').style.display = 'none';
+}
+
+async function confirmSaveForecast(){
+  const modalMsg = document.getElementById('saveForecastModalMsg');
+  const name = (document.getElementById('saveForecastNameInput').value || '').trim();
+  if(!name){ modalMsg.className = 'msg error'; modalMsg.textContent = t('errForecastRecordNameRequired'); return; }
+  const items = getForecastDisplayItems().map(p => {
+    const qtyRaw = forecastQtyDraft[p.id];
+    const qty = parseFloat(qtyRaw);
+    return {
+      anchorId: p.id,
+      qty: isNaN(qty) ? '' : qty,
+      unitId: getForecastUnitProduct(p).id,
+      boxBasisId: forecastBoxBasis[p.id] || null
+    };
+  });
+  const prev = forecastRecords.slice();
+  forecastRecords.push({ id: 'fr_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), name, savedAt: new Date().toISOString(), items });
+  try{ await saveForecastRecords(); }
+  catch(e){
+    console.error('儲存進貨預估紀錄失敗', e);
+    forecastRecords = prev;
+    modalMsg.className = 'msg error'; modalMsg.textContent = t('errSaveOrderFailed');
+    return;
+  }
+  closeSaveForecastModal();
+  const msg = document.getElementById('forecastMsg');
+  msg.className = 'msg ok';
+  msg.textContent = tf('msgForecastSaved', { name });
+}
+
+function renderForecastRecords(){
+  const box = document.getElementById('forecastRecordsContainer');
+  if(!box) return;
+  if(forecastRecords.length === 0){
+    box.innerHTML = `<div class="empty-note">${t('noForecastRecordsYet')}</div>`;
+    return;
+  }
+  const sorted = forecastRecords.slice().sort((a, b) => (b.savedAt || '').localeCompare(a.savedAt || ''));
+  box.innerHTML = `
+    <table class="stock-table">
+      <thead><tr>
+        <th>${t('fieldForecastRecordName')}</th>
+        <th>${t('colForecastRecordSavedAt')}</th>
+        <th class="num">${t('colForecastRecordItems')}</th>
+        <th></th>
+      </tr></thead>
+      <tbody>
+        ${sorted.map(r => {
+          const withQty = r.items.filter(it => it.qty !== '' && it.qty != null && Number(it.qty) > 0).length;
+          return `<tr>
+            <td class="row-name">${escapeHtmlText(r.name)}</td>
+            <td>${escapeHtmlText(formatOrderDateTime(r.savedAt))}</td>
+            <td class="num">${tf('forecastRecordItemsSummary', { n: r.items.length, q: withQty })}</td>
+            <td style="white-space:nowrap;">
+              <span class="del-link" style="color:var(--ink);" onclick="loadForecastRecord('${r.id}')">${t('btnLoadRecord')}</span>
+              <span class="del-link" style="margin-left:12px;" onclick="deleteForecastRecord('${r.id}')">${t('btnDeleteRecord')}</span>
+            </td>
+          </tr>`;
+        }).join('')}
+      </tbody>
+    </table>`;
+}
+
+// 載入:把進貨預估頁面換成這份紀錄的內容——篩選全部清掉、商品清單剛好是紀錄裡的商品(已經不存在的商品略過)、
+// 預計進貨數量跟當時的進貨單位一起帶回來。
+async function loadForecastRecord(id){
+  const rec = forecastRecords.find(r => r.id === id);
+  if(!rec) return;
+  const recMsg = document.getElementById('forecastRecordsMsg');
+  const valid = rec.items.filter(it => products.some(p => p.id === it.anchorId && !p.parentId));
+  const skipped = rec.items.length - valid.length;
+
+  const modeEl = document.getElementById('forecastFilterMode');
+  if(modeEl) modeEl.value = '';
+  ['forecastPartyFilter', 'forecastQuickListFilter'].forEach(sid => { const el = document.getElementById(sid); if(el){ el.value = ''; el.style.display = 'none'; } });
+  const catEl = document.getElementById('forecastCategoryFilter');
+  if(catEl) catEl.value = '';
+
+  const keep = new Set(valid.map(it => it.anchorId));
+  forecastAddedIds = new Set(keep);
+  // 沒有任何篩選時畫面預設列出的商品(不含隱藏),凡是不在這份紀錄裡的都標記成「已刪除」
+  forecastRemovedIds = new Set(getForecastBaseItems().filter(p => !keep.has(p.id)).map(p => p.id));
+
+  forecastQtyDraft = {};
+  valid.forEach(it => {
+    if(it.qty !== '' && it.qty != null) forecastQtyDraft[it.anchorId] = String(it.qty);
+    if(it.unitId && products.some(p => p.id === it.unitId)) forecastUnitChoice[it.anchorId] = it.unitId;
+    if(it.boxBasisId && products.some(p => p.id === it.boxBasisId)) forecastBoxBasis[it.anchorId] = it.boxBasisId;
+  });
+  await saveForecastPrefs();
+
+  switchWarehouseAdminSubTab('subtab-tx-forecast');
+  const fmsg = document.getElementById('forecastMsg');
+  if(fmsg){
+    fmsg.className = 'msg ok';
+    fmsg.textContent = tf('msgForecastLoaded', { name: rec.name }) + (skipped > 0 ? ' ' + tn('noteForecastRecordSkipped', skipped) : '');
+  }
+  if(recMsg) recMsg.textContent = '';
+}
+
+function deleteForecastRecord(id){
+  const rec = forecastRecords.find(r => r.id === id);
+  if(!rec) return;
+  showConfirmModal(tf('confirmDeleteForecastRecord', { name: rec.name }), async () => {
+    const prev = forecastRecords.slice();
+    forecastRecords = forecastRecords.filter(r => r.id !== id);
+    const recMsg = document.getElementById('forecastRecordsMsg');
+    try{ await saveForecastRecords(); }
+    catch(e){
+      console.error('刪除進貨預估紀錄失敗', e);
+      forecastRecords = prev;
+      if(recMsg){ recMsg.className = 'msg error'; recMsg.textContent = t('errSaveOrderFailed'); }
+      return;
+    }
+    renderForecastRecords();
+    if(recMsg){ recMsg.className = 'msg ok'; recMsg.textContent = tf('msgForecastRecordDeleted', { name: rec.name }); }
+  });
+}
