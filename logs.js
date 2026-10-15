@@ -3,8 +3,8 @@
 // 後台紀錄(Inventory Log,系統裡每個操作的稽核軌跡),三個子分頁
 // 各自的篩選/渲染/清除篩選,以及交易紀錄補充備註的功能。
 // ============================================================
-// 歷史紀錄/已完成訂單預設只顯示最近兩個月;使用者把「從」改到更早的日期(或清空)才去補載入更早的資料。
-function defaultHistoryFromDate(){ return monthsAgoDateStr(2); }
+// 歷史紀錄/已完成訂單預設只顯示最近 N 個月(N = 系統設置的 historyRangeMonths,預設 3);使用者把「從」改到更早的日期(或清空)才去補載入更早的資料。
+function defaultHistoryFromDate(){ return monthsAgoDateStr(historyRangeMonths); }
 function initHistoryDateDefaults(){
   const a = document.getElementById('logDateFrom');
   if(a && !a.value) a.value = defaultHistoryFromDate();

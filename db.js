@@ -149,8 +149,12 @@ async function replaceAllTransactions(txList){
 // 13 個月的視窗結果完全一樣);庫存數字來自 product_stock 快取,不受載入範圍影響。
 // 已完成訂單預設只載入最近 COMPLETED_ORDER_LOAD_MONTHS 個月(待處理/處理中的訂單一律全載)。
 // txLoadedFrom / ordersLoadedFrom:目前已載入範圍的起始日('' = 全部都載入了)。
-const TX_LOAD_MONTHS = 13;
-const COMPLETED_ORDER_LOAD_MONTHS = 2;
+// 歷史資料預設顯示範圍(月),管理員可在系統設置調整(app_data key: historyRangeMonths)。
+// 已完成訂單載入多少個月 = 這個設定值;交易紀錄最少載入 13 個月(平均月銷量要用到 12 個月),
+// 設定值更大的話就跟著放大。
+let historyRangeMonths = 3;
+const HISTORY_RANGE_OPTIONS = [1, 2, 3, 6, 12];
+function txLoadMonths(){ return Math.max(13, historyRangeMonths + 1); }
 let txLoadedFrom = null;      // null = 還沒決定(第一次載入時用預設值)
 let ordersLoadedFrom = null;
 
@@ -177,7 +181,7 @@ async function fetchAllPages(buildQuery){
 }
 
 async function loadTransactions(){
-  if(txLoadedFrom === null) txLoadedFrom = monthsAgoDateStr(TX_LOAD_MONTHS);
+  if(txLoadedFrom === null) txLoadedFrom = monthsAgoDateStr(txLoadMonths());
   try{
     let rows;
     try{
@@ -221,7 +225,7 @@ async function saveProducts(){
   scheduleAutoBackup();
 }
 async function loadOrders(){
-  if(ordersLoadedFrom === null) ordersLoadedFrom = monthsAgoDateStr(COMPLETED_ORDER_LOAD_MONTHS);
+  if(ordersLoadedFrom === null) ordersLoadedFrom = monthsAgoDateStr(historyRangeMonths);
   try{
     let rows;
     try{

@@ -195,6 +195,8 @@ function updateMultipackSettingsUI(){
   if(ddvBox) ddvBox.checked = disableDirectVerifyEnabled;
   const psmSelect = document.getElementById('productSortModeSelect');
   if(psmSelect) psmSelect.value = productSortMode;
+  const hrSelect = document.getElementById('historyRangeSelect');
+  if(hrSelect) hrSelect.value = String(historyRangeMonths);
   renderProductManualOrderPanel();
   const cefSelect = document.getElementById('completedExportFormatSelect');
   if(cefSelect) cefSelect.value = completedExportFormat;
@@ -336,6 +338,20 @@ async function toggleDisableDirectVerify(checked){
 
 // 商品排序設置改變:存起來,並且重新畫庫存總覽(如果目前正顯示的話)、訂貨頁面,讓新的排序方式
 // 立刻生效,不用等使用者自己切分頁才看到變化。
+// 系統設置:歷史資料預設顯示範圍(進出貨紀錄、已完成訂單的「從」日期預設往前幾個月)
+async function changeHistoryRangeMonths(v){
+  const n = parseInt(v, 10);
+  if(!HISTORY_RANGE_OPTIONS.includes(n)) return;
+  historyRangeMonths = n;
+  try{ await dbSet('historyRangeMonths', String(n)); }
+  catch(e){ console.error('儲存歷史資料顯示範圍失敗', e); }
+  // 立刻套用到目前畫面:兩個「從」日期改成新的預設,並視需要補載入
+  const a = document.getElementById('logDateFrom'); if(a) a.value = defaultHistoryFromDate();
+  const b = document.getElementById('completedOrderDateFrom'); if(b) b.value = defaultHistoryFromDate();
+  await Promise.all([ensureTransactionsLoadedFrom(monthsAgoDateStr(txLoadMonths())), ensureOrdersLoadedFrom(defaultHistoryFromDate())]);
+  renderLog(); renderOrders();
+}
+
 async function changeProductSortMode(mode){
   if(!['import','name','sku','manual'].includes(mode)) return;
   productSortMode = mode;
@@ -888,15 +904,42 @@ function loadProductManualOrderDraft(cat){
     .sort(compareProductsBySortMode).map(p => p.id);
 }
 
+// 設定頁只放一顆「開始調整」按鈕(商品很多時,清單直接攤在設定頁會把下面的設定擠到很遠),
+// 真正的排序清單在彈出視窗裡調整。
+let pmoModalOpen = false;
 function renderProductManualOrderPanel(){
   const panel = document.getElementById('productManualOrderPanel');
   if(!panel) return;
-  if(productSortMode !== 'manual'){ panel.style.display = 'none'; panel.innerHTML = ''; return; }
+  if(productSortMode !== 'manual'){
+    panel.style.display = 'none'; panel.innerHTML = '';
+    if(pmoModalOpen) closeProductManualOrderModal();
+    return;
+  }
+  panel.style.display = 'block';
+  panel.innerHTML = `<button class="btn" onclick="openProductManualOrderModal()">${t('btnStartManualOrder')}</button>`;
+  if(pmoModalOpen) renderProductManualOrderModalBody();
+}
+
+function openProductManualOrderModal(){
   const cats = getProductManualOrderCategories();
-  if(cats.length === 0){ panel.style.display = 'block'; panel.innerHTML = `<div class="empty-note">${t('noProductsToShow')}</div>`; return; }
+  if(cats.length > 0 && (!pmoCategory || !cats.includes(pmoCategory))) loadProductManualOrderDraft(cats[0]);
+  pmoModalOpen = true;
+  document.getElementById('productManualOrderModalOverlay').style.display = 'flex';
+  renderProductManualOrderModalBody();
+}
+function closeProductManualOrderModal(){
+  pmoModalOpen = false;
+  const ov = document.getElementById('productManualOrderModalOverlay');
+  if(ov) ov.style.display = 'none';
+}
+
+function renderProductManualOrderModalBody(){
+  const panel = document.getElementById('pmoModalBody');
+  if(!panel) return;
+  const cats = getProductManualOrderCategories();
+  if(cats.length === 0){ panel.innerHTML = `<div class="empty-note">${t('noProductsToShow')}</div>`; return; }
   if(!pmoCategory || !cats.includes(pmoCategory)) loadProductManualOrderDraft(cats[0]);
   const prodById = Object.fromEntries(products.map(p => [p.id, p]));
-  panel.style.display = 'block';
   panel.innerHTML = `
     <div class="cat-order-panel">
       <p style="font-size:12px;color:var(--ink-soft);margin:0 0 10px;">${t('productManualOrderDesc')}</p>
@@ -918,10 +961,6 @@ function renderProductManualOrderPanel(){
             <button onclick="moveProductManualOrder(${i}, 1)" ${i === pmoDraft.length - 1 ? 'disabled' : ''} title="${t('titleMoveDown')}">↓</button>
           </div>`;
         }).join('')}
-      </div>
-      <div style="display:flex;gap:10px;align-items:center;margin-top:12px;flex-wrap:wrap;">
-        <button class="btn" onclick="saveProductManualOrder()">${t('btnSaveOrder')}</button>
-        <span id="pmoSaveMsg" style="font-size:12px;"></span>
       </div>
     </div>`;
 }

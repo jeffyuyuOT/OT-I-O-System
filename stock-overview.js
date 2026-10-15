@@ -3,6 +3,18 @@
 // 家族展開收合)、排序、批次操作(改分類、隱藏/顯示、可訂貨/
 // 不可訂貨、批次刪除)。
 // ============================================================
+// 庫存總覽的商品名稱搜尋:以「商品家族」為單位比對——主商品或底下任何一個批量商品的名稱/SKU
+// 符合就算符合(不分大小寫),這樣搜尋批量商品名稱時,它所屬的主商品列也看得到。
+function stockSearchQuery(){
+  const el = document.getElementById('stockSearchInput');
+  return el ? el.value.trim().toLowerCase() : '';
+}
+function productFamilyMatchesSearch(rootP, q){
+  if(!q) return true;
+  const hit = x => ((x.name || '').toLowerCase().includes(q) || (x.sku || '').toLowerCase().includes(q));
+  return hit(rootP) || getChildProducts(rootP.id).some(hit);
+}
+
 function renderStockCards(){
   const container = document.getElementById('stockCards');
   if(products.length === 0){
@@ -129,6 +141,7 @@ function renderStockCards(){
   const categoriesToShow = catFilter ? [catFilter] : categoryOrder;
   const statusFilter = document.getElementById('statusFilter').value;
   const showHidden = document.getElementById('showHiddenProducts') && document.getElementById('showHiddenProducts').checked;
+  const searchQ = stockSearchQuery();
   let bodyHtml = '';
   let anyItems = false;
   const visibleProductIds = new Set();
@@ -137,6 +150,7 @@ function renderStockCards(){
     let items = products.filter(p => (p.category || '未分類') === cat && !p.parentId);
     if(!showHidden) items = items.filter(p => !p.hidden);
     if(quickListSet) items = items.filter(p => quickListSet.has(p.id));
+    if(searchQ) items = items.filter(p => productFamilyMatchesSearch(p, searchQ));
     if(statusFilter){
       items = items.filter(p => {
         const gaugeStock = computeTotalStock(p.id);
@@ -179,7 +193,7 @@ function renderStockCards(){
   });
 
   if(!anyItems){
-    container.innerHTML = `<div class="empty-note">${(statusFilter || quickListSet) ? t('noProductsMatchFilters') : '這個分類目前沒有商品。'}</div>`;
+    container.innerHTML = `<div class="empty-note">${(statusFilter || quickListSet || searchQ) ? t('noProductsMatchFilters') : '這個分類目前沒有商品。'}</div>`;
     return;
   }
 
@@ -327,6 +341,8 @@ function toggleSelectAllProducts(checked){
     const qlSet = getQuickListAnchorIds(qlSel.value);
     visible = visible.filter(p => qlSet.has(p.parentId || p.id));
   }
+  const sq = stockSearchQuery();
+  if(sq) visible = visible.filter(p => { const root = p.parentId ? products.find(x => x.id === p.parentId) : p; return root ? productFamilyMatchesSearch(root, sq) : false; });
   if(statusFilter){
     visible = visible.filter(p => {
       const stock = computeStock(p.id);
