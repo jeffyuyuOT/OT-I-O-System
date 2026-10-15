@@ -75,7 +75,17 @@ function applySubTabOrder(){
     const byKey = new Map(items.map(i => [i.key, i]));
     const ordered = [];
     saved.forEach(k => { if(byKey.has(k)){ ordered.push(byKey.get(k)); byKey.delete(k); } });
-    items.forEach(i => { if(byKey.has(i.key)) ordered.push(i); }); // 存檔裡沒有的(新增的子分頁)接在最後
+    // 存檔裡沒有的(後來新增的子分頁):插在它原本(預設順序)前一個子分頁的後面,而不是全部堆在最後面——
+    // 例如「進貨預估紀錄」會跟在「進貨預估」後面,即使使用者之前已經存過自訂的子分頁順序。
+    items.forEach((i, idx) => {
+      if(!byKey.has(i.key)) return;
+      let insertAt = 0;
+      for(let j = idx - 1; j >= 0; j--){
+        const pos = ordered.findIndex(o => o.key === items[j].key);
+        if(pos !== -1){ insertAt = pos + 1; break; }
+      }
+      ordered.splice(insertAt, 0, i);
+    });
     ordered.forEach(i => bar.appendChild(i.el));
   });
 }
@@ -446,7 +456,6 @@ function switchWarehouseAdminSubTab(subtabId){
   if(subtabId === 'subtab-order-parties') renderPartiesTable();
   else if(subtabId === 'subtab-purchase-mgmt-suppliers') renderSupplierManagementTable();
   else if(subtabId === 'subtab-tx-forecast') renderForecastTable();
-  else if(subtabId === 'subtab-forecast-records') loadForecastRecords().then(renderForecastRecords);
   else if(subtabId === 'subtab-tx-data'){ populateExportPartySelect(); renderExportProductList(); }
   else if(subtabId === 'subtab-quicklist-mgmt') renderQuickListMgmt();
   else if(subtabId === 'subtab-purchase-mgmt-ocrdb' && hasFeature('receiptScanModule')) renderOcrDbProductSelect();
