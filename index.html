@@ -344,6 +344,8 @@
     font-family:'Inter',sans-serif; font-size:13px;
   }
   .cat-order-row:last-child{ border-bottom:none; }
+  .pmo-row{ cursor:grab; }
+  .pmo-handle{ color:var(--ink-soft); font-weight:700; letter-spacing:-2px; padding:0 4px; user-select:none; }
   .cat-order-row .cat-order-name{ flex:1; font-weight:500; }
   .cat-order-row button{
     background:var(--bg); border:1px solid var(--line); border-radius:3px; width:28px; height:28px;
@@ -1089,6 +1091,29 @@
         </div>
 
         <div class="settings-card">
+          <div class="section-title" data-i18n="secProductSortSettings">商品排序</div>
+          <p style="font-size:11.5px;color:var(--ink-soft);margin:0 0 8px;" data-i18n="productSortHint">
+            決定庫存總覽(沒有手動點欄位排序時)、訂貨頁面裡,同一個分類底下的商品要怎麼排序。分類本身的先後順序在上面的「商品分類排序」設定。
+          </p>
+          <div class="field" style="max-width:280px;margin-bottom:12px;">
+            <select id="productSortModeSelect" onchange="changeProductSortMode(this.value)">
+              <option value="import" data-i18n="productSortImport">依照匯入商品主檔順序</option>
+              <option value="name" data-i18n="productSortName">依照商品名稱</option>
+              <option value="sku" data-i18n="productSortSku">依照SKU code</option>
+              <option value="manual" data-i18n="productSortManual">手動調整順序</option>
+            </select>
+          </div>
+          <div id="productManualOrderPanel" style="display:none;margin:0 0 14px;"></div>
+          <div style="display:flex;align-items:center;gap:8px;margin:0 0 6px;">
+            <input type="checkbox" id="hideMultipackIconToggle" onchange="toggleHideMultipackIcon(this.checked)" style="width:16px;height:16px;cursor:pointer;" />
+            <label for="hideMultipackIconToggle" style="font-size:12.5px;color:var(--ink);font-weight:600;cursor:pointer;" data-i18n="hideMultipackIconLabel">訂貨頁面隱藏Multipack圖示</label>
+          </div>
+          <p style="font-size:11.5px;color:var(--ink-soft);margin:0;" data-i18n="hideMultipackIconHint">
+            勾選後,訂貨頁面 multipack 商品名稱前面的「⧉」圖示不顯示,商品名稱直接往前對齊,跟其他一般商品的名稱起始位置一致。
+          </p>
+        </div>
+
+        <div class="settings-card">
           <div class="section-title" data-i18n="secAccountingEmail">會計 Email</div>
           <p style="font-size:11.5px;color:var(--ink-soft);margin:0 0 12px;" data-i18n="accountingEmailHint">
             進貨單勾選「寄送給會計」時,預設帶入的收件人地址(送出前還是可以改成別的地址)。可以加多個地址,標記「主要」的那個會放在收件人(To),其他的會放在副本(CC)一起寄出。
@@ -1156,27 +1181,6 @@
           </div>
           <p style="font-size:11.5px;color:var(--ink-soft);margin:0;" data-i18n="disableDirectVerifyHint">
             勾選後,「登記進出貨 → 出貨 → 載入現有待處理訂單」下面的「直接核對」選項會隱藏,只能用「載入訂單核對頁面」的方式核對(需要先比對實際點貨內容才能確認)。
-          </p>
-        </div>
-
-        <div class="settings-card">
-          <div class="section-title" data-i18n="secProductSortSettings">商品排序</div>
-          <p style="font-size:11.5px;color:var(--ink-soft);margin:0 0 8px;" data-i18n="productSortHint">
-            決定庫存總覽(沒有手動點欄位排序時)、訂貨頁面裡,同一個分類底下的商品要怎麼排序。分類本身的先後順序另外在庫存總覽用「調整分類順序」設定。
-          </p>
-          <div class="field" style="max-width:280px;margin-bottom:12px;">
-            <select id="productSortModeSelect" onchange="changeProductSortMode(this.value)">
-              <option value="import" data-i18n="productSortImport">依照匯入商品主檔順序</option>
-              <option value="name" data-i18n="productSortName">依照商品名稱</option>
-              <option value="sku" data-i18n="productSortSku">依照SKU code</option>
-            </select>
-          </div>
-          <div style="display:flex;align-items:center;gap:8px;margin:0 0 6px;">
-            <input type="checkbox" id="hideMultipackIconToggle" onchange="toggleHideMultipackIcon(this.checked)" style="width:16px;height:16px;cursor:pointer;" />
-            <label for="hideMultipackIconToggle" style="font-size:12.5px;color:var(--ink);font-weight:600;cursor:pointer;" data-i18n="hideMultipackIconLabel">訂貨頁面隱藏Multipack圖示</label>
-          </div>
-          <p style="font-size:11.5px;color:var(--ink-soft);margin:0;" data-i18n="hideMultipackIconHint">
-            勾選後,訂貨頁面 multipack 商品名稱前面的「⧉」圖示不顯示,商品名稱直接往前對齊,跟其他一般商品的名稱起始位置一致。
           </p>
         </div>
 
@@ -2619,6 +2623,9 @@ let stockSortDir = 'asc';
 // | 'name'(商品名稱) | 'sku'(SKU code,預設)。庫存總覽的預設排序(沒有手動點欄位排序時)、
 // 訂貨頁面的商品清單排序,兩邊都共用這個設置,確保兩邊順序一致。
 let productSortMode = 'sku';
+// 「手動調整順序」模式用:{ 商品id(主商品): 排序數字 },數字越小越前面(含分類順序,跨分類也一致)。
+// 沒有被手動排過的商品(例如之後新增的)排在手動排過的後面,彼此照匯入順序。
+let productManualRank = {};
 // 已完成訂單匯出格式:'fullCatalog'(預設,匯出庫存總覽所有可訂貨商品,沒紀錄的用隱藏列處理——
 // 這是原本就有的行為)| 'recordsOnly'(只列出真的有出貨紀錄的商品,沒有紀錄的商品完全不出現,
 // 連隱藏列都沒有)。
@@ -2627,13 +2634,7 @@ let completedExportFormat = 'fullCatalog';
 // 圖示不顯示,商品名稱直接往前對齊,跟其他一般商品的名稱起始位置一致。
 let hideMultipackIconOnOrderPage = false;
 
-// 依照目前的「商品排序」系統設置,比較兩個商品在同一分類內的先後順序——庫存總覽的預設排序
-// 跟訂貨頁面的商品清單排序都呼叫這個共用函式,不要各自維護一份,避免兩邊排序邏輯兜不起來。
-function compareProductsBySortMode(a, b){
-  if(productSortMode === 'name'){
-    return (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base' });
-  }
-  if(productSortMode === 'import'){
+function compareProductsByImportOrder(a, b){
     // 批量商品(有 parentId)不看自己在陣列裡的位置——那只反映它是「什麼時候被新增/匯入進系統
     // 的」,不代表邏輯上該排在哪裡。常見情況是主商品很早就匯入了,批量商品是後來才另外新增/
     // 匯入的,如果照自己的陣列位置排,會被排到最後面去,而不是貼在主商品後面。這裡改成:
@@ -2651,6 +2652,23 @@ function compareProductsBySortMode(a, b){
     if(a.parentId && !b.parentId) return 1;
     if(a.parentId && b.parentId) return products.indexOf(a) - products.indexOf(b); // 同一個主商品底下好幾個批量商品,彼此退回用自己的陣列位置排
     return 0;
+}
+
+// 依照目前的「商品排序」系統設置,比較兩個商品在同一分類內的先後順序——庫存總覽的預設排序
+// 跟訂貨頁面的商品清單排序都呼叫這個共用函式,不要各自維護一份,避免兩邊排序邏輯兜不起來。
+function compareProductsBySortMode(a, b){
+  if(productSortMode === 'name'){
+    return (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base' });
+  }
+  if(productSortMode === 'import') return compareProductsByImportOrder(a, b);
+  if(productSortMode === 'manual'){
+    const anchorOf = (p) => p.parentId ? (products.find(x => x.id === p.parentId) || p) : p;
+    const ra = productManualRank[anchorOf(a).id], rb = productManualRank[anchorOf(b).id];
+    const hasA = ra !== undefined, hasB = rb !== undefined;
+    if(hasA && hasB && ra !== rb) return ra - rb;
+    if(hasA && !hasB) return -1;
+    if(!hasA && hasB) return 1;
+    return compareProductsByImportOrder(a, b); // 同一家族、或都還沒手動排過的:照匯入順序(主商品在前、批量商品跟在後面)
   }
   // 預設 'sku':照 SKU 排序(數字感知,例如 A2 會排在 A10 前面),沒有 SKU 的退回用名稱排序。
   const as = a.sku || '', bs = b.sku || '';
@@ -3038,8 +3056,12 @@ async function loadData(){
   }
   try{
     const psmResult = await dbGet('productSortMode');
-    if(psmResult && ['import','name','sku'].includes(psmResult.value)) productSortMode = psmResult.value;
+    if(psmResult && ['import','name','sku','manual'].includes(psmResult.value)) productSortMode = psmResult.value;
   } catch(e){ /* no stored preference yet, keep default 'sku' */ }
+  try{
+    const pmrResult = await dbGet('productManualRank');
+    if(pmrResult && pmrResult.value){ const o = JSON.parse(pmrResult.value); if(o && typeof o === 'object' && !Array.isArray(o)) productManualRank = o; }
+  } catch(e){ /* 還沒手動排過 */ }
   if(hasFeature('completedExportFormatOption')){
     try{
       const cefResult = await dbGet('completedExportFormat');

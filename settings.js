@@ -32,7 +32,8 @@ async function runAutoBackup(){
     transactions,
     orders,
     shippingParties,
-    categoryOrder
+    categoryOrder,
+    quickLists
   };
   const content = JSON.stringify(backup, null, 2);
 
@@ -170,6 +171,7 @@ async function restoreFromBackupFolder(){
     await replaceAllOrders(orders);
     await saveShippingParties();
     await saveCategoryOrder();
+    await restoreQuickListsFromBackup(backup);
     const seqSynced = await syncOrderNoSequenceAfterRestore(orders);
     // 這個資料夾既然能讀,順便記起來,之後自動備份也直接寫進同一個地方。
     backupDirHandle = dirHandle;
@@ -192,6 +194,7 @@ function updateMultipackSettingsUI(){
   if(ddvBox) ddvBox.checked = disableDirectVerifyEnabled;
   const psmSelect = document.getElementById('productSortModeSelect');
   if(psmSelect) psmSelect.value = productSortMode;
+  renderProductManualOrderPanel();
   const cefSelect = document.getElementById('completedExportFormatSelect');
   if(cefSelect) cefSelect.value = completedExportFormat;
   const hmiBox = document.getElementById('hideMultipackIconToggle');
@@ -333,10 +336,11 @@ async function toggleDisableDirectVerify(checked){
 // 商品排序設置改變:存起來,並且重新畫庫存總覽(如果目前正顯示的話)、訂貨頁面,讓新的排序方式
 // 立刻生效,不用等使用者自己切分頁才看到變化。
 async function changeProductSortMode(mode){
-  if(!['import','name','sku'].includes(mode)) return;
+  if(!['import','name','sku','manual'].includes(mode)) return;
   productSortMode = mode;
   try{ await dbSet('productSortMode', mode); }
   catch(e){ console.error('儲存商品排序設定失敗', e); }
+  renderProductManualOrderPanel();
   if(document.getElementById('stockCards')) renderStockCards();
   if(document.getElementById('orderItemsTable')) renderOrderItemsTable();
 }
@@ -511,6 +515,7 @@ async function exportFullBackup(){
     orders,
     shippingParties,
     categoryOrder,
+    quickLists,
     inventoryLogs,
     deliveryNotes,
     purchases
@@ -592,6 +597,7 @@ function importFullBackup(){
         await replaceAllOrders(orders);
         await saveShippingParties();
         await saveCategoryOrder();
+        await restoreQuickListsFromBackup(backup);
         // inventory_log 是稽核用途的紀錄,故意不開放前端刪除(見 clearInventoryLogTable 旁邊的
         // 說明)——還原備份的時候也一樣不整批覆蓋,只把備份裡的紀錄用 upsert 補進去,已經存在的
         // (id 相同)就跳過不動,不會覆蓋掉還原當下資料庫裡已經有的紀錄。
@@ -859,4 +865,115 @@ function moveCategoryOrder(index, direction){
   if(target < 0 || target >= categoryOrderDraft.length) return;
   [categoryOrderDraft[index], categoryOrderDraft[target]] = [categoryOrderDraft[target], categoryOrderDraft[index]];
   renderCategoryOrderPanel();
+}
+
+
+// ===== 商品排序 → 手動調整順序 =====
+// 選了「手動調整順序」才會出現:先選分類,列出這個分類底下的商品(主商品;multipack 跟著主商品走),
+// 用滑鼠拖曳(手機/觸控用每列的 ↑↓ 按鈕)調整順序,按「Save Order」才會儲存。
+let pmoCategory = null;   // 目前編輯的分類
+let pmoDraft = [];        // 這個分類目前(還沒儲存)的主商品 id 順序
+let pmoDragIndex = null;
+
+function getProductManualOrderCategories(){
+  syncCategoryOrder();
+  return categoryOrder.filter(c => products.some(p => !p.parentId && (p.category || '未分類') === c));
+}
+
+function loadProductManualOrderDraft(cat){
+  pmoCategory = cat;
+  pmoDraft = products.filter(p => !p.parentId && (p.category || '未分類') === cat)
+    .sort(compareProductsBySortMode).map(p => p.id);
+}
+
+function renderProductManualOrderPanel(){
+  const panel = document.getElementById('productManualOrderPanel');
+  if(!panel) return;
+  if(productSortMode !== 'manual'){ panel.style.display = 'none'; panel.innerHTML = ''; return; }
+  const cats = getProductManualOrderCategories();
+  if(cats.length === 0){ panel.style.display = 'block'; panel.innerHTML = `<div class="empty-note">${t('noProductsToShow')}</div>`; return; }
+  if(!pmoCategory || !cats.includes(pmoCategory)) loadProductManualOrderDraft(cats[0]);
+  const prodById = Object.fromEntries(products.map(p => [p.id, p]));
+  panel.style.display = 'block';
+  panel.innerHTML = `
+    <div class="cat-order-panel">
+      <p style="font-size:12px;color:var(--ink-soft);margin:0 0 10px;">${t('productManualOrderDesc')}</p>
+      <div class="field" style="max-width:280px;margin-bottom:10px;">
+        <select id="pmoCategorySelect" onchange="onProductManualCategoryChange(this.value)">
+          ${cats.map(c => `<option value="${escapeAttr(c)}" ${c === pmoCategory ? 'selected' : ''}>${escapeHtmlText(catLabel(c))}</option>`).join('')}
+        </select>
+      </div>
+      <div id="pmoList">
+        ${pmoDraft.map((id, i) => {
+          const p = prodById[id]; if(!p) return '';
+          const basis = (typeof getTotalStockBasisProduct === 'function') ? getTotalStockBasisProduct(p) : p;
+          return `
+          <div class="cat-order-row pmo-row" draggable="true" data-index="${i}"
+            ondragstart="pmoDragStart(event, ${i})" ondragover="pmoDragOver(event)" ondragleave="pmoDragLeave(event)" ondrop="pmoDrop(event, ${i})" ondragend="pmoDragEnd()">
+            <span class="pmo-handle" title="${escapeAttr(t('titleDragToReorder'))}">⋮⋮</span>
+            <span class="cat-order-name">${basis.sku ? `<span class="sku-badge">${escapeHtmlText(basis.sku)}</span>` : ''}${escapeHtmlText(basis.name)}${p.hidden ? ` <span style="color:var(--ink-soft);font-size:11px;">(${t('tagHiddenProduct')})</span>` : ''}</span>
+            <button onclick="moveProductManualOrder(${i}, -1)" ${i === 0 ? 'disabled' : ''} title="${t('titleMoveUp')}">↑</button>
+            <button onclick="moveProductManualOrder(${i}, 1)" ${i === pmoDraft.length - 1 ? 'disabled' : ''} title="${t('titleMoveDown')}">↓</button>
+          </div>`;
+        }).join('')}
+      </div>
+      <div style="display:flex;gap:10px;align-items:center;margin-top:12px;flex-wrap:wrap;">
+        <button class="btn" onclick="saveProductManualOrder()">${t('btnSaveOrder')}</button>
+        <span id="pmoSaveMsg" style="font-size:12px;"></span>
+      </div>
+    </div>`;
+}
+
+function onProductManualCategoryChange(cat){
+  loadProductManualOrderDraft(cat);
+  renderProductManualOrderPanel();
+}
+
+function moveProductManualOrder(index, delta){
+  const j = index + delta;
+  if(j < 0 || j >= pmoDraft.length) return;
+  const [item] = pmoDraft.splice(index, 1);
+  pmoDraft.splice(j, 0, item);
+  renderProductManualOrderPanel();
+}
+
+function pmoDragStart(ev, index){
+  pmoDragIndex = index;
+  ev.dataTransfer.effectAllowed = 'move';
+  try{ ev.dataTransfer.setData('text/plain', String(index)); }catch(e){}
+  ev.currentTarget.style.opacity = '0.4';
+}
+function pmoDragOver(ev){
+  ev.preventDefault();
+  ev.dataTransfer.dropEffect = 'move';
+  ev.currentTarget.style.background = 'var(--yellow)';
+}
+function pmoDragLeave(ev){ ev.currentTarget.style.background = ''; }
+function pmoDragEnd(){ pmoDragIndex = null; renderProductManualOrderPanel(); }
+function pmoDrop(ev, targetIndex){
+  ev.preventDefault();
+  const from = pmoDragIndex;
+  pmoDragIndex = null;
+  if(from === null || from === targetIndex){ renderProductManualOrderPanel(); return; }
+  const [item] = pmoDraft.splice(from, 1);
+  pmoDraft.splice(targetIndex, 0, item);
+  renderProductManualOrderPanel();
+}
+
+async function saveProductManualOrder(){
+  const msgEl = document.getElementById('pmoSaveMsg');
+  const prev = Object.assign({}, productManualRank);
+  const catIdx = Math.max(0, categoryOrder.indexOf(pmoCategory));
+  pmoDraft.forEach((id, i) => { productManualRank[id] = catIdx * 100000 + i; });
+  try{
+    await dbSet('productManualRank', JSON.stringify(productManualRank));
+  } catch(e){
+    console.error('儲存商品手動排序失敗', e);
+    productManualRank = prev;
+    if(msgEl){ msgEl.style.color = 'var(--crit)'; msgEl.textContent = t('errSaveOrderFailed'); }
+    return;
+  }
+  if(document.getElementById('stockCards')) renderStockCards();
+  if(document.getElementById('orderItemsTable')) renderOrderItemsTable();
+  if(msgEl){ msgEl.style.color = 'var(--safe)'; msgEl.textContent = t('msgOrderSaved'); }
 }
