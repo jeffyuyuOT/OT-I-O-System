@@ -195,6 +195,8 @@ function updateMultipackSettingsUI(){
   if(ddvBox) ddvBox.checked = disableDirectVerifyEnabled;
   const psmSelect = document.getElementById('productSortModeSelect');
   if(psmSelect) psmSelect.value = productSortMode;
+  const hrSelect = document.getElementById('historyRangeSelect');
+  if(hrSelect) hrSelect.value = String(historyRangeMonths);
   renderProductManualOrderPanel();
   const cefSelect = document.getElementById('completedExportFormatSelect');
   if(cefSelect) cefSelect.value = completedExportFormat;
@@ -336,6 +338,20 @@ async function toggleDisableDirectVerify(checked){
 
 // 商品排序設置改變:存起來,並且重新畫庫存總覽(如果目前正顯示的話)、訂貨頁面,讓新的排序方式
 // 立刻生效,不用等使用者自己切分頁才看到變化。
+// 系統設置:歷史資料預設顯示範圍(進出貨紀錄、已完成訂單的「從」日期預設往前幾個月)
+async function changeHistoryRangeMonths(v){
+  const n = parseInt(v, 10);
+  if(!HISTORY_RANGE_OPTIONS.includes(n)) return;
+  historyRangeMonths = n;
+  try{ await dbSet('historyRangeMonths', String(n)); }
+  catch(e){ console.error('儲存歷史資料顯示範圍失敗', e); }
+  // 立刻套用到目前畫面:兩個「從」日期改成新的預設,並視需要補載入
+  const a = document.getElementById('logDateFrom'); if(a) a.value = defaultHistoryFromDate();
+  const b = document.getElementById('completedOrderDateFrom'); if(b) b.value = defaultHistoryFromDate();
+  await Promise.all([ensureTransactionsLoadedFrom(monthsAgoDateStr(txLoadMonths())), ensureOrdersLoadedFrom(defaultHistoryFromDate())]);
+  renderLog(); renderOrders();
+}
+
 async function changeProductSortMode(mode){
   if(!['import','name','sku','manual'].includes(mode)) return;
   productSortMode = mode;

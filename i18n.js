@@ -465,6 +465,9 @@ const I18N = {
 
     secMultipackSettings: 'Multipack 商品設定',
     secOrderVerifySettings: '訂單核對設定',
+    secHistoryRange: '歷史資料預設顯示範圍',
+    historyRangeHint: '進出貨紀錄、已完成訂單開啟時,「從」日期預設往前推幾個月,而且只載入這段期間的資料,載入會比較快。要看更早的紀錄,把「從」日期調早(或清空)就會自動補載入。不影響庫存數字、平均月銷量跟進貨預估。',
+    historyRange1: '最近 1 個月', historyRange2: '最近 2 個月', historyRange3: '最近 3 個月(預設)', historyRange6: '最近 6 個月', historyRange12: '最近 12 個月',
     secProductSortSettings: '商品排序',
     secCompletedExportFormat: '已完成訂單匯出格式',
     completedExportFormatHint: '決定已完成訂單匯出 Excel 時,商品清單要怎麼列。',
@@ -1107,6 +1110,9 @@ const I18N = {
 
     secMultipackSettings: 'Multi-pack Product Settings',
     secOrderVerifySettings: 'Order Verification Settings',
+    secHistoryRange: 'Default History Range',
+    historyRangeHint: 'How far back the "From" date goes by default in the stock log and completed orders. Only this period is loaded up front, which makes the app load faster. To see older records, set "From" earlier (or clear it) and they load automatically. Does not affect stock numbers, average monthly sales or purchase forecasts.',
+    historyRange1: 'Last 1 month', historyRange2: 'Last 2 months', historyRange3: 'Last 3 months (default)', historyRange6: 'Last 6 months', historyRange12: 'Last 12 months',
     secProductSortSettings: 'Product Sort Order',
     secCompletedExportFormat: 'Completed Order Export Format',
     completedExportFormatHint: 'Controls how the product list is shown when exporting completed orders to Excel.',
