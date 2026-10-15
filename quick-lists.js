@@ -26,6 +26,22 @@ async function loadQuickLists(){
   } catch(e){ /* 還沒存過清單,維持空的 */ }
 }
 
+// 把備份檔裡的 quickLists 整理成標準格式(跟 loadQuickLists 一樣的欄位),還原備份時用。
+function normalizeQuickListsFromBackup(stored){
+  return (Array.isArray(stored) ? stored : []).filter(q => q && q.id && typeof q.name === 'string')
+    .map(q => ({ id: q.id, name: q.name, productIds: Array.isArray(q.productIds) ? q.productIds : [],
+      pickingNoteEnabled: !!q.pickingNoteEnabled, pickingNoteText: typeof q.pickingNoteText === 'string' ? q.pickingNoteText : '' }));
+}
+
+// 還原備份時呼叫:備份檔裡有 quickLists 欄位才覆蓋(舊版備份檔沒有這個欄位,就維持目前的快捷清單不動)。
+async function restoreQuickListsFromBackup(backup){
+  if(!backup || !Array.isArray(backup.quickLists)) return;
+  quickLists = normalizeQuickListsFromBackup(backup.quickLists);
+  try{ await saveQuickLists(); }
+  catch(e){ console.error('還原快捷清單失敗', e); }
+  if(typeof populateAllQuickListSelects === 'function') populateAllQuickListSelects();
+}
+
 async function saveQuickLists(){
   await dbSet('quickLists', JSON.stringify(quickLists));
 }
