@@ -1689,6 +1689,7 @@
       <button class="subtab-btn active" onclick="switchWarehouseAdminSubTab('subtab-order-parties')" id="btn-subtab-order-parties" data-i18n="subtabManageParties">出貨方管理</button>
       <button class="subtab-btn" onclick="switchWarehouseAdminSubTab('subtab-purchase-mgmt-suppliers')" id="btn-subtab-purchase-mgmt-suppliers" data-i18n="secSupplierManagement">進貨方管理</button>
       <button class="subtab-btn" onclick="switchWarehouseAdminSubTab('subtab-tx-forecast')" id="btn-subtab-tx-forecast" data-i18n="subtabTxForecast">進貨預估</button>
+      <button class="subtab-btn" onclick="switchWarehouseAdminSubTab('subtab-forecast-records')" id="btn-subtab-forecast-records" data-i18n="subtabForecastRecords">進貨預估紀錄</button>
       <button class="subtab-btn" onclick="switchWarehouseAdminSubTab('subtab-tx-data')" id="btn-subtab-tx-data" data-i18n="subtabTxData">資料維護</button>
       <button class="subtab-btn" onclick="switchWarehouseAdminSubTab('subtab-quicklist-mgmt')" id="btn-subtab-quicklist-mgmt" data-i18n="subtabQuickListMgmt">快捷清單管理</button>
       <button class="subtab-btn" onclick="switchWarehouseAdminSubTab('subtab-purchase-mgmt-ocrdb')" id="btn-subtab-purchase-mgmt-ocrdb" data-i18n="secReceiptOcrDb">掃描收據數據庫</button>
@@ -1794,10 +1795,18 @@
       <div style="margin-bottom:12px;display:flex;gap:10px;flex-wrap:wrap;">
         <button class="btn ghost" onclick="toggleForecastAddPanel()" id="forecastAddToggleBtn" data-i18n="btnAddProductToForecast">＋ 新增商品</button>
         <button class="btn ghost" onclick="exportForecastSheet()" data-i18n="btnExportForecast">📄 匯出進貨預估(Excel)</button>
+        <button class="btn ghost" onclick="openSaveForecastModal()" data-i18n="btnSaveForecast">💾 儲存進貨預估</button>
       </div>
       <div id="forecastMsg" class="msg"></div>
       <div id="forecastAddPanel" class="fc-add-panel" style="display:none;"></div>
       <div id="forecastTableContainer"></div>
+    </div>
+
+    <div id="subtab-forecast-records" class="subtab-content">
+      <div class="section-title" data-i18n="secForecastRecords">進貨預估紀錄</div>
+      <p style="font-size:12.5px;color:var(--ink-soft);margin:0 0 12px;" data-i18n="forecastRecordsDesc">在「進貨預估」按「儲存進貨預估」會把目前的商品清單跟預計進貨數量存到這裡。按「載入」會把這份紀錄帶回進貨預估頁面。</p>
+      <div id="forecastRecordsMsg" class="msg"></div>
+      <div id="forecastRecordsContainer"></div>
     </div>
 
     <div id="subtab-tx-data" class="subtab-content">
@@ -2175,6 +2184,21 @@
     <div class="modal-actions">
       <button class="btn ghost" onclick="closeSendPurchaseEmailModal()" data-i18n="btnCancel">取消</button>
       <button class="btn" id="btnConfirmSendPurchaseEmail" onclick="confirmSendPurchaseEmail()" data-i18n="btnConfirmSend">確認寄送</button>
+    </div>
+  </div>
+</div>
+
+<div id="saveForecastModalOverlay" class="modal-overlay" style="display:none;" onclick="if(event.target===this) closeSaveForecastModal();">
+  <div class="modal-box" style="max-width:min(420px, 94vw);">
+    <div class="section-title" style="margin-bottom:12px;" data-i18n="modalSaveForecastTitle">儲存進貨預估</div>
+    <div class="field-block">
+      <label data-i18n="fieldForecastRecordName">紀錄名稱</label>
+      <input type="text" id="saveForecastNameInput" maxlength="80" style="width:100%;" onkeydown="if(event.key==='Enter') confirmSaveForecast()" />
+    </div>
+    <div id="saveForecastModalMsg" class="msg"></div>
+    <div class="modal-actions">
+      <button class="btn ghost" onclick="closeSaveForecastModal()" data-i18n="btnCancel">取消</button>
+      <button class="btn" onclick="confirmSaveForecast()" data-i18n="btnSave">儲存</button>
     </div>
   </div>
 </div>
@@ -3079,6 +3103,7 @@ async function loadData(){
   await loadSubTabOrder();
   await loadQuickLists();
   await loadForecastPrefs();
+  await loadForecastRecords();
   populateAllQuickListSelects();
   syncCategoryOrder();
   if(categoryNeedsResave){
