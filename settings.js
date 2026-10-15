@@ -904,15 +904,42 @@ function loadProductManualOrderDraft(cat){
     .sort(compareProductsBySortMode).map(p => p.id);
 }
 
+// 設定頁只放一顆「開始調整」按鈕(商品很多時,清單直接攤在設定頁會把下面的設定擠到很遠),
+// 真正的排序清單在彈出視窗裡調整。
+let pmoModalOpen = false;
 function renderProductManualOrderPanel(){
   const panel = document.getElementById('productManualOrderPanel');
   if(!panel) return;
-  if(productSortMode !== 'manual'){ panel.style.display = 'none'; panel.innerHTML = ''; return; }
+  if(productSortMode !== 'manual'){
+    panel.style.display = 'none'; panel.innerHTML = '';
+    if(pmoModalOpen) closeProductManualOrderModal();
+    return;
+  }
+  panel.style.display = 'block';
+  panel.innerHTML = `<button class="btn" onclick="openProductManualOrderModal()">${t('btnStartManualOrder')}</button>`;
+  if(pmoModalOpen) renderProductManualOrderModalBody();
+}
+
+function openProductManualOrderModal(){
   const cats = getProductManualOrderCategories();
-  if(cats.length === 0){ panel.style.display = 'block'; panel.innerHTML = `<div class="empty-note">${t('noProductsToShow')}</div>`; return; }
+  if(cats.length > 0 && (!pmoCategory || !cats.includes(pmoCategory))) loadProductManualOrderDraft(cats[0]);
+  pmoModalOpen = true;
+  document.getElementById('productManualOrderModalOverlay').style.display = 'flex';
+  renderProductManualOrderModalBody();
+}
+function closeProductManualOrderModal(){
+  pmoModalOpen = false;
+  const ov = document.getElementById('productManualOrderModalOverlay');
+  if(ov) ov.style.display = 'none';
+}
+
+function renderProductManualOrderModalBody(){
+  const panel = document.getElementById('pmoModalBody');
+  if(!panel) return;
+  const cats = getProductManualOrderCategories();
+  if(cats.length === 0){ panel.innerHTML = `<div class="empty-note">${t('noProductsToShow')}</div>`; return; }
   if(!pmoCategory || !cats.includes(pmoCategory)) loadProductManualOrderDraft(cats[0]);
   const prodById = Object.fromEntries(products.map(p => [p.id, p]));
-  panel.style.display = 'block';
   panel.innerHTML = `
     <div class="cat-order-panel">
       <p style="font-size:12px;color:var(--ink-soft);margin:0 0 10px;">${t('productManualOrderDesc')}</p>
@@ -934,10 +961,6 @@ function renderProductManualOrderPanel(){
             <button onclick="moveProductManualOrder(${i}, 1)" ${i === pmoDraft.length - 1 ? 'disabled' : ''} title="${t('titleMoveDown')}">↓</button>
           </div>`;
         }).join('')}
-      </div>
-      <div style="display:flex;gap:10px;align-items:center;margin-top:12px;flex-wrap:wrap;">
-        <button class="btn" onclick="saveProductManualOrder()">${t('btnSaveOrder')}</button>
-        <span id="pmoSaveMsg" style="font-size:12px;"></span>
       </div>
     </div>`;
 }
