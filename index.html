@@ -1938,7 +1938,7 @@
 
       <div id="subtab-order-completed" class="subtab-content">
         <div class="section-title" style="margin:0 0 10px;" data-i18n="subtabCompletedOrders">已完成訂單</div>
-        <div class="form-grid" style="grid-template-columns:1fr 160px 160px auto;margin-bottom:14px;">
+        <div class="form-grid" style="grid-template-columns:1fr 160px 160px auto auto;margin-bottom:14px;">
           <div class="field">
             <label data-i18n="fieldShippingParty">出貨方</label>
             <select id="completedOrderPartyFilter" onchange="renderOrders()">
@@ -1947,12 +1947,13 @@
           </div>
           <div class="field">
             <label data-i18n="fieldFrom">從</label>
-            <input type="date" id="completedOrderDateFrom" onchange="renderOrders()" />
+            <input type="date" id="completedOrderDateFrom" onchange="onCompletedOrderDateFromChange()" />
           </div>
           <div class="field">
             <label data-i18n="fieldTo">到</label>
             <input type="date" id="completedOrderDateTo" onchange="renderOrders()" />
           </div>
+          <button class="btn ghost" onclick="clearCompletedOrderFilters()" style="align-self:flex-end;" data-i18n="btnClearFilter">清除篩選</button>
           <button class="btn ghost" onclick="exportOrdersSheet()" style="align-self:flex-end;" data-i18n="btnExportOrderSheet">📤 匯出訂貨單</button>
         </div>
         <div id="orderExportMsg" class="msg"></div>
@@ -2007,7 +2008,7 @@
           </div>
           <div class="field">
             <label data-i18n="lblFromDate">從日期</label>
-            <input type="date" id="logDateFrom" onchange="renderLog()" />
+            <input type="date" id="logDateFrom" onchange="onLogDateFromChange()" />
           </div>
           <div class="field">
             <label data-i18n="lblToDate">到日期</label>
@@ -2999,18 +3000,20 @@ function findMatchingProduct(cellText){
 }
 
 async function loadData(){
+  // 設定值一次抓回來 + 各資料表同時載入(原本全部是一項接一項依序等),大幅縮短開機時間
+  await Promise.all([
+    prefetchAppData(['products','orderCounter','shippingParties','lang','autoBackupEnabled','autoConvertMultipack',
+      'disableDirectVerify','accountingEmails','accountingEmail','stockLocationMode','stockLocationEnabledFields',
+      'stockLocationShowOnPickingSlip','productSortMode','productManualRank','completedExportFormat',
+      'hideMultipackIconOnOrderPage','categoryOrder','tabOrder','subTabOrder','quickLists','forecastPrefs','forecastRecords']),
+    loadTransactions(), loadProductStock(), loadOrders(),
+    // 送貨單/進貨單/後台紀錄屬於歷史類資料,第一次用到(開對應分頁、備份…)才載入,見 db.js ensure*Loaded
+    loadProductLocations(), loadReceiptLineMappings(), loadPurchaseSuppliers()
+  ]);
   try{
     const p = await dbGet('products');
     products = p ? JSON.parse(p.value) : [];
   } catch(e){ products = []; }
-  await loadTransactions();
-  await loadProductStock();
-  await loadOrders();
-  await loadDeliveryNotes();
-  await loadPurchases();
-  await loadProductLocations();
-  await loadReceiptLineMappings();
-  await loadPurchaseSuppliers();
   try{
     const counterResult = await dbGet('orderCounter');
     orderCounter = counterResult ? (parseInt(counterResult.value, 10) || 0) : 0;
@@ -3114,6 +3117,7 @@ async function loadData(){
     categoryNeedsResave = false;
   }
   storageReady = true;
+  dbPrefetch = null; // 沒用到的預先讀取值一律丟掉,避免之後讀到過期資料
 }
 
 
@@ -3453,6 +3457,7 @@ async function startApp(){
   updateMultipackSettingsUI();
   const emptyBanner = document.getElementById('emptyDataBanner');
   if(emptyBanner) emptyBanner.style.display = (products.length === 0 && transactions.length === 0) ? 'block' : 'none';
+  initHistoryDateDefaults();
   renderAll();
   startAutoRefresh();
 }

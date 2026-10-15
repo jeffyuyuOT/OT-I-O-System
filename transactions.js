@@ -268,6 +268,7 @@ function setTxOutFlowType(flowType){
 // 「載入」要先選出是哪一張 Delivery Note,選出來之前主表單保持隱藏。備註在這裡是必填
 // (相關已完成訂單號要寫在這裡),所以標籤文字改用「必填」版本。
 function setTxDeliveryFlowType(flowType){
+  if(!deliveryNotesLoaded){ ensureDeliveryNotesLoaded().then(() => setTxDeliveryFlowType(flowType)); return; }
   registerDeliveryFlowType = flowType;
   registerLoadedDeliveryNoteId = null;
   txBatchItems = [];
@@ -1574,6 +1575,7 @@ function buildDeliveryNoteDraftFromForm(){
 // Delivery Note「儲存」:存進 delivery_notes 資料庫,供之後用「載入」找回來繼續編輯。完全不會
 // 建立任何 transactions 紀錄、也不會動到任何商品的庫存數字——這只是單純的文件記錄。
 async function saveDeliveryNote(){
+  await ensureDeliveryNotesLoaded();
   const msg = document.getElementById('txMsg');
   const draft = buildDeliveryNoteDraftFromForm();
   if(!draft.ok){ msg.className = 'msg error'; msg.textContent = `⚠ ${draft.error}`; return; }
@@ -1606,6 +1608,7 @@ async function saveDeliveryNote(){
 // Delivery Note「列印」:直接開列印視窗,不會存進資料庫——跟「儲存」是兩條分開的路徑,列印過
 // 不代表這張 Note 就被記錄下來了,兩者互不影響。
 async function printDeliveryNote(){
+  await ensureDeliveryNotesLoaded();
   const msg = document.getElementById('txMsg');
   const draft = buildDeliveryNoteDraftFromForm();
   if(!draft.ok){ msg.className = 'msg error'; msg.textContent = `⚠ ${draft.error}`; return; }

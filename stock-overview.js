@@ -384,6 +384,7 @@ function bulkDeleteProducts(){
     ? tn('confirmDeleteProductsWithTx', count)
     : tn('confirmDeleteProducts', count);
   showConfirmModal(warnText, async () => {
+    await ensureTransactionsLoadedFrom('');
     const removed = transactions.filter(t => idsToDelete.has(t.productId));
     transactions = transactions.filter(t => !idsToDelete.has(t.productId));
     products = products.filter(p => !idsToDelete.has(p.id));

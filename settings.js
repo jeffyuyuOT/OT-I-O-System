@@ -24,6 +24,7 @@ function todayBackupFilename(){
 }
 
 async function runAutoBackup(){
+  await Promise.all([ensureTransactionsLoadedFrom(''), ensureOrdersLoadedFrom('')]);
   const filename = todayBackupFilename();
   const backup = {
     exportedAt: new Date().toISOString(),
@@ -507,6 +508,7 @@ async function clearInventoryLogsAndResetOrders(){
 }
 
 async function exportFullBackup(){
+  await ensureAllDataLoaded();
   const backup = {
     exportedAt: new Date().toISOString(),
     version: 6,

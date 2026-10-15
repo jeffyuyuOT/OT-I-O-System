@@ -3,11 +3,36 @@
 // 後台紀錄(Inventory Log,系統裡每個操作的稽核軌跡),三個子分頁
 // 各自的篩選/渲染/清除篩選,以及交易紀錄補充備註的功能。
 // ============================================================
+// 歷史紀錄/已完成訂單預設只顯示最近兩個月;使用者把「從」改到更早的日期(或清空)才去補載入更早的資料。
+function defaultHistoryFromDate(){ return monthsAgoDateStr(2); }
+function initHistoryDateDefaults(){
+  const a = document.getElementById('logDateFrom');
+  if(a && !a.value) a.value = defaultHistoryFromDate();
+  const b = document.getElementById('completedOrderDateFrom');
+  if(b && !b.value) b.value = defaultHistoryFromDate();
+}
+async function onLogDateFromChange(){
+  const v = document.getElementById('logDateFrom').value;
+  await ensureTransactionsLoadedFrom(v || '');
+  renderLog();
+}
+async function onCompletedOrderDateFromChange(){
+  const v = document.getElementById('completedOrderDateFrom').value;
+  await ensureOrdersLoadedFrom(v || '');
+  renderOrders();
+}
+function clearCompletedOrderFilters(){
+  document.getElementById('completedOrderPartyFilter').value = '';
+  document.getElementById('completedOrderDateFrom').value = defaultHistoryFromDate();
+  document.getElementById('completedOrderDateTo').value = '';
+  renderOrders();
+}
+
 function clearLogFilters(){
   document.getElementById('logFilter').value = '';
   document.getElementById('logTypeFilter').value = '';
   document.getElementById('logPartyFilter').value = '';
-  document.getElementById('logDateFrom').value = '';
+  document.getElementById('logDateFrom').value = defaultHistoryFromDate();
   document.getElementById('logDateTo').value = '';
   document.getElementById('logShowAllCatalog').checked = false;
   renderLog();
@@ -182,6 +207,7 @@ function clearDeliveryLogFilters(){
 function renderDeliveryNoteLog(){
   const container = document.getElementById('deliveryNoteLogTable');
   if(!container) return;
+  if(!deliveryNotesLoaded){ ensureDeliveryNotesLoaded().then(renderDeliveryNoteLog); return; }
 
   // 出貨方下拉選單:從目前所有 Delivery Note 實際出現過的出貨方名稱整理出來,選項會隨著
   // 資料變動;重新整理選項的時候保留使用者原本選的值(如果那個值還在新的選項清單裡)。
@@ -327,3 +353,33 @@ async function saveAppendNoteToTx(id){
   appendingNoteTxId = null;
   renderAll();
 }
+
+
+// ===== 日期區間防呆:結束日期不能早於開始日期 =====
+// 凡是成對的「從/到」日期欄位(id 以 DateFrom/DateTo 或 FromInput/ToInput 結尾)一律套用:
+// 選了開始日期後,結束日期的 min 鎖在開始日期;選了結束日期後,開始日期的 max 鎖在結束日期。
+// 用 capture 階段的監聽,比欄位自己的 onchange 先執行,所以如果手動輸入出一個顛倒的區間,
+// 會先被修正過再進行篩選。focusin 時也會重新套用一次,涵蓋「清除篩選」等程式直接改欄位值的情況。
+function getDateRangePartner(el){
+  if(!el || el.type !== 'date' || !el.id) return null;
+  let m = el.id.match(/^(.*)(From|To)(Input)?$/);
+  if(!m) return null;
+  const partnerId = m[1] + (m[2] === 'From' ? 'To' : 'From') + (m[3] || '');
+  const partner = document.getElementById(partnerId);
+  if(!partner || partner.type !== 'date') return null;
+  return { isFrom: m[2] === 'From', partner };
+}
+function syncDateRangePair(el, clamp){
+  const info = getDateRangePartner(el);
+  if(!info) return;
+  const fromEl = info.isFrom ? el : info.partner;
+  const toEl = info.isFrom ? info.partner : el;
+  if(clamp && fromEl.value && toEl.value && toEl.value < fromEl.value){
+    // 剛改的那一欄為準,另一欄跟著對齊
+    if(info.isFrom) toEl.value = fromEl.value; else fromEl.value = toEl.value;
+  }
+  toEl.min = fromEl.value || '';
+  fromEl.max = toEl.value || '';
+}
+document.addEventListener('change', e => syncDateRangePair(e.target, true), true);
+document.addEventListener('focusin', e => syncDateRangePair(e.target, false), true);
