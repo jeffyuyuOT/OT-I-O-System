@@ -504,6 +504,11 @@ function computeForecastBoxes(anchor, qty){
   if(isCartonUnit(unitProd.unit)) return { boxes: qty, needsChoice: false, noBasis: false };
   const boxProd = resolveForecastBoxProduct(anchor);
   if(!boxProd){
+    // 單位是 Can(罐)而且沒有任何可以當一箱的 multipack 商品(例如椰果):一罐就當一箱直接算進總箱數;
+    // 如果有 multipack 可以換算(候選 > 0),還是照 multipack 的換算走,不會直接把罐數當箱數。
+    if(getForecastBoxCandidates(anchor).length === 0 && /^(can|cans|罐)$/i.test((unitProd.unit || '').trim())){
+      return { boxes: qty, needsChoice: false, noBasis: false };
+    }
     return { boxes: null, needsChoice: getForecastBoxCandidates(anchor).length > 1, noBasis: getForecastBoxCandidates(anchor).length === 0 };
   }
   const anchorQty = qty * getBasisWeight(unitProd, anchor);
@@ -774,6 +779,7 @@ function updateForecastSummary(){
   const items = getForecastDisplayItems();
 
   let totalBoxes = 0, totalVolumeCm3 = 0, notConvertible = 0;
+  const notConvertibleNames = [];
   items.forEach(p => {
     const qty = parseFloat(forecastQtyDraft[p.id]);
     if(isNaN(qty) || qty <= 0) return;
@@ -781,7 +787,7 @@ function updateForecastSummary(){
     const boxVol = computeBoxVolumeCm3(unitProd);
     if(boxVol !== null) totalVolumeCm3 += boxVol * qty;
     const res = computeForecastBoxes(p, qty);
-    if(res.boxes === null) notConvertible++;
+    if(res.boxes === null){ notConvertible++; notConvertibleNames.push(unitProd.name); }
     else totalBoxes += res.boxes;
   });
 
@@ -792,7 +798,7 @@ function updateForecastSummary(){
       <option value="cm3" ${forecastVolumeUnit === 'cm3' ? 'selected' : ''}>cm³ (${t('lblVolumeDefaultUnit')})</option>
       <option value="m3" ${forecastVolumeUnit === 'm3' ? 'selected' : ''}>m³ (cubic meter)</option>
     </select>
-    ${notConvertible > 0 ? `<div style="font-size:11.5px;color:var(--warn);margin-top:4px;">${tn('noteBoxesNotConvertible', notConvertible)}</div>` : ''}
+    ${notConvertible > 0 ? `<div style="font-size:11.5px;color:var(--warn);margin-top:4px;">${tn('noteBoxesNotConvertible', notConvertible)}<br>${notConvertibleNames.map(escapeHtmlText).join('、')}</div>` : ''}
   `;
 }
 
@@ -1024,6 +1030,17 @@ async function confirmSaveForecast(){
   msg.textContent = tf('msgForecastSaved', { name });
 }
 
+function toggleForecastRecordsPanel(){
+  const panel = document.getElementById('forecastRecordsPanel');
+  if(!panel) return;
+  if(panel.style.display === 'none'){
+    panel.style.display = 'block';
+    loadForecastRecords().then(renderForecastRecords);
+  } else {
+    panel.style.display = 'none';
+  }
+}
+
 function renderForecastRecords(){
   const box = document.getElementById('forecastRecordsContainer');
   if(!box) return;
@@ -1062,7 +1079,7 @@ function renderForecastRecords(){
 async function loadForecastRecord(id){
   const rec = forecastRecords.find(r => r.id === id);
   if(!rec) return;
-  const recMsg = document.getElementById('forecastRecordsMsg');
+  const recMsg = null;
   const valid = rec.items.filter(it => products.some(p => p.id === it.anchorId && !p.parentId));
   const skipped = rec.items.length - valid.length;
 
@@ -1085,7 +1102,10 @@ async function loadForecastRecord(id){
   });
   await saveForecastPrefs();
 
-  switchWarehouseAdminSubTab('subtab-tx-forecast');
+  const recPanel = document.getElementById('forecastRecordsPanel');
+  if(recPanel) recPanel.style.display = 'none';
+  if(document.getElementById('forecastAddPanel').style.display !== 'none') refreshProductPicker('fc');
+  renderForecastTable();
   const fmsg = document.getElementById('forecastMsg');
   if(fmsg){
     fmsg.className = 'msg ok';
@@ -1100,7 +1120,7 @@ function deleteForecastRecord(id){
   showConfirmModal(tf('confirmDeleteForecastRecord', { name: rec.name }), async () => {
     const prev = forecastRecords.slice();
     forecastRecords = forecastRecords.filter(r => r.id !== id);
-    const recMsg = document.getElementById('forecastRecordsMsg');
+    const recMsg = document.getElementById('forecastMsg');
     try{ await saveForecastRecords(); }
     catch(e){
       console.error('刪除進貨預估紀錄失敗', e);
