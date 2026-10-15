@@ -5,7 +5,23 @@
 // 只放「怎麼把資料存進去、怎麼把資料讀出來」這一層。
 // ============================================================
 // ---- Shared key-value storage helpers (replaces the old window.storage API) ----
+// 啟動時一次把 app_data 裡所有要用的設定 key 用單一查詢抓回來(原本是 20 幾個 key 一個一個依序抓,
+// 每個都要等一趟網路往返)。dbGet 遇到預先抓好的 key 就直接回傳,每個 key 只用一次(loadData 結束後
+// 整個清掉),之後的背景同步等呼叫還是會即時去資料庫讀最新的值。
+let dbPrefetch = null;
+async function prefetchAppData(keys){
+  dbPrefetch = null;
+  try{
+    const { data, error } = await sb.from('app_data').select('key,value').in('key', keys);
+    if(error) throw error;
+    const m = {};
+    keys.forEach(k => { m[k] = null; });
+    (data || []).forEach(r => { m[r.key] = { value: r.value }; });
+    dbPrefetch = m;
+  } catch(e){ console.warn('預先讀取設定失敗,改為逐一讀取', e); dbPrefetch = null; }
+}
 async function dbGet(key){
+  if(dbPrefetch && key in dbPrefetch){ const v = dbPrefetch[key]; delete dbPrefetch[key]; return v; }
   const { data, error } = await sb.from('app_data').select('value').eq('key', key).maybeSingle();
   if(error){ console.error('dbGet error', key, error); return null; }
   return data ? { value: data.value } : null;
@@ -125,12 +141,71 @@ async function replaceAllTransactions(txList){
   const { error: rsErr } = await sb.rpc('replace_stock_cache', { p_stocks: Object.entries(stockMap).map(([product_id, stock]) => ({ product_id, stock })) });
   if(rsErr){ console.error('重建庫存快取失敗', rsErr); throw rsErr; }
   productStockMap = stockMap;
+  txLoadedFrom = '';
+}
+
+// ===== 視窗化載入(lazy loading)=====
+// 交易紀錄預設只載入最近 TX_LOAD_MONTHS 個月(平均月銷量/燈號/進貨預估最多只看 12 個月的出庫,
+// 13 個月的視窗結果完全一樣);庫存數字來自 product_stock 快取,不受載入範圍影響。
+// 已完成訂單預設只載入最近 COMPLETED_ORDER_LOAD_MONTHS 個月(待處理/處理中的訂單一律全載)。
+// txLoadedFrom / ordersLoadedFrom:目前已載入範圍的起始日('' = 全部都載入了)。
+const TX_LOAD_MONTHS = 13;
+const COMPLETED_ORDER_LOAD_MONTHS = 2;
+let txLoadedFrom = null;      // null = 還沒決定(第一次載入時用預設值)
+let ordersLoadedFrom = null;
+
+function monthsAgoDateStr(n){
+  const now = new Date();
+  const d = new Date(now.getFullYear(), now.getMonth() - n, 1);
+  const last = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
+  d.setDate(Math.min(now.getDate(), last));
+  const p = x => String(x).padStart(2, '0');
+  return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate());
+}
+
+// 分頁讀取(PostgREST 單次回傳有筆數上限),buildQuery 每次回傳一個新的 query builder
+async function fetchAllPages(buildQuery){
+  const pageSize = 1000;
+  let all = [];
+  for(let from = 0; ; from += pageSize){
+    const { data, error } = await buildQuery().range(from, from + pageSize - 1);
+    if(error) throw error;
+    all = all.concat(data || []);
+    if(!data || data.length < pageSize) break;
+  }
+  return all;
 }
 
 async function loadTransactions(){
-  const { data, error } = await sb.from('transactions').select('*').order('id', { ascending: true });
-  if(error){ console.error('讀取交易紀錄失敗', error); transactions = []; return; }
-  transactions = (data || []).map(rowToTx);
+  if(txLoadedFrom === null) txLoadedFrom = monthsAgoDateStr(TX_LOAD_MONTHS);
+  try{
+    let rows;
+    try{
+      rows = await fetchAllPages(() => {
+        let q = sb.from('transactions').select('*');
+        if(txLoadedFrom) q = q.or('date.gte.' + txLoadedFrom + ',date.is.null');
+        return q.order('id', { ascending: true });
+      });
+    } catch(e){
+      if(!txLoadedFrom) throw e;
+      console.warn('視窗化讀取交易紀錄失敗,改為完整載入', e);
+      txLoadedFrom = '';
+      rows = await fetchAllPages(() => sb.from('transactions').select('*').order('id', { ascending: true }));
+    }
+    transactions = rows.map(rowToTx);
+  } catch(e){ console.error('讀取交易紀錄失敗', e); transactions = []; }
+}
+
+// 確保「從 dateStr 起」的交易都已載入('' 或空值 = 全部)。回傳 Promise。
+let txEnsureChain = Promise.resolve();
+function ensureTransactionsLoadedFrom(dateStr){
+  txEnsureChain = txEnsureChain.then(async () => {
+    if(txLoadedFrom === '') return;
+    if(dateStr && txLoadedFrom !== null && dateStr >= txLoadedFrom) return;
+    txLoadedFrom = dateStr || '';
+    await loadTransactions();
+  });
+  return txEnsureChain;
 }
 
 async function loadProductStock(){
@@ -146,11 +221,39 @@ async function saveProducts(){
   scheduleAutoBackup();
 }
 async function loadOrders(){
+  if(ordersLoadedFrom === null) ordersLoadedFrom = monthsAgoDateStr(COMPLETED_ORDER_LOAD_MONTHS);
   try{
-    const { data, error } = await sb.from('orders').select('payload');
-    if(error) throw error;
-    orders = (data || []).map(r => r.payload);
+    let rows;
+    try{
+      rows = await fetchAllPages(() => {
+        let q = sb.from('orders').select('id,payload');
+        // 待處理/處理中一律載入;其餘(已完成/已取消)只載入起始日之後的
+        if(ordersLoadedFrom) q = q.or('payload->>date.gte.' + ordersLoadedFrom + ',payload->>status.in.(pending,processing)');
+        return q.order('id', { ascending: true });
+      });
+    } catch(e){
+      if(!ordersLoadedFrom) throw e;
+      console.warn('視窗化讀取訂單失敗,改為完整載入', e);
+      ordersLoadedFrom = '';
+      rows = await fetchAllPages(() => sb.from('orders').select('id,payload').order('id', { ascending: true }));
+    }
+    orders = rows.map(r => r.payload);
   } catch(e){ console.error('讀取訂單失敗', e); orders = []; }
+}
+let ordersEnsureChain = Promise.resolve();
+function ensureOrdersLoadedFrom(dateStr){
+  ordersEnsureChain = ordersEnsureChain.then(async () => {
+    if(ordersLoadedFrom === '') return;
+    if(dateStr && ordersLoadedFrom !== null && dateStr >= ordersLoadedFrom) return;
+    ordersLoadedFrom = dateStr || '';
+    await loadOrders();
+  });
+  return ordersEnsureChain;
+}
+// 需要「全部歷史資料」的動作(備份、匯出…)呼叫這個
+async function ensureAllDataLoaded(){
+  await Promise.all([ensureTransactionsLoadedFrom(''), ensureOrdersLoadedFrom(''),
+    ensureInventoryLogLoaded(), ensureDeliveryNotesLoaded(), ensurePurchasesLoaded()]);
 }
 // Supabase's row-level security (see supplier_restriction_migration.sql)
 // silently limits a supplier-restricted user's reach here — they only ever
@@ -194,7 +297,15 @@ async function loadDeliveryNotes(){
     const { data, error } = await sb.from('delivery_notes').select('payload');
     if(error) throw error;
     deliveryNotes = (data || []).map(r => r.payload);
+    deliveryNotesLoaded = true;
   } catch(e){ console.error('讀取 Delivery Note 失敗', e); deliveryNotes = []; }
+}
+let deliveryNotesLoaded = false;
+let deliveryNotesLoading = null;
+function ensureDeliveryNotesLoaded(){
+  if(deliveryNotesLoaded) return Promise.resolve();
+  if(!deliveryNotesLoading) deliveryNotesLoading = loadDeliveryNotes().finally(() => { deliveryNotesLoading = null; });
+  return deliveryNotesLoading;
 }
 
 async function upsertDeliveryNotes(noteList){
@@ -215,7 +326,15 @@ async function loadPurchases(){
     const { data, error } = await sb.from('purchases').select('payload');
     if(error) throw error;
     purchases = (data || []).map(r => r.payload);
+    purchasesLoaded = true;
   } catch(e){ console.error('讀取進貨單失敗', e); purchases = []; }
+}
+let purchasesLoaded = false;
+let purchasesLoading = null;
+function ensurePurchasesLoaded(){
+  if(purchasesLoaded) return Promise.resolve();
+  if(!purchasesLoading) purchasesLoading = loadPurchases().finally(() => { purchasesLoading = null; });
+  return purchasesLoading;
 }
 
 async function upsertPurchase(p){
@@ -387,6 +506,7 @@ async function clearAllReceiptLineMappings(){
 
 // 只有「還原備份」這個明確、具破壞性的動作才會整批覆蓋(先清空 orders 表,再整批寫回本地陣列的內容)。
 async function replaceAllOrders(orderList){
+  ordersLoadedFrom = '';
   const { error: delErr } = await sb.from('orders').delete().not('id', 'is', null);
   if(delErr){ console.error('清空訂單失敗', delErr); throw delErr; }
   if(orderList.length > 0){
@@ -428,7 +548,15 @@ async function loadInventoryLog(){
       .limit(1000);
     if(error) throw error;
     inventoryLogs = data || [];
+    inventoryLogLoaded = true;
   } catch(e){ console.error('讀取後台紀錄失敗', e); inventoryLogs = []; }
+}
+let inventoryLogLoaded = false;
+let inventoryLogLoading = null;
+function ensureInventoryLogLoaded(){
+  if(inventoryLogLoaded) return Promise.resolve();
+  if(!inventoryLogLoading) inventoryLogLoading = loadInventoryLog().finally(() => { inventoryLogLoading = null; });
+  return inventoryLogLoading;
 }
 
 // ===== 還原預設(系統設置分頁的破壞性重置動作)=====

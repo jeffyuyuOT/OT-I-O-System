@@ -3,11 +3,36 @@
 // 後台紀錄(Inventory Log,系統裡每個操作的稽核軌跡),三個子分頁
 // 各自的篩選/渲染/清除篩選,以及交易紀錄補充備註的功能。
 // ============================================================
+// 歷史紀錄/已完成訂單預設只顯示最近兩個月;使用者把「從」改到更早的日期(或清空)才去補載入更早的資料。
+function defaultHistoryFromDate(){ return monthsAgoDateStr(2); }
+function initHistoryDateDefaults(){
+  const a = document.getElementById('logDateFrom');
+  if(a && !a.value) a.value = defaultHistoryFromDate();
+  const b = document.getElementById('completedOrderDateFrom');
+  if(b && !b.value) b.value = defaultHistoryFromDate();
+}
+async function onLogDateFromChange(){
+  const v = document.getElementById('logDateFrom').value;
+  await ensureTransactionsLoadedFrom(v || '');
+  renderLog();
+}
+async function onCompletedOrderDateFromChange(){
+  const v = document.getElementById('completedOrderDateFrom').value;
+  await ensureOrdersLoadedFrom(v || '');
+  renderOrders();
+}
+function clearCompletedOrderFilters(){
+  document.getElementById('completedOrderPartyFilter').value = '';
+  document.getElementById('completedOrderDateFrom').value = defaultHistoryFromDate();
+  document.getElementById('completedOrderDateTo').value = '';
+  renderOrders();
+}
+
 function clearLogFilters(){
   document.getElementById('logFilter').value = '';
   document.getElementById('logTypeFilter').value = '';
   document.getElementById('logPartyFilter').value = '';
-  document.getElementById('logDateFrom').value = '';
+  document.getElementById('logDateFrom').value = defaultHistoryFromDate();
   document.getElementById('logDateTo').value = '';
   document.getElementById('logShowAllCatalog').checked = false;
   renderLog();
@@ -182,6 +207,7 @@ function clearDeliveryLogFilters(){
 function renderDeliveryNoteLog(){
   const container = document.getElementById('deliveryNoteLogTable');
   if(!container) return;
+  if(!deliveryNotesLoaded){ ensureDeliveryNotesLoaded().then(renderDeliveryNoteLog); return; }
 
   // 出貨方下拉選單:從目前所有 Delivery Note 實際出現過的出貨方名稱整理出來,選項會隨著
   // 資料變動;重新整理選項的時候保留使用者原本選的值(如果那個值還在新的選項清單裡)。

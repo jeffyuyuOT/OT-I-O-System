@@ -17,6 +17,7 @@ function deleteProduct(id){
     ? `這個商品有 ${children.length} 個批量商品,刪除主商品會一併刪除所有批量商品${hasTx ? '及相關進出貨紀錄' : ''}。確定要刪除嗎?`
     : (hasTx ? '這個商品已有進出貨紀錄,刪除商品會一併刪除所有相關紀錄。確定要刪除嗎?' : t('confirmDeleteProductSimple'));
   showConfirmModal(warnMsg, async () => {
+    await ensureTransactionsLoadedFrom(''); // 較早的歷史紀錄也要一併清掉,先確保都已載入
     const removed = transactions.filter(t => idsToDelete.includes(t.productId));
     transactions = transactions.filter(t => !idsToDelete.includes(t.productId));
     if(removed.length > 0) await deleteTransactions(removed);
@@ -801,7 +802,7 @@ function computeExcludeBranchAddBack(productId, partyNameSet, fromDate, toDate){
   return addBack;
 }
 
-function confirmStockExport(){
+async function confirmStockExport(){
   const msgEl = document.getElementById('stockExportModalMsg');
   const asOfDate = document.getElementById('stockExportAsOfDateInput').value || todayISO();
   let excludeInfo = null;
@@ -820,6 +821,9 @@ function confirmStockExport(){
     }
   }
   closeStockExportModal();
+  // 「以某天為準」或「加回分店出庫」要用到較早的交易紀錄,先補載入
+  const needFrom = [asOfDate < todayISO() ? asOfDate : '', excludeInfo ? excludeInfo.fromDate : ''].filter(Boolean).sort()[0];
+  if(needFrom) await ensureTransactionsLoadedFrom(needFrom);
   exportStockQuantitySheet({ asOfDate, excludeInfo });
 }
 

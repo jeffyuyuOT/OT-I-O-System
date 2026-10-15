@@ -32,6 +32,7 @@ function formatEmailedTimeShort(iso){
 function renderPurchaseLog(){
   const container = document.getElementById('purchaseLogTable');
   if(!container) return;
+  if(!purchasesLoaded){ ensurePurchasesLoaded().then(renderPurchaseLog); return; }
 
   // 進貨方下拉篩選的選項,依目前所有進貨單裡實際出現過的進貨方動態產生,並保留使用者原本選的值
   // (如果篩選後那個進貨方已經不在清單裡,才會被重設成「全部對象」)。
@@ -795,6 +796,7 @@ async function confirmEditPurchase(){
   const p = purchases.find(x => x.id === editPurchaseTargetId);
   const msgEl = document.getElementById('editPurchaseModalMsg');
   if(!p){ msgEl.className = 'msg error'; msgEl.textContent = '找不到這張進貨單,請重新整理頁面再試一次。'; return; }
+  await ensureTransactionsLoadedFrom(p.date || ''); // 這張單產生的庫存異動可能比預設載入範圍更早
 
   const dateVal = document.getElementById('editPurchaseDateInput').value;
   const partyVal = document.getElementById('editPurchasePartyInput').value.trim();

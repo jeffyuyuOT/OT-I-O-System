@@ -843,6 +843,7 @@ function deleteCompletedOrder(orderId){
   }
   const activeItems = order.items.filter(it => !it.deleted);
   showConfirmModal(tf('confirmDeleteOrder', {n: activeItems.length}), async () => {
+    await ensureTransactionsLoadedFrom(order.date || '');
     const removed = transactions.filter(t => t.orderId === orderId);
     transactions = transactions.filter(t => t.orderId !== orderId);
     const now = new Date().toISOString();
@@ -2251,13 +2252,14 @@ function downloadOrderSheetXlsx(aoa, filename, hiddenRows){
   XLSX.writeFile(wb, filename);
 }
 
-function exportOrdersSheet(){
+async function exportOrdersSheet(){
   const msg = document.getElementById('orderExportMsg');
   if(typeof XLSX === 'undefined'){ msg.className = 'msg error'; msg.textContent = 'Excel 套件載入失敗,請重新整理頁面再試一次'; return; }
 
   const partyFilter = document.getElementById('completedOrderPartyFilter').value;
   const dateFrom = document.getElementById('completedOrderDateFrom').value;
   const dateTo = document.getElementById('completedOrderDateTo').value;
+  await ensureOrdersLoadedFrom(dateFrom || '');
 
   let list = orders.filter(o => orderStatus(o) === 'confirmed' && !o.deleted);
   if(partyFilter) list = list.filter(o => o.partyId === partyFilter);

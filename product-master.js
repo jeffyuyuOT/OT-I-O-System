@@ -446,7 +446,7 @@ function importQuickListToExport(){
 //  - 選了某一個對象:單一個分頁(跟以前一樣)。
 //  - 選「全部對象」或「Multiple store」:第一個分頁是彙總(All Store / All Selected Store,同一個商品跨店加總),
 //    後面每一個對象各一個分頁,只放那個對象自己的資料。
-function exportShipmentSheet(opts){
+async function exportShipmentSheet(opts){
   opts = opts || {};
   const msg = document.getElementById('exportShipmentMsg');
   if(typeof XLSX === 'undefined'){ msg.className='msg error'; msg.textContent='Excel 套件載入失敗,請重新整理頁面再試一次'; return; }
@@ -459,6 +459,8 @@ function exportShipmentSheet(opts){
   const dateFrom = document.getElementById('exportDateFrom').value;
   const dateTo = document.getElementById('exportDateTo').value;
   const productMap = Object.fromEntries(products.map(p => [p.id, p]));
+  // 要匯出的區間比目前載入的交易範圍更早 → 先補載入(待處理訂單報表不用交易紀錄)
+  if(type !== 'pending') await ensureTransactionsLoadedFrom(dateFrom || '');
 
   if(isMulti && selectedStores.length === 0){
     msg.className = 'msg error';
