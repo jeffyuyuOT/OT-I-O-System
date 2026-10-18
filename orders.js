@@ -1398,8 +1398,9 @@ function openOrderActionModal(orderId, kind){
       ['cancel', t('btnCancelWholeOrder'), false]
     ];
   } else {
-    opts = [['export', t('actionExport'), false], ['print', t('actionPrint'), false]];
+    opts = [];
     if(o.signedAt) opts.push(['email', t('actionEmail'), false]);
+    opts.push(['export', t('actionExport'), false], ['print', t('actionPrint'), false]);
   }
   document.getElementById('orderActionModalTitle').textContent = (o.orderNo ? o.orderNo + ' · ' : '') + (o.date || '');
   document.getElementById('orderActionModalSelect').innerHTML = opts.map(([v, label, dis]) => `<option value="${v}" ${dis ? 'disabled' : ''}>${label}</option>`).join('');
