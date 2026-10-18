@@ -740,15 +740,7 @@ function renderOrders(){
             ${wasModified ? `<span title="${t('orderWasModifiedTitle')}" style="margin-left:6px;color:var(--warn);">✎</span>` : ''}
           </span>
           <span class="order-card-status" style="display:inline-flex;align-items:center;gap:6px;">${o.emailedAt ? `<span style="color:var(--safe);font-size:12px;" title="${tf('emailedToTitle', { email: o.emailedTo || '', when: o.emailedAt })}">${t('alreadyEmailedBadge')}</span><span style="color:var(--ink-soft);font-size:10.5px;">${formatEmailedTimeShort(o.emailedAt)}</span>` : ''}${o.signedAt ? `<span title="${tf('orderSignedAtTitle', {datetime: formatOrderDateTime(o.signedAt)})}" style="color:var(--safe);">✔ ${t('statusSigned')}</span>` : ''}<span class="order-status-pill ${o.deleted ? 'deleted' : 'confirmed'}">${o.deleted ? t('statusOrderCancelled') : t('statusCompleted')}</span>
-            <span class="order-head-action" onclick="event.stopPropagation()" style="display:inline-flex;align-items:center;gap:6px;">
-              <label style="font-size:11px;color:var(--ink-soft);font-weight:700;text-transform:uppercase;">${t('lblAction')}</label>
-              <select id="orderActionSelect_${o.id}" style="width:auto;">
-                <option value="export">${t('actionExport')}</option>
-                <option value="print">${t('actionPrint')}</option>
-                ${o.signedAt ? `<option value="email">${t('actionEmail')}</option>` : ''}
-              </select>
-              <button class="btn ghost" onclick="runOrderAction('${o.id}')">${t('btnRunAction')}</button>
-            </span></span>
+            <span class="order-head-action" onclick="event.stopPropagation()"><button class="btn ghost" onclick="openOrderActionModal('${o.id}', 'completed')">${t('lblAction')} ▾</button></span></span>
         </div>
         ${isExpanded ? `
           <div class="order-items">${itemsHtml}</div>
@@ -1146,16 +1138,7 @@ function renderPendingOrders(){
           </span>
           <span style="display:inline-flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:flex-end;">
             <span class="order-status-pill ${o.deleted ? 'deleted' : (o.status === 'processing' ? 'processing' : 'pending')}">${o.deleted ? t('statusOrderCancelled') : (o.status === 'processing' ? t('statusProcessing') : t('statusPending'))}</span>
-            ${o.deleted ? '' : `<span class="order-head-action" onclick="event.stopPropagation()" style="display:inline-flex;align-items:center;gap:6px;">
-              <label style="font-size:11px;color:var(--ink-soft);font-weight:700;text-transform:uppercase;">${t('lblAction')}</label>
-              <select id="pendingOrderActionSelect_${o.id}" style="width:auto;">
-                <option value="print">${t('btnPrintPickingSlip')}</option>
-                <option value="verify" ${activeItemCount === 0 ? 'disabled' : ''}>${t('btnLoadIntoVerifyPage')}</option>
-                <option value="edit">${t('btnEdit')}</option>
-                <option value="cancel">${t('btnCancelWholeOrder')}</option>
-              </select>
-              <button class="btn ghost" onclick="runPendingOrderAction('${o.id}')">${t('btnRunAction')}</button>
-            </span>`}
+            ${o.deleted ? '' : `<span class="order-head-action" onclick="event.stopPropagation()"><button class="btn ghost" onclick="openOrderActionModal('${o.id}', 'pending')">${t('lblAction')} ▾</button></span>`}
           </span>
         </div>
         ${isExpanded ? `
@@ -1398,23 +1381,49 @@ function printCompletedOrder(orderId){
 // 已完成訂單卡片上的「Action」下拉選單:選好動作、按確認執行才會真的觸發——匯出/列印是既有的
 // 函式直接呼叫,email 是跳出跟進貨單共用的那個寄送確認視窗(只有已簽收的訂單才會有這個選項,
 // 下拉選單本身在畫面上就已經依簽收狀態決定要不要顯示 email 這個選項了)。
-function runPendingOrderAction(orderId){
-  const sel = document.getElementById(`pendingOrderActionSelect_${orderId}`);
-  if(!sel) return;
-  const action = sel.value;
-  if(action === 'print') printPendingOrder(orderId);
-  else if(action === 'verify') openOrderInVerifyPage(orderId);
-  else if(action === 'edit') editOrderViaRegister(orderId, 'pending');
-  else if(action === 'cancel') cancelPendingOrder(orderId);
+// 訂單卡片標題列只放一顆「Action」按鈕,按下去才跳出選擇動作的小視窗(下拉選單 + Go),
+// 清單上不用一直佔著下拉選單的空間。kind:'pending'(待處理/處理中)或 'completed'(已完成)。
+let orderActionTarget = null;
+function openOrderActionModal(orderId, kind){
+  const o = orders.find(x => x.id === orderId);
+  if(!o) return;
+  orderActionTarget = { orderId, kind };
+  let opts;
+  if(kind === 'pending'){
+    const activeCount = o.items.filter(it => !it.deleted).length;
+    opts = [
+      ['print', t('btnPrintPickingSlip'), false],
+      ['verify', t('btnLoadIntoVerifyPage'), activeCount === 0],
+      ['edit', t('btnEdit'), false],
+      ['cancel', t('btnCancelWholeOrder'), false]
+    ];
+  } else {
+    opts = [['export', t('actionExport'), false], ['print', t('actionPrint'), false]];
+    if(o.signedAt) opts.push(['email', t('actionEmail'), false]);
+  }
+  document.getElementById('orderActionModalTitle').textContent = (o.orderNo ? o.orderNo + ' · ' : '') + (o.date || '');
+  document.getElementById('orderActionModalSelect').innerHTML = opts.map(([v, label, dis]) => `<option value="${v}" ${dis ? 'disabled' : ''}>${label}</option>`).join('');
+  document.getElementById('orderActionModalOverlay').style.display = 'flex';
 }
-
-function runOrderAction(orderId){
-  const sel = document.getElementById(`orderActionSelect_${orderId}`);
-  if(!sel) return;
-  const action = sel.value;
-  if(action === 'export') exportSingleOrderSheet(orderId);
-  else if(action === 'print') printCompletedOrder(orderId);
-  else if(action === 'email') openSendOrderEmailModal(orderId);
+function closeOrderActionModal(){
+  document.getElementById('orderActionModalOverlay').style.display = 'none';
+}
+function confirmOrderActionModal(){
+  if(!orderActionTarget) return;
+  const { orderId, kind } = orderActionTarget;
+  const action = document.getElementById('orderActionModalSelect').value;
+  closeOrderActionModal();
+  orderActionTarget = null;
+  if(kind === 'pending'){
+    if(action === 'print') printPendingOrder(orderId);
+    else if(action === 'verify') openOrderInVerifyPage(orderId);
+    else if(action === 'edit') editOrderViaRegister(orderId, 'pending');
+    else if(action === 'cancel') cancelPendingOrder(orderId);
+  } else {
+    if(action === 'export') exportSingleOrderSheet(orderId);
+    else if(action === 'print') printCompletedOrder(orderId);
+    else if(action === 'email') openSendOrderEmailModal(orderId);
+  }
 }
 
 // 待處理訂單裡刪除單一品項:訂單根本還沒核對、還沒扣庫存,沒有任何進出貨紀錄要處理,
