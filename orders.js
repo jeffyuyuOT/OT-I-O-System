@@ -739,7 +739,16 @@ function renderOrders(){
             ${o.remark ? `<span title="${t('orderHasRemarkTitle')}" style="margin-left:6px;color:var(--yellow-dark);">📝</span>` : ''}
             ${wasModified ? `<span title="${t('orderWasModifiedTitle')}" style="margin-left:6px;color:var(--warn);">✎</span>` : ''}
           </span>
-          <span class="order-card-status" style="display:inline-flex;align-items:center;gap:6px;">${o.emailedAt ? `<span style="color:var(--safe);font-size:12px;" title="${tf('emailedToTitle', { email: o.emailedTo || '', when: o.emailedAt })}">${t('alreadyEmailedBadge')}</span><span style="color:var(--ink-soft);font-size:10.5px;">${formatEmailedTimeShort(o.emailedAt)}</span>` : ''}${o.signedAt ? `<span title="${tf('orderSignedAtTitle', {datetime: formatOrderDateTime(o.signedAt)})}" style="color:var(--safe);">✔ ${t('statusSigned')}</span>` : ''}<span class="order-status-pill ${o.deleted ? 'deleted' : 'confirmed'}">${o.deleted ? t('statusOrderCancelled') : t('statusCompleted')}</span></span>
+          <span class="order-card-status" style="display:inline-flex;align-items:center;gap:6px;">${o.emailedAt ? `<span style="color:var(--safe);font-size:12px;" title="${tf('emailedToTitle', { email: o.emailedTo || '', when: o.emailedAt })}">${t('alreadyEmailedBadge')}</span><span style="color:var(--ink-soft);font-size:10.5px;">${formatEmailedTimeShort(o.emailedAt)}</span>` : ''}${o.signedAt ? `<span title="${tf('orderSignedAtTitle', {datetime: formatOrderDateTime(o.signedAt)})}" style="color:var(--safe);">✔ ${t('statusSigned')}</span>` : ''}<span class="order-status-pill ${o.deleted ? 'deleted' : 'confirmed'}">${o.deleted ? t('statusOrderCancelled') : t('statusCompleted')}</span>
+            <span class="order-head-action" onclick="event.stopPropagation()" style="display:inline-flex;align-items:center;gap:6px;">
+              <label style="font-size:11px;color:var(--ink-soft);font-weight:700;text-transform:uppercase;">${t('lblAction')}</label>
+              <select id="orderActionSelect_${o.id}" style="width:auto;">
+                <option value="export">${t('actionExport')}</option>
+                <option value="print">${t('actionPrint')}</option>
+                ${o.signedAt ? `<option value="email">${t('actionEmail')}</option>` : ''}
+              </select>
+              <button class="btn ghost" onclick="runOrderAction('${o.id}')">${t('btnRunAction')}</button>
+            </span></span>
         </div>
         ${isExpanded ? `
           <div class="order-items">${itemsHtml}</div>
@@ -757,15 +766,6 @@ function renderOrders(){
             ${(o.deleted || o.signedAt) ? '' : `<button class="btn ghost" onclick="editOrderViaRegister('${o.id}', 'completed')">${t('btnEdit')}</button>`}
             ${(o.deleted || o.signedAt) ? '' : `<button class="btn ghost" onclick="openWarehouseSignModal('${o.id}')">${t('btnWarehouseSign')}</button>`}
             ${hasHistory ? `<button class="btn ghost" onclick="openOrderHistoryModal('${o.id}')">${t('btnViewHistory')}</button>` : ''}
-            <span style="display:inline-flex;align-items:center;gap:6px;">
-              <label style="font-size:11px;color:var(--ink-soft);font-weight:700;text-transform:uppercase;" data-i18n="lblAction">Action</label>
-              <select id="orderActionSelect_${o.id}" style="width:auto;">
-                <option value="export">${t('actionExport')}</option>
-                <option value="print">${t('actionPrint')}</option>
-                ${o.signedAt ? `<option value="email">${t('actionEmail')}</option>` : ''}
-              </select>
-              <button class="btn ghost" onclick="runOrderAction('${o.id}')">${t('btnRunAction')}</button>
-            </span>
           </div>
         ` : ''}
       </div>
@@ -1144,18 +1144,26 @@ function renderPendingOrders(){
             ${wasModified ? `<span title="${t('orderWasModifiedTitle')}" style="margin-left:6px;color:var(--warn);">✎</span>` : ''}
             ${!o.deleted && !o.partyId ? `<span title="${t('orderNoPartyLinkedWarning')}" style="margin-left:6px;color:var(--crit);">⚠</span>` : ''}
           </span>
-          <span class="order-status-pill ${o.deleted ? 'deleted' : (o.status === 'processing' ? 'processing' : 'pending')}">${o.deleted ? t('statusOrderCancelled') : (o.status === 'processing' ? t('statusProcessing') : t('statusPending'))}</span>
+          <span style="display:inline-flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:flex-end;">
+            <span class="order-status-pill ${o.deleted ? 'deleted' : (o.status === 'processing' ? 'processing' : 'pending')}">${o.deleted ? t('statusOrderCancelled') : (o.status === 'processing' ? t('statusProcessing') : t('statusPending'))}</span>
+            ${o.deleted ? '' : `<span class="order-head-action" onclick="event.stopPropagation()" style="display:inline-flex;align-items:center;gap:6px;">
+              <label style="font-size:11px;color:var(--ink-soft);font-weight:700;text-transform:uppercase;">${t('lblAction')}</label>
+              <select id="pendingOrderActionSelect_${o.id}" style="width:auto;">
+                <option value="print">${t('btnPrintPickingSlip')}</option>
+                <option value="verify" ${activeItemCount === 0 ? 'disabled' : ''}>${t('btnLoadIntoVerifyPage')}</option>
+                <option value="edit">${t('btnEdit')}</option>
+                <option value="cancel">${t('btnCancelWholeOrder')}</option>
+              </select>
+              <button class="btn ghost" onclick="runPendingOrderAction('${o.id}')">${t('btnRunAction')}</button>
+            </span>`}
+          </span>
         </div>
         ${isExpanded ? `
           <div class="order-items">${itemsHtml}</div>
           ${remarkHtml}
           ${o.deleted ? '' : partyEditHtml}
           <div class="order-card-actions">
-            ${o.deleted ? '' : `<button class="btn ghost" onclick="editOrderViaRegister('${o.id}', 'pending')">${t('btnEdit')}</button>`}
-            ${o.deleted ? '' : `<button class="btn ghost" onclick="openOrderInVerifyPage('${o.id}')" ${activeItemCount === 0 ? 'disabled' : ''}>${t('btnLoadIntoVerifyPage')}</button>`}
-            ${o.deleted ? '' : `<button class="btn ghost" onclick="cancelPendingOrder('${o.id}')">${t('btnCancelWholeOrder')}</button>`}
             ${hasHistory ? `<button class="btn ghost" onclick="openOrderHistoryModal('${o.id}')">${t('btnViewHistory')}</button>` : ''}
-            <button class="btn ghost" onclick="printPendingOrder('${o.id}')">${t('btnPrintPickingSlip')}</button>
           </div>
         ` : ''}
       </div>
@@ -1390,6 +1398,16 @@ function printCompletedOrder(orderId){
 // 已完成訂單卡片上的「Action」下拉選單:選好動作、按確認執行才會真的觸發——匯出/列印是既有的
 // 函式直接呼叫,email 是跳出跟進貨單共用的那個寄送確認視窗(只有已簽收的訂單才會有這個選項,
 // 下拉選單本身在畫面上就已經依簽收狀態決定要不要顯示 email 這個選項了)。
+function runPendingOrderAction(orderId){
+  const sel = document.getElementById(`pendingOrderActionSelect_${orderId}`);
+  if(!sel) return;
+  const action = sel.value;
+  if(action === 'print') printPendingOrder(orderId);
+  else if(action === 'verify') openOrderInVerifyPage(orderId);
+  else if(action === 'edit') editOrderViaRegister(orderId, 'pending');
+  else if(action === 'cancel') cancelPendingOrder(orderId);
+}
+
 function runOrderAction(orderId){
   const sel = document.getElementById(`orderActionSelect_${orderId}`);
   if(!sel) return;
