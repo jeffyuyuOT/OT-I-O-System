@@ -263,7 +263,7 @@ const I18N = {
     btnUndo: '復原',
     confirmSaveOrderChangesMsg: '這次儲存有以下異動,確定要儲存嗎?\n{changes}',
     btnExportThisOrder: '📤 匯出', btnDeleteWholeOrder: '🗑 刪除整筆訂單(退回庫存)',
-    actionExport: '匯出', actionPrint: '列印', actionEmail: '寄 Email', btnRunAction: '確認執行',
+    actionExport: '匯出', actionPrint: '列印', actionEmail: '寄 Email', btnRunAction: 'Go',
     lblAction: 'Action',
     itemDeletedLabel: '已刪除(退回庫存)', itemDeletedLabelStockedOut: '已刪除(已出庫,已入庫退回)',
     btnEditQty: '改數量', btnEditRemark: '編輯備註', orderRemarkPlaceholder: '對這張訂單做點備註⋯⋯',
