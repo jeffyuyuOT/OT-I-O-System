@@ -415,6 +415,13 @@ let forecastUnitChoice = {};    // anchorId -> 進貨單位對應的商品 id(�
 let forecastBoxBasis = {};      // anchorId -> 換算「總箱數」要用哪一個商品當一箱(會存進資料庫)
 let forecastRemovedIds = new Set(); // 使用者在目前篩選結果裡手動刪掉的商品(只管目前這次篩選)
 let forecastAddedIds = new Set();   // 使用者在目前篩選結果之外額外手動加進來的商品
+let forecastNote = '';              // 預估表附註(會存進預估表記錄、匯出 Excel)
+let forecastLoadedRecordId = null;  // 目前畫面是從哪一筆預估表記錄載入的(儲存時會取代那一筆)
+
+function toggleForecastDesc(){
+  const el = document.getElementById('forecastDescText');
+  if(el) el.style.display = el.style.display === 'none' ? 'block' : 'none';
+}
 
 async function loadForecastPrefs(){
   try{
@@ -611,6 +618,7 @@ function exportForecastSheet(){
   });
   if(rows.length === 0){ msg.className = 'msg error'; msg.textContent = t('errForecastNothingToExport'); return; }
   const aoa = [[t('colProductName'), t('colForecastQtyExport'), t('colUnit')], ...rows];
+  if((forecastNote || '').trim()){ aoa.push([]); aoa.push([t('fieldForecastNote'), forecastNote.trim()]); }
   const ws = XLSX.utils.aoa_to_sheet(aoa);
   ws['!cols'] = [{ wch: 40 }, { wch: 12 }, { wch: 12 }];
   const wb = XLSX.utils.book_new();
@@ -794,12 +802,41 @@ function updateForecastSummary(){
   summaryBar.innerHTML = `
     <span style="white-space:nowrap;">${t('lblTotalBoxes')}<strong>${totalBoxes ? (Math.round(totalBoxes * 100) / 100).toLocaleString() : '0'}</strong></span>
     <span style="margin-left:14px;white-space:nowrap;">${t('lblTotalVolume')}<strong>${formatForecastVolume(totalVolumeCm3 || 0)}</strong></span>
-    <select id="forecastVolumeUnitSelect" onchange="forecastVolumeUnit=this.value;renderForecastTable();" style="margin-left:8px;font-size:13.5px;padding:3px 5px;">
-      <option value="cm3" ${forecastVolumeUnit === 'cm3' ? 'selected' : ''}>cm³ (${t('lblVolumeDefaultUnit')})</option>
-      <option value="m3" ${forecastVolumeUnit === 'm3' ? 'selected' : ''}>m³ (cubic meter)</option>
-    </select>
+    <span style="margin-left:2px;white-space:nowrap;"><span class="del-link" style="margin-left:5px;color:var(--ink);cursor:pointer;" title="${t('titleSwitchVolumeUnit')}" onclick="openForecastVolumeUnitMenu(event)">⇄</span></span>
     ${notConvertible > 0 ? `<div style="font-size:11.5px;color:var(--warn);margin-top:4px;">${tn('noteBoxesNotConvertible', notConvertible)}<br>${notConvertibleNames.map(escapeHtmlText).join('、')}</div>` : ''}
   `;
+}
+
+function openForecastVolumeUnitMenu(ev){
+  ev.stopPropagation();
+  closeForecastUnitMenu();
+  const menu = document.createElement('div');
+  menu.id = 'forecastUnitMenu';
+  menu.className = 'fc-unit-menu';
+  menu.innerHTML = `
+    <div class="fc-menu-title">${t('titleSwitchVolumeUnit')}</div>
+    <div class="fc-menu-item ${forecastVolumeUnit === 'cm3' ? 'selected' : ''}" onclick="selectForecastVolumeUnit('cm3')"><span>${forecastVolumeUnit === 'cm3' ? '✓' : '&nbsp;&nbsp;'}</span><span>cm³ (${t('lblVolumeDefaultUnit')})</span></div>
+    <div class="fc-menu-item ${forecastVolumeUnit === 'm3' ? 'selected' : ''}" onclick="selectForecastVolumeUnit('m3')"><span>${forecastVolumeUnit === 'm3' ? '✓' : '&nbsp;&nbsp;'}</span><span>m³ (cubic meter)</span></div>`;
+  document.body.appendChild(menu);
+  const rect = ev.currentTarget.getBoundingClientRect();
+  const mw = menu.offsetWidth;
+  menu.style.left = Math.min(Math.max(8, rect.right - mw), window.innerWidth - mw - 8) + 'px';
+  menu.style.top = (rect.bottom + 4) + 'px';
+  setTimeout(() => {
+    function onOutside(e){
+      if(menu.contains(e.target)) return;
+      closeForecastUnitMenu();
+      document.removeEventListener('mousedown', onOutside, true);
+      document.removeEventListener('touchstart', onOutside, true);
+    }
+    document.addEventListener('mousedown', onOutside, true);
+    document.addEventListener('touchstart', onOutside, true);
+  }, 0);
+}
+function selectForecastVolumeUnit(u){
+  forecastVolumeUnit = u;
+  closeForecastUnitMenu();
+  renderForecastTable();
 }
 
 // ----- 切換進貨單位選單(+ 換算總箱數依據) -----
@@ -992,7 +1029,9 @@ function openSaveForecastModal(){
   if(getForecastDisplayItems().length === 0){
     msg.className = 'msg error'; msg.textContent = t('errForecastNothingToSave'); return;
   }
-  document.getElementById('saveForecastNameInput').value = defaultForecastRecordName();
+  const loadedRec = forecastLoadedRecordId ? forecastRecords.find(r => r.id === forecastLoadedRecordId) : null;
+  if(!loadedRec) forecastLoadedRecordId = null;
+  document.getElementById('saveForecastNameInput').value = loadedRec ? loadedRec.name : defaultForecastRecordName();
   document.getElementById('saveForecastModalMsg').textContent = '';
   document.getElementById('saveForecastModalOverlay').style.display = 'flex';
   setTimeout(() => { const i = document.getElementById('saveForecastNameInput'); if(i){ i.focus(); i.select(); } }, 50);
@@ -1016,7 +1055,10 @@ async function confirmSaveForecast(){
     };
   });
   const prev = forecastRecords.slice();
-  forecastRecords.push({ id: 'fr_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), name, savedAt: new Date().toISOString(), items });
+  const wasLoadedId = forecastLoadedRecordId;
+  // 如果這份預估表是從某一筆記錄載入的,儲存就是「取代」那一筆(只留最新的),不會多出重複的記錄。
+  if(wasLoadedId) forecastRecords = forecastRecords.filter(r => r.id !== wasLoadedId);
+  forecastRecords.push({ id: 'fr_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), name, savedAt: new Date().toISOString(), items, note: (forecastNote || '').trim() });
   try{ await saveForecastRecords(); }
   catch(e){
     console.error('儲存進貨預估紀錄失敗', e);
@@ -1026,14 +1068,66 @@ async function confirmSaveForecast(){
   }
   closeSaveForecastModal();
   const msg = document.getElementById('forecastMsg');
+  if(wasLoadedId){
+    // 載入的預估表儲存後就離開那筆記錄:數量、附註清空,變成一份新的預估表。
+    forecastLoadedRecordId = null;
+    forecastQtyDraft = {};
+    forecastNote = '';
+    const noteEl = document.getElementById('forecastNoteInput'); if(noteEl) noteEl.value = '';
+    renderForecastTable();
+    if(document.getElementById('forecastRecordsPanel').style.display !== 'none') renderForecastRecords();
+  }
   msg.className = 'msg ok';
   msg.textContent = tf('msgForecastSaved', { name });
 }
 
-function toggleForecastRecordsPanel(){
+// ----- Action(儲存預估表 / 預估表記錄 / 匯出預估表) -----
+function openForecastActionModal(){
+  const sel = document.getElementById('forecastActionSelect');
+  sel.innerHTML = `
+    <option value="save">${t('optForecastSave')}</option>
+    <option value="records">${t('optForecastRecords')}</option>
+    <option value="export">${t('optForecastExport')}</option>`;
+  document.getElementById('forecastActionModalOverlay').style.display = 'flex';
+}
+function closeForecastActionModal(){
+  document.getElementById('forecastActionModalOverlay').style.display = 'none';
+}
+function confirmForecastActionModal(){
+  const v = document.getElementById('forecastActionSelect').value;
+  closeForecastActionModal();
+  if(v === 'save') openSaveForecastModal();
+  else if(v === 'records') toggleForecastRecordsPanel(true);
+  else if(v === 'export') exportForecastSheet();
+}
+
+// ----- 預估表記錄「載入」(預估表 / 進貨) -----
+let forecastLoadModalRecordId = null;
+function openForecastLoadModal(id){
+  const rec = forecastRecords.find(r => r.id === id);
+  if(!rec) return;
+  forecastLoadModalRecordId = id;
+  document.getElementById('forecastLoadModalTitle').textContent = rec.name;
+  document.getElementById('forecastLoadSelect').innerHTML = `
+    <option value="forecast">${t('optLoadAsForecast')}</option>
+    <option value="purchase">${t('optLoadAsPurchase')}</option>`;
+  document.getElementById('forecastLoadModalOverlay').style.display = 'flex';
+}
+function closeForecastLoadModal(){
+  document.getElementById('forecastLoadModalOverlay').style.display = 'none';
+}
+function confirmForecastLoadModal(){
+  const v = document.getElementById('forecastLoadSelect').value;
+  const id = forecastLoadModalRecordId;
+  closeForecastLoadModal();
+  if(v === 'purchase') loadForecastRecordToPurchase(id);
+  else loadForecastRecord(id);
+}
+
+function toggleForecastRecordsPanel(forceOpen){
   const panel = document.getElementById('forecastRecordsPanel');
   if(!panel) return;
-  if(panel.style.display === 'none'){
+  if(panel.style.display === 'none' || forceOpen === true){
     panel.style.display = 'block';
     loadForecastRecords().then(renderForecastRecords);
   } else {
@@ -1065,8 +1159,9 @@ function renderForecastRecords(){
             <td>${escapeHtmlText(formatOrderDateTime(r.savedAt))}</td>
             <td class="num">${tf('forecastRecordItemsSummary', { n: r.items.length, q: withQty })}</td>
             <td style="white-space:nowrap;">
-              <span class="del-link" style="color:var(--ink);" onclick="loadForecastRecord('${r.id}')">${t('btnLoadRecord')}</span>
-              <span class="del-link" style="margin-left:12px;" onclick="deleteForecastRecord('${r.id}')">${t('btnDeleteRecord')}</span>
+              <span class="del-link" style="color:var(--ink);" onclick="loadForecastRecord('${r.id}')">${t('btnLoadForecastRecord')}</span>
+              <span class="del-link" style="margin-left:12px;" title="${t('btnDeleteRecord')}" onclick="deleteForecastRecord('${r.id}')">✕</span>
+              <span class="del-link" style="margin-left:12px;color:var(--ink);" onclick="loadForecastRecordToPurchase('${r.id}')">${t('btnLoadPurchaseRecord')}</span>
             </td>
           </tr>`;
         }).join('')}
@@ -1080,6 +1175,9 @@ async function loadForecastRecord(id){
   const rec = forecastRecords.find(r => r.id === id);
   if(!rec) return;
   const recMsg = null;
+  forecastLoadedRecordId = rec.id;
+  forecastNote = rec.note || '';
+  const noteEl0 = document.getElementById('forecastNoteInput'); if(noteEl0) noteEl0.value = forecastNote;
   const valid = rec.items.filter(it => products.some(p => p.id === it.anchorId && !p.parentId));
   const skipped = rec.items.length - valid.length;
 
@@ -1114,12 +1212,48 @@ async function loadForecastRecord(id){
   if(recMsg) recMsg.textContent = '';
 }
 
+// 載入進貨:跳到「登記進出貨 → 進貨」,把預估表裡有填數量的商品跟數量帶進清單。
+// 每個品項記住來源預估表 id(forecastRecordId),進貨提交成功之後會把那筆預估表記錄刪除;
+// 之後掃描收據時,系統會拿掃到的內容跟這些載入的品項比對(見 receipt-scan.js reconcileForecastScan)。
+function loadForecastRecordToPurchase(id){
+  const rec = forecastRecords.find(r => r.id === id);
+  if(!rec) return;
+  const lines = [];
+  rec.items.forEach(it => {
+    const qty = Number(it.qty);
+    if(!(qty > 0)) return;
+    const prod = products.find(p => p.id === (it.unitId || it.anchorId)) || products.find(p => p.id === it.anchorId);
+    if(!prod) return;
+    lines.push({ prod, qty });
+  });
+  const msg = document.getElementById('forecastMsg');
+  if(lines.length === 0){ msg.className = 'msg error'; msg.textContent = t('errForecastNoQtyToPurchase'); return; }
+  const doLoad = () => {
+    switchTab('tab-warehouse-ops');
+    switchWarehouseOpsSubTab('subtab-tx-register');
+    setTxType('in');
+    txBatchItems = [];
+    lines.forEach(({ prod, qty }) => {
+      const ex = txBatchItems.find(x => x.productId === prod.id);
+      if(ex){ ex.qty += qty; return; }
+      txBatchItems.push({ batchItemId: genId(), productId: prod.id, sku: prod.sku || '', name: prod.name, unit: prod.unit, qty, fromForecast: true, forecastRecordId: rec.id, forecastRecordName: rec.name });
+    });
+    renderTxBatchList();
+    const tm = document.getElementById('txMsg');
+    if(tm){ tm.className = 'msg ok'; tm.textContent = tf('msgForecastLoadedToPurchase', { name: rec.name, n: txBatchItems.length }); }
+  };
+  if(typeof txBatchItems !== 'undefined' && txBatchItems.length > 0){
+    showConfirmModal(t('confirmReplaceBatchWithForecast'), doLoad);
+  } else doLoad();
+}
+
 function deleteForecastRecord(id){
   const rec = forecastRecords.find(r => r.id === id);
   if(!rec) return;
   showConfirmModal(tf('confirmDeleteForecastRecord', { name: rec.name }), async () => {
     const prev = forecastRecords.slice();
     forecastRecords = forecastRecords.filter(r => r.id !== id);
+    if(forecastLoadedRecordId === id) forecastLoadedRecordId = null;
     const recMsg = document.getElementById('forecastMsg');
     try{ await saveForecastRecords(); }
     catch(e){
@@ -1131,4 +1265,20 @@ function deleteForecastRecord(id){
     renderForecastRecords();
     if(recMsg){ recMsg.className = 'msg ok'; recMsg.textContent = tf('msgForecastRecordDeleted', { name: rec.name }); }
   });
+}
+
+
+// 進貨提交成功後,把來源預估表記錄移除(「載入進貨」帶進來的品項會帶著 forecastRecordId)。
+async function removeForecastRecordsAfterPurchase(ids){
+  const set = new Set(ids.filter(Boolean));
+  if(set.size === 0) return;
+  await loadForecastRecords();
+  const prev = forecastRecords.slice();
+  forecastRecords = forecastRecords.filter(r => !set.has(r.id));
+  if(forecastRecords.length === prev.length) return;
+  if(set.has(forecastLoadedRecordId)) forecastLoadedRecordId = null;
+  try{ await saveForecastRecords(); }
+  catch(e){ console.error('移除已進貨的預估表記錄失敗', e); forecastRecords = prev; return; }
+  const panel = document.getElementById('forecastRecordsPanel');
+  if(panel && panel.style.display !== 'none') renderForecastRecords();
 }

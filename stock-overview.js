@@ -70,6 +70,17 @@ function renderStockCards(){
     const avgForGauge = isSubRow ? avgDisplayValue : avg;
     const remain = daysRemaining(gaugeStock, avgForGauge);
     const gauge = gaugeInfo(remain);
+    // 「包含進貨預估」:把已儲存預估表記錄裡這個商品家族的預計進貨量加進庫存可撐(只換算顯示的數字,
+    // 燈號/篩選仍以實際庫存為準);滑鼠移上去顯示實際可撐跟包含了哪幾份預估表。
+    let remainLabel = gauge.label, remainTitle = '';
+    if(stockIncludePending && !isSubRow){
+      const pendAnchor = basisParent || (!p.parentId ? p : null);
+      const pend = pendAnchor ? getPendingForecastFor(pendAnchor) : null;
+      if(pend && pend.total > 0){
+        remainLabel = gaugeInfo(daysRemaining(gaugeStock + pend.total, avgForGauge)).label;
+        remainTitle = `${t('tipRemainActual')}: ${gauge.label}\n${t('tipIncludedForecasts')}: ` + pend.recs.map(r => `${r.name} (+${r.qty} ${r.unit})`).join('、');
+      }
+    }
 
     let avgLabel, avgTitle = '';
     const avgBaseSuffix = t('avgSuffixMonth');
@@ -124,8 +135,8 @@ function renderStockCards(){
         <td class="row-num row-stock-own"><span class="td-mobile-label">${t('colStock')}</span>${stock}</td>
         <td class="row-num row-stock-total"><span class="td-mobile-label">${t('colTotalStock')}</span><span class="row-value-line">${isSubRow ? '—' : totalStockDisplay}<span class="row-edit-cart">${editCartLinks}</span></span></td>
         <td class="row-num row-avg" ${avgTitle ? `title="${avgTitle}"` : ''}><span class="td-mobile-label">${t('colAvgOut')}</span>${avgLabel}</td>
-        <td class="row-num row-safety ${belowSafety ? 'row-below-safety' : ''}" ${safetyTitle ? `title="${safetyTitle}"` : ''}><span class="td-mobile-label">${t('colSafety')}</span><span class="row-value-line">${safetyText}${belowSafety ? ' ⚠' : ''}<span class="row-remain-inline ${!isSubRow ? `row-${gauge.cls}` : ''}">${isSubRow ? '' : gauge.label}</span></span></td>
-        <td class="row-remain ${!isSubRow ? `row-${gauge.cls}` : ''}"><span class="td-mobile-label">${t('colRemain')}</span>${isSubRow ? '—' : gauge.label}</td>
+        <td class="row-num row-safety ${belowSafety ? 'row-below-safety' : ''}" ${safetyTitle ? `title="${safetyTitle}"` : ''}><span class="td-mobile-label">${t('colSafety')}</span><span class="row-value-line">${safetyText}${belowSafety ? ' ⚠' : ''}<span class="row-remain-inline ${!isSubRow ? `row-${gauge.cls}` : ''}" ${remainTitle ? `title="${remainTitle.replace(/"/g,'&quot;')}"` : ''}>${isSubRow ? '' : remainLabel}</span></span></td>
+        <td class="row-remain ${!isSubRow ? `row-${gauge.cls}` : ''}" ${remainTitle ? `title="${remainTitle.replace(/"/g,'&quot;')}"` : ''}><span class="td-mobile-label">${t('colRemain')}</span>${isSubRow ? '—' : remainLabel}</td>
         <td class="row-action ${switchLink ? '' : 'row-action-switch-empty'}">
           ${hasCapability('cap-edit-overview') ? `
             <div class="row-action-inner">
@@ -245,7 +256,7 @@ function renderStockCards(){
           <th class="sortable-th num" onclick="setStockSort('avg')" title="${t('sortCycleHint')}">${t('colAvgOut')}${sortArrow('avg')}</th>
           <th class="sortable-th num" onclick="setStockSort('safety')" title="${t('sortCycleHint')}">${t('colSafety')}${sortArrow('safety')}</th>
           <th class="sortable-th num" onclick="setStockSort('remain')" title="${t('sortCycleHint')}">${t('colRemain')}${sortArrow('remain')}</th>
-          <th></th>
+          <th style="white-space:nowrap;"><label title="${t('chkIncludePending')}" onclick="event.stopPropagation()" style="margin-left:4px;cursor:pointer;white-space:nowrap;font-weight:400;"><input type="checkbox" ${stockIncludePending ? 'checked' : ''} onchange="toggleStockIncludePending(this.checked)" style="vertical-align:middle;" /><span style="font-size:13px;">🚚</span></label></th>
         </tr>
       </thead>
       <tbody>${bodyHtml}</tbody>
@@ -435,4 +446,29 @@ function onStockActionChange(v){
     qlSel.style.display = 'none';
     if(hadFilter) renderStockCards();
   }
+}
+
+
+// ===== 庫存可撐「包含進貨預估」 =====
+let stockIncludePending = false;
+async function toggleStockIncludePending(on){
+  if(on){ try{ await loadForecastRecords(); }catch(e){} }
+  stockIncludePending = !!on;
+  renderStockCards();
+}
+// 這個商品家族(主商品)在所有已儲存預估表記錄裡的預計進貨量(換算成主商品的單位),跟各記錄的明細。
+function getPendingForecastFor(anchor){
+  let total = 0; const recs = [];
+  (typeof forecastRecords !== 'undefined' ? forecastRecords : []).forEach(r => {
+    (r.items || []).forEach(it => {
+      if(it.anchorId !== anchor.id) return;
+      const qty = Number(it.qty);
+      if(!(qty > 0)) return;
+      const unitProd = products.find(x => x.id === it.unitId) || anchor;
+      const base = qty * getBasisWeight(unitProd, anchor);
+      total += base;
+      recs.push({ name: r.name, qty, unit: unitProd.unit || '' });
+    });
+  });
+  return { total, recs };
 }

@@ -640,6 +640,7 @@ function addOcrLineToTxBatch(productId, qty, amount, docType, sourceFilename, oc
 
 function processNextReceiptOcrLine(){
   if(pendingReceiptOcrLines.length === 0){
+    reconcileForecastScan(); // 如果清單裡有「載入進貨」帶進來的預估表品項,拿掃描結果跟它比對
     renderTxBatchList();
     reportReceiptScanCorrections(); // 這次掃描確認完的品項,一次性回報給掃描服務,累積學習資料用
     return;
@@ -876,3 +877,79 @@ async function cancelReceiptOcrSequence(){
   renderTxBatchList();
 }
 
+
+
+// ===== 載入進貨(預估表)後掃描收據:比對掃到的內容跟載入的品項/數量 =====
+// 載入的品項(fromForecast)跟這次掃描新加的品項(receiptOcrSessionBatchItemIds,不含 Credit Note)
+// 依商品比對:
+//  - 金額:一律直接帶進載入品項的金額(價錢)欄。
+//  - 數量一致:掃描那幾行併進載入品項(沿用來源檔名/辨識文字),不重複出現。
+//  - 數量不同 / 掃到但預估表沒有 / 預估表有但沒掃到:列在視窗裡,按「用掃描結果覆蓋」才會改載入的資料
+//    (數量改成掃描值、預估表沒有的保留、掃描沒有的品項移除);按「保留原本載入」則載入的數量不動,
+//    掃到的多出品項仍保留在清單,數量不同的那幾行掃描資料則併入後捨棄。
+let forecastScanDiffResolver = null;
+async function reconcileForecastScan(){
+  const loaded = txBatchItems.filter(it => it.fromForecast);
+  if(loaded.length === 0) return;
+  const sessionIds = new Set(receiptOcrSessionBatchItemIds);
+  const scanned = txBatchItems.filter(it => sessionIds.has(it.batchItemId) && !it.fromForecast && it.docType !== 'credit_note');
+  if(scanned.length === 0) return;
+  const agg = {};
+  scanned.forEach(it => {
+    const a = agg[it.productId] = agg[it.productId] || { qty: 0, amount: null, rows: [], name: it.name, unit: it.unit };
+    a.qty += it.qty;
+    if(it.amount) a.amount = (a.amount || 0) + it.amount;
+    a.rows.push(it);
+  });
+  const diffs = []; // {kind:'qty'|'extra'|'missing', name, unit, loadedQty, scanQty}
+  const qtyOverwrite = []; // [loadedItem, scanQty]
+  const removeIds = new Set();
+  Object.keys(agg).forEach(pid => {
+    const a = agg[pid];
+    const li = loaded.find(x => x.productId === pid);
+    if(!li){ diffs.push({ kind: 'extra', name: a.name, unit: a.unit, loadedQty: null, scanQty: a.qty }); return; }
+    if(a.amount !== null) li.amount = a.amount;
+    const first = a.rows[0];
+    if(first.sourceFilename) li.sourceFilename = first.sourceFilename;
+    if(first.docType) li.docType = first.docType;
+    const descs = [];
+    a.rows.forEach(r => (r.ocrDescriptions || []).forEach(d => { if(!descs.includes(d)) descs.push(d); }));
+    if(descs.length) li.ocrDescriptions = descs;
+    a.rows.forEach(r => removeIds.add(r.batchItemId));
+    if(a.qty !== li.qty){
+      diffs.push({ kind: 'qty', name: li.name, unit: li.unit, loadedQty: li.qty, scanQty: a.qty });
+      qtyOverwrite.push([li, a.qty]);
+    }
+  });
+  const scannedPids = new Set(Object.keys(agg));
+  const missing = loaded.filter(li => !scannedPids.has(li.productId));
+  missing.forEach(li => diffs.push({ kind: 'missing', name: li.name, unit: li.unit, loadedQty: li.qty, scanQty: null }));
+
+  txBatchItems = txBatchItems.filter(it => !removeIds.has(it.batchItemId));
+  receiptOcrSessionBatchItemIds = receiptOcrSessionBatchItemIds.filter(id => !removeIds.has(id));
+  if(diffs.length === 0) return;
+
+  const kindLabel = { qty: t('forecastDiffQty'), extra: t('forecastDiffExtra'), missing: t('forecastDiffMissing') };
+  document.getElementById('forecastScanDiffBody').innerHTML = `
+    <table class="stock-table"><thead><tr>
+      <th>${t('colProductName')}</th><th class="num">${t('colForecastDiffLoaded')}</th><th class="num">${t('colForecastDiffScanned')}</th><th>${t('colForecastDiffType')}</th>
+    </tr></thead><tbody>
+    ${diffs.map(d => `<tr><td class="row-name">${escapeHtmlText(d.name)}</td>
+      <td class="num">${d.loadedQty === null ? '–' : d.loadedQty + ' ' + escapeHtmlText(d.unit || '')}</td>
+      <td class="num">${d.scanQty === null ? '–' : d.scanQty + ' ' + escapeHtmlText(d.unit || '')}</td>
+      <td>${kindLabel[d.kind]}</td></tr>`).join('')}
+    </tbody></table>`;
+  document.getElementById('forecastScanDiffModalOverlay').style.display = 'flex';
+  const overwrite = await new Promise(res => { forecastScanDiffResolver = res; });
+  if(overwrite){
+    qtyOverwrite.forEach(([li, q]) => { li.qty = q; });
+    const missIds = new Set(missing.map(m => m.batchItemId));
+    txBatchItems = txBatchItems.filter(it => !missIds.has(it.batchItemId));
+  }
+  renderTxBatchList();
+}
+function resolveForecastScanDiff(overwrite){
+  document.getElementById('forecastScanDiffModalOverlay').style.display = 'none';
+  const r = forecastScanDiffResolver; forecastScanDiffResolver = null;
+  if(r) r(!!overwrite);
+}
