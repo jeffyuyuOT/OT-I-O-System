@@ -255,9 +255,8 @@ function renderStockCards(){
           <th class="sortable-th num" onclick="setStockSort('totalStock')" title="主商品自己的庫存量 + Σ(批量商品庫存量 × 加權數)。${t('sortCycleHint')}">${t('colTotalStock')}${sortArrow('totalStock')}</th>
           <th class="sortable-th num" onclick="setStockSort('avg')" title="${t('sortCycleHint')}">${t('colAvgOut')}${sortArrow('avg')}</th>
           <th class="sortable-th num" onclick="setStockSort('safety')" title="${t('sortCycleHint')}">${t('colSafety')}${sortArrow('safety')}</th>
-          <th class="sortable-th num" onclick="setStockSort('remain')" title="${t('sortCycleHint')}">${t('colRemain')}${sortArrow('remain')}
-            <label title="${t('chkIncludePending')}" onclick="event.stopPropagation()" style="margin-left:4px;cursor:pointer;white-space:nowrap;font-weight:400;"><input type="checkbox" ${stockIncludePending ? 'checked' : ''} onchange="toggleStockIncludePending(this.checked)" style="vertical-align:middle;" /><span style="font-size:13px;">🚚</span></label></th>
-          <th></th>
+          <th class="sortable-th num" onclick="setStockSort('remain')" title="${t('sortCycleHint')}">${t('colRemain')}${sortArrow('remain')}</th>
+          <th style="white-space:nowrap;"><label title="${t('chkIncludePending')}" onclick="event.stopPropagation()" style="margin-left:4px;cursor:pointer;white-space:nowrap;font-weight:400;"><input type="checkbox" ${stockIncludePending ? 'checked' : ''} onchange="toggleStockIncludePending(this.checked)" style="vertical-align:middle;" /><span style="font-size:13px;">🚚</span></label></th>
         </tr>
       </thead>
       <tbody>${bodyHtml}</tbody>

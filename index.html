@@ -1811,11 +1811,13 @@
           <label data-i18n="fieldFilterByCategory">依分類篩選商品</label>
           <select id="forecastCategoryFilter" onchange="onForecastFilterChange()"></select>
         </div>
+        <div style="display:flex;gap:6px;align-items:center;padding-bottom:4px;">
+          <button class="btn ghost" onclick="toggleForecastAddPanel()" id="forecastAddToggleBtn" data-i18n="btnAddProductToForecast">＋ 新增商品</button>
+          <button class="btn ghost" style="padding:6px 10px;" onclick="openSaveForecastModal()" data-i18n-title="optForecastSave" title="儲存預估表">💾</button>
+          <button class="btn ghost" style="padding:6px 10px;" onclick="toggleForecastRecordsPanel()" id="forecastRecordsToggleBtn" data-i18n-title="optForecastRecords" title="預估表記錄">📂</button>
+          <button class="btn ghost" style="padding:6px 10px;" onclick="exportForecastSheet()" data-i18n-title="optForecastExport" title="匯出預估表">📄</button>
+        </div>
         <div id="forecastSummaryBar" style="margin-left:auto;font-size:15px;color:var(--ink-soft);padding-bottom:9px;"></div>
-      </div>
-      <div style="margin-bottom:12px;display:flex;gap:10px;flex-wrap:wrap;">
-        <button class="btn ghost" onclick="toggleForecastAddPanel()" id="forecastAddToggleBtn" data-i18n="btnAddProductToForecast">＋ 新增商品</button>
-        <button class="btn ghost" onclick="openForecastActionModal()" id="forecastActionBtn">Action ▾</button>
       </div>
       <div id="forecastRecordsPanel" class="fc-add-panel" style="display:none;margin-bottom:12px;">
         <div class="section-title" style="font-size:13px;margin:0 0 6px;" data-i18n="secForecastRecords">預估表記錄</div>
@@ -2233,34 +2235,6 @@
     <div class="modal-actions">
       <button class="btn ghost" onclick="closeSendPurchaseEmailModal()" data-i18n="btnCancel">取消</button>
       <button class="btn" id="btnConfirmSendPurchaseEmail" onclick="confirmSendPurchaseEmail()" data-i18n="btnConfirmSend">確認寄送</button>
-    </div>
-  </div>
-</div>
-
-<div id="forecastActionModalOverlay" class="modal-overlay" style="display:none;" onclick="if(event.target===this) closeForecastActionModal();">
-  <div class="modal-box" style="max-width:340px;">
-    <div class="section-title" style="margin-bottom:12px;" data-i18n="secForecast">進貨預估</div>
-    <div class="field">
-      <label data-i18n="lblAction">Action</label>
-      <select id="forecastActionSelect"></select>
-    </div>
-    <div class="modal-actions">
-      <button class="btn ghost" onclick="closeForecastActionModal()" data-i18n="btnCancel">取消</button>
-      <button class="btn" onclick="confirmForecastActionModal()" data-i18n="btnRunAction">Go</button>
-    </div>
-  </div>
-</div>
-
-<div id="forecastLoadModalOverlay" class="modal-overlay" style="display:none;" onclick="if(event.target===this) closeForecastLoadModal();">
-  <div class="modal-box" style="max-width:340px;">
-    <div class="section-title" id="forecastLoadModalTitle" style="margin-bottom:12px;"></div>
-    <div class="field">
-      <label data-i18n="lblLoadAs">載入為</label>
-      <select id="forecastLoadSelect"></select>
-    </div>
-    <div class="modal-actions">
-      <button class="btn ghost" onclick="closeForecastLoadModal()" data-i18n="btnCancel">取消</button>
-      <button class="btn" onclick="confirmForecastLoadModal()" data-i18n="btnRunAction">Go</button>
     </div>
   </div>
 </div>

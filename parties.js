@@ -1159,8 +1159,9 @@ function renderForecastRecords(){
             <td>${escapeHtmlText(formatOrderDateTime(r.savedAt))}</td>
             <td class="num">${tf('forecastRecordItemsSummary', { n: r.items.length, q: withQty })}</td>
             <td style="white-space:nowrap;">
-              <span class="del-link" style="color:var(--ink);" onclick="openForecastLoadModal('${r.id}')">${t('btnLoadRecord')}</span>
+              <span class="del-link" style="color:var(--ink);" onclick="loadForecastRecord('${r.id}')">${t('btnLoadForecastRecord')}</span>
               <span class="del-link" style="margin-left:12px;" title="${t('btnDeleteRecord')}" onclick="deleteForecastRecord('${r.id}')">✕</span>
+              <span class="del-link" style="margin-left:12px;color:var(--ink);" onclick="loadForecastRecordToPurchase('${r.id}')">${t('btnLoadPurchaseRecord')}</span>
             </td>
           </tr>`;
         }).join('')}
