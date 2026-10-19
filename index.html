@@ -364,6 +364,10 @@
     max-height:280px; overflow-y:auto; border:1px solid var(--line); border-radius:2px; background:#fff;
   }
   .pp-list{ max-height:240px; }
+  /* 快捷清單編輯:已選商品清單放大(主要在這裡檢視/移除),下方「新增商品」的搜尋結果縮小
+     (平常都是用搜尋找商品,看得到 2~3 列就夠) */
+  #qlSelectedList{ max-height:min(60vh, 520px); }
+  #qlPickerResults{ max-height:125px; }
   .pp-row{
     display:flex; align-items:center; gap:10px; padding:7px 10px; border-bottom:1px solid var(--line);
     font-family:'Inter',sans-serif; font-size:12.5px;
