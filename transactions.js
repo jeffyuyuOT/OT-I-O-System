@@ -1881,6 +1881,8 @@ async function submitTxBatchSimple(date, msg){
     }
   }
 
+  const forecastIdsToRemove = currentTxType === 'in' ? txBatchItems.map(it => it.forecastRecordId).filter(Boolean) : [];
+  if(forecastIdsToRemove.length) removeForecastRecordsAfterPurchase(forecastIdsToRemove);
   const count = txBatchItems.length;
   const logActionType = currentTxType === 'in' ? 'tx_in' : 'tx_restock';
   // DETAILS 欄位是登記當下就寫死存進資料庫的文字,不會隨語言切換即時翻譯,所以這裡固定用英文組字串,

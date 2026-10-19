@@ -334,6 +334,7 @@ function showOnlyAllowedTabImmediately(){
 function switchTab(tabId){
   const allowed = getCurrentUserTabPermissions();
   if(!allowed.includes(tabId)) return; // 防呆:使用者沒有這個分頁的權限
+  if(tabId !== 'tab-overview' && typeof stockIncludePending !== 'undefined') stockIncludePending = false; // 離開庫存總覽就自動取消「包含進貨預估」
   document.body.classList.remove('mobile-menu-active'); // 不管從哪裡觸發切分頁,都順便關掉手機版選單畫面(如果有開著的話)
   if(tabId !== 'tab-order' && addingItemsToOrderId){
     // 使用者在「幫既有訂單新增商品」流程中途跑去別的分頁,視同放棄這次新增
