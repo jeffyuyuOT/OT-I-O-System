@@ -1057,8 +1057,10 @@ async function confirmSaveForecast(){
   });
   const prev = forecastRecords.slice();
   const wasLoadedId = forecastLoadedRecordId;
-  // 如果這份預估表是從某一筆記錄載入的,儲存就是「取代」那一筆(只留最新的),不會多出重複的記錄。
-  if(wasLoadedId) forecastRecords = forecastRecords.filter(r => r.id !== wasLoadedId);
+  // 同樣名稱的記錄只留最新一筆(取代舊的,已匯入進貨單的記錄不動);名稱不同才會多出一筆。
+  // 載入的預估表預設帶原本的名稱(見 openSaveForecastModal),所以不改名直接儲存就是取代原本那筆。
+  const sameNameCount = forecastRecords.filter(r => !r.converted && (r.name || '').trim() === name).length;
+  forecastRecords = forecastRecords.filter(r => r.converted || (r.name || '').trim() !== name);
   forecastRecords.push({ id: 'fr_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), name, savedAt: new Date().toISOString(), items, note: (forecastNote || '').trim(), orderPlaced: !!forecastOrderPlaced });
   try{ await saveForecastRecords(); }
   catch(e){
@@ -1069,8 +1071,8 @@ async function confirmSaveForecast(){
   }
   closeSaveForecastModal();
   const msg = document.getElementById('forecastMsg');
-  if(wasLoadedId){
-    // 載入的預估表儲存後就離開那筆記錄:數量、附註清空,變成一份新的預估表。
+  if(wasLoadedId || sameNameCount > 0){
+    // 載入的預估表(或取代了同名記錄)儲存後就離開那筆記錄:數量、附註清空,變成一份新的預估表。
     forecastLoadedRecordId = null;
     forecastQtyDraft = {};
     forecastNote = '';
