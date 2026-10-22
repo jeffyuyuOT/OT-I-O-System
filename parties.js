@@ -415,6 +415,7 @@ let forecastUnitChoice = {};    // anchorId -> 進貨單位對應的商品 id(�
 let forecastBoxBasis = {};      // anchorId -> 換算「總箱數」要用哪一個商品當一箱(會存進資料庫)
 let forecastRemovedIds = new Set(); // 使用者在目前篩選結果裡手動刪掉的商品(只管目前這次篩選)
 let forecastAddedIds = new Set();   // 使用者在目前篩選結果之外額外手動加進來的商品
+let forecastOrderPlaced = false;     // 「已訂貨」勾選:存進記錄後狀態會是 Order Placed,沒勾就是 Draft
 let forecastNote = '';              // 預估表附註(會存進預估表記錄、匯出 Excel)
 let forecastLoadedRecordId = null;  // 目前畫面是從哪一筆預估表記錄載入的(儲存時會取代那一筆)
 
@@ -1058,7 +1059,7 @@ async function confirmSaveForecast(){
   const wasLoadedId = forecastLoadedRecordId;
   // 如果這份預估表是從某一筆記錄載入的,儲存就是「取代」那一筆(只留最新的),不會多出重複的記錄。
   if(wasLoadedId) forecastRecords = forecastRecords.filter(r => r.id !== wasLoadedId);
-  forecastRecords.push({ id: 'fr_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), name, savedAt: new Date().toISOString(), items, note: (forecastNote || '').trim() });
+  forecastRecords.push({ id: 'fr_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), name, savedAt: new Date().toISOString(), items, note: (forecastNote || '').trim(), orderPlaced: !!forecastOrderPlaced });
   try{ await saveForecastRecords(); }
   catch(e){
     console.error('儲存進貨預估紀錄失敗', e);
@@ -1073,6 +1074,8 @@ async function confirmSaveForecast(){
     forecastLoadedRecordId = null;
     forecastQtyDraft = {};
     forecastNote = '';
+    forecastOrderPlaced = false;
+    const opChk1 = document.getElementById('forecastOrderPlacedChk'); if(opChk1) opChk1.checked = false;
     const noteEl = document.getElementById('forecastNoteInput'); if(noteEl) noteEl.value = '';
     renderForecastTable();
     if(document.getElementById('forecastRecordsPanel').style.display !== 'none') renderForecastRecords();
@@ -1135,38 +1138,68 @@ function toggleForecastRecordsPanel(forceOpen){
   }
 }
 
-function renderForecastRecords(){
-  const box = document.getElementById('forecastRecordsContainer');
-  if(!box) return;
-  if(forecastRecords.length === 0){
-    box.innerHTML = `<div class="empty-note">${t('noForecastRecordsYet')}</div>`;
-    return;
-  }
-  const sorted = forecastRecords.slice().sort((a, b) => (b.savedAt || '').localeCompare(a.savedAt || ''));
-  box.innerHTML = `
+// 預估表記錄狀態:converted(已匯入進貨單並提交)> ordered(已訂貨)> draft
+function forecastRecordStatus(r){
+  if(r.converted) return 'converted';
+  return r.orderPlaced ? 'ordered' : 'draft';
+}
+function forecastStatusLabel(st){
+  return st === 'converted' ? t('forecastStatusConverted') : (st === 'ordered' ? t('forecastStatusOrdered') : t('forecastStatusDraft'));
+}
+function showForecastRecordNote(id){
+  const r = forecastRecords.find(x => x.id === id);
+  if(r && r.note) showInfoModal(r.note);
+}
+// 預估表記錄清單的表格:預估表頁面(includeConverted=false,已匯入進貨單的不列)跟歷史紀錄(全部都列)共用。
+function forecastRecordsTableHtml(includeConverted){
+  const list = forecastRecords.filter(r => includeConverted || !r.converted);
+  if(list.length === 0) return `<div class="empty-note">${t('noForecastRecordsYet')}</div>`;
+  const sorted = list.slice().sort((a, b) => (b.savedAt || '').localeCompare(a.savedAt || ''));
+  return `
     <table class="stock-table">
       <thead><tr>
+        <th></th>
         <th>${t('fieldForecastRecordName')}</th>
         <th>${t('colForecastRecordSavedAt')}</th>
-        <th class="num">${t('colForecastRecordItems')}</th>
-        <th></th>
+        <th>${t('colForecastRecordItems')}</th>
+        <th>${t('colForecastRecordStatus')}</th>
       </tr></thead>
       <tbody>
         ${sorted.map(r => {
           const withQty = r.items.filter(it => it.qty !== '' && it.qty != null && Number(it.qty) > 0).length;
+          const st = forecastRecordStatus(r);
+          const stColor = st === 'converted' ? 'var(--safe)' : (st === 'ordered' ? 'var(--warn)' : 'var(--ink-soft)');
+          const acts = st === 'converted'
+            ? `<span class="del-link" title="${t('btnDeleteRecord')}" onclick="deleteForecastRecord('${r.id}')">✕</span>`
+            : `<span class="del-link" style="color:var(--ink);" onclick="loadForecastRecord('${r.id}')">${t('btnLoadForecastRecord')}</span>
+               <span class="del-link" style="margin-left:10px;" title="${t('btnDeleteRecord')}" onclick="deleteForecastRecord('${r.id}')">✕</span>
+               <span class="del-link" style="margin-left:10px;color:var(--ink);" onclick="loadForecastRecordToPurchase('${r.id}')">${t('btnLoadPurchaseRecord')}</span>`;
           return `<tr>
-            <td class="row-name">${escapeHtmlText(r.name)}</td>
+            <td style="white-space:nowrap;">${acts}</td>
+            <td class="row-name">${escapeHtmlText(r.name)}${r.note ? ` <span class="del-link" style="margin-left:4px;" title="${t('fieldForecastNote')}" onclick="showForecastRecordNote('${r.id}')">📝</span>` : ''}</td>
             <td>${escapeHtmlText(formatOrderDateTime(r.savedAt))}</td>
-            <td class="num">${tf('forecastRecordItemsSummary', { n: r.items.length, q: withQty })}</td>
-            <td style="white-space:nowrap;">
-              <span class="del-link" style="color:var(--ink);" onclick="loadForecastRecord('${r.id}')">${t('btnLoadForecastRecord')}</span>
-              <span class="del-link" style="margin-left:12px;" title="${t('btnDeleteRecord')}" onclick="deleteForecastRecord('${r.id}')">✕</span>
-              <span class="del-link" style="margin-left:12px;color:var(--ink);" onclick="loadForecastRecordToPurchase('${r.id}')">${t('btnLoadPurchaseRecord')}</span>
-            </td>
+            <td>${tf('forecastRecordItemsCount', { q: withQty })}</td>
+            <td style="color:${stColor};font-weight:600;white-space:nowrap;">${forecastStatusLabel(st)}</td>
           </tr>`;
         }).join('')}
       </tbody>
     </table>`;
+}
+
+function renderForecastRecords(){
+  const box = document.getElementById('forecastRecordsContainer');
+  if(box) box.innerHTML = forecastRecordsTableHtml(false);
+  renderLogForecastRecords();
+}
+function renderLogForecastRecords(){
+  const box = document.getElementById('logForecastRecordsContainer');
+  if(box) box.innerHTML = forecastRecordsTableHtml(true);
+}
+// 從歷史紀錄「匯入預估」:先跳到預估表頁面再載入。
+function openForecastRecordFromHistory(id){
+  switchTab('tab-warehouse-admin');
+  switchWarehouseAdminSubTab('subtab-tx-forecast');
+  loadForecastRecord(id);
 }
 
 // 載入:把進貨預估頁面換成這份紀錄的內容——篩選全部清掉、商品清單剛好是紀錄裡的商品(已經不存在的商品略過)、
@@ -1174,9 +1207,13 @@ function renderForecastRecords(){
 async function loadForecastRecord(id){
   const rec = forecastRecords.find(r => r.id === id);
   if(!rec) return;
+  const fpage = document.getElementById('subtab-tx-forecast');
+  if(fpage && fpage.offsetParent === null){ switchTab('tab-warehouse-admin'); switchWarehouseAdminSubTab('subtab-tx-forecast'); }
   const recMsg = null;
   forecastLoadedRecordId = rec.id;
   forecastNote = rec.note || '';
+  forecastOrderPlaced = !!rec.orderPlaced;
+  const opChk0 = document.getElementById('forecastOrderPlacedChk'); if(opChk0) opChk0.checked = forecastOrderPlaced;
   const noteEl0 = document.getElementById('forecastNoteInput'); if(noteEl0) noteEl0.value = forecastNote;
   const valid = rec.items.filter(it => products.some(p => p.id === it.anchorId && !p.parentId));
   const skipped = rec.items.length - valid.length;
@@ -1268,17 +1305,19 @@ function deleteForecastRecord(id){
 }
 
 
-// 進貨提交成功後,把來源預估表記錄移除(「載入進貨」帶進來的品項會帶著 forecastRecordId)。
+// 進貨提交成功後,把來源預估表記錄標記成「已匯入進貨單」(Converted to PO):預估表頁面不再列出,
+// 庫存總覽的「包含進貨預估」也不再計入,但歷史紀錄的「進貨預估紀錄」會保留。
 async function removeForecastRecordsAfterPurchase(ids){
   const set = new Set(ids.filter(Boolean));
   if(set.size === 0) return;
   await loadForecastRecords();
-  const prev = forecastRecords.slice();
-  forecastRecords = forecastRecords.filter(r => !set.has(r.id));
-  if(forecastRecords.length === prev.length) return;
+  const prev = forecastRecords.map(r => ({ ...r }));
+  let changed = false;
+  forecastRecords.forEach(r => { if(set.has(r.id) && !r.converted){ r.converted = true; r.convertedAt = new Date().toISOString(); changed = true; } });
+  if(!changed) return;
   if(set.has(forecastLoadedRecordId)) forecastLoadedRecordId = null;
   try{ await saveForecastRecords(); }
-  catch(e){ console.error('移除已進貨的預估表記錄失敗', e); forecastRecords = prev; return; }
+  catch(e){ console.error('更新預估表記錄狀態失敗', e); forecastRecords = prev; return; }
   const panel = document.getElementById('forecastRecordsPanel');
   if(panel && panel.style.display !== 'none') renderForecastRecords();
 }

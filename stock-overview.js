@@ -459,7 +459,7 @@ async function toggleStockIncludePending(on){
 // 這個商品家族(主商品)在所有已儲存預估表記錄裡的預計進貨量(換算成主商品的單位),跟各記錄的明細。
 function getPendingForecastFor(anchor){
   let total = 0; const recs = [];
-  (typeof forecastRecords !== 'undefined' ? forecastRecords : []).forEach(r => {
+  (typeof forecastRecords !== 'undefined' ? forecastRecords : []).filter(r => !r.converted).forEach(r => {
     (r.items || []).forEach(it => {
       if(it.anchorId !== anchor.id) return;
       const qty = Number(it.qty);

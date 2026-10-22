@@ -355,7 +355,7 @@ function switchTab(tabId){
   // some browsers don't reliably reflect <select> option updates made while the tab was
   // display:none, so re-render whichever tab just became visible
   if(tabId === 'tab-overview'){ populateCategoryDropdowns(); renderStockCards(); }
-  if(tabId === 'tab-log'){ renderLog(); }
+  if(tabId === 'tab-log'){ refreshLogSubTab(); }
   if(tabId === 'tab-warehouse-ops'){ renderProductSelect(); renderTxBatchList(); }
   if(tabId === 'tab-order'){
     populatePartySelect(); renderOrderItemsTable(); renderOrderHistory();
@@ -409,6 +409,7 @@ function switchOrderAdminSubTab(subtabId){
   container.querySelectorAll('.subtab-btn').forEach(el => el.classList.remove('active'));
   document.getElementById(subtabId).classList.add('active-subtab');
   document.getElementById('btn-' + subtabId).classList.add('active');
+  if(subtabId === 'subtab-order-completed'){ populateCompletedOrderPartyFilter(); renderOrders(); }
 }
 
 // 系統管理分頁(tab-master)自己的子分頁切換,只在它自己的容器裡找 .subtab-content/.subtab-btn,
@@ -472,13 +473,21 @@ function switchLogSubTab(subtabId){
   document.body.classList.remove('mobile-subtab-menu-active');
   document.body.classList.add('mobile-subtab-content-active');
   container.querySelectorAll('.subtab-content').forEach(el => el.classList.remove('active-subtab'));
-  container.querySelectorAll('.subtab-btn').forEach(el => el.classList.remove('active'));
+  const sel = document.getElementById('logSubtabSelect');
+  if(sel && sel.value !== subtabId) sel.value = subtabId;
+  document.getElementById(subtabId).classList.add('active-subtab');
   if(subtabId === 'subtab-log-tx'){ renderLog(); }
   if(subtabId === 'subtab-log-purchases'){ renderPurchaseLog(); }
+  if(subtabId === 'subtab-log-completed'){ populateCompletedOrderPartyFilter(); renderOrders(); }
+  if(subtabId === 'subtab-log-forecast'){ loadForecastRecords().then(renderLogForecastRecords); }
   if(subtabId === 'subtab-log-convert'){ renderConvertHistoryTable(); }
+  if(subtabId === 'subtab-log-exports'){ loadExportEmailLogs().then(renderExportLog); }
   if(subtabId === 'subtab-log-inventory'){ loadInventoryLog().then(renderInventoryLog); }
-  document.getElementById(subtabId).classList.add('active-subtab');
-  document.getElementById('btn-' + subtabId).classList.add('active');
+}
+// 切到歷史紀錄分頁時,重畫下拉選單目前選到的那個子分頁
+function refreshLogSubTab(){
+  const sel = document.getElementById('logSubtabSelect');
+  switchLogSubTab(sel && sel.value ? sel.value : 'subtab-log-tx');
 }
 
 // 訂貨分頁(tab-order)自己的子分頁切換(訂貨 / 訂購記錄),只在它自己的容器裡找
