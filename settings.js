@@ -24,17 +24,20 @@ function todayBackupFilename(){
 }
 
 async function runAutoBackup(){
-  await Promise.all([ensureTransactionsLoadedFrom(''), ensureOrdersLoadedFrom('')]);
+  await Promise.all([ensureTransactionsLoadedFrom(''), ensureOrdersLoadedFrom(''), loadExportEmailLogs()]);
   const filename = todayBackupFilename();
   const backup = {
     exportedAt: new Date().toISOString(),
-    version: 4,
+    version: 5,
     products,
     transactions,
     orders,
     shippingParties,
     categoryOrder,
-    quickLists
+    quickLists,
+    forecastRecords,
+    forecastPrefs: { unitChoice: forecastUnitChoice, boxBasis: forecastBoxBasis },
+    exportEmailLogs
   };
   const content = JSON.stringify(backup, null, 2);
 
@@ -525,15 +528,19 @@ async function clearInventoryLogsAndResetOrders(){
 
 async function exportFullBackup(){
   await ensureAllDataLoaded();
+  await loadExportEmailLogs();
   const backup = {
     exportedAt: new Date().toISOString(),
-    version: 6,
+    version: 7,
     products,
     transactions,
     orders,
     shippingParties,
     categoryOrder,
     quickLists,
+    forecastRecords,
+    forecastPrefs: { unitChoice: forecastUnitChoice, boxBasis: forecastBoxBasis },
+    exportEmailLogs,
     inventoryLogs,
     deliveryNotes,
     purchases
@@ -616,6 +623,16 @@ function importFullBackup(){
         await saveShippingParties();
         await saveCategoryOrder();
         await restoreQuickListsFromBackup(backup);
+        // 進貨預估記錄、預估表的單位/箱數選擇、匯出紀錄:備份檔裡有才還原(舊版備份檔沒有這幾項,不會把現有的清掉)。
+        try{
+          if(Array.isArray(backup.forecastRecords)){ forecastRecords = backup.forecastRecords; await saveForecastRecords(); }
+          if(backup.forecastPrefs && typeof backup.forecastPrefs === 'object'){
+            forecastUnitChoice = backup.forecastPrefs.unitChoice || {};
+            forecastBoxBasis = backup.forecastPrefs.boxBasis || {};
+            await saveForecastPrefs();
+          }
+          if(Array.isArray(backup.exportEmailLogs)){ exportEmailLogs = backup.exportEmailLogs; await saveExportEmailLogs(); }
+        } catch(e){ console.error('還原進貨預估/匯出紀錄失敗', e); }
         // inventory_log 是稽核用途的紀錄,故意不開放前端刪除(見 clearInventoryLogTable 旁邊的
         // 說明)——還原備份的時候也一樣不整批覆蓋,只把備份裡的紀錄用 upsert 補進去,已經存在的
         // (id 相同)就跳過不動,不會覆蓋掉還原當下資料庫裡已經有的紀錄。
