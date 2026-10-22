@@ -1151,6 +1151,34 @@ function showForecastRecordNote(id){
   if(r && r.note) showInfoModal(r.note);
 }
 // 預估表記錄清單的表格:預估表頁面(includeConverted=false,已匯入進貨單的不列)跟歷史紀錄(全部都列)共用。
+// 點一列展開商品明細(數量、單位、附註,已匯入進貨單的還會顯示對應的進貨單)。
+let forecastExpandedRecordIds = new Set();
+function toggleForecastRecordExpand(id){
+  if(forecastExpandedRecordIds.has(id)) forecastExpandedRecordIds.delete(id); else forecastExpandedRecordIds.add(id);
+  if(forecastRecords.find(r => r.id === id && r.purchaseId) && typeof ensurePurchasesLoaded === 'function'){
+    ensurePurchasesLoaded().then(renderForecastRecords);
+  }
+  renderForecastRecords();
+}
+function forecastRecordDetailHtml(r){
+  const rows = (r.items || []).filter(it => Number(it.qty) > 0).map(it => {
+    const prod = products.find(p => p.id === it.unitId) || products.find(p => p.id === it.anchorId);
+    return `<tr><td class="row-name">${escapeHtmlText(prod ? prod.name : '?')}</td><td class="num">${Number(it.qty)}</td><td>${escapeHtmlText(prod ? (prod.unit || '') : '')}</td></tr>`;
+  }).join('');
+  let link = '';
+  if(r.converted){
+    const pur = r.purchaseId && typeof purchases !== 'undefined' ? purchases.find(p => p.id === r.purchaseId) : null;
+    const parts = [];
+    if(r.convertedAt) parts.push(formatOrderDateTime(r.convertedAt));
+    if(pur){ parts.push(pur.date || ''); if(pur.partyName) parts.push(pur.partyName); if(pur.invoiceNo) parts.push('#' + pur.invoiceNo); }
+    link = `<div style="margin:6px 0;font-size:12.5px;color:var(--safe);">${t('forecastLinkedPurchase')}: ${escapeHtmlText(parts.filter(Boolean).join(' · ') || (r.purchaseId ? t('forecastLinkedPurchaseUnknown') : '—'))}</div>`;
+  }
+  return `<div style="padding:6px 4px 10px;">
+    ${link}
+    ${r.note ? `<div style="margin:6px 0;font-size:12.5px;color:var(--ink-soft);">${t('fieldForecastNote')}: ${escapeHtmlText(r.note)}</div>` : ''}
+    ${rows ? `<table class="stock-table"><thead><tr><th>${t('colProductName')}</th><th class="num">${t('colForecastQtyExport')}</th><th>${t('colUnit')}</th></tr></thead><tbody>${rows}</tbody></table>` : `<div class="empty-note">${t('forecastRecordNoQtyItems')}</div>`}
+  </div>`;
+}
 function forecastRecordsTableHtml(includeConverted){
   const list = forecastRecords.filter(r => includeConverted || !r.converted);
   if(list.length === 0) return `<div class="empty-note">${t('noForecastRecordsYet')}</div>`;
@@ -1158,29 +1186,30 @@ function forecastRecordsTableHtml(includeConverted){
   return `
     <table class="stock-table">
       <thead><tr>
-        <th></th>
         <th>${t('fieldForecastRecordName')}</th>
         <th>${t('colForecastRecordSavedAt')}</th>
         <th>${t('colForecastRecordItems')}</th>
         <th>${t('colForecastRecordStatus')}</th>
+        <th></th>
       </tr></thead>
       <tbody>
         ${sorted.map(r => {
           const withQty = r.items.filter(it => it.qty !== '' && it.qty != null && Number(it.qty) > 0).length;
           const st = forecastRecordStatus(r);
           const stColor = st === 'converted' ? 'var(--safe)' : (st === 'ordered' ? 'var(--warn)' : 'var(--ink-soft)');
+          const open = forecastExpandedRecordIds.has(r.id);
           const acts = st === 'converted'
             ? `<span class="del-link" title="${t('btnDeleteRecord')}" onclick="deleteForecastRecord('${r.id}')">✕</span>`
             : `<span class="del-link" style="color:var(--ink);" onclick="loadForecastRecord('${r.id}')">${t('btnLoadForecastRecord')}</span>
                <span class="del-link" style="margin-left:10px;" title="${t('btnDeleteRecord')}" onclick="deleteForecastRecord('${r.id}')">✕</span>
                <span class="del-link" style="margin-left:10px;color:var(--ink);" onclick="loadForecastRecordToPurchase('${r.id}')">${t('btnLoadPurchaseRecord')}</span>`;
-          return `<tr>
-            <td style="white-space:nowrap;">${acts}</td>
-            <td class="row-name">${escapeHtmlText(r.name)}${r.note ? ` <span class="del-link" style="margin-left:4px;" title="${t('fieldForecastNote')}" onclick="showForecastRecordNote('${r.id}')">📝</span>` : ''}</td>
+          return `<tr style="cursor:pointer;" onclick="toggleForecastRecordExpand('${r.id}')">
+            <td class="row-name"><span style="display:inline-block;width:14px;">${open ? '▾' : '▸'}</span>${escapeHtmlText(r.name)}${r.note ? ` <span class="del-link" style="margin-left:4px;" title="${t('fieldForecastNote')}" onclick="event.stopPropagation();showForecastRecordNote('${r.id}')">📝</span>` : ''}</td>
             <td>${escapeHtmlText(formatOrderDateTime(r.savedAt))}</td>
             <td>${tf('forecastRecordItemsCount', { q: withQty })}</td>
             <td style="color:${stColor};font-weight:600;white-space:nowrap;">${forecastStatusLabel(st)}</td>
-          </tr>`;
+            <td style="white-space:nowrap;text-align:right;" onclick="event.stopPropagation()">${acts}</td>
+          </tr>${open ? `<tr><td colspan="5" style="background:var(--bg,#faf7f0);">${forecastRecordDetailHtml(r)}</td></tr>` : ''}`;
         }).join('')}
       </tbody>
     </table>`;
@@ -1307,13 +1336,13 @@ function deleteForecastRecord(id){
 
 // 進貨提交成功後,把來源預估表記錄標記成「已匯入進貨單」(Converted to PO):預估表頁面不再列出,
 // 庫存總覽的「包含進貨預估」也不再計入,但歷史紀錄的「進貨預估紀錄」會保留。
-async function removeForecastRecordsAfterPurchase(ids){
+async function removeForecastRecordsAfterPurchase(ids, purchaseId){
   const set = new Set(ids.filter(Boolean));
   if(set.size === 0) return;
   await loadForecastRecords();
   const prev = forecastRecords.map(r => ({ ...r }));
   let changed = false;
-  forecastRecords.forEach(r => { if(set.has(r.id) && !r.converted){ r.converted = true; r.convertedAt = new Date().toISOString(); changed = true; } });
+  forecastRecords.forEach(r => { if(set.has(r.id) && !r.converted){ r.converted = true; r.convertedAt = new Date().toISOString(); if(purchaseId) r.purchaseId = purchaseId; changed = true; } });
   if(!changed) return;
   if(set.has(forecastLoadedRecordId)) forecastLoadedRecordId = null;
   try{ await saveForecastRecords(); }
