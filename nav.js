@@ -489,8 +489,9 @@ function switchSupplyListPane(paneId){
 function switchLogSubTab(subtabId){
   const container = document.getElementById('tab-log');
   if(!container) return;
+  // 歷史紀錄現在是下拉選單(沒有子分頁按鍵列),手機版不需要「子分頁選單」這一層,🏠 一次就回到最上層選單
   document.body.classList.remove('mobile-subtab-menu-active');
-  document.body.classList.add('mobile-subtab-content-active');
+  document.body.classList.remove('mobile-subtab-content-active');
   container.querySelectorAll('.subtab-content').forEach(el => el.classList.remove('active-subtab'));
   const sel = document.getElementById('logSubtabSelect');
   if(sel && sel.value !== subtabId) sel.value = subtabId;
