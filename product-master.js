@@ -574,6 +574,7 @@ async function exportShipmentSheet(opts){
   }
 
   XLSX.writeFile(wb, filename);
+  if(opts.emailJob) await opts.emailJob(wb, filename);
   msg.className = 'msg ok';
   msg.textContent = type === 'in'
     ? `✓ 已匯出 ${rows.length} 筆進貨紀錄(${sheetEntries.length} 個分頁):${filename}`
@@ -746,4 +747,112 @@ function buildStockInSheet(rows, productMap){
     {wch:12}  // Date
   ];
   return ws;
+}
+
+
+// ===== 匯出並寄出 email + 匯出紀錄 =====
+// 匯出報表照常下載,同時把同一份 Excel 傳到 Storage、用 send-purchase-email 這支後端函式寄給會計,
+// 並把「標題 / 檔案 / 寄出時間」記進匯出紀錄(app_data: exportEmailLogs),在歷史紀錄的「匯出紀錄」查看。
+// 後端函式的 supplier 欄位借來放紀錄標題(信件主旨、內文的 Party 那一列會顯示標題)。
+let exportEmailLogs = [];
+async function loadExportEmailLogs(){
+  try{
+    const r = await dbGet('exportEmailLogs');
+    if(r && r.value){ const arr = JSON.parse(r.value); if(Array.isArray(arr)) exportEmailLogs = arr; }
+  } catch(e){ /* 還沒有紀錄 */ }
+}
+async function saveExportEmailLogs(){
+  await dbSet('exportEmailLogs', JSON.stringify(exportEmailLogs));
+}
+
+function openExportEmailModal(){
+  const defaults = getAccountingEmailToAndCc();
+  const type = document.getElementById('exportTypeSelect').value;
+  const meta = EXPORT_TYPE_META[type] || EXPORT_TYPE_META.out;
+  document.getElementById('exportEmailTitleInput').value = `${t(meta.labelKey)} ${todayISO()}`;
+  document.getElementById('exportEmailToInput').value = defaults.to || '';
+  document.getElementById('exportEmailCcInput').value = defaults.cc || '';
+  document.getElementById('exportEmailNoteInput').value = '';
+  const m = document.getElementById('exportEmailModalMsg'); m.className = 'msg'; m.textContent = '';
+  document.getElementById('exportEmailModalOverlay').style.display = 'flex';
+}
+function closeExportEmailModal(){
+  document.getElementById('exportEmailModalOverlay').style.display = 'none';
+}
+
+let exportEmailInFlight = false;
+async function confirmExportEmail(){
+  if(exportEmailInFlight) return;
+  const modalMsg = document.getElementById('exportEmailModalMsg');
+  const title = (document.getElementById('exportEmailTitleInput').value || '').trim();
+  const toEmails = (document.getElementById('exportEmailToInput').value || '').split(',').map(e => e.trim()).filter(Boolean);
+  const ccEmails = (document.getElementById('exportEmailCcInput').value || '').split(',').map(e => e.trim()).filter(Boolean);
+  const note = (document.getElementById('exportEmailNoteInput').value || '').trim();
+  const emailRe = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  if(!title){ modalMsg.className = 'msg error'; modalMsg.textContent = t('errExportRecordTitleRequired'); return; }
+  if(toEmails.length === 0 || toEmails.some(e => !emailRe.test(e)) || ccEmails.some(e => !emailRe.test(e))){
+    modalMsg.className = 'msg error'; modalMsg.textContent = t('errInvalidEmailAddress'); return;
+  }
+  exportEmailInFlight = true;
+  const btn = document.getElementById('btnConfirmExportEmail'); if(btn) btn.disabled = true;
+  modalMsg.className = 'msg'; modalMsg.textContent = t('sendingEmailMsg');
+  const pageMsg = document.getElementById('exportShipmentMsg');
+  pageMsg.className = 'msg'; pageMsg.textContent = '';
+  let ran = false;
+  try{
+    await exportShipmentSheet({ emailJob: async (wb, filename) => {
+      ran = true;
+      const buf = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+      const blob = new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+      const logId = genId();
+      const path = `export-reports/${logId}.xlsx`;
+      const { error: upErr } = await sb.storage.from('purchase-exports').upload(path, blob, { upsert: true });
+      if(upErr) throw new Error(t('errExcelUploadFailed'));
+      const { data: urlData } = sb.storage.from('purchase-exports').getPublicUrl(path);
+      const { error: fnErr } = await sb.functions.invoke('send-purchase-email', { body: {
+        purchaseId: logId, to: toEmails, cc: ccEmails, excelUrl: urlData.publicUrl, excelFilename: filename,
+        receiptFiles: [], date: todayISO(), supplier: title, invoiceNo: '', note
+      }});
+      if(fnErr) throw new Error(t('errEmailSendFailed'));
+      await loadExportEmailLogs();
+      exportEmailLogs.unshift({ id: logId, title, filename, url: urlData.publicUrl, to: toEmails.join(', '), cc: ccEmails.join(', '), note, sentAt: new Date().toISOString() });
+      try{ await saveExportEmailLogs(); } catch(e){ console.error('儲存匯出紀錄失敗', e); }
+    }});
+    if(!ran){
+      modalMsg.className = 'msg error';
+      modalMsg.textContent = pageMsg.textContent || t('errEmailSendFailed');
+    } else {
+      modalMsg.className = 'msg ok'; modalMsg.textContent = t('emailSentMsg');
+      setTimeout(closeExportEmailModal, 900);
+    }
+  } catch(e){
+    console.error('匯出並寄出 email 失敗', e);
+    modalMsg.className = 'msg error'; modalMsg.textContent = `⚠ ${e.message || t('errEmailSendFailed')}`;
+  } finally {
+    exportEmailInFlight = false;
+    if(btn) btn.disabled = false;
+  }
+}
+
+function renderExportLog(){
+  const box = document.getElementById('exportLogContainer');
+  if(!box) return;
+  if(exportEmailLogs.length === 0){ box.innerHTML = `<div class="empty-note">${t('noExportLogsYet')}</div>`; return; }
+  const sorted = exportEmailLogs.slice().sort((a, b) => (b.sentAt || '').localeCompare(a.sentAt || ''));
+  box.innerHTML = `
+    <table class="stock-table">
+      <thead><tr><th>${t('fieldExportRecordTitle')}</th><th>${t('colExportFile')}</th><th>${t('colExportSentAt')}</th><th>${t('colExportTo')}</th></tr></thead>
+      <tbody>${sorted.map(l => `<tr>
+        <td class="row-name">${escapeHtmlText(l.title)}${l.note ? ` <span class="del-link" title="${escapeHtmlText(l.note)}" style="margin-left:4px;">📝</span>` : ''}</td>
+        <td><a href="${escapeHtmlText(l.url || '#')}" target="_blank" rel="noopener" download="${escapeHtmlText(l.filename || '')}">📎 ${escapeHtmlText(l.filename || '')}</a></td>
+        <td>${escapeHtmlText(formatOrderDateTime(l.sentAt))}</td>
+        <td>${escapeHtmlText(String(l.to || '').split(',')[0].trim())}${(l.cc || String(l.to || '').includes(',')) ? ` <span class="del-link" style="cursor:pointer;font-weight:700;" title="${t('btnViewRecipients')}" onclick="showExportLogRecipients('${l.id}')">…</span>` : ''}</td>
+      </tr>`).join('')}</tbody>
+    </table>`;
+}
+
+function showExportLogRecipients(id){
+  const l = exportEmailLogs.find(x => x.id === id);
+  if(!l) return;
+  showInfoModal(`${t('colExportTo')}: ${l.to || '-'}` + (l.cc ? `\nCC: ${l.cc}` : ''));
 }

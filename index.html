@@ -133,6 +133,14 @@
   .header p{ margin:0; font-size:13px; color:#B8B6AC; }
 
   .panel{ background:var(--panel); border:1px solid var(--line); }
+  /* 歷史紀錄:下拉選單放大,下面各子分頁的內容跟下拉選單靠左對齊、減少上方空白 */
+  .supply-pane{ display:none; }
+  .supply-pane.active-pane{ display:block; }
+  #tab-log{ padding:16px 36px 0; }
+  #tab-log .log-select-bar{ margin:0 0 14px; }
+  #tab-log .log-select-bar select{ font-size:17px; font-weight:700; padding:12px 16px; min-width:320px; max-width:100%; border:2px solid var(--ink); border-radius:6px; background:#fff; color:var(--ink); cursor:pointer; }
+  #tab-log .subtab-content > .section{ padding:0 0 20px; border-bottom:none; }
+  #tab-log .section-title{ margin-bottom:10px; }
   .section{ padding:26px 36px; border-bottom:1px solid var(--line); }
   .section:last-child{ border-bottom:none; }
   .section-title{
@@ -688,6 +696,9 @@
       background:#fff; font-size:16px; cursor:pointer; padding:0;
     }
     .section{ padding:16px; }
+    #tab-log{ padding:12px 16px 0; }
+    #tab-log .log-select-bar select{ min-width:0; width:100%; }
+
     .section-title{ font-size:12px; }
 
     /* 手機版「選單首頁」:登入後一開始看到的畫面,把每個分頁變成一個一個大按鍵,點了才進去看
@@ -1707,15 +1718,21 @@
   <div id="tab-warehouse-admin" class="tab-content">
     <div class="section">
     <div class="subtab-bar">
-      <button class="subtab-btn active" onclick="switchWarehouseAdminSubTab('subtab-order-parties')" id="btn-subtab-order-parties" data-i18n="subtabManageParties">出貨方管理</button>
-      <button class="subtab-btn" onclick="switchWarehouseAdminSubTab('subtab-purchase-mgmt-suppliers')" id="btn-subtab-purchase-mgmt-suppliers" data-i18n="secSupplierManagement">進貨方管理</button>
+      <button class="subtab-btn active" onclick="switchWarehouseAdminSubTab('subtab-supply-list')" id="btn-subtab-supply-list" data-i18n="subtabSupplyList">供應與清單管理</button>
       <button class="subtab-btn" onclick="switchWarehouseAdminSubTab('subtab-tx-forecast')" id="btn-subtab-tx-forecast" data-i18n="subtabTxForecast">進貨預估</button>
       <button class="subtab-btn" onclick="switchWarehouseAdminSubTab('subtab-tx-data')" id="btn-subtab-tx-data" data-i18n="subtabTxData">資料維護</button>
-      <button class="subtab-btn" onclick="switchWarehouseAdminSubTab('subtab-quicklist-mgmt')" id="btn-subtab-quicklist-mgmt" data-i18n="subtabQuickListMgmt">快捷清單管理</button>
       <button class="subtab-btn" onclick="switchWarehouseAdminSubTab('subtab-purchase-mgmt-ocrdb')" id="btn-subtab-purchase-mgmt-ocrdb" data-i18n="secReceiptOcrDb">掃描收據數據庫</button>
     </div>
 
-    <div id="subtab-quicklist-mgmt" class="subtab-content">
+    <div id="subtab-supply-list" class="subtab-content active-subtab">
+    <div class="log-select-bar" style="margin-bottom:14px;">
+      <select id="supplyListSelect" onchange="switchSupplyListPane(this.value)" style="font-size:16px;font-weight:700;padding:10px 14px;min-width:240px;border:2px solid var(--ink);border-radius:6px;background:#fff;color:var(--ink);cursor:pointer;">
+        <option value="subtab-order-parties" data-i18n="optSupplyParties">出貨方</option>
+        <option value="subtab-purchase-mgmt-suppliers" data-i18n="optSupplySuppliers">進貨方</option>
+        <option value="subtab-quicklist-mgmt" data-i18n="optSupplyQuickLists">快捷清單</option>
+      </select>
+    </div>
+    <div id="subtab-quicklist-mgmt" class="supply-pane">
       <div class="section-title" data-i18n="subtabQuickListMgmt">快捷清單管理</div>
       <p style="font-size:12.5px;color:var(--ink-soft);margin:0 0 12px;" data-i18n="quickListMgmtDesc">
         把常看的特定商品存成一份清單,之後可以在庫存總覽、進貨預估篩選,資料維護匯出時也能直接匯入。
@@ -1723,7 +1740,7 @@
       <div id="quickListMgmtRoot"></div>
     </div>
 
-    <div id="subtab-order-parties" class="subtab-content active-subtab">
+    <div id="subtab-order-parties" class="supply-pane active-pane">
       <div class="section-title" style="margin-bottom:8px;" data-i18n="secManageParties">管理出貨方</div>
       <p style="font-size:12.5px;color:var(--ink-soft);margin:0 0 12px;" data-i18n="managePartiesDesc">
         這裡新增/編輯的出貨方,會直接出現在「訂貨」分頁的「出貨方」下拉選單裡。每個出貨方預設可以看到所有可訂貨的商品,可以點「設定可訂購商品」再個別調整。
@@ -1749,7 +1766,7 @@
       </div>
     </div>
 
-    <div id="subtab-purchase-mgmt-suppliers" class="subtab-content">
+    <div id="subtab-purchase-mgmt-suppliers" class="supply-pane">
       <div class="toolbar">
         <div class="section-title" style="margin:0;" data-i18n="secSupplierManagement">進貨方管理</div>
         <button class="btn" onclick="openSupplierEditModal(null)" data-i18n="btnAddSupplier">+ 新增供應商</button>
@@ -1758,6 +1775,8 @@
         登記進出貨的進貨方下拉選單會依這個清單顯示(依名稱排序);刪除的供應商不會再出現在下拉選單裡,但不會影響已經建立的進貨單紀錄。
       </p>
       <div id="supplierManagementTable"></div>
+    </div>
+
     </div>
 
     <div id="subtab-purchase-mgmt-ocrdb" class="subtab-content">
@@ -1824,6 +1843,7 @@
         <p style="font-size:12px;color:var(--ink-soft);margin:0 0 10px;" data-i18n="forecastRecordsDesc">按「載入」會把這份紀錄帶回目前的預估表。</p>
         <div id="forecastRecordsContainer"></div>
       </div>
+      <label style="display:flex;align-items:center;gap:6px;margin:0 0 10px;font-size:13px;cursor:pointer;"><input type="checkbox" id="forecastOrderPlacedChk" onchange="forecastOrderPlaced=this.checked" style="width:15px;height:15px;" /><span data-i18n="chkForecastOrderPlaced">已訂貨</span></label>
       <div class="field-block" style="margin-bottom:10px;">
         <label data-i18n="fieldForecastNote">附註</label>
         <textarea id="forecastNoteInput" rows="2" style="width:100%;" oninput="forecastNote=this.value" data-i18n-placeholder="phForecastNote" placeholder="預估表附註(會一起存進預估表記錄、匯出)"></textarea>
@@ -1883,6 +1903,7 @@
         <div id="exportProductPickerMount" style="display:none;margin-bottom:12px;"></div>
         <div id="exportProductList"></div>
         <button class="btn" onclick="exportShipmentSheet()" data-i18n="btnExportReport">📄 匯出報表(Excel)</button>
+        <button class="btn ghost" onclick="openExportEmailModal()" data-i18n="btnExportAndEmail">✉️ 匯出並寄出 email</button>
         <div id="exportShipmentMsg" class="msg"></div>
       </div>
     </div>
@@ -1963,8 +1984,40 @@
       </div>
 
       <div id="subtab-order-completed" class="subtab-content">
+        <div class="section-title" style="margin:0 0 6px;" data-i18n="subtabCompletedOrders">已完成訂單</div>
+        <p style="font-size:12.5px;color:var(--ink-soft);margin:0 0 10px;" data-i18n="completedOrders30DayNote">此頁面僅顯示最近 30 天的紀錄,如果要看之前的紀錄,請到「歷史紀錄」→「已完成訂單」查閱。</p>
+        <div class="form-grid" style="grid-template-columns:1fr auto;margin-bottom:14px;">
+          <div class="field">
+            <label data-i18n="fieldShippingParty">出貨方</label>
+            <select id="recentCompletedOrderPartyFilter" onchange="renderOrders()">
+              <option value="" data-i18n="optAllParties">全部出貨方</option>
+            </select>
+          </div>
+          <button class="btn ghost" onclick="document.getElementById('recentCompletedOrderPartyFilter').value='';renderOrders()" style="align-self:flex-end;" data-i18n="btnClearFilter">清除篩選</button>
+        </div>
+        <div id="recentCompletedOrdersList">
+          <div class="empty-note" data-i18n="noCompletedOrders">還沒有任何已完成的訂單。</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="tab-log" class="tab-content">
+    <div class="log-select-bar">
+      <select id="logSubtabSelect" onchange="switchLogSubTab(this.value)">
+        <option value="subtab-log-purchases" data-i18n="secPurchaseLog">進貨單</option>
+        <option value="subtab-log-completed" data-i18n="subtabCompletedOrders">已完成訂單</option>
+        <option value="subtab-log-forecast" data-i18n="subtabLogForecast">進貨預估紀錄</option>
+        <option value="subtab-log-tx" data-i18n="subtabLogTx" selected>進出貨紀錄</option>
+        <option value="subtab-log-convert" data-i18n="subtabLogConvert">切換紀錄</option>
+        <option value="subtab-log-exports" data-i18n="subtabLogExports">匯出紀錄</option>
+        <option value="subtab-log-inventory" data-i18n="subtabLogInventory">後台紀錄</option>
+      </select>
+    </div>
+
+      <div id="subtab-log-completed" class="subtab-content">
         <div class="section-title" style="margin:0 0 10px;" data-i18n="subtabCompletedOrders">已完成訂單</div>
-        <div class="form-grid" style="grid-template-columns:1fr 160px 160px auto auto;margin-bottom:14px;">
+        <div class="form-grid" style="grid-template-columns:1fr 160px 160px auto;margin-bottom:14px;">
           <div class="field">
             <label data-i18n="fieldShippingParty">出貨方</label>
             <select id="completedOrderPartyFilter" onchange="renderOrders()">
@@ -1980,23 +2033,12 @@
             <input type="date" id="completedOrderDateTo" onchange="renderOrders()" />
           </div>
           <button class="btn ghost" onclick="clearCompletedOrderFilters()" style="align-self:flex-end;" data-i18n="btnClearFilter">清除篩選</button>
-          <button class="btn ghost" onclick="exportOrdersSheet()" style="align-self:flex-end;" data-i18n="btnExportOrderSheet">📤 匯出訂貨單</button>
         </div>
         <div id="orderExportMsg" class="msg"></div>
         <div id="completedOrdersList">
           <div class="empty-note" data-i18n="noCompletedOrders">還沒有任何已完成的訂單。</div>
         </div>
       </div>
-    </div>
-  </div>
-
-  <div id="tab-log" class="tab-content">
-    <div class="subtab-bar">
-      <button class="subtab-btn active" onclick="switchLogSubTab('subtab-log-tx')" id="btn-subtab-log-tx" data-i18n="subtabLogTx">進出貨紀錄</button>
-      <button class="subtab-btn" onclick="switchLogSubTab('subtab-log-purchases')" id="btn-subtab-log-purchases" data-i18n="secPurchaseLog">進貨單</button>
-      <button class="subtab-btn" onclick="switchLogSubTab('subtab-log-convert')" id="btn-subtab-log-convert" data-i18n="subtabLogConvert">切換紀錄</button>
-      <button class="subtab-btn" onclick="switchLogSubTab('subtab-log-inventory')" id="btn-subtab-log-inventory" data-i18n="subtabLogInventory">後台紀錄</button>
-    </div>
 
     <div id="subtab-log-tx" class="subtab-content active-subtab">
       <div class="section">
@@ -2080,6 +2122,21 @@
         </div>
         <div id="purchaseLogExportMsg" class="msg"></div>
         <div id="purchaseLogTable"><div class="empty-note" data-i18n="noPurchasesYet">尚無進貨單紀錄</div></div>
+      </div>
+    </div>
+
+    <div id="subtab-log-forecast" class="subtab-content">
+      <div class="section">
+        <div class="section-title" style="margin:0 0 10px;" data-i18n="subtabLogForecast">進貨預估紀錄</div>
+        <div id="logForecastRecordsContainer"></div>
+      </div>
+    </div>
+
+    <div id="subtab-log-exports" class="subtab-content">
+      <div class="section">
+        <div class="section-title" style="margin:0 0 6px;" data-i18n="subtabLogExports">匯出紀錄</div>
+        <p style="font-size:12.5px;color:var(--ink-soft);margin:0 0 12px;" data-i18n="exportLogDesc">這裡列出匯出報表時選擇「匯出並寄出 email」的紀錄:標題、附加的匯出檔案,以及寄出的時間。</p>
+        <div id="exportLogContainer"></div>
       </div>
     </div>
 
@@ -2235,6 +2292,33 @@
     <div class="modal-actions">
       <button class="btn ghost" onclick="closeSendPurchaseEmailModal()" data-i18n="btnCancel">取消</button>
       <button class="btn" id="btnConfirmSendPurchaseEmail" onclick="confirmSendPurchaseEmail()" data-i18n="btnConfirmSend">確認寄送</button>
+    </div>
+  </div>
+</div>
+
+<div id="exportEmailModalOverlay" class="modal-overlay" style="display:none;" onclick="if(event.target===this) closeExportEmailModal();">
+  <div class="modal-box" style="max-width:min(420px, 92vw);">
+    <div class="section-title" style="margin-bottom:12px;" data-i18n="modalExportEmailTitle">匯出並寄出 email</div>
+    <div class="field-block">
+      <label data-i18n="fieldExportRecordTitle">紀錄標題</label>
+      <input type="text" id="exportEmailTitleInput" maxlength="80" style="width:100%;" />
+    </div>
+    <div class="field-block">
+      <label data-i18n="fieldRecipientEmail">收件人 Email</label>
+      <input type="email" id="exportEmailToInput" style="width:100%;" multiple data-i18n-placeholder="multiEmailPlaceholder" placeholder="accounting@example.com" />
+    </div>
+    <div class="field-block">
+      <label data-i18n="fieldCcEmail">副本 CC(選填)</label>
+      <input type="email" id="exportEmailCcInput" style="width:100%;" multiple data-i18n-placeholder="multiEmailPlaceholder" placeholder="accounting@example.com" />
+    </div>
+    <div class="field-block">
+      <label data-i18n="fieldEmailNote">附註(選填)</label>
+      <textarea id="exportEmailNoteInput" rows="3" style="width:100%;resize:vertical;" data-i18n-placeholder="emailNotePlaceholder" placeholder="想在 email 裡補充的內容"></textarea>
+    </div>
+    <div id="exportEmailModalMsg" class="msg"></div>
+    <div class="modal-actions">
+      <button class="btn ghost" onclick="closeExportEmailModal()" data-i18n="btnCancel">取消</button>
+      <button class="btn" id="btnConfirmExportEmail" onclick="confirmExportEmail()" data-i18n="btnConfirmSend">確認寄送</button>
     </div>
   </div>
 </div>
@@ -3068,7 +3152,7 @@ async function loadData(){
   const prefetchP = prefetchAppData(['products','orderCounter','shippingParties','lang','autoBackupEnabled','autoConvertMultipack',
     'disableDirectVerify','accountingEmails','accountingEmail','stockLocationMode','stockLocationEnabledFields',
     'stockLocationShowOnPickingSlip','productSortMode','productManualRank','completedExportFormat',
-    'hideMultipackIconOnOrderPage','categoryOrder','tabOrder','subTabOrder','quickLists','forecastPrefs','forecastRecords',
+    'hideMultipackIconOnOrderPage','categoryOrder','tabOrder','subTabOrder','quickLists','forecastPrefs','forecastRecords','exportEmailLogs',
     'historyRangeMonths']);
   // 送貨單/進貨單/後台紀錄屬於歷史類資料,第一次用到(開對應分頁、備份…)才載入,見 db.js ensure*Loaded
   const tablesP = Promise.all([loadProductStock(), loadProductLocations(), loadReceiptLineMappings(), loadPurchaseSuppliers()]);
@@ -3454,6 +3538,8 @@ function renderAll(){
   renderVerifyPage();
   renderPartiesTable();
   renderForecastTable();
+  renderForecastRecords(); // 預估表記錄清單(預估表頁面 + 歷史紀錄)是動態產生的,切換語言時要跟著重畫
+  renderExportLog();
   refreshStockLocationView();
   // renderPurchaseReceiptPreviewList 現在在 transactions.js 裡(基本功能,不受收據掃描模組
   // 開關影響),一定存在,不需要再用 hasFeature 判斷要不要呼叫。

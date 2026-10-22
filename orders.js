@@ -591,12 +591,14 @@ function isPreVerificationStatus(order){
 }
 
 function populateCompletedOrderPartyFilter(){
-  const sel = document.getElementById('completedOrderPartyFilter');
-  if(!sel) return;
-  const prev = sel.value;
-  sel.innerHTML = `<option value="">${t('optAllParties')}</option>` +
-    shippingParties.map(sp => `<option value="${sp.id}">${sp.name.replace(/"/g,'&quot;')}</option>`).join('');
-  if(shippingParties.some(sp => sp.id === prev)) sel.value = prev;
+  ['completedOrderPartyFilter', 'recentCompletedOrderPartyFilter'].forEach(id => {
+    const sel = document.getElementById(id);
+    if(!sel) return;
+    const prev = sel.value;
+    sel.innerHTML = `<option value="">${t('optAllParties')}</option>` +
+      shippingParties.map(sp => `<option value="${sp.id}">${sp.name.replace(/"/g,'&quot;')}</option>`).join('');
+    if(shippingParties.some(sp => sp.id === prev)) sel.value = prev;
+  });
 }
 
 function populatePendingOrderPartyFilter(){
@@ -681,13 +683,33 @@ function orderItemRowHtml(o, it, isPending, readOnly, context){
   `;
 }
 
+// 已完成訂單有兩個畫面:歷史紀錄裡的完整版(日期/出貨方篩選,id=completedOrdersList),跟
+// 訂貨後台管理裡只顯示最近 30 天的精簡版(id=recentCompletedOrdersList)。兩邊共用同一份卡片
+// 內容(裡面有些元素 id 是用訂單 id 組出來的,例如備註輸入框),為了避免同時存在兩份造成 id 重複,
+// 只畫「目前看得到」的那一個、另一個清空;切換到該分頁時會重畫(見 nav.js)。
 function renderOrders(){
-  const container = document.getElementById('completedOrdersList');
-  if(!container) return;
+  const histC = document.getElementById('completedOrdersList');
+  const recentC = document.getElementById('recentCompletedOrdersList');
+  const histVisible = !!(histC && histC.offsetParent !== null);
+  const recentVisible = !!(recentC && recentC.offsetParent !== null);
+  if(recentC && !recentVisible) recentC.innerHTML = '';
+  if(histC && !histVisible) histC.innerHTML = '';
+  if(histVisible) renderCompletedOrdersInto(histC, false);
+  else if(recentVisible) renderCompletedOrdersInto(recentC, true);
+}
 
-  const partyFilter = document.getElementById('completedOrderPartyFilter') ? document.getElementById('completedOrderPartyFilter').value : '';
-  const dateFrom = document.getElementById('completedOrderDateFrom') ? document.getElementById('completedOrderDateFrom').value : '';
-  const dateTo = document.getElementById('completedOrderDateTo') ? document.getElementById('completedOrderDateTo').value : '';
+function renderCompletedOrdersInto(container, recentOnly){
+  const partyEl = document.getElementById(recentOnly ? 'recentCompletedOrderPartyFilter' : 'completedOrderPartyFilter');
+  const partyFilter = partyEl ? partyEl.value : '';
+  let dateFrom = '', dateTo = '';
+  if(recentOnly){
+    const d = new Date(); d.setDate(d.getDate() - 30);
+    const p = n => String(n).padStart(2, '0');
+    dateFrom = `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+  } else {
+    dateFrom = document.getElementById('completedOrderDateFrom') ? document.getElementById('completedOrderDateFrom').value : '';
+    dateTo = document.getElementById('completedOrderDateTo') ? document.getElementById('completedOrderDateTo').value : '';
+  }
 
   // 這裡改成兩種訂單都收:真的核對過、已經扣庫存出貨的('confirmed'),以及已經取消的待處理/
   // 處理中訂單(o.deleted 但從沒被核對過)。取消的訂單不會再回到「待處理訂單」清單卡著(那邊
