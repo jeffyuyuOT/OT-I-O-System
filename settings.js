@@ -176,6 +176,7 @@ async function restoreFromBackupFolder(){
     await saveShippingParties();
     await saveCategoryOrder();
     await restoreQuickListsFromBackup(backup);
+    const forecastRestoreOk = await restoreForecastDataFromBackup(backup);
     const seqSynced = await syncOrderNoSequenceAfterRestore(orders);
     // 這個資料夾既然能讀,順便記起來,之後自動備份也直接寫進同一個地方。
     backupDirHandle = dirHandle;
@@ -183,7 +184,7 @@ async function restoreFromBackupFolder(){
     updateAutoBackupStatus();
     msg.className = seqSynced ? 'msg ok' : 'msg error';
     msg.textContent = tf('restoredFromFileMsg', { filename: found.filename, products: products.length, transactions: transactions.length, orders: orders.length })
-      + (seqSynced ? '' : ' ' + t('warnOrderNoSeqSyncFailed'));
+      + (seqSynced ? '' : ' ' + t('warnOrderNoSeqSyncFailed')) + (forecastRestoreOk ? '' : ' ' + t('warnForecastRestoreFailed'));
     renderTabBar();
     renderAll();
   });
@@ -623,16 +624,7 @@ function importFullBackup(){
         await saveShippingParties();
         await saveCategoryOrder();
         await restoreQuickListsFromBackup(backup);
-        // 進貨預估記錄、預估表的單位/箱數選擇、匯出紀錄:備份檔裡有才還原(舊版備份檔沒有這幾項,不會把現有的清掉)。
-        try{
-          if(Array.isArray(backup.forecastRecords)){ forecastRecords = backup.forecastRecords; await saveForecastRecords(); }
-          if(backup.forecastPrefs && typeof backup.forecastPrefs === 'object'){
-            forecastUnitChoice = backup.forecastPrefs.unitChoice || {};
-            forecastBoxBasis = backup.forecastPrefs.boxBasis || {};
-            await saveForecastPrefs();
-          }
-          if(Array.isArray(backup.exportEmailLogs)){ exportEmailLogs = backup.exportEmailLogs; await saveExportEmailLogs(); }
-        } catch(e){ console.error('還原進貨預估/匯出紀錄失敗', e); }
+        const forecastRestoreOk = await restoreForecastDataFromBackup(backup);
         // inventory_log 是稽核用途的紀錄,故意不開放前端刪除(見 clearInventoryLogTable 旁邊的
         // 說明)——還原備份的時候也一樣不整批覆蓋,只把備份裡的紀錄用 upsert 補進去,已經存在的
         // (id 相同)就跳過不動,不會覆蓋掉還原當下資料庫裡已經有的紀錄。
@@ -656,7 +648,7 @@ function importFullBackup(){
         const seqSynced = await syncOrderNoSequenceAfterRestore(orders);
         msg.className = seqSynced ? 'msg ok' : 'msg error';
         msg.textContent = tf('restoredBackupMsg', { products: products.length, transactions: transactions.length, orders: orders.length })
-          + (seqSynced ? '' : ' ' + t('warnOrderNoSeqSyncFailed'));
+          + (seqSynced ? '' : ' ' + t('warnOrderNoSeqSyncFailed')) + (forecastRestoreOk ? '' : ' ' + t('warnForecastRestoreFailed'));
         fileInput.value = '';
         renderTabBar();
         renderAll();
@@ -1034,4 +1026,24 @@ async function saveProductManualOrder(){
   if(document.getElementById('stockCards')) renderStockCards();
   if(document.getElementById('orderItemsTable')) renderOrderItemsTable();
   if(msgEl){ msgEl.style.color = 'var(--safe)'; msgEl.textContent = t('msgOrderSaved'); }
+}
+
+
+// 進貨預估記錄、預估表的單位/箱數選擇、匯出紀錄:備份檔裡有才還原(舊版備份檔沒有這幾項,不會把現有的清掉)。
+// 回傳 false 表示還原過程出錯(已記在 console),呼叫端會在畫面上提示。
+async function restoreForecastDataFromBackup(backup){
+  try{
+    if(Array.isArray(backup.forecastRecords)){ forecastRecords = backup.forecastRecords; await saveForecastRecords(); }
+    if(backup.forecastPrefs && typeof backup.forecastPrefs === 'object'){
+      forecastUnitChoice = backup.forecastPrefs.unitChoice || {};
+      forecastBoxBasis = backup.forecastPrefs.boxBasis || {};
+      await saveForecastPrefs();
+    }
+    if(Array.isArray(backup.exportEmailLogs)){ exportEmailLogs = backup.exportEmailLogs; await saveExportEmailLogs(); }
+    if(typeof renderForecastRecords === 'function') renderForecastRecords();
+    return true;
+  } catch(e){
+    console.error('還原進貨預估/匯出紀錄失敗', e);
+    return false;
+  }
 }
