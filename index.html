@@ -133,6 +133,14 @@
   .header p{ margin:0; font-size:13px; color:#B8B6AC; }
 
   .panel{ background:var(--panel); border:1px solid var(--line); }
+  /* 歷史紀錄:下拉選單放大,下面各子分頁的內容跟下拉選單靠左對齊、減少上方空白 */
+  .supply-pane{ display:none; }
+  .supply-pane.active-pane{ display:block; }
+  #tab-log{ padding:16px 36px 0; }
+  #tab-log .log-select-bar{ margin:0 0 14px; }
+  #tab-log .log-select-bar select{ font-size:17px; font-weight:700; padding:12px 16px; min-width:320px; max-width:100%; border:2px solid var(--ink); border-radius:6px; background:#fff; color:var(--ink); cursor:pointer; }
+  #tab-log .subtab-content > .section{ padding:0 0 20px; border-bottom:none; }
+  #tab-log .section-title{ margin-bottom:10px; }
   .section{ padding:26px 36px; border-bottom:1px solid var(--line); }
   .section:last-child{ border-bottom:none; }
   .section-title{
@@ -688,6 +696,9 @@
       background:#fff; font-size:16px; cursor:pointer; padding:0;
     }
     .section{ padding:16px; }
+    #tab-log{ padding:12px 16px 0; }
+    #tab-log .log-select-bar select{ min-width:0; width:100%; }
+
     .section-title{ font-size:12px; }
 
     /* 手機版「選單首頁」:登入後一開始看到的畫面,把每個分頁變成一個一個大按鍵,點了才進去看
@@ -1707,15 +1718,21 @@
   <div id="tab-warehouse-admin" class="tab-content">
     <div class="section">
     <div class="subtab-bar">
-      <button class="subtab-btn active" onclick="switchWarehouseAdminSubTab('subtab-order-parties')" id="btn-subtab-order-parties" data-i18n="subtabManageParties">出貨方管理</button>
-      <button class="subtab-btn" onclick="switchWarehouseAdminSubTab('subtab-purchase-mgmt-suppliers')" id="btn-subtab-purchase-mgmt-suppliers" data-i18n="secSupplierManagement">進貨方管理</button>
+      <button class="subtab-btn active" onclick="switchWarehouseAdminSubTab('subtab-supply-list')" id="btn-subtab-supply-list" data-i18n="subtabSupplyList">供應與清單管理</button>
       <button class="subtab-btn" onclick="switchWarehouseAdminSubTab('subtab-tx-forecast')" id="btn-subtab-tx-forecast" data-i18n="subtabTxForecast">進貨預估</button>
       <button class="subtab-btn" onclick="switchWarehouseAdminSubTab('subtab-tx-data')" id="btn-subtab-tx-data" data-i18n="subtabTxData">資料維護</button>
-      <button class="subtab-btn" onclick="switchWarehouseAdminSubTab('subtab-quicklist-mgmt')" id="btn-subtab-quicklist-mgmt" data-i18n="subtabQuickListMgmt">快捷清單管理</button>
       <button class="subtab-btn" onclick="switchWarehouseAdminSubTab('subtab-purchase-mgmt-ocrdb')" id="btn-subtab-purchase-mgmt-ocrdb" data-i18n="secReceiptOcrDb">掃描收據數據庫</button>
     </div>
 
-    <div id="subtab-quicklist-mgmt" class="subtab-content">
+    <div id="subtab-supply-list" class="subtab-content active-subtab">
+    <div class="log-select-bar" style="margin-bottom:14px;">
+      <select id="supplyListSelect" onchange="switchSupplyListPane(this.value)" style="font-size:16px;font-weight:700;padding:10px 14px;min-width:240px;border:2px solid var(--ink);border-radius:6px;background:#fff;color:var(--ink);cursor:pointer;">
+        <option value="subtab-order-parties" data-i18n="optSupplyParties">出貨方</option>
+        <option value="subtab-purchase-mgmt-suppliers" data-i18n="optSupplySuppliers">進貨方</option>
+        <option value="subtab-quicklist-mgmt" data-i18n="optSupplyQuickLists">快捷清單</option>
+      </select>
+    </div>
+    <div id="subtab-quicklist-mgmt" class="supply-pane">
       <div class="section-title" data-i18n="subtabQuickListMgmt">快捷清單管理</div>
       <p style="font-size:12.5px;color:var(--ink-soft);margin:0 0 12px;" data-i18n="quickListMgmtDesc">
         把常看的特定商品存成一份清單,之後可以在庫存總覽、進貨預估篩選,資料維護匯出時也能直接匯入。
@@ -1723,7 +1740,7 @@
       <div id="quickListMgmtRoot"></div>
     </div>
 
-    <div id="subtab-order-parties" class="subtab-content active-subtab">
+    <div id="subtab-order-parties" class="supply-pane active-pane">
       <div class="section-title" style="margin-bottom:8px;" data-i18n="secManageParties">管理出貨方</div>
       <p style="font-size:12.5px;color:var(--ink-soft);margin:0 0 12px;" data-i18n="managePartiesDesc">
         這裡新增/編輯的出貨方,會直接出現在「訂貨」分頁的「出貨方」下拉選單裡。每個出貨方預設可以看到所有可訂貨的商品,可以點「設定可訂購商品」再個別調整。
@@ -1749,7 +1766,7 @@
       </div>
     </div>
 
-    <div id="subtab-purchase-mgmt-suppliers" class="subtab-content">
+    <div id="subtab-purchase-mgmt-suppliers" class="supply-pane">
       <div class="toolbar">
         <div class="section-title" style="margin:0;" data-i18n="secSupplierManagement">進貨方管理</div>
         <button class="btn" onclick="openSupplierEditModal(null)" data-i18n="btnAddSupplier">+ 新增供應商</button>
@@ -1758,6 +1775,8 @@
         登記進出貨的進貨方下拉選單會依這個清單顯示(依名稱排序);刪除的供應商不會再出現在下拉選單裡,但不會影響已經建立的進貨單紀錄。
       </p>
       <div id="supplierManagementTable"></div>
+    </div>
+
     </div>
 
     <div id="subtab-purchase-mgmt-ocrdb" class="subtab-content">
@@ -1984,7 +2003,7 @@
   </div>
 
   <div id="tab-log" class="tab-content">
-    <div class="field" style="margin-bottom:14px;max-width:260px;">
+    <div class="log-select-bar">
       <select id="logSubtabSelect" onchange="switchLogSubTab(this.value)">
         <option value="subtab-log-purchases" data-i18n="secPurchaseLog">進貨單</option>
         <option value="subtab-log-completed" data-i18n="subtabCompletedOrders">已完成訂單</option>

@@ -377,15 +377,14 @@ function switchTab(tabId){
     // 「管理出貨方」子分頁需要 cap-manage-parties 這個權限才看得到——沒有這個權限的話,
     // 那個按鈕整個藏起來,而且如果剛好停在那個子分頁上,要導回第一個子分頁(出貨方管理
     // 這個按鈕本身就是要藏的目標,所以導去下一個「進貨方管理」)。
-    const partiesBtn = document.getElementById('btn-subtab-order-parties');
-    if(partiesBtn) partiesBtn.style.display = hasCapability('cap-manage-parties') ? '' : 'none';
-    if(!hasCapability('cap-manage-parties')) switchWarehouseAdminSubTab('subtab-purchase-mgmt-suppliers');
+    // 「出貨方」選項需要 cap-manage-parties 權限,沒有的話在 switchSupplyListPane 裡會藏起來並改選進貨方。
+    switchSupplyListPane();
     // 「收據掃描數據庫」是收據掃描模組(receipt-scan-module.js,選配)的一部分——沒有這個模組的話,
     // 這個按鈕整個藏起來,理由跟上面「管理出貨方」一樣:模組沒帶,底下的功能(掃描比對記憶表)
     // 根本沒有意義存在,藏起來比留著一個點了也沒用的按鈕清楚。
     const ocrDbBtn = document.getElementById('btn-subtab-purchase-mgmt-ocrdb');
     if(ocrDbBtn) ocrDbBtn.style.display = hasFeature('receiptScanModule') ? '' : 'none';
-    if(!hasFeature('receiptScanModule')) switchWarehouseAdminSubTab('subtab-purchase-mgmt-suppliers');
+    if(!hasFeature('receiptScanModule')) switchWarehouseAdminSubTab('subtab-supply-list');
   }
   if(tabId === 'tab-master'){
     loadUsers().then(renderUsersTab);
@@ -451,18 +450,38 @@ function switchWarehouseOpsSubTab(subtabId){
 function switchWarehouseAdminSubTab(subtabId){
   const container = document.getElementById('tab-warehouse-admin');
   if(!container) return;
+  // 舊的三個子分頁(出貨方/進貨方/快捷清單)現在合併成「供應與清單管理」底下的下拉選單
+  let supplyPane = null;
+  if(['subtab-order-parties', 'subtab-purchase-mgmt-suppliers', 'subtab-quicklist-mgmt'].includes(subtabId)){
+    supplyPane = subtabId; subtabId = 'subtab-supply-list';
+  }
   document.body.classList.remove('mobile-subtab-menu-active');
   document.body.classList.add('mobile-subtab-content-active');
   container.querySelectorAll('.subtab-content').forEach(el => el.classList.remove('active-subtab'));
   container.querySelectorAll('.subtab-btn').forEach(el => el.classList.remove('active'));
-  if(subtabId === 'subtab-order-parties') renderPartiesTable();
-  else if(subtabId === 'subtab-purchase-mgmt-suppliers') renderSupplierManagementTable();
+  if(subtabId === 'subtab-supply-list') switchSupplyListPane(supplyPane);
   else if(subtabId === 'subtab-tx-forecast') renderForecastTable();
   else if(subtabId === 'subtab-tx-data'){ populateExportPartySelect(); renderExportProductList(); }
-  else if(subtabId === 'subtab-quicklist-mgmt') renderQuickListMgmt();
   else if(subtabId === 'subtab-purchase-mgmt-ocrdb' && hasFeature('receiptScanModule')) renderOcrDbProductSelect();
   document.getElementById(subtabId).classList.add('active-subtab');
   document.getElementById('btn-' + subtabId).classList.add('active');
+}
+
+// 「供應與清單管理」下拉選單:出貨方 / 進貨方 / 快捷清單。沒有「管理出貨方」權限就不能選出貨方。
+function switchSupplyListPane(paneId){
+  const canParties = hasCapability('cap-manage-parties');
+  const sel = document.getElementById('supplyListSelect');
+  if(sel){
+    const opt = sel.querySelector('option[value="subtab-order-parties"]');
+    if(opt) opt.hidden = opt.disabled = !canParties;
+  }
+  if(!paneId) paneId = (sel && sel.value) || 'subtab-order-parties';
+  if(paneId === 'subtab-order-parties' && !canParties) paneId = 'subtab-purchase-mgmt-suppliers';
+  if(sel && sel.value !== paneId) sel.value = paneId;
+  document.querySelectorAll('#subtab-supply-list .supply-pane').forEach(el => el.classList.toggle('active-pane', el.id === paneId));
+  if(paneId === 'subtab-order-parties') renderPartiesTable();
+  else if(paneId === 'subtab-purchase-mgmt-suppliers') renderSupplierManagementTable();
+  else if(paneId === 'subtab-quicklist-mgmt') renderQuickListMgmt();
 }
 
 // 歷史紀錄分頁(tab-log)自己的子分頁切換(進出貨紀錄/切換紀錄/Delivery Note紀錄/後台紀錄),

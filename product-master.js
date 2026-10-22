@@ -846,7 +846,13 @@ function renderExportLog(){
         <td class="row-name">${escapeHtmlText(l.title)}${l.note ? ` <span class="del-link" title="${escapeHtmlText(l.note)}" style="margin-left:4px;">📝</span>` : ''}</td>
         <td><a href="${escapeHtmlText(l.url || '#')}" target="_blank" rel="noopener" download="${escapeHtmlText(l.filename || '')}">📎 ${escapeHtmlText(l.filename || '')}</a></td>
         <td>${escapeHtmlText(formatOrderDateTime(l.sentAt))}</td>
-        <td>${escapeHtmlText(l.to || '')}</td>
+        <td>${escapeHtmlText(String(l.to || '').split(',')[0].trim())}${(l.cc || String(l.to || '').includes(',')) ? ` <span class="del-link" style="cursor:pointer;font-weight:700;" title="${t('btnViewRecipients')}" onclick="showExportLogRecipients('${l.id}')">…</span>` : ''}</td>
       </tr>`).join('')}</tbody>
     </table>`;
+}
+
+function showExportLogRecipients(id){
+  const l = exportEmailLogs.find(x => x.id === id);
+  if(!l) return;
+  showInfoModal(`${t('colExportTo')}: ${l.to || '-'}` + (l.cc ? `\nCC: ${l.cc}` : ''));
 }
