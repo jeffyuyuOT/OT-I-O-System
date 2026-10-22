@@ -416,7 +416,7 @@ const I18N = {
 
     secExportReport: '匯出報表',
     exportReportDesc: '選擇「類型」(出貨/進貨/入庫),依「對象」跟日期區間篩選紀錄,匯出成 Excel 報表(格式比照 stock_out_sheet 範本,含 SKU、分類等欄位)。<b>同一對象、同一商品在選取區間內會自動加總成一筆</b>,不會重複列出每一次的紀錄。',
-    fieldExportType: '類型', exportTypeOut: '出貨', exportTypeIn: '進貨', exportTypeRestock: '入庫', exportTypePending: '待處理訂單出貨',
+    fieldExportType: '類型', exportTypeOut: '出貨', exportTypeIn: '進貨', exportTypeRestock: '入庫', exportTypePending: '待出貨訂單(彙總)',
     fieldFromDate: '從日期', fieldToDate: '到日期', btnExportReport: '📄 匯出報表(Excel)',
     exportPartyLabelOut: '門市/對象', exportPartyLabelIn: '供應商/對象', exportPartyLabelRestock: '來源/對象',
     noMatchingRecordsToExport: '沒有符合條件的{type}紀錄可以匯出',
@@ -650,6 +650,7 @@ const I18N = {
     forecastLinkedPurchase: '對應進貨單', forecastLinkedPurchaseUnknown: '(找不到進貨單資料)', forecastRecordNoQtyItems: '這份記錄沒有填寫數量的商品。',
     colForecastRecordStatus: '狀態', forecastRecordItemsCount: '{q} 項商品',
     subtabSupplyList: '供應與清單管理', optSupplyParties: '出貨方', optSupplySuppliers: '進貨方', optSupplyQuickLists: '快捷清單',
+    warnForecastRestoreFailed: '⚠ 進貨預估記錄還原失敗,請重新整理後再試一次。',
     optForecastSave: '儲存預估表', optForecastRecords: '預估表記錄', optForecastExport: '匯出預估表',
     optLoadAsForecast: '預估表', optLoadAsPurchase: '進貨', lblLoadAs: '載入為',
     fieldForecastNote: '附註', phForecastNote: '預估表附註(會一起存進預估表記錄、匯出)',
@@ -1083,7 +1084,7 @@ const I18N = {
 
     secExportReport: 'Export Report',
     exportReportDesc: 'Pick a "Type" (Stock Out/In/Restock), filter by "Party" and date range, and export an Excel report (formatted like the stock_out_sheet template, with SKU, category, etc.). <b>Records for the same party and product within the selected range are automatically summed into one line</b> — individual transactions are not listed separately.',
-    fieldExportType: 'Type', exportTypeOut: 'Stock Out', exportTypeIn: 'Stock In', exportTypeRestock: 'Restock', exportTypePending: 'Pending Order Shipments',
+    fieldExportType: 'Type', exportTypeOut: 'Stock Out', exportTypeIn: 'Stock In', exportTypeRestock: 'Restock', exportTypePending: 'Orders to Ship (Summary)',
     fieldFromDate: 'From Date', fieldToDate: 'To Date', btnExportReport: '📄 Export Report (Excel)',
     exportPartyLabelOut: 'Store/Party', exportPartyLabelIn: 'Supplier/Party', exportPartyLabelRestock: 'Source/Party',
     noMatchingRecordsToExport: 'No {type} records match these filters to export',
@@ -1317,6 +1318,7 @@ const I18N = {
     forecastLinkedPurchase: 'Linked purchase', forecastLinkedPurchaseUnknown: '(purchase record not found)', forecastRecordNoQtyItems: 'No products with a quantity in this record.',
     colForecastRecordStatus: 'Status', forecastRecordItemsCount: '{q} item(s)',
     subtabSupplyList: 'Supply & List Management', optSupplyParties: 'Customers', optSupplySuppliers: 'Suppliers', optSupplyQuickLists: 'Quick Lists',
+    warnForecastRestoreFailed: '⚠ Failed to restore forecast records, please refresh and try again.',
     optForecastSave: 'Save forecast sheet', optForecastRecords: 'Forecast records', optForecastExport: 'Export forecast sheet',
     optLoadAsForecast: 'Forecast sheet', optLoadAsPurchase: 'Purchase', lblLoadAs: 'Load as',
     fieldForecastNote: 'Note', phForecastNote: 'Forecast note (saved with the record and exported)',
