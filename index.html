@@ -134,6 +134,7 @@
 
   .panel{ background:var(--panel); border:1px solid var(--line); }
   /* 歷史紀錄:下拉選單放大,下面各子分頁的內容跟下拉選單靠左對齊、減少上方空白 */
+  .pending-toggle-mobile{ display:none; }
   .supply-pane{ display:none; }
   .supply-pane.active-pane{ display:block; }
   #tab-log{ padding:16px 36px 0; }
@@ -696,6 +697,7 @@
       background:#fff; font-size:16px; cursor:pointer; padding:0;
     }
     .section{ padding:16px; }
+    .pending-toggle-mobile{ display:flex; }
     #tab-log{ padding:12px 16px 0; }
     #tab-log .log-select-bar select{ min-width:0; width:100%; }
 
@@ -1580,6 +1582,10 @@
           </select>
         </div>
         <div class="overview-toolbar-right" style="display:flex;gap:10px;align-items:flex-start;flex-wrap:wrap;justify-content:flex-end;">
+          <label class="pending-toggle-mobile" style="align-items:center;gap:5px;font-size:12px;color:var(--ink-soft);cursor:pointer;padding-top:8px;">
+            <input type="checkbox" id="stockIncludePendingMobile" onchange="toggleStockIncludePending(this.checked)" />
+            <span data-i18n="chkIncludePending">包含進貨預估</span>
+          </label>
           <label style="display:flex;align-items:center;gap:5px;font-size:12px;color:var(--ink-soft);cursor:pointer;padding-top:8px;">
             <input type="checkbox" id="showHiddenProducts" onchange="toggleShowHiddenProducts(this.checked)" />
             <span data-i18n="showHiddenProducts">顯示隱藏商品</span>

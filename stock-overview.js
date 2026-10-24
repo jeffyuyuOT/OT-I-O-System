@@ -135,8 +135,8 @@ function renderStockCards(){
         <td class="row-num row-stock-own"><span class="td-mobile-label">${t('colStock')}</span>${stock}</td>
         <td class="row-num row-stock-total"><span class="td-mobile-label">${t('colTotalStock')}</span><span class="row-value-line">${isSubRow ? '—' : totalStockDisplay}<span class="row-edit-cart">${editCartLinks}</span></span></td>
         <td class="row-num row-avg" ${avgTitle ? `title="${avgTitle}"` : ''}><span class="td-mobile-label">${t('colAvgOut')}</span>${avgLabel}</td>
-        <td class="row-num row-safety ${belowSafety ? 'row-below-safety' : ''}" ${safetyTitle ? `title="${safetyTitle}"` : ''}><span class="td-mobile-label">${t('colSafety')}</span><span class="row-value-line">${safetyText}${belowSafety ? ' ⚠' : ''}<span class="row-remain-inline ${!isSubRow ? `row-${gauge.cls}` : ''}" ${remainTitle ? `title="${remainTitle.replace(/"/g,'&quot;')}"` : ''}>${isSubRow ? '' : remainLabel}</span></span></td>
-        <td class="row-remain ${!isSubRow ? `row-${gauge.cls}` : ''}" ${remainTitle ? `title="${remainTitle.replace(/"/g,'&quot;')}"` : ''}><span class="td-mobile-label">${t('colRemain')}</span>${isSubRow ? '—' : remainLabel}</td>
+        <td class="row-num row-safety ${belowSafety ? 'row-below-safety' : ''}" ${safetyTitle ? `title="${safetyTitle}"` : ''}><span class="td-mobile-label">${t('colSafety')}</span><span class="row-value-line">${safetyText}${belowSafety ? ' ⚠' : ''}<span class="row-remain-inline ${!isSubRow ? `row-${gauge.cls}` : ''}" ${remainTitle ? `title="${remainTitle.replace(/"/g,'&quot;')}" data-tip="${remainTitle.replace(/"/g,'&quot;')}" onclick="showStockRemainTip(this)" style="cursor:pointer;text-decoration:underline dotted;"` : ''}>${isSubRow ? '' : remainLabel}</span></span></td>
+        <td class="row-remain ${!isSubRow ? `row-${gauge.cls}` : ''}" ${remainTitle ? `title="${remainTitle.replace(/"/g,'&quot;')}" data-tip="${remainTitle.replace(/"/g,'&quot;')}" onclick="showStockRemainTip(this)"` : ''}><span class="td-mobile-label">${t('colRemain')}</span>${isSubRow ? '—' : remainLabel}</td>
         <td class="row-action ${switchLink ? '' : 'row-action-switch-empty'}">
           ${hasCapability('cap-edit-overview') ? `
             <div class="row-action-inner">
@@ -452,6 +452,7 @@ function onStockActionChange(v){
 // ===== 庫存可撐「包含進貨預估」 =====
 let stockIncludePending = false;
 async function toggleStockIncludePending(on){
+  const mb = document.getElementById('stockIncludePendingMobile'); if(mb) mb.checked = !!on;
   if(on){ try{ await loadForecastRecords(); }catch(e){} }
   stockIncludePending = !!on;
   renderStockCards();
@@ -471,4 +472,10 @@ function getPendingForecastFor(anchor){
     });
   });
   return { total, recs };
+}
+
+// 手機版沒有滑鼠移上去的提示,點「庫存可撐」的數字改用小視窗顯示實際可撐跟包含的預估表。
+function showStockRemainTip(el){
+  const tip = el.getAttribute('data-tip');
+  if(tip && typeof isMobileViewport === 'function' && isMobileViewport()) showInfoModal(tip);
 }
