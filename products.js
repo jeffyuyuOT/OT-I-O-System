@@ -74,9 +74,90 @@ function openAddNewProductModal(){
   pendingTotalStockBasisChoice = null;
   const draft = { sku: '', name: '', unit: '', category: '未分類', manualAvg: null, safetyStock: null, note: '', orderPageRemark: '', barcode: '', parentId: null };
   document.getElementById('productEditModalTitle').textContent = t('btnAddProduct');
-  document.getElementById('productEditModalBody').innerHTML = renderProductEditModalBody(draft, { isNew: true });
+  copyItemSelectedId = null;
+  document.getElementById('productEditModalBody').innerHTML = copyItemPanelHtml() + '<div id="newProdFormWrap">' + renderProductEditModalBody(draft, { isNew: true }) + '</div>';
   document.getElementById('productEditModalMsg').textContent = '';
   document.getElementById('productEditModalOverlay').style.display = 'flex';
+}
+
+// ===== 新增商品視窗的「Copy Item」:勾選後可從現有商品挑一個,把資料(除了 barcode)複製進表單再手改 =====
+let copyItemSelectedId = null;
+
+function copyItemPanelHtml(){
+  const cats = categoryOrder.map(c => `<option value="${c}">${catLabel(c)}</option>`).join('');
+  return `
+    <div class="field-block" style="border-bottom:1px solid var(--line);padding-bottom:10px;margin-bottom:12px;">
+      <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-weight:600;">
+        <input type="checkbox" id="copyItemChk" onchange="toggleCopyItemPanel()" />
+        <span>${t('copyItemLabel')}</span>
+      </label>
+      <div id="copyItemPanel" style="display:none;margin-top:8px;">
+        <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:6px;">
+          <select id="copyItemCat" onchange="renderCopyItemList()" style="padding:6px;">
+            <option value="">${t('catFilterAll')}</option>${cats}
+          </select>
+          <input type="text" id="copyItemSearch" oninput="renderCopyItemList()" placeholder="${t('copyItemSearchPh')}" style="flex:1;min-width:120px;" />
+        </div>
+        <div id="copyItemList" style="max-height:180px;overflow:auto;border:1px solid var(--line);border-radius:4px;"></div>
+        <div style="display:flex;align-items:center;gap:8px;margin-top:8px;">
+          <button type="button" class="btn" id="copyItemConfirmBtn" onclick="confirmCopyItem()" disabled>${t('copyItemConfirm')}</button>
+          <span id="copyItemMsg" style="font-size:11.5px;color:var(--ink-soft);"></span>
+        </div>
+      </div>
+    </div>`;
+}
+
+function toggleCopyItemPanel(){
+  const on = document.getElementById('copyItemChk').checked;
+  document.getElementById('copyItemPanel').style.display = on ? 'block' : 'none';
+  if(on){ copyItemSelectedId = null; renderCopyItemList(); }
+}
+
+function renderCopyItemList(){
+  const box = document.getElementById('copyItemList');
+  if(!box) return;
+  const cat = document.getElementById('copyItemCat').value;
+  const q = document.getElementById('copyItemSearch').value.trim().toLowerCase();
+  const list = products.filter(p => {
+    if(cat){
+      const parent = p.parentId ? products.find(x => x.id === p.parentId) : null;
+      const pc = p.parentId ? (parent ? parent.category : p.category) : p.category;
+      if((pc || '未分類') !== cat) return false;
+    }
+    if(q && !((p.name || '').toLowerCase().includes(q) || (p.sku || '').toLowerCase().includes(q))) return false;
+    return true;
+  }).sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+  box.innerHTML = list.length ? list.map(p => `
+    <div onclick="selectCopyItem('${p.id}')" style="padding:6px 10px;cursor:pointer;font-size:13px;border-bottom:1px solid var(--line);${p.id === copyItemSelectedId ? 'background:var(--accent-soft, #fde8d4);font-weight:600;' : ''}">
+      ${(p.name || '').replace(/</g,'&lt;')}${p.sku ? `<span style="color:var(--ink-soft);font-size:11.5px;"> · ${String(p.sku).replace(/</g,'&lt;')}</span>` : ''}
+    </div>`).join('') : `<div style="padding:10px;font-size:12px;color:var(--ink-soft);">${t('copyItemNone')}</div>`;
+  const btn = document.getElementById('copyItemConfirmBtn');
+  if(btn) btn.disabled = !copyItemSelectedId;
+}
+
+function selectCopyItem(id){
+  copyItemSelectedId = id;
+  renderCopyItemList();
+}
+
+function confirmCopyItem(){
+  const src = products.find(p => p.id === copyItemSelectedId);
+  if(!src) return;
+  const parent = src.parentId ? products.find(x => x.id === src.parentId) : null;
+  const draft = {
+    sku: src.sku || '', name: src.name || '', unit: src.unit || '',
+    category: src.parentId ? ((parent && parent.category) || src.category || '未分類') : (src.category || '未分類'),
+    manualAvg: src.manualAvg !== undefined ? src.manualAvg : null,
+    safetyStock: src.safetyStock !== undefined ? src.safetyStock : null,
+    note: src.note || '', orderPageRemark: src.orderPageRemark || '',
+    barcode: '', // barcode 不複製
+    boxLengthCm: src.boxLengthCm, boxWidthCm: src.boxWidthCm, boxHeightCm: src.boxHeightCm,
+    parentId: null
+  };
+  editingProductPhotoUrl = src.photoUrl || null;
+  document.getElementById('newProdFormWrap').innerHTML = renderProductEditModalBody(draft, { isNew: true });
+  const m = document.getElementById('copyItemMsg');
+  if(m){ m.style.color = 'var(--safe)'; m.textContent = tf ? tf('copyItemDone', { name: src.name }) : t('copyItemDone'); }
 }
 
 // 猜測批量商品 SKU:主商品 SKU 後面接下一個還沒用過的英文字母(SKU005 → SKU005A、SKU005B...)。
@@ -341,6 +422,7 @@ async function saveProductEditModal(){
 
   if(!name){ msg.className = 'msg error'; msg.textContent = '商品名稱不能空白'; return; }
   if(products.some(x => x.id !== id && x.name === name)){ msg.className = 'msg error'; msg.textContent = '已經有另一個商品叫這個名字了'; return; }
+  if(isNewStandalone && sku && products.some(x => (x.sku || '').trim().toLowerCase() === sku.toLowerCase())){ msg.className = 'msg error'; msg.textContent = t('errDuplicateSku'); return; }
 
   let weightVal = null;
   if(isChild){
