@@ -89,6 +89,9 @@ function renderStockCards(){
     } else if(source === 'blended'){
       avgLabel = `${avgDisplayValue.toFixed(weight === 1 ? 1 : 2)} ${p.unit}${avgBaseSuffix}`;
       avgTitle = tn('avgTitleTransition', effAvg.monthsWithRecords.toFixed(1));
+    } else if(source === 'partial'){
+      avgLabel = `${avgDisplayValue.toFixed(weight === 1 ? 1 : 2)} ${p.unit}${avgBaseSuffix}`;
+      avgTitle = tn('avgTitlePartial', String(effAvg.weeks));
     } else if(source === 'manual'){
       avgLabel = `${avgDisplayValue.toFixed(weight === 1 ? 1 : 2)} ${p.unit}${avgBaseSuffix}`;
       avgTitle = t('avgTitleEstOnly');
