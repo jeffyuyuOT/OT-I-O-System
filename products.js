@@ -156,8 +156,14 @@ function confirmCopyItem(){
   };
   editingProductPhotoUrl = src.photoUrl || null;
   document.getElementById('newProdFormWrap').innerHTML = renderProductEditModalBody(draft, { isNew: true });
-  const m = document.getElementById('copyItemMsg');
-  if(m){ m.style.color = 'var(--safe)'; m.textContent = tf ? tf('copyItemDone', { name: src.name }) : t('copyItemDone'); }
+  // 複製完成:取消勾選並收起挑選視窗
+  const chk = document.getElementById('copyItemChk');
+  if(chk) chk.checked = false;
+  const panel = document.getElementById('copyItemPanel');
+  if(panel) panel.style.display = 'none';
+  copyItemSelectedId = null;
+  const pm = document.getElementById('productEditModalMsg');
+  if(pm){ pm.className = 'msg ok'; pm.textContent = tf('copyItemDone', { name: src.name }); }
 }
 
 // 猜測批量商品 SKU:主商品 SKU 後面接下一個還沒用過的英文字母(SKU005 → SKU005A、SKU005B...)。
