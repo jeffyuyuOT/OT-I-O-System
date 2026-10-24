@@ -3491,7 +3491,16 @@ function getEffectiveAvg(product, now){
     return { avg: computed.avg, source: 'log' };
   }
 
-  const manualVal = hasManual ? resolvedManual : 0;
+  // 沒有初始估計值:混合公式(÷12)是建立在「有初始值補足沒紀錄的月份」的前提上,沒有初始值時
+  // 直接除以 12 會讓數字嚴重偏低。改成依「已經過了幾週」推算:每週平均 = 總出貨量 ÷ 週數,
+  // 每月平均 = 每週平均 × 4.35(30.44 天 ÷ 7)。週數從第一筆出貨日算到今天,第幾週就算幾週
+  // (例如 10/3、10/10、10/17 各叫一次,到 17 號是第 3 週,月均 = (5+3+8)÷3×4.35)。
+  // 紀錄拉得越長,這個算法就越接近「總量 ÷ 月數」。
+  if(!hasManual){
+    const weeks = Math.floor(computed.historyDays / 7) + 1;
+    return { avg: computed.outQtyAll / weeks * (30.44 / 7), source: 'partial', weeks, monthsWithRecords: computed.monthsWithRecords };
+  }
+  const manualVal = resolvedManual;
   const monthsRemaining = 12 - computed.monthsWithRecords;
   const blended = (manualVal * monthsRemaining + computed.outQtyAll) / 12;
   return { avg: blended, source: 'blended', monthsWithRecords: computed.monthsWithRecords };
