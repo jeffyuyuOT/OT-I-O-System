@@ -264,7 +264,7 @@ async function sendPurchaseEmail(purchaseId, toEmail, ccEmail, msgEl, note){
 // purchase-exports bucket(單純是「寄信前暫存附件」用途,不是真的只限進貨單使用,不用另外
 //開一個 bucket)。Edge Function 那邊 invoiceNo 這個欄位借來放訂單編號,信件內文標籤是通用的
 // 「Reference No.」,不是寫死「Invoice No.」,兩種情境共用同一支函式不會顯示錯欄位名稱。
-async function sendOrderEmail(orderId, toEmail, ccEmail, msgEl, note){
+async function sendOrderEmail(orderId, toEmail, ccEmail, msgEl, note, exportMode){
   const order = orders.find(o => o.id === orderId);
   if(!order) throw new Error('找不到這張訂單');
   const toEmails = (toEmail || '').split(',').map(e => e.trim()).filter(Boolean);
@@ -276,7 +276,7 @@ async function sendOrderEmail(orderId, toEmail, ccEmail, msgEl, note){
 
   const partyLabel = order.partyName || 'Unspecified';
   const dateLabel = order.date;
-  const { aoa, hiddenRows } = buildOrderSheetAoa([order], partyLabel, dateLabel);
+  const { aoa, hiddenRows } = buildOrderSheetAoa([order], partyLabel, dateLabel, exportMode);
   const wb = buildOrderSheetWorkbook(aoa, hiddenRows);
   const excelArrayBuffer = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
   const excelBlob = new Blob([excelArrayBuffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
@@ -333,7 +333,9 @@ function openSendPurchaseEmailModal(purchaseId){
   document.getElementById('sendPurchaseEmailNoteInput').value = '';
   document.getElementById('sendPurchaseEmailModalOverlay').style.display = 'flex';
 }
-function openSendOrderEmailModal(orderId){
+let sendOrderEmailMode = 'general';
+function openSendOrderEmailModal(orderId, exportMode){
+  sendOrderEmailMode = exportMode === 'accountant' ? 'accountant' : 'general';
   const order = orders.find(o => o.id === orderId);
   if(!order) return;
   sendPurchaseEmailInFlight = false;
@@ -368,7 +370,7 @@ async function confirmSendPurchaseEmail(){
   const note = (document.getElementById('sendPurchaseEmailNoteInput').value || '').trim();
   try{
     if(sendEmailTargetType === 'order'){
-      await sendOrderEmail(sendPurchaseEmailTargetId, email, cc, msgEl, note);
+      await sendOrderEmail(sendPurchaseEmailTargetId, email, cc, msgEl, note, sendOrderEmailMode);
       renderOrders();
     } else {
       await sendPurchaseEmail(sendPurchaseEmailTargetId, email, cc, msgEl, note);

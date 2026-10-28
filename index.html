@@ -1885,6 +1885,13 @@
           </select>
         </div>
         <div class="field">
+          <label data-i18n="lblExportMode">匯出類型</label>
+          <select id="exportModeSelect">
+            <option value="general" data-i18n="optExportGeneral">一般匯出</option>
+            <option value="accountant" data-i18n="optExportAccountant">會計匯出</option>
+          </select>
+        </div>
+        <div class="field">
           <label id="exportPartyLabel" data-i18n="exportPartyLabelOut">門市/對象</label>
           <select id="exportPartySelect" onchange="renderExportMultiStoreChecklist()">
             <option value="" data-i18n="logPartyAll">全部對象</option>
@@ -2221,7 +2228,14 @@
     <div class="section-title" id="orderActionModalTitle" style="margin-bottom:12px;"></div>
     <div class="field">
       <label data-i18n="lblAction">Action</label>
-      <select id="orderActionModalSelect"></select>
+      <select id="orderActionModalSelect" onchange="updateOrderActionModeVisibility()"></select>
+    </div>
+    <div class="field" id="orderActionModeField" style="display:none;">
+      <label data-i18n="lblExportMode">匯出類型</label>
+      <select id="orderActionModeSelect">
+        <option value="general" data-i18n="optExportGeneral">一般匯出</option>
+        <option value="accountant" data-i18n="optExportAccountant">會計匯出</option>
+      </select>
     </div>
     <div class="modal-actions">
       <button class="btn ghost" onclick="closeOrderActionModal()" data-i18n="btnCancel">取消</button>
