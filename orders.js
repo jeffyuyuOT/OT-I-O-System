@@ -1430,7 +1430,6 @@ function openOrderActionModal(orderId, kind){
   }
   document.getElementById('orderActionModalTitle').textContent = (o.orderNo ? o.orderNo + ' · ' : '') + (o.date || '');
   document.getElementById('orderActionModalSelect').innerHTML = opts.map(([v, label, dis]) => `<option value="${v}" ${dis ? 'disabled' : ''}>${label}</option>`).join('');
-  document.getElementById('orderActionModeSelect').value = 'general';
   updateOrderActionModeVisibility();
   document.getElementById('orderActionModalOverlay').style.display = 'flex';
 }
@@ -1439,6 +1438,8 @@ function updateOrderActionModeVisibility(){
   const act = document.getElementById('orderActionModalSelect').value;
   const kind = orderActionTarget ? orderActionTarget.kind : '';
   const show = kind === 'completed' && (act === 'export' || act === 'email');
+  // 換動作就把匯出類型帶回預設:寄 Email 預設會計匯出,匯出預設一般匯出(之後仍可手動改)
+  document.getElementById('orderActionModeSelect').value = act === 'email' ? 'accountant' : 'general';
   document.getElementById('orderActionModeField').style.display = show ? '' : 'none';
 }
 function closeOrderActionModal(){
