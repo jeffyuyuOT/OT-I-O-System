@@ -452,8 +452,7 @@ async function exportShipmentSheet(opts){
   if(typeof XLSX === 'undefined'){ msg.className='msg error'; msg.textContent='Excel 套件載入失敗,請重新整理頁面再試一次'; return; }
 
   const type = document.getElementById('exportTypeSelect').value;
-  const exportModeEl = document.getElementById('exportModeSelect');
-  const exportMode = exportModeEl && exportModeEl.value === 'accountant' ? 'accountant' : 'general';
+  const exportMode = opts.exportMode === 'accountant' ? 'accountant' : 'general'; // 一般匯出 / 會計匯出(按匯出報表或寄 email 時才選)
   const meta = EXPORT_TYPE_META[type] || EXPORT_TYPE_META.out;
   const party = document.getElementById('exportPartySelect').value;
   const isMulti = party === EXPORT_MULTI_STORE_VALUE;
@@ -767,6 +766,20 @@ async function saveExportEmailLogs(){
   await dbSet('exportEmailLogs', JSON.stringify(exportEmailLogs));
 }
 
+// 匯出報表:按下才選「一般匯出」還是「會計匯出」(預設一般匯出)
+function openExportModeModal(){
+  document.getElementById('exportModeModalSelect').value = 'general';
+  document.getElementById('exportModeModalOverlay').style.display = 'flex';
+}
+function closeExportModeModal(){
+  document.getElementById('exportModeModalOverlay').style.display = 'none';
+}
+function confirmExportModeModal(){
+  const mode = document.getElementById('exportModeModalSelect').value;
+  closeExportModeModal();
+  exportShipmentSheet({ exportMode: mode });
+}
+
 function openExportEmailModal(){
   const defaults = getAccountingEmailToAndCc();
   const type = document.getElementById('exportTypeSelect').value;
@@ -775,6 +788,7 @@ function openExportEmailModal(){
   document.getElementById('exportEmailToInput').value = defaults.to || '';
   document.getElementById('exportEmailCcInput').value = defaults.cc || '';
   document.getElementById('exportEmailNoteInput').value = '';
+  document.getElementById('exportEmailModeSelect').value = 'accountant'; // 寄 email 預設會計匯出
   const m = document.getElementById('exportEmailModalMsg'); m.className = 'msg'; m.textContent = '';
   document.getElementById('exportEmailModalOverlay').style.display = 'flex';
 }
@@ -802,7 +816,7 @@ async function confirmExportEmail(){
   pageMsg.className = 'msg'; pageMsg.textContent = '';
   let ran = false;
   try{
-    await exportShipmentSheet({ emailJob: async (wb, filename) => {
+    await exportShipmentSheet({ exportMode: document.getElementById('exportEmailModeSelect').value, emailJob: async (wb, filename) => {
       ran = true;
       const buf = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
       const blob = new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });

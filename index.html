@@ -1911,13 +1911,6 @@
           </select>
         </div>
         <div class="field">
-          <label data-i18n="lblExportMode">匯出類型</label>
-          <select id="exportModeSelect">
-            <option value="general" data-i18n="optExportGeneral">一般匯出</option>
-            <option value="accountant" data-i18n="optExportAccountant">會計匯出</option>
-          </select>
-        </div>
-        <div class="field">
           <label id="exportPartyLabel" data-i18n="exportPartyLabelOut">門市/對象</label>
           <select id="exportPartySelect" onchange="renderExportMultiStoreChecklist()">
             <option value="" data-i18n="logPartyAll">全部對象</option>
@@ -1950,7 +1943,7 @@
         </div>
         <div id="exportProductPickerMount" style="display:none;margin-bottom:12px;"></div>
         <div id="exportProductList"></div>
-        <button class="btn" onclick="exportShipmentSheet()" data-i18n="btnExportReport">📄 匯出報表(Excel)</button>
+        <button class="btn" onclick="openExportModeModal()" data-i18n="btnExportReport">📄 匯出報表(Excel)</button>
         <button class="btn ghost" onclick="openExportEmailModal()" data-i18n="btnExportAndEmail">✉️ 匯出並寄出 email</button>
         <div id="exportShipmentMsg" class="msg"></div>
       </div>
@@ -2351,6 +2344,23 @@
   </div>
 </div>
 
+<div id="exportModeModalOverlay" class="modal-overlay" style="display:none;" onclick="if(event.target===this) closeExportModeModal();">
+  <div class="modal-box" style="max-width:min(340px, 92vw);">
+    <div class="section-title" style="margin-bottom:12px;" data-i18n="lblExportMode">匯出類型</div>
+    <div class="field-block">
+      <label data-i18n="lblExportMode">匯出類型</label>
+      <select id="exportModeModalSelect">
+        <option value="general" data-i18n="optExportGeneral">一般匯出</option>
+        <option value="accountant" data-i18n="optExportAccountant">會計匯出</option>
+      </select>
+    </div>
+    <div class="modal-actions">
+      <button class="btn ghost" onclick="closeExportModeModal()" data-i18n="btnCancel">取消</button>
+      <button class="btn" onclick="confirmExportModeModal()" data-i18n="btnExportReport">📄 匯出報表(Excel)</button>
+    </div>
+  </div>
+</div>
+
 <div id="exportEmailModalOverlay" class="modal-overlay" style="display:none;" onclick="if(event.target===this) closeExportEmailModal();">
   <div class="modal-box" style="max-width:min(420px, 92vw);">
     <div class="section-title" style="margin-bottom:12px;" data-i18n="modalExportEmailTitle">匯出並寄出 email</div>
@@ -2365,6 +2375,13 @@
     <div class="field-block">
       <label data-i18n="fieldCcEmail">副本 CC(選填)</label>
       <input type="email" id="exportEmailCcInput" style="width:100%;" multiple data-i18n-placeholder="multiEmailPlaceholder" placeholder="accounting@example.com" />
+    </div>
+<div class="field-block">
+      <label data-i18n="lblExportMode">匯出類型</label>
+      <select id="exportEmailModeSelect">
+        <option value="general" data-i18n="optExportGeneral">一般匯出</option>
+        <option value="accountant" data-i18n="optExportAccountant">會計匯出</option>
+      </select>
     </div>
     <div class="field-block">
       <label data-i18n="fieldEmailNote">附註(選填)</label>
@@ -2443,6 +2460,13 @@
           </div>
         </div>
       </div>
+    </div>
+    <div class="field-block">
+      <label data-i18n="lblExportMode">匯出類型</label>
+      <select id="stockExportModeSelect">
+        <option value="general" data-i18n="optExportGeneral">一般匯出</option>
+        <option value="accountant" data-i18n="optExportAccountant">會計匯出</option>
+      </select>
     </div>
     <div id="stockExportModalMsg" class="msg"></div>
     <div class="modal-actions">

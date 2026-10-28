@@ -818,6 +818,7 @@ async function toggleOrderable(id){
 // 先算出指定日期當天的庫存(把那天之後的所有進出貨都倒算回去),再把勾選分店在指定期間內的
 // 出貨量加回去(當作那段期間沒有出貨給他們)。兩個都不選就等於原本「匯出今天的庫存」的行為。
 function openStockExportModal(){
+  const _m = document.getElementById('stockExportModeSelect'); if(_m) _m.value = 'general';
   const asOfInput = document.getElementById('stockExportAsOfDateInput');
   asOfInput.value = todayISO();
   asOfInput.max = todayISO(); // 只能選今天或更早,選未來日期沒有意義,算不出「當時」的庫存
@@ -912,7 +913,8 @@ async function confirmStockExport(){
   // 「以某天為準」或「加回分店出庫」要用到較早的交易紀錄,先補載入
   const needFrom = [asOfDate < todayISO() ? asOfDate : '', excludeInfo ? excludeInfo.fromDate : ''].filter(Boolean).sort()[0];
   if(needFrom) await ensureTransactionsLoadedFrom(needFrom);
-  exportStockQuantitySheet({ asOfDate, excludeInfo });
+  const _modeEl = document.getElementById('stockExportModeSelect');
+  exportStockQuantitySheet({ asOfDate, excludeInfo, exportMode: _modeEl && _modeEl.value === 'accountant' ? 'accountant' : 'general' });
 }
 
 // 匯出庫存總覽的庫存數量:商品照分類順序排列,每個分類前面加一列分類標題,不同分類之間
@@ -925,6 +927,17 @@ function exportStockQuantitySheet(opts){
   opts = opts || {};
   const asOfDate = opts.asOfDate || todayISO();
   const excludeInfo = opts.excludeInfo || null;
+  const accountant = opts.exportMode === 'accountant';
+  // 會計匯出:勾了「會計匯出不顯示」的商品不列出;「整個家族都不顯示」模式連底下的批量商品一起隱藏,
+  // 「僅顯示切換的批量商品數量」模式只隱藏主商品本身(批量商品照常顯示)。一般匯出完全不受影響。
+  const accountantHiddenIds = new Set();
+  if(accountant){
+    products.forEach(p => {
+      if(!p.hideFromCompletedOrderExport) return;
+      accountantHiddenIds.add(p.id);
+      if(!p.parentId && p.hideFromCompletedOrderExportMode === 'wholeFamily') getChildProducts(p.id).forEach(c => accountantHiddenIds.add(c.id));
+    });
+  }
   const isHistorical = asOfDate < todayISO();
   const getStock = (pid) => {
     let v = isHistorical ? computeHistoricalStock(pid, asOfDate) : computeStock(pid);
@@ -988,9 +1001,11 @@ function exportStockQuantitySheet(opts){
   let totalItemCount = 0;
   const rows = [];
   familyRows.forEach(r => {
-    rows.push({ p: r.basis, cat: r.cat, stock: getStock(r.basis.id), totalStock: r.totalStock, isChild: false });
-    totalItemCount++;
-    const children = r.subMembers.slice().sort(compareProductsBySortMode);
+    if(!accountantHiddenIds.has(r.basis.id)){
+      rows.push({ p: r.basis, cat: r.cat, stock: getStock(r.basis.id), totalStock: r.totalStock, isChild: false });
+      totalItemCount++;
+    }
+    const children = r.subMembers.filter(c => !accountantHiddenIds.has(c.id)).sort(compareProductsBySortMode);
     children.forEach(c => {
       rows.push({ p: c, cat: r.cat, stock: getStock(c.id), isChild: true });
       totalItemCount++;
@@ -1047,7 +1062,7 @@ function exportStockQuantitySheet(opts){
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Stock Quantity');
 
-  const filename = `stock_quantity_${asOfDate}${excludeInfo ? '_excl' : ''}.xlsx`;
+  const filename = `stock_quantity_${asOfDate}${excludeInfo ? '_excl' : ''}${accountant ? '_accountant' : ''}.xlsx`;
   XLSX.writeFile(wb, filename);
 
   msg.className = 'msg ok';
