@@ -66,7 +66,7 @@ function renderPurchaseLog(){
       <tbody>
         ${sorted.map(p => `
           <tr>
-            <td class="pl-date" style="cursor:pointer;white-space:nowrap;" onclick="togglePurchaseDetail('${p.id}')"><span class="td-mobile-label">${t('colPurchaseDate')}</span>${escapeHtmlForPrint(p.date || '')}</td>
+            <td class="pl-date" style="cursor:pointer;white-space:nowrap;" onclick="togglePurchaseDetail('${p.id}')"><span class="td-mobile-label">${t('colPurchaseDate')}</span><span style="display:inline-block;width:14px;">${expandedPurchaseId === p.id ? '▾' : '▸'}</span>${escapeHtmlForPrint(p.date || '')}</td>
             <td class="pl-party" style="cursor:pointer;" onclick="togglePurchaseDetail('${p.id}')"><span class="td-mobile-label">${t('colPurchaseParty')}</span>${escapeHtmlForPrint(p.partyName || p.partyId || '')}</td>
             <td class="pl-invoice" style="cursor:pointer;" onclick="togglePurchaseDetail('${p.id}')"><span class="td-mobile-label">${t('colPurchaseInvoiceNo')}</span>${escapeHtmlForPrint(p.invoiceNo || '')}${getPurchaseReceiptFileList(p).length > 0 ? ` <span title="${t('hasReceiptAttachedTitle')}">📎</span>` : ''}</td>
             <td class="pl-actions" style="white-space:nowrap;">
@@ -80,8 +80,8 @@ function renderPurchaseLog(){
           </tr>
           ${expandedPurchaseId === p.id ? `
           <tr>
-            <td colspan="4" style="background:var(--panel);">
-              <table class="stock-table" style="margin:6px 0;">
+            <td colspan="4" style="background:#fff;">
+              ${orderBlockHtml('items', 'orderBlockItems', `<table class="stock-table" style="margin:2px 0;background:transparent;">
                 <thead><tr><th>${t('colProduct')}</th><th class="num">${t('colQty')}</th>${(p.items || []).some(it => it.amount) ? `<th class="num">${t('colAmount')}</th>` : ''}</tr></thead>
                 <tbody>
                   ${(p.items || []).map(it => {
@@ -93,11 +93,11 @@ function renderPurchaseLog(){
                     return `<tr><td>${escapeHtmlForPrint(it.name)}${badge}</td><td class="num">${displayQty} ${escapeHtmlForPrint(it.unit || '')}</td>${amountCell}</tr>`;
                   }).join('')}
                 </tbody>
-              </table>
-              ${p.note ? `<p style="font-size:12.5px;color:var(--ink);margin:0 0 8px;">${tf('purchaseNoteLabel', { note: escapeHtmlForPrint(p.note) })}</p>` : ''}
-              ${getPurchaseReceiptFileList(p).length > 0
+              </table>`)}
+              ${p.note ? orderBlockHtml('remark', 'orderBlockRemark', `<p style="font-size:12.5px;color:var(--ink);margin:0;">${tf('purchaseNoteLabel', { note: escapeHtmlForPrint(p.note) })}</p>`) : ''}
+              ${orderBlockHtml('party', 'orderBlockReceipt', getPurchaseReceiptFileList(p).length > 0
                 ? getPurchaseReceiptFileList(p).map(f => `<a href="${f.url}" target="_blank" style="font-size:12.5px;display:block;">📎 ${escapeHtmlForPrint(f.filename || t('linkViewUploadedReceipt'))}</a>`).join('')
-                : `<span style="font-size:12.5px;color:var(--ink-soft);">${t('purchaseNoReceiptLabel')}</span>`}
+                : `<span style="font-size:12.5px;color:var(--ink-soft);">${t('purchaseNoReceiptLabel')}</span>`)}
             </td>
           </tr>
           ` : ''}
@@ -264,7 +264,7 @@ async function sendPurchaseEmail(purchaseId, toEmail, ccEmail, msgEl, note){
 // purchase-exports bucket(單純是「寄信前暫存附件」用途,不是真的只限進貨單使用,不用另外
 //開一個 bucket)。Edge Function 那邊 invoiceNo 這個欄位借來放訂單編號,信件內文標籤是通用的
 // 「Reference No.」,不是寫死「Invoice No.」,兩種情境共用同一支函式不會顯示錯欄位名稱。
-async function sendOrderEmail(orderId, toEmail, ccEmail, msgEl, note){
+async function sendOrderEmail(orderId, toEmail, ccEmail, msgEl, note, exportMode){
   const order = orders.find(o => o.id === orderId);
   if(!order) throw new Error('找不到這張訂單');
   const toEmails = (toEmail || '').split(',').map(e => e.trim()).filter(Boolean);
@@ -276,7 +276,7 @@ async function sendOrderEmail(orderId, toEmail, ccEmail, msgEl, note){
 
   const partyLabel = order.partyName || 'Unspecified';
   const dateLabel = order.date;
-  const { aoa, hiddenRows } = buildOrderSheetAoa([order], partyLabel, dateLabel);
+  const { aoa, hiddenRows } = buildOrderSheetAoa([order], partyLabel, dateLabel, exportMode);
   const wb = buildOrderSheetWorkbook(aoa, hiddenRows);
   const excelArrayBuffer = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
   const excelBlob = new Blob([excelArrayBuffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
@@ -333,7 +333,9 @@ function openSendPurchaseEmailModal(purchaseId){
   document.getElementById('sendPurchaseEmailNoteInput').value = '';
   document.getElementById('sendPurchaseEmailModalOverlay').style.display = 'flex';
 }
-function openSendOrderEmailModal(orderId){
+let sendOrderEmailMode = 'general';
+function openSendOrderEmailModal(orderId, exportMode){
+  sendOrderEmailMode = exportMode === 'accountant' ? 'accountant' : 'general';
   const order = orders.find(o => o.id === orderId);
   if(!order) return;
   sendPurchaseEmailInFlight = false;
@@ -368,7 +370,7 @@ async function confirmSendPurchaseEmail(){
   const note = (document.getElementById('sendPurchaseEmailNoteInput').value || '').trim();
   try{
     if(sendEmailTargetType === 'order'){
-      await sendOrderEmail(sendPurchaseEmailTargetId, email, cc, msgEl, note);
+      await sendOrderEmail(sendPurchaseEmailTargetId, email, cc, msgEl, note, sendOrderEmailMode);
       renderOrders();
     } else {
       await sendPurchaseEmail(sendPurchaseEmailTargetId, email, cc, msgEl, note);
@@ -442,6 +444,7 @@ function openEditPurchaseModal(purchaseId){
   editPurchaseWorkingReceiptFiles = getPurchaseReceiptFileList(p).slice();
   editPurchaseWorkingItems = (p.items || []).map(it => ({...it}));
   document.getElementById('editPurchaseDateInput').value = p.date || '';
+  { const _amt = document.getElementById('editPurchaseAddItemAmount'); if(_amt){ _amt.disabled = !canEditPrice(); if(!canEditPrice()) _amt.value = ''; } }
   populateEditPurchasePartySelect(p.partyName || p.partyId || '');
   document.getElementById('editPurchaseInvoiceInput').value = p.invoiceNo || '';
   document.getElementById('editPurchaseNoteInput').value = p.note || '';
@@ -556,7 +559,7 @@ function renderEditPurchaseItemsList(){
           </div>
           <input type="number" value="${it.qty}" min="0" step="any" style="width:70px;" oninput="updateEditPurchaseItemQty(${i}, this.value)" />
           <span style="font-size:11.5px;color:var(--ink-soft);">${escapeHtmlForPrint(it.unit || '')}</span>
-          <input type="number" value="${it.amount !== undefined && it.amount !== null ? it.amount : ''}" min="0" step="any" placeholder="$" style="width:90px;" oninput="updateEditPurchaseItemAmount(${i}, this.value)" />
+          <input type="number" value="${it.amount !== undefined && it.amount !== null ? it.amount : ''}" min="0" step="any" placeholder="$" style="width:90px;" ${canEditPrice() ? '' : 'readonly title="' + t('priceReadOnlyTitle') + '"'} oninput="updateEditPurchaseItemAmount(${i}, this.value)" />
           <span class="del-link" onclick="removeEditPurchaseItem(${i})">${t('btnRemoveItem')}</span>
         </div>
       `).join('')}
@@ -570,6 +573,7 @@ function updateEditPurchaseItemQty(index, value){
   it.qty = Number.isFinite(n) ? n : 0;
 }
 function updateEditPurchaseItemAmount(index, value){
+  if(!canEditPrice()) return; // 沒有「編輯價錢」權限只能看不能改
   const it = editPurchaseWorkingItems[index];
   if(!it) return;
   if(value === ''){ delete it.amount; return; }
@@ -601,7 +605,7 @@ function addEditPurchaseItem(){
   if(!Number.isFinite(qty) || qty <= 0){ msgEl.className = 'msg error'; msgEl.textContent = t('errEnterPositiveQty'); return; }
   const p = products.find(x => x.id === productId);
   if(!p) return;
-  const amountVal = amountInput.value === '' ? undefined : parseFloat(amountInput.value);
+  const amountVal = (!canEditPrice() || amountInput.value === '') ? undefined : parseFloat(amountInput.value);
   // 手動新增的品項,如果剛好跟清單裡已經有的某一項是同一個商品、也同樣沒有 docType/來源檔案
   // (代表都是一般手動輸入的,不是分屬不同收據來源),直接把數量/金額併進那一列,不要平白多出
   // 重複的兩列看起來像同一個商品被記兩筆帳。

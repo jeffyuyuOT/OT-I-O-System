@@ -765,17 +765,15 @@ function renderCompletedOrdersInto(container, recentOnly){
             <span class="order-head-action" onclick="event.stopPropagation()"><button class="btn ghost" onclick="openOrderActionModal('${o.id}', 'completed')">${t('lblAction')} ▾</button></span></span>
         </div>
         ${isExpanded ? `
-          <div class="order-items">${itemsHtml}</div>
-          ${remarkHtml}
-          ${o.signedAt && o.signInfo ? `
-          <div class="section-title" style="font-size:13px;margin-top:10px;" data-i18n="secSignInfo">簽收資訊</div>
+          ${orderBlockHtml('items', 'orderBlockItems', `<div class="order-items">${itemsHtml}</div>`)}
+          ${orderBlockHtml('remark', 'orderBlockRemark', remarkHtml)}
+          ${o.signedAt && o.signInfo ? orderBlockHtml('sign', 'secSignInfo', `
           <div style="font-size:12.5px;color:var(--ink);">
             ${o.signInfo.type === 'warehouse'
               ? `${tf('signedByNameLabel', { name: o.signInfo.signerName || '' })}<br/>
                  <img src="${o.signInfo.signatureUrl}" onclick="openSignatureViewModal('${o.signInfo.signatureUrl}')" style="max-width:160px;max-height:80px;border:1px solid var(--line);border-radius:4px;background:#fff;margin-top:4px;cursor:pointer;" />`
               : tf('signedByUsernameLabel', { name: o.signInfo.username || '' })}
-          </div>
-          ` : ''}
+          </div>`) : ''}
           <div class="order-card-actions">
             ${(o.deleted || o.signedAt) ? '' : `<button class="btn ghost" onclick="editOrderViaRegister('${o.id}', 'completed')">${t('btnEdit')}</button>`}
             ${(o.deleted || o.signedAt) ? '' : `<button class="btn ghost" onclick="openWarehouseSignModal('${o.id}')">${t('btnWarehouseSign')}</button>`}
@@ -785,6 +783,12 @@ function renderCompletedOrdersInto(container, recentOnly){
       </div>
     `;
   }).join('');
+}
+
+// 訂單卡片展開內容的區塊:每個區塊有自己的標題跟淺色背景(品項=淺灰、備註=淺米、對象=淺藍灰、簽收=淺綠灰),
+// 已完成訂單跟待處理訂單共用,讓展開之後各段資訊一眼分得出來。
+function orderBlockHtml(kind, titleKey, innerHtml){
+  return `<div class="order-block ob-${kind}"><div class="order-block-title">${t(titleKey)}</div>${innerHtml}</div>`;
 }
 
 // 收集一張訂單所有品項的「一般修改紀錄」(核對前的改數量/新增/軟刪除),依時間排序(新到舊)。
@@ -1164,9 +1168,9 @@ function renderPendingOrders(){
           </span>
         </div>
         ${isExpanded ? `
-          <div class="order-items">${itemsHtml}</div>
-          ${remarkHtml}
-          ${o.deleted ? '' : partyEditHtml}
+          ${orderBlockHtml('items', 'orderBlockItems', `<div class="order-items">${itemsHtml}</div>`)}
+          ${orderBlockHtml('remark', 'orderBlockRemark', remarkHtml)}
+          ${o.deleted ? '' : orderBlockHtml('party', 'orderBlockParty', partyEditHtml)}
           <div class="order-card-actions">
             ${hasHistory ? `<button class="btn ghost" onclick="openOrderHistoryModal('${o.id}')">${t('btnViewHistory')}</button>` : ''}
           </div>
@@ -1426,7 +1430,16 @@ function openOrderActionModal(orderId, kind){
   }
   document.getElementById('orderActionModalTitle').textContent = (o.orderNo ? o.orderNo + ' · ' : '') + (o.date || '');
   document.getElementById('orderActionModalSelect').innerHTML = opts.map(([v, label, dis]) => `<option value="${v}" ${dis ? 'disabled' : ''}>${label}</option>`).join('');
+  document.getElementById('orderActionModeSelect').value = 'general';
+  updateOrderActionModeVisibility();
   document.getElementById('orderActionModalOverlay').style.display = 'flex';
+}
+// 匯出/寄 Email 才需要選「一般匯出/會計匯出」,列印跟其他動作不用。
+function updateOrderActionModeVisibility(){
+  const act = document.getElementById('orderActionModalSelect').value;
+  const kind = orderActionTarget ? orderActionTarget.kind : '';
+  const show = kind === 'completed' && (act === 'export' || act === 'email');
+  document.getElementById('orderActionModeField').style.display = show ? '' : 'none';
 }
 function closeOrderActionModal(){
   document.getElementById('orderActionModalOverlay').style.display = 'none';
@@ -1443,9 +1456,11 @@ function confirmOrderActionModal(){
     else if(action === 'edit') editOrderViaRegister(orderId, 'pending');
     else if(action === 'cancel') cancelPendingOrder(orderId);
   } else {
-    if(action === 'export') exportSingleOrderSheet(orderId);
+    const modeSel = document.getElementById('orderActionModeSelect');
+    const exportMode = modeSel ? modeSel.value : 'general';
+    if(action === 'export') exportSingleOrderSheet(orderId, exportMode);
     else if(action === 'print') printCompletedOrder(orderId);
-    else if(action === 'email') openSendOrderEmailModal(orderId);
+    else if(action === 'email') openSendOrderEmailModal(orderId, exportMode);
   }
 }
 
@@ -2163,13 +2178,14 @@ function signOrderHistory(orderId){
 
 
 // 把一批訂單彙總成「依分類分組」的資料,供匯出訂貨單使用(共用給批次匯出跟單筆訂單匯出)。
-function buildOrderAggregation(list){
+function buildOrderAggregation(list, exportMode){
+  const accountant = exportMode === 'accountant'; // 只有「會計匯出」才套用「會計匯出不顯示」的商品設定
   const productMap = Object.fromEntries(products.map(p => [p.id, p]));
   // 「整個家族商品都不顯示」模式的主商品:把自己跟底下所有 multipack 子商品的 id 都收集起來,
   // 不管是主商品自己被訂、還是子商品被訂(不管有沒有經過切換),整個家族在匯出檔案裡完全不出現。
   const wholeFamilyHiddenIds = new Set();
   products.forEach(p => {
-    if(!p.parentId && p.hideFromCompletedOrderExport && p.hideFromCompletedOrderExportMode === 'wholeFamily'){
+    if(accountant && !p.parentId && p.hideFromCompletedOrderExport && p.hideFromCompletedOrderExportMode === 'wholeFamily'){
       wholeFamilyHiddenIds.add(p.id);
       getChildProducts(p.id).forEach(c => wholeFamilyHiddenIds.add(c.id));
     }
@@ -2189,7 +2205,7 @@ function buildOrderAggregation(list){
       // 不會整個消失看不到到底是怎麼出貨的。切換之外、這個品項本身沒被切換掉的剩餘數量,則完全
       // 不顯示(既不算在主商品身上、也沒有對應的批量商品可以歸類)。這個「借用切換數量」的行為
       // 只適用於主商品自己(子商品即使個別被設定不顯示,也不會有 fulfilledViaSwitch 這種東西)。
-      if(p && p.hideFromCompletedOrderExport){
+      if(accountant && p && p.hideFromCompletedOrderExport){
         if(!p.parentId){
           (it.fulfilledViaSwitch || []).forEach(sw => {
             if(wholeFamilyHiddenIds.has(sw.childId)) return;
@@ -2221,8 +2237,8 @@ function buildOrderAggregation(list){
 // (根本不會出現在訂貨頁面)、被全域隱藏的商品都算進來——這樣不同訂單匯出的檔案結構、商品順序
 // 都會一致。這張訂單沒有數量的商品那一列用 Excel 的隱藏列處理掉,資料還在,只是預設不顯示、
 // 也不會被印出來。
-function buildOrderSheetAoa(list, partyLabel, dateLabel){
-  const { aggregated, byCategory: orderByCategory } = buildOrderAggregation(list);
+function buildOrderSheetAoa(list, partyLabel, dateLabel, exportMode){
+  const { aggregated, byCategory: orderByCategory } = buildOrderAggregation(list, exportMode);
   const qtyByProductId = {};
   aggregated.forEach(g => { qtyByProductId[g.productId] = g; });
 
@@ -2302,7 +2318,7 @@ function downloadOrderSheetXlsx(aoa, filename, hiddenRows){
   XLSX.writeFile(wb, filename);
 }
 
-async function exportOrdersSheet(){
+async function exportOrdersSheet(exportMode){
   const msg = document.getElementById('orderExportMsg');
   if(typeof XLSX === 'undefined'){ msg.className = 'msg error'; msg.textContent = 'Excel 套件載入失敗,請重新整理頁面再試一次'; return; }
 
@@ -2328,7 +2344,7 @@ async function exportOrdersSheet(){
     ? (dateFrom === dateTo ? dateFrom : `${dateFrom} ~ ${dateTo}`)
     : (dateFrom ? `After ${dateFrom}` : (dateTo ? `Before ${dateTo}` : 'All dates'));
 
-  const { aoa, aggregated, hiddenRows } = buildOrderSheetAoa(list, partyLabel, dateLabel);
+  const { aoa, aggregated, hiddenRows } = buildOrderSheetAoa(list, partyLabel, dateLabel, exportMode);
 
   const label = partyObj ? (partyObj.name.replace(/[^a-zA-Z0-9\u4e00-\u9fa5]/g, '') || 'Party') : 'AllParties';
   const rangeLabel = (dateFrom || dateTo) ? `_${dateFrom || 'start'}_${dateTo || 'end'}` : '';
@@ -2340,14 +2356,14 @@ async function exportOrdersSheet(){
 }
 
 // 匯出「單一一筆」訂單:Period 直接就是這張訂單自己的日期,不會混到其他訂單的日期範圍。
-function exportSingleOrderSheet(orderId){
+function exportSingleOrderSheet(orderId, exportMode){
   const order = orders.find(o => o.id === orderId);
   if(!order) return;
   if(typeof XLSX === 'undefined'){ showInfoModal('Excel 套件載入失敗,請重新整理頁面再試一次'); return; }
 
   const partyLabel = order.partyName || 'Unspecified';
   const dateLabel = order.date;
-  const { aoa, hiddenRows } = buildOrderSheetAoa([order], partyLabel, dateLabel);
+  const { aoa, hiddenRows } = buildOrderSheetAoa([order], partyLabel, dateLabel, exportMode);
 
   const safeParty = (order.partyName || 'Order').replace(/[^a-zA-Z0-9\u4e00-\u9fa5]/g, '') || 'Order';
   const noPart = order.orderNo ? `${order.orderNo.replace('#','')}_` : '';

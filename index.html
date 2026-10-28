@@ -564,6 +564,15 @@
   .order-items div{ display:flex; justify-content:space-between; padding:3px 0; border-bottom:1px dashed var(--line); }
   .order-items div:last-child{ border-bottom:none; }
   .order-card-actions{ margin-top:10px; display:flex; gap:8px; }
+  /* 訂單展開內容的區塊(已完成/待處理訂單):各自有標題跟淺色底 */
+  .order-block{ border:1px solid var(--line); border-radius:4px; padding:8px 12px; margin:8px 0; }
+  .order-block-title{ font-size:11.5px; font-weight:700; letter-spacing:.3px; color:var(--ink-soft); margin-bottom:4px; }
+  .order-block .order-items{ margin:4px 0 0; }
+  .order-block > div[style*="margin:8px 0"]{ margin:4px 0 0 !important; }
+  .order-block.ob-items{ background:#f3f3f1; border-color:#e2e2de; }
+  .order-block.ob-remark{ background:#faf6ec; border-color:#ece3cc; }
+  .order-block.ob-party{ background:#eef2f6; border-color:#d9e1ea; }
+  .order-block.ob-sign{ background:#eef4ee; border-color:#d9e6d9; }
   .tab-count-badge{
     display:inline-block; background:var(--crit); color:#fff; font-size:10px; font-weight:700;
     border-radius:20px; padding:1px 6px; margin-left:5px;
@@ -1019,7 +1028,7 @@
     <p class="login-subtitle" data-i18n="loginSubtitle">請先登入才能使用這個 App</p>
     <form id="loginForm" onsubmit="handleLoginSubmit(event); return false;">
       <div class="field">
-        <label data-i18n="loginUsername">帳號</label>
+        <label data-i18n="loginUsernameOrEmail">帳號 / Email</label>
         <input type="text" id="loginUsernameInput" autocomplete="username" required />
       </div>
       <div class="field">
@@ -1029,6 +1038,31 @@
       <div id="loginError" class="msg error" style="display:none;"></div>
       <button type="submit" class="btn" data-i18n="btnLogin">登入</button>
     </form>
+  </div>
+</div>
+
+<div id="setPasswordScreen" class="login-screen" style="display:none;">
+  <div class="login-box">
+    <h1 data-i18n="appTitle">Orange Tea AU | Inventory &amp; Order Hub</h1>
+    <div id="setPasswordChecking"><p class="login-subtitle" data-i18n="setPasswordChecking">正在驗證連結…</p></div>
+    <form id="setPasswordForm" style="display:none;" onsubmit="return handleSetPasswordSubmit(event);">
+      <p class="login-subtitle" data-i18n="setPasswordIntro">請設定你的登入密碼(至少 8 個字元)</p>
+      <div class="field">
+        <label data-i18n="setPasswordNew">新密碼</label>
+        <input type="password" id="setPasswordInput" autocomplete="new-password" minlength="8" required />
+      </div>
+      <div class="field">
+        <label data-i18n="setPasswordConfirm">確認密碼</label>
+        <input type="password" id="setPasswordConfirmInput" autocomplete="new-password" minlength="8" required />
+      </div>
+      <div id="setPasswordError" class="msg error" style="display:none;"></div>
+      <button type="submit" class="btn" id="btnSetPassword" data-i18n="btnSetPassword">設定密碼</button>
+    </form>
+    <div id="setPasswordInvalid" style="display:none;">
+      <p class="login-subtitle" style="color:var(--crit);" data-i18n="setPasswordInvalid">這個連結無效、已過期或已經用過了。請請管理者重新寄出邀請信,收到新信後馬上開啟。</p>
+      <button type="button" class="btn ghost" onclick="backToSignInFromSetPassword()" data-i18n="btnBackToSignIn">回到登入頁</button>
+    </div>
+    <div id="setPasswordDone" style="display:none;"><p class="login-subtitle" data-i18n="setPasswordDone">密碼已設定,正在帶你進入…</p></div>
   </div>
 </div>
 
@@ -1072,19 +1106,20 @@
         <p style="font-size:12.5px;color:var(--ink-soft);margin:0 0 12px;" data-i18n="userManagementDesc">
           管理可以登入這個 App 的帳號。每個帳號有一個主要身分(管理者/訂貨用戶/倉庫管理員),新增帳號時會依身分帶入預設可看的分頁,之後仍可針對個別帳號再細部勾選調整可看的分頁。
         </p>
+        <div class="toolbar" style="gap:8px;flex-wrap:wrap;margin:0 0 10px;">
+          <select id="userFilterParty" onchange="onUserFilterChange()"></select>
+          <select id="userFilterRole" onchange="onUserFilterChange()"></select>
+          <input type="text" id="userFilterSearch" oninput="onUserFilterChange()" data-i18n-placeholder="userFilterSearchPh" placeholder="搜尋姓名 / 帳號 / Email" style="min-width:180px;" />
+          <button class="btn" onclick="openUserInviteModal()" data-i18n="btnInviteUser">✉️ 邀請使用者</button>
+        </div>
         <div id="usersTable"><div class="empty-note" data-i18n="noUsersYet">尚無使用者</div></div>
         <div id="userMsg" class="msg"></div>
 
         <hr class="divider" />
 
         <div class="section-title" data-i18n="secAddUserAccount">新增使用者帳號</div>
-        <p style="font-size:12.5px;color:var(--ink-soft);margin:0 0 10px;line-height:1.6;">
-          <span data-i18n="addUserAccountDesc">為了安全,建立新的登入帳號要在 Supabase 後台操作(密碼會由 Supabase 妥善加密儲存,而不是存在這個網頁裡):</span><br>
-          1. <span data-i18n-html="addUserStep1">到 Supabase 專案的 <strong>Authentication → Users → Add user</strong></span><br>
-          2. <span data-i18n-html="addUserStep2">Email 填 <code>帳號名稱@inventory.local</code>(例如 <code>tom@inventory.local</code>)</span><br>
-          3. <span data-i18n="addUserStep3">密碼自行設定,再告訴那位同事</span><br>
-          4. <span data-i18n-html="addUserStep4">展開 User Metadata,貼上例如 <code>{"username": "tom", "role": "order"}</code>(role 可填 admin / order / inventory)</span><br>
-          5. <span data-i18n="addUserStep5">存檔後,這個帳號就會自動出現在上面的清單,可再細部調整他能看到哪些分頁。</span>
+        <p style="font-size:12.5px;color:var(--ink-soft);margin:0 0 10px;line-height:1.6;" data-i18n="addUserInviteDesc">
+          按上方「邀請使用者」,輸入對方的 Email、姓名跟身分,系統會以 Orange Tea Australia 名義寄出邀請信;對方點開信裡的連結、自己設定密碼後就能用 Email 登入。已經存在的帳號(例如舊的帳號名稱登入)可以在邀請時選「合併到現有使用者」,所有紀錄都會保留。
         </p>
       </div>
 
@@ -1876,6 +1911,13 @@
           </select>
         </div>
         <div class="field">
+          <label data-i18n="lblExportMode">匯出類型</label>
+          <select id="exportModeSelect">
+            <option value="general" data-i18n="optExportGeneral">一般匯出</option>
+            <option value="accountant" data-i18n="optExportAccountant">會計匯出</option>
+          </select>
+        </div>
+        <div class="field">
           <label id="exportPartyLabel" data-i18n="exportPartyLabelOut">門市/對象</label>
           <select id="exportPartySelect" onchange="renderExportMultiStoreChecklist()">
             <option value="" data-i18n="logPartyAll">全部對象</option>
@@ -2212,7 +2254,14 @@
     <div class="section-title" id="orderActionModalTitle" style="margin-bottom:12px;"></div>
     <div class="field">
       <label data-i18n="lblAction">Action</label>
-      <select id="orderActionModalSelect"></select>
+      <select id="orderActionModalSelect" onchange="updateOrderActionModeVisibility()"></select>
+    </div>
+    <div class="field" id="orderActionModeField" style="display:none;">
+      <label data-i18n="lblExportMode">匯出類型</label>
+      <select id="orderActionModeSelect">
+        <option value="general" data-i18n="optExportGeneral">一般匯出</option>
+        <option value="accountant" data-i18n="optExportAccountant">會計匯出</option>
+      </select>
     </div>
     <div class="modal-actions">
       <button class="btn ghost" onclick="closeOrderActionModal()" data-i18n="btnCancel">取消</button>
@@ -2639,6 +2688,18 @@
     <div class="modal-actions" style="margin-top:6px;">
       <button class="btn ghost" onclick="closeUserEditModal()" data-i18n="btnCancel">取消</button>
       <button class="btn" onclick="saveUserEditModal()" data-i18n="btnSave">儲存</button>
+    </div>
+  </div>
+</div>
+
+<div id="userInviteModalOverlay" class="modal-overlay" style="display:none;">
+  <div class="modal-box modal-box-wide" style="max-width:520px;max-height:90vh;overflow:auto;">
+    <div class="section-title" style="margin-bottom:16px;" data-i18n="inviteModalTitle">邀請使用者</div>
+    <div id="userInviteModalBody"></div>
+    <div id="userInviteModalMsg" class="msg"></div>
+    <div class="modal-actions">
+      <button class="btn ghost" onclick="closeUserInviteModal()" data-i18n="btnCancel">取消</button>
+      <button class="btn" id="btnConfirmUserInvite" onclick="confirmUserInvite()" data-i18n="btnSendInvite">寄出邀請</button>
     </div>
   </div>
 </div>
@@ -3998,6 +4059,13 @@ function showScanToast(text, isError){
     const showHiddenEl = document.getElementById('showHiddenProducts');
     if(savedShowHidden === 'true' && showHiddenEl) showHiddenEl.checked = true;
   } catch(e){ /* localStorage unavailable, keep default unchecked */ }
+
+  // 從邀請/重設密碼 email 連結進來:先顯示「設定密碼」頁面,不要直接登入或顯示登入頁
+  const emailLink = detectAuthEmailLink();
+  if(emailLink){
+    await runSetPasswordFlow(emailLink);
+    return;
+  }
 
   // If this browser already has a valid Supabase session (e.g. reloading
   // the page, or coming back later), log the person straight back in

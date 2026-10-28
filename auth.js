@@ -30,8 +30,31 @@ const ROLE_DEFS = [
 const CAPABILITY_DEFS = [
   { id: 'cap-manage-parties', parentTab: 'tab-warehouse-admin', labelKey: 'capManageParties' },
   { id: 'cap-edit-overview', parentTab: 'tab-overview', labelKey: 'capEditOverview' },
-  { id: 'cap-manage-users', parentTab: 'tab-master', labelKey: 'capManageUsers' }
+  { id: 'cap-manage-users', parentTab: 'tab-master', labelKey: 'capManageUsers' },
+  // 編輯價錢:不掛在特定分頁底下(進貨單、登記進貨、收據掃描都會用到價錢),所以 parentTab 是 null,
+  // 永遠顯示。跟其他細部權限相反,這個是「預設不允許」(管理者預設允許、其他身分預設不允許),
+  // 所以不能用「沒被限制=允許」的邏輯,見下面 canEditPriceFor。
+  { id: 'cap-edit-price', parentTab: null, labelKey: 'capEditPrice', special: 'price' }
 ];
+
+// 「編輯價錢」權限(存在 restricted_capabilities 這個既有欄位裡,不用改資料表):
+//   · 清單裡有 'allow:cap-edit-price' → 允許(管理者以外的人要被明確勾選才有)
+//   · 管理者預設允許,除非清單裡有 'deny:cap-edit-price'(被明確取消勾選)
+//   · 其他人(含倉庫管理員)預設不允許:只能看價錢,不能改
+function canEditPriceFor(role, restrictedList){
+  const list = Array.isArray(restrictedList) ? restrictedList : [];
+  if(list.includes('allow:cap-edit-price')) return true;
+  return role === 'admin' && !list.includes('deny:cap-edit-price');
+}
+function canEditPrice(){
+  return !!currentUser && canEditPriceFor(currentUser.role, currentUser.restrictedCapabilities);
+}
+
+// 使用者清單/標題上顯示的名字:有填 First/Last name 就用姓名,沒有就用登入帳號。
+function userDisplayName(u){
+  const full = [u.firstName, u.lastName].filter(Boolean).join(' ').trim();
+  return full || u.username || '';
+}
 
 // 各主要身分預設可看的分頁,新增使用者時會依身分帶入,之後可再針對個別帳號自行調整(不受身分限制)。
 // 三種身分預設分別是:
@@ -65,13 +88,17 @@ async function fetchProfileForUser(authUser){
     role: data.role,
     tabPermissions: Array.isArray(data.tab_permissions) ? data.tab_permissions : [],
     assignedPartyIds: Array.isArray(data.assigned_party_ids) ? data.assigned_party_ids : [],
-    restrictedCapabilities: Array.isArray(data.restricted_capabilities) ? data.restricted_capabilities : []
+    restrictedCapabilities: Array.isArray(data.restricted_capabilities) ? data.restricted_capabilities : [],
+    firstName: data.first_name || '',
+    lastName: data.last_name || '',
+    email: data.email || ''
   };
 }
 
 // 預設每個功能都允許,只有出現在 restrictedCapabilities 清單裡才會被擋下。
 function hasCapability(capId){
   if(!currentUser) return false;
+  if(capId === 'cap-edit-price') return canEditPrice();
   if(currentUser.role === 'admin') return true;
   const restricted = Array.isArray(currentUser.restrictedCapabilities) ? currentUser.restrictedCapabilities : [];
   return !restricted.includes(capId);
@@ -88,7 +115,10 @@ async function loadUsers(){
     role: row.role,
     tabPermissions: Array.isArray(row.tab_permissions) ? row.tab_permissions : [],
     assignedPartyIds: Array.isArray(row.assigned_party_ids) ? row.assigned_party_ids : [],
-    restrictedCapabilities: Array.isArray(row.restricted_capabilities) ? row.restricted_capabilities : []
+    restrictedCapabilities: Array.isArray(row.restricted_capabilities) ? row.restricted_capabilities : [],
+    firstName: row.first_name || '',
+    lastName: row.last_name || '',
+    email: row.email || ''
   }));
 }
 
@@ -97,7 +127,7 @@ function renderCurrentUserBadge(){
   if(!el || !currentUser) return;
   const roleDef = ROLE_DEFS.find(r => r.id === currentUser.role);
   const roleLabel = roleDef ? t(roleDef.labelKey) : currentUser.role;
-  el.textContent = `${currentUser.username}(${roleLabel})`;
+  el.textContent = `${userDisplayName(currentUser)}(${roleLabel})`;
 }
 
 // 標頭那行大標題:訂貨用戶(role='order')登入後改顯示比較短的「Order Hub」版本,不含
@@ -128,7 +158,9 @@ async function handleLoginSubmit(e){
   const submitBtn = document.querySelector('#loginForm button[type="submit"]');
   if(submitBtn) submitBtn.disabled = true;
 
-  const { data, error } = await sb.auth.signInWithPassword({ email: usernameToEmail(username), password });
+  // 可以輸入帳號名稱(舊的方式),也可以直接輸入 Email(被邀請的帳號用 Email 登入)
+  const loginEmail = username.includes('@') ? username.toLowerCase() : usernameToEmail(username);
+  const { data, error } = await sb.auth.signInWithPassword({ email: loginEmail, password });
   if(error || !data.user){
     errEl.textContent = t('loginErrorBadCredentials');
     errEl.style.display = 'block';
@@ -171,19 +203,59 @@ function populateRoleSelect(selectEl, selectedRole){
   if(selectedRole) selectEl.value = selectedRole;
 }
 
+// 使用者清單的篩選狀態(出貨方 / 身分 / 搜尋)
+let userFilterParty = 'all';   // 'all' | 'unassigned'(沒有指定任何出貨方) | 出貨方 id
+let userFilterRole = 'all';
+let userFilterSearch = '';
+
+function onUserFilterChange(){
+  userFilterParty = document.getElementById('userFilterParty').value;
+  userFilterRole = document.getElementById('userFilterRole').value;
+  userFilterSearch = (document.getElementById('userFilterSearch').value || '').trim().toLowerCase();
+  renderUsersTab();
+}
+
+function populateUserFilterBar(){
+  const partySel = document.getElementById('userFilterParty');
+  const roleSel = document.getElementById('userFilterRole');
+  if(!partySel || !roleSel) return;
+  partySel.innerHTML = `<option value="all">${t('userFilterAllParties')}</option><option value="unassigned">${t('userFilterUnassigned')}</option>` +
+    shippingParties.map(sp => `<option value="${sp.id}">${sp.name.replace(/</g,'&lt;')}</option>`).join('');
+  if(![...partySel.options].some(o => o.value === userFilterParty)) userFilterParty = 'all';
+  partySel.value = userFilterParty;
+  roleSel.innerHTML = `<option value="all">${t('userFilterAllRoles')}</option>` + ROLE_DEFS.map(r => `<option value="${r.id}">${t(r.labelKey)}</option>`).join('');
+  roleSel.value = userFilterRole;
+}
+
 function renderUsersTab(){
   const container = document.getElementById('usersTable');
   if(!container) return;
+  populateUserFilterBar();
   if(users.length === 0){
     container.innerHTML = `<div class="empty-note">${t('noUsersYet')}</div>`;
     return;
   }
   const partyNameById = id => { const sp = shippingParties.find(x => x.id === id); return sp ? sp.name : id; };
+  const list = users.filter(u => {
+    const partyIds = Array.isArray(u.assignedPartyIds) ? u.assignedPartyIds : [];
+    if(userFilterParty === 'unassigned' && partyIds.length > 0) return false;
+    if(userFilterParty !== 'all' && userFilterParty !== 'unassigned' && !partyIds.includes(userFilterParty)) return false;
+    if(userFilterRole !== 'all' && u.role !== userFilterRole) return false;
+    if(userFilterSearch){
+      const hay = [u.firstName, u.lastName, u.username, u.email].join(' ').toLowerCase();
+      if(!hay.includes(userFilterSearch)) return false;
+    }
+    return true;
+  }).sort((a, b) => userDisplayName(a).localeCompare(userDisplayName(b)));
+  if(list.length === 0){
+    container.innerHTML = `<div class="empty-note">${t('noUsersMatchFilter')}</div>`;
+    return;
+  }
   container.innerHTML = `
     <table class="users">
       <thead>
         <tr>
-          <th>${t('loginUsername')}</th>
+          <th>${t('colUserName')}</th>
           <th>${t('userRole')}</th>
           <th>${t('userTabPermDesc')}</th>
           <th>${t('colRestrictedParty')}</th>
@@ -191,12 +263,14 @@ function renderUsersTab(){
         </tr>
       </thead>
       <tbody>
-        ${users.map(u => {
+        ${list.map(u => {
           const roleDef = ROLE_DEFS.find(r => r.id === u.role);
           const partyIds = Array.isArray(u.assignedPartyIds) ? u.assignedPartyIds : [];
+          const hasName = !!(u.firstName || u.lastName);
+          const sub = [hasName ? u.username : '', u.email].filter(Boolean).join(' · ');
           return `
           <tr>
-            <td class="u-name">${(u.username||'').replace(/</g,'&lt;')}</td>
+            <td class="u-name">${userDisplayName(u).replace(/</g,'&lt;')}${sub ? `<div style="font-size:11px;font-weight:400;color:var(--ink-soft);">${sub.replace(/</g,'&lt;')}</div>` : ''}</td>
             <td class="u-role"><span class="td-mobile-label">${t('userRole')}</span>${roleDef ? t(roleDef.labelKey) : u.role}</td>
             <td class="u-tabs" style="font-size:12px;color:var(--ink-soft);"><span class="td-mobile-label">${t('userTabPermDesc')}</span>${(u.tabPermissions||[]).length} ${t('tabCountSuffix')}</td>
             <td class="u-party" style="font-size:12px;color:var(--ink-soft);"><span class="td-mobile-label">${t('colRestrictedParty')}</span>${partyIds.length === 0 ? t('partyUnrestricted') : partyIds.map(partyNameById).join('、')}</td>
@@ -214,33 +288,71 @@ function renderUsersTab(){
 // ---- 編輯使用者:彈出視窗 ----
 let editingUserModalId = null;
 
-function capabilityCheckboxesHtml(userId, tabPermissions, restrictedCapabilities){
-  const relevant = CAPABILITY_DEFS.filter(c => tabPermissions.includes(c.parentTab));
+function capabilityCheckboxesHtml(userId, tabPermissions, restrictedCapabilities, role){
+  const relevant = CAPABILITY_DEFS.filter(c => !c.parentTab || tabPermissions.includes(c.parentTab));
   if(relevant.length === 0) return '';
   return `
     <div class="field-block">
       <label>${t('fieldCapabilities')}</label>
       <div class="field-hint">${t('capabilitiesHint')}</div>
       <div class="user-perm-checks">
-        ${relevant.map(c => `
+        ${relevant.map(c => {
+          const checked = c.special === 'price' ? canEditPriceFor(role, restrictedCapabilities) : !restrictedCapabilities.includes(c.id);
+          return `
           <label style="display:flex;align-items:flex-start;gap:6px;max-width:100%;">
-            <input type="checkbox" data-cap-id="${c.id}" id="modalCap_${userId}_${c.id}" ${restrictedCapabilities.includes(c.id) ? '' : 'checked'} />
+            <input type="checkbox" data-cap-id="${c.id}" id="modalCap_${userId}_${c.id}" ${checked ? 'checked' : ''} />
             <span>${t(c.labelKey)}</span>
-          </label>
-        `).join('')}
+          </label>`;
+        }).join('')}
       </div>
     </div>
   `;
+}
+
+// 從細部功能權限區塊讀出目前要存的 restricted_capabilities 清單:
+// 一般功能是「沒勾 = 被限制」;「編輯價錢」是 allow:/deny: 標記(見 canEditPriceFor)。
+function collectRestrictedCapabilities(capsWrap){
+  if(!capsWrap) return [];
+  const out = [];
+  capsWrap.querySelectorAll('input[type="checkbox"]').forEach(el => {
+    const def = CAPABILITY_DEFS.find(c => c.id === el.dataset.capId);
+    if(def && def.special === 'price'){
+      out.push(el.checked ? 'allow:cap-edit-price' : 'deny:cap-edit-price');
+    } else if(!el.checked){
+      out.push(el.dataset.capId);
+    }
+  });
+  return out;
 }
 
 function renderUserEditModalBody(u){
   const tabPermissions = u.tabPermissions || [];
   const restrictedCapabilities = u.restrictedCapabilities || [];
   const partyIds = u.assignedPartyIds || [];
+  const q = s => (s||'').replace(/"/g,'&quot;');
   return `
+    <div class="form-grid" style="grid-template-columns:1fr 1fr;gap:10px;">
+      <div class="field-block" style="margin:0;">
+        <label>${t('fieldFirstName')}</label>
+        <input type="text" id="modalUserFirstName" value="${q(u.firstName)}" style="width:100%;" />
+      </div>
+      <div class="field-block" style="margin:0;">
+        <label>${t('fieldLastName')}</label>
+        <input type="text" id="modalUserLastName" value="${q(u.lastName)}" style="width:100%;" />
+      </div>
+    </div>
+    <div class="field-hint" style="margin-bottom:12px;">${t('userNameHint')}</div>
     <div class="field-block">
       <label>${t('loginUsername')}</label>
-      <input type="text" value="${(u.username||'').replace(/"/g,'&quot;')}" disabled title="${t('usernameDisabledTitle')}" style="width:100%;" />
+      <input type="text" value="${q(u.username)}" disabled title="${t('usernameDisabledTitle')}" style="width:100%;" />
+    </div>
+    <div class="field-block">
+      <label>${t('fieldUserEmail')}</label>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;">
+        <input type="email" id="modalUserEmail" value="${q(u.email)}" placeholder="name@example.com" style="flex:1;min-width:200px;" />
+        <button type="button" class="btn ghost" id="modalUserInviteBtn" onclick="sendInviteForEditingUser()">${u.email ? t('btnResendInvite') : t('btnSendInviteLink')}</button>
+      </div>
+      <div class="field-hint">${u.email ? t('userEmailHintLinked') : t('userEmailHintMerge')}</div>
     </div>
     <div class="field-block">
       <label>${t('userRole')}</label>
@@ -250,7 +362,7 @@ function renderUserEditModalBody(u){
       <label>${t('userTabPermDesc')}</label>
       <div class="user-perm-checks" id="modalTabPerms">${tabPermCheckboxesHtml('modalPerm_' + u.id, tabPermissions)}</div>
     </div>
-    <div id="modalCapabilitiesWrap">${capabilityCheckboxesHtml(u.id, tabPermissions, restrictedCapabilities)}</div>
+    <div id="modalCapabilitiesWrap">${capabilityCheckboxesHtml(u.id, tabPermissions, restrictedCapabilities, u.role)}</div>
     <div class="field-block">
       <label>${t('fieldRestrictedParties')}</label>
       <div class="field-hint">${t('restrictedPartiesHint')}</div>
@@ -270,7 +382,7 @@ function openUserEditModal(userId){
   const u = users.find(x => x.id === userId);
   if(!u) return;
   editingUserModalId = userId;
-  document.getElementById('userEditModalTitle').textContent = `${t('editUserModalTitlePrefix')} — ${u.username}`;
+  document.getElementById('userEditModalTitle').textContent = `${t('editUserModalTitlePrefix')} — ${userDisplayName(u)}`;
   document.getElementById('userEditModalBody').innerHTML = renderUserEditModalBody(u);
   document.getElementById('userEditModalMsg').textContent = '';
   populateRoleSelect(document.getElementById('modalUserRole'), u.role);
@@ -290,7 +402,7 @@ function onModalRoleChange(userId){
   const box = document.getElementById('modalTabPerms');
   if(box) box.innerHTML = tabPermCheckboxesHtml('modalPerm_' + userId, perms);
   const capsWrap = document.getElementById('modalCapabilitiesWrap');
-  if(capsWrap) capsWrap.innerHTML = capabilityCheckboxesHtml(userId, perms, []);
+  if(capsWrap) capsWrap.innerHTML = capabilityCheckboxesHtml(userId, perms, [], role); // 換身分 → 細部權限(含編輯價錢)回到該身分的預設值
   attachModalTabPermListeners(userId);
 }
 
@@ -304,8 +416,8 @@ function attachModalTabPermListeners(userId){
       const capsWrap = document.getElementById('modalCapabilitiesWrap');
       if(capsWrap){
         // 保留使用者目前已經勾好的功能狀態,只是重新決定要顯示哪些功能區塊
-        const currentlyUnchecked = Array.from(capsWrap.querySelectorAll('input[type="checkbox"]:not(:checked)')).map(el => el.dataset.capId);
-        capsWrap.innerHTML = capabilityCheckboxesHtml(userId, currentPerms, currentlyUnchecked);
+        const roleNow = document.getElementById('modalUserRole').value;
+        capsWrap.innerHTML = capabilityCheckboxesHtml(userId, currentPerms, collectRestrictedCapabilities(capsWrap), roleNow);
       }
     });
   });
@@ -325,9 +437,7 @@ async function saveUserEditModal(){
     return;
   }
   const capsWrap = document.getElementById('modalCapabilitiesWrap');
-  const restrictedCapabilities = capsWrap
-    ? Array.from(capsWrap.querySelectorAll('input[type="checkbox"]:not(:checked)')).map(el => el.dataset.capId)
-    : [];
+  const restrictedCapabilities = collectRestrictedCapabilities(capsWrap);
   const wouldStillHaveUserManagement = users.some(x => {
     const role_ = x.id === userId ? role : x.role;
     const perms = x.id === userId ? tabPermissions : x.tabPermissions;
@@ -343,7 +453,11 @@ async function saveUserEditModal(){
     ? Array.from(partyBox.querySelectorAll('input[type="checkbox"]:checked')).map(el => el.dataset.partyId)
     : [];
 
+  const firstName = (document.getElementById('modalUserFirstName').value || '').trim();
+  const lastName = (document.getElementById('modalUserLastName').value || '').trim();
   const { error } = await sb.from('profiles').update({
+    first_name: firstName || null,
+    last_name: lastName || null,
     role,
     tab_permissions: tabPermissions,
     restricted_capabilities: restrictedCapabilities,
@@ -354,6 +468,8 @@ async function saveUserEditModal(){
     msg.textContent = '更新失敗:' + error.message;
     return;
   }
+  u.firstName = firstName;
+  u.lastName = lastName;
   u.role = role;
   u.tabPermissions = tabPermissions;
   u.restrictedCapabilities = restrictedCapabilities;
@@ -418,4 +534,209 @@ function deleteUserRow(userId){
     msg.textContent = `✓ 已移除使用者「${u.username}」的權限`;
     renderUsersTab();
   });
+}
+
+// ============================================================
+// Email 邀請 / 設定密碼
+// ------------------------------------------------------------
+// 管理者在「使用者管理」按「邀請使用者」(或在編輯使用者視窗按「寄出邀請」),會呼叫
+// Edge Function invite-user(見 invite/invite-user.ts):它用 service role 建立/更新帳號,
+// 再以「Orange Tea Australia」名義寄出含一次性連結的 email。連結點開會回到這個 App
+// (?token_hash=...&type=invite|recovery),先顯示「設定密碼」頁面,設好密碼才登入。
+// 現有帳號(舊的「帳號名稱@inventory.local」那種)可以「合併」:帳號本身不變(所有紀錄都還在),
+// 只是登入 email 換成真實 email,舊密碼作廢,密碼以對方自己設定的為主。
+// ============================================================
+
+function appBaseUrl(){
+  return window.location.origin + window.location.pathname;
+}
+
+async function callInviteFunction(payload){
+  const { data, error } = await sb.functions.invoke('invite-user', { body: Object.assign({ appUrl: appBaseUrl() }, payload) });
+  if(error){
+    // functions.invoke 對非 2xx 回應只給泛用訊息,盡量把函式回傳的真正原因拿出來
+    let detail = '';
+    try{ const j = await error.context.json(); detail = j && j.error ? j.error : ''; } catch(e){}
+    throw new Error(detail || error.message || 'Invite failed');
+  }
+  if(data && data.error) throw new Error(data.error);
+  return data;
+}
+
+// ---- 編輯使用者視窗裡的「寄出邀請 / 重寄」(把這個現有帳號連到 email) ----
+async function sendInviteForEditingUser(){
+  const userId = editingUserModalId;
+  const u = users.find(x => x.id === userId);
+  if(!u) return;
+  const msg = document.getElementById('userEditModalMsg');
+  const email = (document.getElementById('modalUserEmail').value || '').trim().toLowerCase();
+  if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)){ msg.className = 'msg error'; msg.textContent = t('errInvalidEmailAddress'); return; }
+  const doSend = async () => {
+    const btn = document.getElementById('modalUserInviteBtn');
+    if(btn) btn.disabled = true;
+    msg.className = 'msg'; msg.textContent = t('sendingEmailMsg');
+    try{
+      await callInviteFunction({
+        email, mergeUserId: userId,
+        firstName: (document.getElementById('modalUserFirstName').value || '').trim(),
+        lastName: (document.getElementById('modalUserLastName').value || '').trim()
+      });
+      u.email = email;
+      msg.className = 'msg ok'; msg.textContent = tf('inviteSentMsg', { email });
+      await loadUsers(); renderUsersTab();
+    } catch(e){
+      msg.className = 'msg error'; msg.textContent = '⚠ ' + (e.message || '');
+    } finally {
+      if(btn) btn.disabled = false;
+    }
+  };
+  // 第一次把現有帳號連到 email(合併)會讓舊密碼失效,先跟管理者確認;已經連過、只是重寄就不用問。
+  if(u.email && u.email.toLowerCase() === email) await doSend();
+  else showConfirmModal(tf('confirmMergeInvite', { name: userDisplayName(u), email }), doSend);
+}
+
+// ---- 邀請使用者(新增)視窗 ----
+function openUserInviteModal(){
+  const body = document.getElementById('userInviteModalBody');
+  const mergeOptions = users.map(u => `<option value="${u.id}">${userDisplayName(u).replace(/</g,'&lt;')}${u.email ? ' · ' + u.email.replace(/</g,'&lt;') : ''}</option>`).join('');
+  body.innerHTML = `
+    <div class="field-block">
+      <label>${t('fieldUserEmail')}</label>
+      <input type="email" id="inviteEmail" placeholder="name@example.com" style="width:100%;" />
+    </div>
+    <div class="form-grid" style="grid-template-columns:1fr 1fr;gap:10px;">
+      <div class="field-block" style="margin:0;"><label>${t('fieldFirstName')}</label><input type="text" id="inviteFirstName" style="width:100%;" /></div>
+      <div class="field-block" style="margin:0;"><label>${t('fieldLastName')}</label><input type="text" id="inviteLastName" style="width:100%;" /></div>
+    </div>
+    <div class="field-block" style="margin-top:12px;">
+      <label>${t('userRole')}</label>
+      <select id="inviteRole"></select>
+      <div class="field-hint">${t('inviteRoleHint')}</div>
+    </div>
+    <div class="field-block">
+      <label>${t('fieldRestrictedParties')}</label>
+      <div class="field-hint">${t('restrictedPartiesHint')}</div>
+      <div class="user-perm-checks" id="invitePartyChecks">
+        ${shippingParties.length === 0 ? `<span style="color:var(--ink-soft);font-size:11px;">${t('noPartiesForUser')}</span>` : shippingParties.map(sp => `
+          <label style="display:inline-flex;align-items:center;gap:5px;font-size:11.5px;"><input type="checkbox" data-party-id="${sp.id}" /> ${sp.name.replace(/</g,'&lt;')}</label>`).join('')}
+      </div>
+    </div>
+    <div class="field-block">
+      <label>${t('fieldMergeWithExisting')}</label>
+      <select id="inviteMergeUser"><option value="">${t('optMergeNone')}</option>${mergeOptions}</select>
+      <div class="field-hint">${t('mergeWithExistingHint')}</div>
+    </div>`;
+  populateRoleSelect(document.getElementById('inviteRole'), 'order');
+  document.getElementById('userInviteModalMsg').textContent = '';
+  document.getElementById('userInviteModalOverlay').style.display = 'flex';
+}
+function closeUserInviteModal(){
+  document.getElementById('userInviteModalOverlay').style.display = 'none';
+}
+async function confirmUserInvite(){
+  const msg = document.getElementById('userInviteModalMsg');
+  const email = (document.getElementById('inviteEmail').value || '').trim().toLowerCase();
+  if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)){ msg.className = 'msg error'; msg.textContent = t('errInvalidEmailAddress'); return; }
+  const role = document.getElementById('inviteRole').value;
+  const mergeUserId = document.getElementById('inviteMergeUser').value || null;
+  const payload = {
+    email, role, mergeUserId,
+    firstName: (document.getElementById('inviteFirstName').value || '').trim(),
+    lastName: (document.getElementById('inviteLastName').value || '').trim(),
+    tabPermissions: (ROLE_DEFAULT_TABS[role] || []).slice(),
+    restrictedCapabilities: [], // 編輯價錢:管理者預設允許、其他身分預設不允許(見 canEditPriceFor)
+    assignedPartyIds: Array.from(document.querySelectorAll('#invitePartyChecks input:checked')).map(el => el.dataset.partyId)
+  };
+  const btn = document.getElementById('btnConfirmUserInvite');
+  const run = async () => {
+    if(btn) btn.disabled = true;
+    msg.className = 'msg'; msg.textContent = t('sendingEmailMsg');
+    try{
+      await callInviteFunction(payload);
+      msg.className = 'msg ok'; msg.textContent = tf('inviteSentMsg', { email });
+      await loadUsers(); renderUsersTab();
+      setTimeout(closeUserInviteModal, 1200);
+    } catch(e){
+      msg.className = 'msg error'; msg.textContent = '⚠ ' + (e.message || '');
+    } finally {
+      if(btn) btn.disabled = false;
+    }
+  };
+  if(mergeUserId){
+    const target = users.find(x => x.id === mergeUserId);
+    showConfirmModal(tf('confirmMergeInvite', { name: target ? userDisplayName(target) : '', email }), run);
+  } else {
+    await run();
+  }
+}
+
+// ---- 設定密碼頁面(擋在登入頁之前) ----
+// 從邀請/重設密碼 email 的連結進來時顯示。連結可能是 ?token_hash=...&type=invite|recovery
+// (我們自己寄的信),也可能是 Supabase 預設格式 #access_token=...&type=invite|recovery;
+// 過期/已用過的連結會帶 error / error_code。回傳 null 表示這不是 email 連結(正常開啟)。
+function detectAuthEmailLink(){
+  const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ''));
+  const searchParams = new URLSearchParams(window.location.search);
+  const type = hashParams.get('type') || searchParams.get('type');
+  const linkError = hashParams.get('error') || searchParams.get('error') || hashParams.get('error_code') || searchParams.get('error_code');
+  const isLink = (type === 'invite' || type === 'recovery') || !!linkError;
+  if(!isLink) return null;
+  return { type, tokenHash: searchParams.get('token_hash'), hasHashToken: !!hashParams.get('access_token'), error: !!linkError };
+}
+
+function showSetPasswordState(state){
+  document.getElementById('setPasswordChecking').style.display = state === 'checking' ? '' : 'none';
+  document.getElementById('setPasswordForm').style.display = state === 'ready' ? '' : 'none';
+  document.getElementById('setPasswordInvalid').style.display = state === 'invalid' ? '' : 'none';
+  document.getElementById('setPasswordDone').style.display = state === 'done' ? '' : 'none';
+}
+
+function clearAuthLinkFromUrl(){
+  try{ window.history.replaceState(null, '', window.location.pathname); } catch(e){}
+}
+
+async function runSetPasswordFlow(link){
+  document.getElementById('loginScreen').style.display = 'none';
+  document.getElementById('setPasswordScreen').style.display = 'flex';
+  showSetPasswordState('checking');
+  if(link.error){ showSetPasswordState('invalid'); return; }
+  let ok = false;
+  if(link.tokenHash && link.type){
+    // 一律先驗證連結本身(會換成連結對應那個人的 session),不要沿用瀏覽器裡原本登入的別人帳號
+    const { error } = await sb.auth.verifyOtp({ type: link.type, token_hash: link.tokenHash });
+    ok = !error;
+  } else if(link.hasHashToken){
+    const { data } = await sb.auth.getSession();
+    ok = !!(data && data.session);
+  }
+  showSetPasswordState(ok ? 'ready' : 'invalid');
+}
+
+async function handleSetPasswordSubmit(e){
+  if(e) e.preventDefault();
+  const pw = document.getElementById('setPasswordInput').value;
+  const confirm = document.getElementById('setPasswordConfirmInput').value;
+  const errEl = document.getElementById('setPasswordError');
+  errEl.style.display = 'none';
+  if(pw.length < 8){ errEl.textContent = t('errPasswordTooShort'); errEl.style.display = 'block'; return false; }
+  if(pw !== confirm){ errEl.textContent = t('errPasswordMismatch'); errEl.style.display = 'block'; return false; }
+  const btn = document.getElementById('btnSetPassword');
+  if(btn) btn.disabled = true;
+  const { error } = await sb.auth.updateUser({ password: pw });
+  if(btn) btn.disabled = false;
+  if(error){
+    errEl.textContent = /session missing/i.test(error.message) ? t('errSetPasswordSessionLost') : error.message;
+    errEl.style.display = 'block';
+    return false;
+  }
+  showSetPasswordState('done');
+  clearAuthLinkFromUrl();
+  // 重新載入:這時瀏覽器已經有登入狀態,開機流程會直接帶他進 App
+  setTimeout(() => window.location.reload(), 1500);
+  return false;
+}
+
+function backToSignInFromSetPassword(){
+  clearAuthLinkFromUrl();
+  window.location.reload();
 }

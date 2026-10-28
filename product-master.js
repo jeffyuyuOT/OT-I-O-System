@@ -452,6 +452,8 @@ async function exportShipmentSheet(opts){
   if(typeof XLSX === 'undefined'){ msg.className='msg error'; msg.textContent='Excel 套件載入失敗,請重新整理頁面再試一次'; return; }
 
   const type = document.getElementById('exportTypeSelect').value;
+  const exportModeEl = document.getElementById('exportModeSelect');
+  const exportMode = exportModeEl && exportModeEl.value === 'accountant' ? 'accountant' : 'general';
   const meta = EXPORT_TYPE_META[type] || EXPORT_TYPE_META.out;
   const party = document.getElementById('exportPartySelect').value;
   const isMulti = party === EXPORT_MULTI_STORE_VALUE;
@@ -531,7 +533,7 @@ async function exportShipmentSheet(opts){
       ? (dateFrom === dateTo ? dateFrom : `${dateFrom} ~ ${dateTo}`)
       : (dateFrom ? `After ${dateFrom}` : (dateTo ? `Before ${dateTo}` : 'All Dates'));
     const partyLabelEN = type === 'restock' ? 'Source/Party' : 'Store/Party';
-    const ctx = { type, meta, productMap, dateLabel };
+    const ctx = { type, meta, productMap, dateLabel, exportMode };
     if(splitByParty){
       const allLabel = isMulti ? `All Selected ${partyLabelEN}: ${selectedStores.join(', ')}` : `All ${partyLabelEN}`;
       const all = buildShipmentSheet(rows, allLabel, true, ctx);
@@ -598,7 +600,7 @@ function buildShipmentSheet(rows, shopLabel, mergeParties, ctx){
   //   ·「整個家族商品都不顯示」:這筆紀錄整個跳過,不出現在報表裡任何地方。
   const wholeFamilyHiddenIdsForShipment = new Set();
   products.forEach(p => {
-    if(!p.parentId && p.hideFromCompletedOrderExport && p.hideFromCompletedOrderExportMode === 'wholeFamily'){
+    if(ctx.exportMode === 'accountant' && !p.parentId && p.hideFromCompletedOrderExport && p.hideFromCompletedOrderExportMode === 'wholeFamily'){
       wholeFamilyHiddenIdsForShipment.add(p.id);
       getChildProducts(p.id).forEach(c => wholeFamilyHiddenIdsForShipment.add(c.id));
     }
@@ -615,7 +617,7 @@ function buildShipmentSheet(rows, shopLabel, mergeParties, ctx){
     const p = productMap[t.productId];
     if(type !== 'pending' && wholeFamilyHiddenIdsForShipment.has(t.productId)) return; // 整個家族都不顯示(待處理訂單不套用「已完成訂單匯出不顯示」)
 
-    if(type === 'out' && t.orderId && p && p.hideFromCompletedOrderExport && !p.parentId){
+    if(ctx.exportMode === 'accountant' && type === 'out' && t.orderId && p && p.hideFromCompletedOrderExport && !p.parentId){
       const switchKey = t.orderId + '||' + t.productId;
       if(!processedSwitchKeys.has(switchKey)){
         processedSwitchKeys.add(switchKey);
