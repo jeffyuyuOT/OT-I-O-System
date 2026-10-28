@@ -656,6 +656,7 @@ function updateTxBatchItemQty(batchItemId, value){
 // 的確認視窗那邊重改一次。清空欄位(留白)當作「這筆沒有金額資料」處理,不會硬塞一個 0 進去——
 // 跟原本收據掃描確認視窗「金額留空就是沒有金額」的邏輯一致。
 function updateTxBatchItemAmount(batchItemId, value){
+  if(!canEditPrice()) return; // 沒有「編輯價錢」權限只能看不能改
   const it = txBatchItems.find(x => x.batchItemId === batchItemId);
   if(!it) return;
   if(value === '' || value === null){
@@ -700,7 +701,7 @@ function renderTxBatchList(){
           <input type="number" class="order-qty-input" step="1" value="${it.qty}"
             onchange="updateTxBatchItemQty('${it.batchItemId}', this.value)" /><span class="row-unit">${it.unit}</span>
         </td>
-        ${showAmountCol ? `<td class="row-num"><input type="number" class="order-qty-input" step="0.01" min="0" value="${(it.amount !== undefined && it.amount !== null) ? it.amount : ''}" placeholder="–" onchange="updateTxBatchItemAmount('${it.batchItemId}', this.value)" /></td>` : ''}
+        ${showAmountCol ? `<td class="row-num"><input type="number" class="order-qty-input" step="0.01" min="0" value="${(it.amount !== undefined && it.amount !== null) ? it.amount : ''}" placeholder="–" ${canEditPrice() ? '' : 'readonly'} onchange="updateTxBatchItemAmount('${it.batchItemId}', this.value)" /></td>` : ''}
         <td class="row-action">
           <button onclick="openConversionFromTxBatch('${it.productId}')" title="${t('btnConvertBatchItem')}">🔄</button>
           <button onclick="removeTxBatchItem('${it.batchItemId}')" title="${t('btnDelete')}">✕</button>

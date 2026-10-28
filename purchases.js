@@ -444,6 +444,7 @@ function openEditPurchaseModal(purchaseId){
   editPurchaseWorkingReceiptFiles = getPurchaseReceiptFileList(p).slice();
   editPurchaseWorkingItems = (p.items || []).map(it => ({...it}));
   document.getElementById('editPurchaseDateInput').value = p.date || '';
+  { const _amt = document.getElementById('editPurchaseAddItemAmount'); if(_amt){ _amt.disabled = !canEditPrice(); if(!canEditPrice()) _amt.value = ''; } }
   populateEditPurchasePartySelect(p.partyName || p.partyId || '');
   document.getElementById('editPurchaseInvoiceInput').value = p.invoiceNo || '';
   document.getElementById('editPurchaseNoteInput').value = p.note || '';
@@ -558,7 +559,7 @@ function renderEditPurchaseItemsList(){
           </div>
           <input type="number" value="${it.qty}" min="0" step="any" style="width:70px;" oninput="updateEditPurchaseItemQty(${i}, this.value)" />
           <span style="font-size:11.5px;color:var(--ink-soft);">${escapeHtmlForPrint(it.unit || '')}</span>
-          <input type="number" value="${it.amount !== undefined && it.amount !== null ? it.amount : ''}" min="0" step="any" placeholder="$" style="width:90px;" oninput="updateEditPurchaseItemAmount(${i}, this.value)" />
+          <input type="number" value="${it.amount !== undefined && it.amount !== null ? it.amount : ''}" min="0" step="any" placeholder="$" style="width:90px;" ${canEditPrice() ? '' : 'readonly title="' + t('priceReadOnlyTitle') + '"'} oninput="updateEditPurchaseItemAmount(${i}, this.value)" />
           <span class="del-link" onclick="removeEditPurchaseItem(${i})">${t('btnRemoveItem')}</span>
         </div>
       `).join('')}
@@ -572,6 +573,7 @@ function updateEditPurchaseItemQty(index, value){
   it.qty = Number.isFinite(n) ? n : 0;
 }
 function updateEditPurchaseItemAmount(index, value){
+  if(!canEditPrice()) return; // 沒有「編輯價錢」權限只能看不能改
   const it = editPurchaseWorkingItems[index];
   if(!it) return;
   if(value === ''){ delete it.amount; return; }
@@ -603,7 +605,7 @@ function addEditPurchaseItem(){
   if(!Number.isFinite(qty) || qty <= 0){ msgEl.className = 'msg error'; msgEl.textContent = t('errEnterPositiveQty'); return; }
   const p = products.find(x => x.id === productId);
   if(!p) return;
-  const amountVal = amountInput.value === '' ? undefined : parseFloat(amountInput.value);
+  const amountVal = (!canEditPrice() || amountInput.value === '') ? undefined : parseFloat(amountInput.value);
   // 手動新增的品項,如果剛好跟清單裡已經有的某一項是同一個商品、也同樣沒有 docType/來源檔案
   // (代表都是一般手動輸入的,不是分屬不同收據來源),直接把數量/金額併進那一列,不要平白多出
   // 重複的兩列看起來像同一個商品被記兩筆帳。

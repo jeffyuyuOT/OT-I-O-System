@@ -693,6 +693,7 @@ function openReceiptOcrConfirmModal(line){
   document.getElementById('receiptOcrRawTextDisplay').value = line.description;
   document.getElementById('receiptOcrQtyInput').value = line.qty;
   document.getElementById('receiptOcrAmountInput').value = line.amount || '';
+  document.getElementById('receiptOcrAmountInput').readOnly = !canEditPrice(); // 沒有「編輯價錢」權限只能看不能改
   document.getElementById('receiptOcrConfirmMsg').textContent = '';
   document.getElementById('receiptOcrProgressInfo').textContent = tf('receiptOcrProgressText', { remaining: pendingReceiptOcrLines.length });
   // 掃描服務回傳的已經是拆好的品名/數量/金額,不會再附帶一整行「所有候選數字」讓使用者對照
