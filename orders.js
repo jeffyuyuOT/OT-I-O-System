@@ -765,17 +765,15 @@ function renderCompletedOrdersInto(container, recentOnly){
             <span class="order-head-action" onclick="event.stopPropagation()"><button class="btn ghost" onclick="openOrderActionModal('${o.id}', 'completed')">${t('lblAction')} ▾</button></span></span>
         </div>
         ${isExpanded ? `
-          <div class="order-items">${itemsHtml}</div>
-          ${remarkHtml}
-          ${o.signedAt && o.signInfo ? `
-          <div class="section-title" style="font-size:13px;margin-top:10px;" data-i18n="secSignInfo">簽收資訊</div>
+          ${orderBlockHtml('items', 'orderBlockItems', `<div class="order-items">${itemsHtml}</div>`)}
+          ${orderBlockHtml('remark', 'orderBlockRemark', remarkHtml)}
+          ${o.signedAt && o.signInfo ? orderBlockHtml('sign', 'secSignInfo', `
           <div style="font-size:12.5px;color:var(--ink);">
             ${o.signInfo.type === 'warehouse'
               ? `${tf('signedByNameLabel', { name: o.signInfo.signerName || '' })}<br/>
                  <img src="${o.signInfo.signatureUrl}" onclick="openSignatureViewModal('${o.signInfo.signatureUrl}')" style="max-width:160px;max-height:80px;border:1px solid var(--line);border-radius:4px;background:#fff;margin-top:4px;cursor:pointer;" />`
               : tf('signedByUsernameLabel', { name: o.signInfo.username || '' })}
-          </div>
-          ` : ''}
+          </div>`) : ''}
           <div class="order-card-actions">
             ${(o.deleted || o.signedAt) ? '' : `<button class="btn ghost" onclick="editOrderViaRegister('${o.id}', 'completed')">${t('btnEdit')}</button>`}
             ${(o.deleted || o.signedAt) ? '' : `<button class="btn ghost" onclick="openWarehouseSignModal('${o.id}')">${t('btnWarehouseSign')}</button>`}
@@ -785,6 +783,12 @@ function renderCompletedOrdersInto(container, recentOnly){
       </div>
     `;
   }).join('');
+}
+
+// 訂單卡片展開內容的區塊:每個區塊有自己的標題跟淺色背景(品項=淺灰、備註=淺米、對象=淺藍灰、簽收=淺綠灰),
+// 已完成訂單跟待處理訂單共用,讓展開之後各段資訊一眼分得出來。
+function orderBlockHtml(kind, titleKey, innerHtml){
+  return `<div class="order-block ob-${kind}"><div class="order-block-title">${t(titleKey)}</div>${innerHtml}</div>`;
 }
 
 // 收集一張訂單所有品項的「一般修改紀錄」(核對前的改數量/新增/軟刪除),依時間排序(新到舊)。
@@ -1164,9 +1168,9 @@ function renderPendingOrders(){
           </span>
         </div>
         ${isExpanded ? `
-          <div class="order-items">${itemsHtml}</div>
-          ${remarkHtml}
-          ${o.deleted ? '' : partyEditHtml}
+          ${orderBlockHtml('items', 'orderBlockItems', `<div class="order-items">${itemsHtml}</div>`)}
+          ${orderBlockHtml('remark', 'orderBlockRemark', remarkHtml)}
+          ${o.deleted ? '' : orderBlockHtml('party', 'orderBlockParty', partyEditHtml)}
           <div class="order-card-actions">
             ${hasHistory ? `<button class="btn ghost" onclick="openOrderHistoryModal('${o.id}')">${t('btnViewHistory')}</button>` : ''}
           </div>
