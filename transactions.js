@@ -391,12 +391,14 @@ function renderTxExistingItems(){
 
     if(isEditing){
       return `
-        <div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--line);">
+        <div style="display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--line);">
           <span style="flex:1;">${it.name}${it.sku ? ` (${it.sku})` : ''}</span>
           <input type="number" id="txExistingItemQtyInput_${it.productId}" value="${pending && pending.type === 'qty' ? pending.newQty : it.qty}" step="1" style="width:80px;font-family:inherit;font-size:inherit;" />
           <span class="row-unit">${it.unit}</span>
           <span class="del-link" onclick="saveTxExistingItemQty('${it.productId}')">${t('btnSave')}</span>
-          <span class="del-link" onclick="registerExistingItemEditKey=null;renderTxExistingItems();">${t('btnCancel')}</span>
+          ${(typeof batchExistingItemButtonHtml === 'function') ? batchExistingItemButtonHtml(it, pending) : ''}
+          <span class="del-link" onclick="delete batchEditPicks['${it.productId}'];registerExistingItemEditKey=null;renderTxExistingItems();">${t('btnCancel')}</span>
+          ${(typeof batchExistingItemLineHtml === 'function') ? batchExistingItemLineHtml(it) : ''}
         </div>
       `;
     }
@@ -418,24 +420,27 @@ function renderTxExistingItems(){
     // 有暫存改數量:舊數量劃刪除線、旁邊顯示新數量,還沒真的存檔,一樣可以「復原」取消。
     if(pending && pending.type === 'qty'){
       return `
-        <div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--line);">
+        <div style="display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--line);">
           <span style="flex:1;">${it.name}${it.sku ? ` (${it.sku})` : ''}</span>
           <span><span style="text-decoration:line-through;color:var(--ink-soft);">${it.qty}</span> → <span style="color:var(--warn-dark);font-weight:600;">${pending.newQty}</span> ${it.unit}</span>
           <span class="del-link" onclick="registerExistingItemEditKey='${it.productId}';renderTxExistingItems();">${t('btnEditQty')}</span>
           <span class="del-link" onclick="undoPendingItemChange('${it.productId}')">${t('btnUndo')}</span>
+          ${(typeof batchExistingItemLineHtml === 'function') ? batchExistingItemLineHtml(it) : ''}
         </div>
       `;
     }
 
     return `
-      <div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--line);">
+      <div style="display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--line);">
         <span style="flex:1;">${it.name}${it.sku ? ` (${it.sku})` : ''}</span>
         <span>${it.qty} ${it.unit}${it.qty < 0 ? ` <span style="color:var(--safe);font-weight:600;font-size:11px;">(${t('stockedInLabel')})</span>` : ''}</span>
         <span class="del-link" onclick="registerExistingItemEditKey='${it.productId}';renderTxExistingItems();">${t('btnEditQty')}</span>
         <span class="del-link" style="color:var(--crit);" onclick="deleteTxExistingItem('${it.productId}')">${t('btnDelete')}</span>
+        ${(typeof batchExistingItemLineHtml === 'function') ? batchExistingItemLineHtml(it) : ''}
       </div>
     `;
   }).join('');
+  if(typeof batchFillOrderBreakdown === 'function') batchFillOrderBreakdown(list, order); // 批次追蹤:顯示每個商品目前用了哪些批次
 }
 
 // load-completed 模式專用:核對後變更清單(新增/刪除/改數量都算,跟原本核對前的異動分開顯示)。
@@ -584,7 +589,10 @@ function saveTxExistingItemQty(productId){
     registerPendingItemChanges[productId] = { type: 'delete' };
   } else {
     registerPendingItemChanges[productId] = { type: 'qty', newQty };
+    // 批次追蹤:增加數量時在「批次」按鈕指定的批次一併暫存(減少數量不需要)
+    if(newQty > item.qty && batchEditPicks[productId] && batchEditPicks[productId].length) registerPendingItemChanges[productId].picks = batchEditPicks[productId];
   }
+  delete batchEditPicks[productId];
   registerExistingItemEditKey = null;
   renderTxExistingItems();
 }
@@ -2078,7 +2086,7 @@ function collectPendingItemChanges(order){
     const item = order.items.find(it => it.productId === productId && !it.deleted);
     if(!item) return;
     if(change.type === 'delete') pendingDeletes.push(item);
-    else if(change.type === 'qty') pendingQtyChanges.push({ item, newQty: change.newQty });
+    else if(change.type === 'qty') pendingQtyChanges.push({ item, newQty: change.newQty, picks: change.picks });
   });
   return { pendingQtyChanges, pendingDeletes };
 }
@@ -2266,7 +2274,7 @@ async function submitLoadCompletedFlow(date, msg){
       }
     }
 
-    for(const { item, newQty } of pendingQtyChanges){
+    for(const { item, newQty, picks } of pendingQtyChanges){
       const oldQty = item.qty;
       const txId = genId();
       const noteText = tf('orderItemQtyChangedNote', { orderNo: order.orderNo || '', name: item.name, oldQty, newQty, unit: item.unit });
@@ -2291,7 +2299,11 @@ async function submitLoadCompletedFlow(date, msg){
       productStockMap[item.productId] = (productStockMap[item.productId] || 0) - qtyDelta;
       // 批次追蹤:加量 → 分配批次;減量 → 退回原批次
       if(typeof batchAllocateAfter === 'function'){
-        if(qtyDelta > 0) await batchAllocateAfter([tx]); else await batchReturnAfter([tx]);
+        if(qtyDelta > 0){
+          // 增加的數量:有在「批次」按鈕指定的批次就照指定,其餘自動(先到期先出)
+          const pk = (picks && picks.length) ? { [tx.id]: picks.map(p => ({ batch_item_id: p.batchItemId, qty: p.qty })) } : undefined;
+          await batchAllocateAfter([tx], pk);
+        } else await batchReturnAfter([tx]);
       }
       // 伺服器那邊已經確定扣庫存成功了,這裡才去動 product_locations,避免庫存扣了/位置卻沒
       // 對應更新的不一致。

@@ -23,6 +23,8 @@ let batchTxMoveCache = {};                       // txId -> [{ batch_item_id, qt
 let batchPicks = {};                             // `${orderId}::${productId}` -> [{ batchItemId, qty }](核對頁手動指定)
 let txBatchTrackChecked = true;                  // 登記進貨「進入批次追蹤」勾選狀態(預設勾選)
 let batchFormExtrasSig = '';
+let batchOrderCache = {};                        // orderId -> Promise<{ productId: { batchItemId: qty } }>
+let batchEditPicks = {};                         // productId -> [{ batchItemId, qty }](登記進出貨→載入已完成訂單,改數量時暫存的指定批次)
 
 function batchFeatureOn(){ return typeof hasFeature === 'function' && hasFeature('batchTracking'); }
 function batchActive(){ return batchFeatureOn() && batchAvailable; }
@@ -95,7 +97,7 @@ function ensureBatchDataLoaded(force){
   if(!batchDataPromise) batchDataPromise = loadBatchData().finally(() => { batchDataPromise = null; });
   return batchDataPromise;
 }
-function batchMarkStale(){ batchData.stale = true; batchTxMoveCache = {}; }
+function batchMarkStale(){ batchData.stale = true; batchTxMoveCache = {}; batchOrderCache = {}; }
 
 // ------------------------------------------------------------
 // 小工具
@@ -869,4 +871,88 @@ async function batchOpenInfoPopup(itemId, mode){
         ${moves.map(m => `<tr><td>${batchEsc(m.mv_date)}</td><td>${t(BATCH_KIND_LABEL_KEY[m.kind] || 'batchKindAdjust')}</td><td class="num">${Number(m.qty) > 0 ? '+' : ''}${batchFmtQty(Number(m.qty))} ${unit}</td><td>${batchEsc(m.party) || '–'}</td><td>${batchEsc(m.order_no) || '–'}</td></tr>`).join('')}
       </tbody></table>`;
   }
+}
+
+// ------------------------------------------------------------
+// 登記進出貨 → 載入已完成訂單:每個商品顯示目前用了哪些批次;改數量(增加)可以指定批次
+// 同批次的增加量會直接加到該批次的數量;不同批次則多出一個批次標籤與數量。
+// ------------------------------------------------------------
+function batchExistingItemTracked(it){
+  return typeof registerOutFlowType !== 'undefined' && registerOutFlowType === 'load-completed' && batchIsTracked(it.productId) && it.qty > 0;
+}
+function batchExistingItemLineHtml(it){
+  if(!batchExistingItemTracked(it)) return '';
+  return `<div class="batch-alloc-line batch-order-line" data-pid="${it.productId}"></div>`;
+}
+function batchExistingItemButtonHtml(it, pending){
+  if(!batchExistingItemTracked(it)) return '';
+  const has = (batchEditPicks[it.productId] && batchEditPicks[it.productId].length) || (pending && pending.picks && pending.picks.length);
+  return `<span class="del-link" id="batchExistBtn_${it.productId}" onclick="batchOpenPickerForExistingItem('${it.productId}')">${t('btnBatchPick')}${has ? ' ✓' : ''}</span>`;
+}
+function batchOpenPickerForExistingItem(productId){
+  const order = orders.find(o => o.id === registerLoadedOrderId);
+  const item = order ? order.items.find(x => x.productId === productId && !x.deleted) : null;
+  const input = document.getElementById('txExistingItemQtyInput_' + productId);
+  if(!item || !input) return;
+  const delta = parseFloat(input.value) - item.qty;
+  if(!(delta > 0)){ showInfoModal(t('batchPickNeedIncrease')); return; }
+  const pending = registerPendingItemChanges[productId];
+  batchOpenPicker({
+    productId, qty: delta, unit: item.unit,
+    picks: batchEditPicks[productId] || (pending && pending.picks) || [],
+    onSave: picks => {
+      if(picks.length) batchEditPicks[productId] = picks; else delete batchEditPicks[productId];
+      const btn = document.getElementById('batchExistBtn_' + productId);
+      if(btn) btn.textContent = t('btnBatchPick') + (picks.length ? ' ✓' : '');
+    }
+  });
+}
+async function batchGetOrderBreakdown(orderId){
+  if(batchOrderCache[orderId]) return batchOrderCache[orderId];
+  const p = (async () => {
+    const { data, error } = await sb.from('batch_movements').select('batch_item_id,qty,kind').eq('order_id', orderId).in('kind', ['out', 'return']);
+    if(error) throw error;
+    const map = {};
+    (data || []).forEach(m => {
+      const i = batchData.items.find(x => x.id === m.batch_item_id);
+      if(!i) return;
+      map[i.productId] = map[i.productId] || {};
+      map[i.productId][m.batch_item_id] = (map[i.productId][m.batch_item_id] || 0) - Number(m.qty);
+    });
+    return map;
+  })();
+  batchOrderCache[orderId] = p;
+  p.catch(() => { delete batchOrderCache[orderId]; });
+  return p;
+}
+async function batchFillOrderBreakdown(root, order){
+  try{
+    if(!batchActive() || !root) return;
+    const els = Array.from(root.querySelectorAll('.batch-order-line'));
+    if(els.length === 0) return;
+    await ensureBatchDataLoaded();
+    const map = await batchGetOrderBreakdown(order.id);
+    els.forEach(el => {
+      const pid = el.dataset.pid;
+      const item = order.items.find(x => x.productId === pid && !x.deleted);
+      const cur = Object.assign({}, map[pid] || {});
+      const add = {};
+      let addUntracked = 0;
+      const pending = registerPendingItemChanges[pid];
+      if(item && pending && pending.type === 'qty' && pending.newQty > item.qty){
+        const alloc = batchPreviewAllocation(pid, pending.newQty - item.qty, pending.picks);
+        alloc.lines.forEach(l => { add[l.item.id] = (add[l.item.id] || 0) + l.qty; });
+        addUntracked = alloc.untracked;
+      }
+      const ids = [...new Set([...Object.keys(cur), ...Object.keys(add)])]
+        .map(id => batchData.items.find(x => x.id === id)).filter(Boolean).sort(batchFefoCompare);
+      let html = ids.map(i => {
+        const base = cur[i.id] || 0, plus = add[i.id] || 0;
+        const exp = i.expiry ? ' · ' + t('batchExpiryShort') + ' ' + batchEsc(i.expiry) : '';
+        return `<span class="batch-tag">${batchEsc(i.batchNo)} ×${batchFmtQty(base + plus)}${exp}${plus ? `<i style="color:var(--warn-dark,#B8860B);font-weight:700;">+${batchFmtQty(plus)}</i>` : ''}</span>`;
+      }).join('');
+      if(addUntracked > 0) html += `<span class="batch-tag batch-tag-warn">${t('batchUntracked')} +${batchFmtQty(addUntracked)}</span>`;
+      el.innerHTML = html;
+    });
+  } catch(e){ console.warn('訂單批次明細載入失敗', e); }
 }
