@@ -1302,7 +1302,7 @@ function loadForecastRecordToPurchase(id){
     setTxType('in');
     txBatchItems = [];
     lines.forEach(({ prod, qty }) => {
-      const ex = txBatchItems.find(x => x.productId === prod.id);
+      const ex = txBatchItems.find(x => x.productId === prod.id && !x.expiry);
       if(ex){ ex.qty += qty; return; }
       txBatchItems.push({ batchItemId: genId(), productId: prod.id, sku: prod.sku || '', name: prod.name, unit: prod.unit, qty, fromForecast: true, forecastRecordId: rec.id, forecastRecordName: rec.name });
     });

@@ -606,7 +606,7 @@ function addOcrLineToTxBatch(productId, qty, amount, docType, sourceFilename, oc
   const p = products.find(x => x.id === productId);
   if(!p) return;
   const existing = txBatchItems.find(it =>
-    it.productId === productId && it.docType === docType && it.sourceFilename === sourceFilename
+    it.productId === productId && it.docType === docType && it.sourceFilename === sourceFilename && !it.expiry
   );
   let affectedBatchItemId;
   if(existing){

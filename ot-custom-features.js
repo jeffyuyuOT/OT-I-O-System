@@ -15,6 +15,9 @@
 // ============================================================
 window.FEATURES = window.FEATURES || {};
 Object.assign(window.FEATURES, {
+  // 批次追蹤:進貨批次號、出貨自動依 FEFO/FIFO 分配批次、庫存總覽「批次追蹤」分頁
+  batchTracking: true,
+
   // 商品編輯畫面裡的「不顯示於已完成訂單匯出」開關(含「整個家族都不顯示」/
   // 「僅顯示切換的批量商品數量」兩個子選項)
   hideFromCompletedExport: true,

@@ -36,6 +36,7 @@ function setTxType(type){
   if(deliveryViewSection) deliveryViewSection.style.display = 'none';
   const receiptWrap = document.getElementById('purchaseReceiptWrap');
   if(receiptWrap && type !== 'in') receiptWrap.style.display = 'none';
+  if(typeof batchRenderFormExtras === 'function') batchRenderFormExtras();
   if(type !== 'in') removePurchaseReceipt(); // 切走「進貨」類型的話,暫存的收據附件狀態一併清掉,避免殘留到下次填別種類型的表單
   if(type !== 'in'){
     const emailToggle = document.getElementById('purchaseEmailToggle');
@@ -630,9 +631,12 @@ function addToTxBatch(){
   if(!Number.isInteger(qty)){ msg.className='msg error'; msg.textContent=t('errQtyMustBeInteger'); return; }
   const p = products.find(x => x.id === productId);
   if(!p) return;
-  const existing = txBatchItems.find(it => it.productId === productId);
-  if(existing) existing.qty += qty;
-  else txBatchItems.push({ batchItemId: genId(), productId, sku: p.sku || '', name: p.name, unit: p.unit, qty });
+  // 批次追蹤:進貨時「同商品同有效期」才合併,不同有效期分行列出
+  const bx = (typeof batchReadAddFields === 'function') ? batchReadAddFields() : { expiry: '', lot: '' };
+  const existing = txBatchItems.find(it => it.productId === productId && (it.expiry || '') === bx.expiry);
+  if(existing){ existing.qty += qty; if(bx.lot && !existing.supplierLot) existing.supplierLot = bx.lot; }
+  else txBatchItems.push({ batchItemId: genId(), productId, sku: p.sku || '', name: p.name, unit: p.unit, qty, expiry: bx.expiry, supplierLot: bx.lot });
+  if(typeof batchClearAddFields === 'function') batchClearAddFields();
   qtyInput.value = '';
   resetSearchableSelect('txProduct');
   msg.className = 'msg'; msg.textContent = '';
@@ -671,6 +675,8 @@ function updateTxBatchItemAmount(batchItemId, value){
 function renderTxBatchList(){
   const container = document.getElementById('txBatchList');
   if(!container) return;
+  if(typeof batchRenderFormExtras === 'function') batchRenderFormExtras();
+  const showBatchCols = typeof batchRowsShowExpiry === 'function' && batchRowsShowExpiry();
   if(txBatchItems.length === 0){
     container.innerHTML = `<div class="empty-note" style="padding:8px 0;" data-i18n="txBatchEmpty">${t('txBatchEmpty')}</div>`;
     return;
@@ -696,13 +702,16 @@ function renderTxBatchList(){
     }
     rowsHtml += `
       <tr>
-        <td class="row-name">${it.name}${badge}</td>
+        <td class="row-name">${it.name}${badge}${(typeof batchTxRowPreviewHtml === 'function') ? batchTxRowPreviewHtml(it) : ''}</td>
         <td class="row-num">
           <input type="number" class="order-qty-input" step="1" value="${it.qty}"
             onchange="updateTxBatchItemQty('${it.batchItemId}', this.value)" /><span class="row-unit">${it.unit}</span>
         </td>
+        ${showBatchCols ? `<td class="row-num"><input type="date" class="order-qty-input" style="width:140px;" value="${it.expiry || ''}" onchange="updateTxBatchItemExpiry('${it.batchItemId}', this.value)" /></td>
+        <td class="row-num"><input type="text" class="order-qty-input" style="width:100px;" value="${(it.supplierLot || '').replace(/"/g, '&quot;')}" onchange="updateTxBatchItemLot('${it.batchItemId}', this.value)" /></td>` : ''}
         ${showAmountCol ? `<td class="row-num"><input type="number" class="order-qty-input" step="0.01" min="0" value="${(it.amount !== undefined && it.amount !== null) ? it.amount : ''}" placeholder="–" ${canEditPrice() ? '' : 'readonly'} onchange="updateTxBatchItemAmount('${it.batchItemId}', this.value)" /></td>` : ''}
         <td class="row-action">
+          ${(typeof batchTxRowButtonHtml === 'function') ? batchTxRowButtonHtml(it) : ''}
           <button onclick="openConversionFromTxBatch('${it.productId}')" title="${t('btnConvertBatchItem')}">🔄</button>
           <button onclick="removeTxBatchItem('${it.batchItemId}')" title="${t('btnDelete')}">✕</button>
         </td>
@@ -723,6 +732,7 @@ function renderTxBatchList(){
         <tr style="background:var(--bg-soft,#f5f5f0);font-weight:700;">
           <td class="row-name">${tf('netQtyRowLabel', { name: it.name })}</td>
           <td class="row-num">${netQty}<span class="row-unit">${it.unit}</span></td>
+          ${showBatchCols ? '<td></td><td></td>' : ''}
           ${showAmountCol ? `<td class="row-num">${netAmount !== null ? Number(netAmount).toFixed(2) : '–'}</td>` : ''}
           <td class="row-action"></td>
         </tr>
@@ -731,7 +741,7 @@ function renderTxBatchList(){
   });
   container.innerHTML = `
     <table class="stock-table">
-      <thead><tr><th>${t('colProduct')}</th><th class="num">${t('colQty')}</th>${showAmountCol ? `<th class="num">${t('colAmount')}</th>` : ''}<th></th></tr></thead>
+      <thead><tr><th>${t('colProduct')}</th><th class="num">${t('colQty')}</th>${showBatchCols ? `<th class="num">${t('batchColExpiry')}</th><th class="num">${t('batchFieldLot')}</th>` : ''}${showAmountCol ? `<th class="num">${t('colAmount')}</th>` : ''}<th></th></tr></thead>
       <tbody>${rowsHtml}</tbody>
     </table>
   `;
@@ -1725,6 +1735,14 @@ async function submitTxBatchSimple(date, msg){
   // 校正成這次實際送出去的供應商,確保兩者一致。
   if(hasFeature('receiptScanModule')) await syncOcrMemoryToFinalParty(party);
 
+  // 批次追蹤:進貨沒勾選「進入批次追蹤」、但清單裡有商品「之前已有批次紀錄」→ 先警示,確認才繼續
+  const batchTrackThis = currentTxType === 'in' && typeof batchFormTrackChecked === 'function' && batchFormTrackChecked();
+  if(currentTxType === 'in' && typeof batchActive === 'function' && batchActive() && !batchTrackThis){
+    try{ await ensureBatchDataLoaded(); }catch(e){}
+    const trackedNames = batchTrackedNamesInTxList();
+    if(trackedNames.length > 0 && !(await batchConfirmUntracked(trackedNames))) return;
+  }
+
   const purchaseId = currentTxType === 'in' ? genId() : null; // 一整批進貨(不管品項有幾個)共用同一個進貨單 ID
 
   // 「直接出貨」(currentTxType === 'out')的話,扣庫存之前先問清楚每個商品要從哪個位置扣——
@@ -1835,9 +1853,13 @@ async function submitTxBatchSimple(date, msg){
           if(it.amount) item.amount = it.amount;
           if(it.docType) item.docType = it.docType;
           if(it.sourceFilename) item.sourceFilename = it.sourceFilename;
+          if(batchTrackThis && it.expiry) item.expiry = it.expiry;
+          if(batchTrackThis && it.supplierLot) item.supplierLot = it.supplierLot;
           return item;
         }
         const item = { productId: it.productId, sku: it.sku || '', name: it.name, unit: it.unit, qty: it.qty };
+        if(batchTrackThis && it.expiry) item.expiry = it.expiry;
+        if(batchTrackThis && it.supplierLot) item.supplierLot = it.supplierLot;
         if(it.amount) item.amount = it.amount;
         if(it.docType) item.docType = it.docType;
         if(it.sourceFilename) item.sourceFilename = it.sourceFilename;
@@ -1846,8 +1868,15 @@ async function submitTxBatchSimple(date, msg){
       receiptFiles: pendingPurchaseReceiptFiles.slice(),
       createdAt: new Date().toISOString()
     };
-    try{ await upsertPurchase(purchase); purchases.push(purchase); }
+    if(batchTrackThis) purchase.batchTracked = true;
+    let purchaseSaved = false;
+    try{ await upsertPurchase(purchase); purchases.push(purchase); purchaseSaved = true; }
     catch(e){ console.error('儲存進貨單失敗', e); }
+    // 批次追蹤:建立批次(必要時一併建立期初批次)。失敗不影響進貨本身,提示後可到編輯進貨單重新儲存補建。
+    if(batchTrackThis && purchaseSaved){
+      try{ await batchSavePurchase(purchase); }
+      catch(e){ console.error('建立批次失敗', e); showInfoModal(t('batchCreateFailed')); }
+    }
     removePurchaseReceipt();
     // 這筆用的供應商名稱,如果「進貨方管理」清單裡還沒有(例如是透過「+ 新增供應商」臨時打的
     // 名字),先幫忙建一筆空白的(電話/住址/附註都空著)進去,下次登記進出貨的下拉選單才會
@@ -1892,6 +1921,7 @@ async function submitTxBatchSimple(date, msg){
   const logDesc = `Logged ${LOG_ACTION_EN_LABEL[logActionType] || logActionType}: ${count} item(s)${party ? ', party ' + party : ''}`;
   logInventoryAction(logActionType, logDesc, null);
   txBatchItems = [];
+  if(typeof batchResetFormAfterSubmit === 'function') batchResetFormAfterSubmit();
   renderTxBatchList();
   if(currentTxType === 'restock'){ document.getElementById('txParty').value = 'Opulent Imports'; }
   else { document.getElementById('txParty').value = ''; }
@@ -2259,6 +2289,10 @@ async function submitLoadCompletedFlow(date, msg){
       const tx = { id: txId, productId: item.productId, type: qtyDelta > 0 ? 'out' : 'restock', qty: Math.abs(qtyDelta), date: todayISO(), party: order.partyName || '', note: noteText, system: true, orderId: order.id };
       transactions.push(tx);
       productStockMap[item.productId] = (productStockMap[item.productId] || 0) - qtyDelta;
+      // 批次追蹤:加量 → 分配批次;減量 → 退回原批次
+      if(typeof batchAllocateAfter === 'function'){
+        if(qtyDelta > 0) await batchAllocateAfter([tx]); else await batchReturnAfter([tx]);
+      }
       // 伺服器那邊已經確定扣庫存成功了,這裡才去動 product_locations,避免庫存扣了/位置卻沒
       // 對應更新的不一致。
       if(qtyChangeAllocationsByProductId[item.productId]){

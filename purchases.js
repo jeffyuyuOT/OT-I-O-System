@@ -68,7 +68,7 @@ function renderPurchaseLog(){
           <tr>
             <td class="pl-date" style="cursor:pointer;white-space:nowrap;" onclick="togglePurchaseDetail('${p.id}')"><span class="td-mobile-label">${t('colPurchaseDate')}</span><span style="display:inline-block;width:14px;">${expandedPurchaseId === p.id ? '▾' : '▸'}</span>${escapeHtmlForPrint(p.date || '')}</td>
             <td class="pl-party" style="cursor:pointer;" onclick="togglePurchaseDetail('${p.id}')"><span class="td-mobile-label">${t('colPurchaseParty')}</span>${escapeHtmlForPrint(p.partyName || p.partyId || '')}</td>
-            <td class="pl-invoice" style="cursor:pointer;" onclick="togglePurchaseDetail('${p.id}')"><span class="td-mobile-label">${t('colPurchaseInvoiceNo')}</span>${escapeHtmlForPrint(p.invoiceNo || '')}${getPurchaseReceiptFileList(p).length > 0 ? ` <span title="${t('hasReceiptAttachedTitle')}">📎</span>` : ''}</td>
+            <td class="pl-invoice" style="cursor:pointer;" onclick="togglePurchaseDetail('${p.id}')"><span class="td-mobile-label">${t('colPurchaseInvoiceNo')}</span>${escapeHtmlForPrint(p.invoiceNo || '')}${(typeof batchPurchaseTagHtml === 'function') ? batchPurchaseTagHtml(p) : ''}${getPurchaseReceiptFileList(p).length > 0 ? ` <span title="${t('hasReceiptAttachedTitle')}">📎</span>` : ''}</td>
             <td class="pl-actions" style="white-space:nowrap;">
               <span class="del-link" onclick="openEditPurchaseModal('${p.id}')">${t('btnEdit')}</span>
               &nbsp;·&nbsp;
@@ -559,12 +559,30 @@ function renderEditPurchaseItemsList(){
           </div>
           <input type="number" value="${it.qty}" min="0" step="any" style="width:70px;" oninput="updateEditPurchaseItemQty(${i}, this.value)" />
           <span style="font-size:11.5px;color:var(--ink-soft);">${escapeHtmlForPrint(it.unit || '')}</span>
+          ${editPurchaseIsBatchTracked() ? `<input type="date" value="${it.expiry || ''}" title="${t('batchColExpiry')}" style="width:130px;" onchange="updateEditPurchaseItemExpiry(${i}, this.value)" />
+          <input type="text" value="${escapeHtmlForPrint(it.supplierLot || '')}" placeholder="${t('batchFieldLot')}" style="width:100px;" oninput="updateEditPurchaseItemLot(${i}, this.value)" />` : ''}
           <input type="number" value="${it.amount !== undefined && it.amount !== null ? it.amount : ''}" min="0" step="any" placeholder="$" style="width:90px;" ${canEditPrice() ? '' : 'readonly title="' + t('priceReadOnlyTitle') + '"'} oninput="updateEditPurchaseItemAmount(${i}, this.value)" />
           <span class="del-link" onclick="removeEditPurchaseItem(${i})">${t('btnRemoveItem')}</span>
         </div>
       `).join('')}
     </div>
   `;
+}
+function editPurchaseIsBatchTracked(){
+  if(typeof batchActive !== 'function' || !batchActive()) return false;
+  const p = purchases.find(x => x.id === editPurchaseTargetId);
+  return !!(p && p.batchTracked);
+}
+function updateEditPurchaseItemExpiry(index, value){
+  const it = editPurchaseWorkingItems[index];
+  if(!it) return;
+  if(value) it.expiry = value; else delete it.expiry;
+}
+function updateEditPurchaseItemLot(index, value){
+  const it = editPurchaseWorkingItems[index];
+  if(!it) return;
+  const v = (value || '').trim();
+  if(v) it.supplierLot = v; else delete it.supplierLot;
 }
 function updateEditPurchaseItemQty(index, value){
   const it = editPurchaseWorkingItems[index];
@@ -827,9 +845,18 @@ async function confirmEditPurchase(){
     qty: Number(it.qty) || 0,
     amount: (it.amount !== undefined && it.amount !== null) ? Number(it.amount) : null,
     docType: it.docType || null,
-    sourceFilename: it.sourceFilename || null
-  })).sort((a,b) => `${a.productId}|${a.docType}|${a.sourceFilename}`.localeCompare(`${b.productId}|${b.docType}|${b.sourceFilename}`));
+    sourceFilename: it.sourceFilename || null,
+    expiry: it.expiry || null,
+    supplierLot: it.supplierLot || null
+  })).sort((a,b) => `${a.productId}|${a.docType}|${a.sourceFilename}|${a.expiry}`.localeCompare(`${b.productId}|${b.docType}|${b.sourceFilename}|${b.expiry}`));
   const itemsChanged = JSON.stringify(normalizeForCompare(p.items || [])) !== JSON.stringify(normalizeForCompare(cleanItems));
+
+  // 批次追蹤:數量不能低於這個批次已經出貨的量(最後以資料庫為準)
+  if(p.batchTracked && typeof batchValidatePurchaseEdit === 'function'){
+    try{ await ensureBatchDataLoaded(true); }catch(e){}
+    const batchErr = batchValidatePurchaseEdit(p, cleanItems);
+    if(batchErr){ msgEl.className = 'msg error'; msgEl.textContent = '⚠ ' + batchErr; return; }
+  }
 
   msgEl.className = 'msg'; msgEl.textContent = t('savingMsg');
   const oldDate = p.date, oldParty = p.partyName, oldInvoice = p.invoiceNo, oldNote = p.note;
@@ -873,6 +900,15 @@ async function confirmEditPurchase(){
           const { error } = await sb.from('transactions').update({ date: dateVal, party: partyVal || null, note: noteVal || null, invoice_no: invoiceVal || null }).eq('id', tx.id);
           if(error) throw error;
         } catch(e){ console.error('同步更新進出貨紀錄失敗', e); }
+      }
+    }
+    // 批次追蹤:同步批次(數量/有效期/批號/日期/Invoice/供應商有改才呼叫)
+    if(p.batchTracked && typeof batchSavePurchase === 'function' && (itemsChanged || dateVal !== oldDate || partyVal !== oldParty || invoiceVal !== oldInvoice)){
+      try{ await batchSavePurchase(p); }
+      catch(be){
+        console.error('同步批次失敗', be);
+        const inUse = (typeof batchParseInUseError === 'function') ? batchParseInUseError(be) : null;
+        showInfoModal(inUse ? tf('batchEditBelowUsed', { name: batchProductName(inUse.product_id), batch: '', used: inUse.min_qty }) : t('batchCreateFailed'));
       }
     }
     renderPurchaseLog();

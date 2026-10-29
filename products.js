@@ -694,6 +694,7 @@ async function confirmConversion(){
       msg.textContent = '⚠ 轉換失敗,請重新整理頁面再試一次。';
       return;
     }
+    if(typeof batchConvertAfter === 'function') await batchConvertAfter(conversionId, txA.productId); // 批次追蹤:同批次一出一進
     // 交易確定成功之後才處理位置變動,避免庫存扣了/位置卻沒對應更新的不一致:先把主商品
     // 原本的位置庫存扣掉,再幫轉換出來的批量商品指派位置。
     await applyLocationDeductions(sourceLocationChoices);
@@ -762,6 +763,7 @@ async function confirmConversion(){
     msg.textContent = '⚠ 切換失敗,請重新整理頁面再試一次。';
     return;
   }
+  if(typeof batchConvertAfter === 'function') await batchConvertAfter(conversionId, txA.productId); // 批次追蹤:同批次一出一進
   // 交易確定成功之後才處理位置變動:先扣掉批量商品原本的位置庫存,再幫轉換出來的主商品
   // 指派位置。
   await applyLocationDeductions(sourceLocationChoices);

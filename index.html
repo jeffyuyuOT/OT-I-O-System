@@ -1511,6 +1511,7 @@
           <span data-i18n="browseAllProductsLabel">瀏覽所有商品(不勾選:只顯示這個出貨方訂貨時看得到的商品;勾選:顯示庫存總覽裡所有商品,隱藏商品除外)</span>
         </label>
       </div>
+      <div id="txBatchTrackWrap" style="display:none;margin-top:8px;"></div>
       <div class="form-grid" style="grid-template-columns:1fr 1.3fr 1fr auto;margin-top:6px;">
         <div class="field">
           <label data-i18n="fieldFilterByCategory">依分類篩選商品</label>
@@ -1526,6 +1527,7 @@
         </div>
         <button class="btn ghost" onclick="addToTxBatch()" data-i18n="btnAddToBatch">+ 加入清單</button>
       </div>
+      <div id="txBatchExtraFields" style="display:none;"></div>
       <div id="txBatchList" style="margin-top:12px;"></div>
       <div id="txSubmitArea" style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;">
         <button class="btn" onclick="submitTxBatch()" data-i18n="btnRegister">提交</button>
@@ -1597,6 +1599,7 @@
     <div class="subtab-bar">
       <button class="subtab-btn active" onclick="switchOverviewSubTab('subtab-overview-summary')" id="btn-subtab-overview-summary" data-i18n="subtabOverviewSummary">庫存統計</button>
       <button class="subtab-btn" onclick="switchOverviewSubTab('subtab-overview-location')" id="btn-subtab-overview-location" data-i18n="subtabOverviewLocation">庫存分布</button>
+      <button class="subtab-btn" onclick="switchOverviewSubTab('subtab-overview-batch')" id="btn-subtab-overview-batch" data-i18n="subtabOverviewBatch">批次追蹤</button>
     </div>
 
     <div id="subtab-overview-summary" class="subtab-content active-subtab">
@@ -1669,6 +1672,12 @@
         </div>
       </div>
       <div id="stockLocationDetail"></div>
+    </div>
+    </div>
+
+    <div id="subtab-overview-batch" class="subtab-content">
+    <div class="section">
+      <div id="batchTrackerRoot"></div>
     </div>
     </div>
   </div>
@@ -2788,6 +2797,7 @@
 <script src="receipt-scan.js"></script>
 <script src="orders.js"></script>
 <script src="transactions.js"></script>
+<script src="batch-tracking.js"></script>
 <script src="parties.js"></script>
 <script src="quick-lists.js"></script>
 <script src="stock-location.js"></script>
@@ -3255,6 +3265,7 @@ async function loadData(){
     if(HISTORY_RANGE_OPTIONS.includes(n)) historyRangeMonths = n;
   } catch(e){ /* 沒設定過就用預設 3 個月 */ }
   await Promise.all([loadTransactions(), loadOrders(), tablesP]);
+  if(typeof ensureBatchDataLoaded === 'function') ensureBatchDataLoaded(); // 批次追蹤資料(不阻塞開機)
   try{
     const p = await dbGet('products');
     products = p ? JSON.parse(p.value) : [];
