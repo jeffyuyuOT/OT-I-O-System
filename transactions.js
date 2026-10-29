@@ -686,6 +686,7 @@ function renderTxBatchList(){
   const container = document.getElementById('txBatchList');
   if(!container) return;
   if(typeof batchRenderFormExtras === 'function') batchRenderFormExtras();
+  if(typeof pcRender === 'function') pcRender();
   const showBatchCols = typeof batchRowsShowExpiry === 'function' && batchRowsShowExpiry();
   if(txBatchItems.length === 0){
     container.innerHTML = `<div class="empty-note" style="padding:8px 0;" data-i18n="txBatchEmpty">${t('txBatchEmpty')}</div>`;
@@ -751,7 +752,7 @@ function renderTxBatchList(){
   });
   container.innerHTML = `
     <table class="stock-table">
-      <thead><tr><th>${t('colProduct')}</th><th class="num">${t('colQty')}</th>${showBatchCols ? `<th class="num">${t('batchColExpiry')}</th><th class="num">${t('batchFieldLot')}</th>` : ''}${showAmountCol ? `<th class="num">${t('colAmount')}</th>` : ''}<th></th></tr></thead>
+      <thead><tr><th>${t('colProduct')}</th><th class="num">${t('colQty')}</th>${showBatchCols ? `<th class="num">${t('batchColExpiry')}</th><th class="num">${t('batchFieldLot')}</th>` : ''}${showAmountCol ? `<th class="num">${t('colAmount')}${(typeof pcAmountColSuffix === 'function') ? pcAmountColSuffix() : ''}</th>` : ''}<th></th></tr></thead>
       <tbody>${rowsHtml}</tbody>
     </table>
   `;
@@ -1354,6 +1355,7 @@ async function runStockImportCore(items, skippedRows, clearBlanksMode, dryRun){
         boxLengthCm: (item.boxLengthCm !== null && item.boxLengthCm !== undefined && !isNaN(item.boxLengthCm)) ? item.boxLengthCm : undefined,
         boxWidthCm: (item.boxWidthCm !== null && item.boxWidthCm !== undefined && !isNaN(item.boxWidthCm)) ? item.boxWidthCm : undefined,
         boxHeightCm: (item.boxHeightCm !== null && item.boxHeightCm !== undefined && !isNaN(item.boxHeightCm)) ? item.boxHeightCm : undefined,
+        weightKg: (item.weightKg !== null && item.weightKg !== undefined && !isNaN(item.weightKg)) ? item.weightKg : undefined,
         hidden: item.hidden === true,
         orderPageRemark: item.orderPageRemark || undefined,
         barcode: item.barcode || undefined
@@ -1400,6 +1402,8 @@ async function runStockImportCore(items, skippedRows, clearBlanksMode, dryRun){
     else if(clearBlanksMode && (item.boxWidthCm === null || item.boxWidthCm === undefined) && existing.boxWidthCm !== null && existing.boxWidthCm !== undefined){ changedFields.push(tf('importFieldChangeLine', {field: t('fieldBoxWidth'), from: existing.boxWidthCm, to: '(空白)'})); existing.boxWidthCm = undefined; changed = true; }
     if(item.boxHeightCm !== null && item.boxHeightCm !== undefined && !isNaN(item.boxHeightCm) && existing.boxHeightCm !== item.boxHeightCm){ changedFields.push(tf('importFieldChangeLine', {field: t('fieldBoxHeight'), from: existing.boxHeightCm, to: item.boxHeightCm})); existing.boxHeightCm = item.boxHeightCm; changed = true; }
     else if(clearBlanksMode && (item.boxHeightCm === null || item.boxHeightCm === undefined) && existing.boxHeightCm !== null && existing.boxHeightCm !== undefined){ changedFields.push(tf('importFieldChangeLine', {field: t('fieldBoxHeight'), from: existing.boxHeightCm, to: '(空白)'})); existing.boxHeightCm = undefined; changed = true; }
+    if(item.weightKg !== null && item.weightKg !== undefined && !isNaN(item.weightKg) && existing.weightKg !== item.weightKg){ changedFields.push(tf('importFieldChangeLine', {field: t('fieldWeightKg'), from: existing.weightKg, to: item.weightKg})); existing.weightKg = item.weightKg; changed = true; }
+    else if(clearBlanksMode && (item.weightKg === null || item.weightKg === undefined) && existing.weightKg !== null && existing.weightKg !== undefined){ changedFields.push(tf('importFieldChangeLine', {field: t('fieldWeightKg'), from: existing.weightKg, to: '(空白)'})); existing.weightKg = undefined; changed = true; }
     if(item.hidden !== null && item.hidden !== undefined && existing.hidden !== item.hidden){ changedFields.push(tf('importFieldChangeLine', {field: t('hideAction'), from: existing.hidden, to: item.hidden})); existing.hidden = item.hidden; changed = true; }
     if(item.autoConvertOnStockIn !== null && item.autoConvertOnStockIn !== undefined && existing.autoConvertOnStockIn !== item.autoConvertOnStockIn){ changedFields.push(tf('importFieldChangeLine', {field: t('fieldAutoConvertStockIn'), from: existing.autoConvertOnStockIn, to: item.autoConvertOnStockIn})); existing.autoConvertOnStockIn = item.autoConvertOnStockIn; changed = true; }
     if(item.orderPageRemark !== null && item.orderPageRemark !== undefined && existing.orderPageRemark !== item.orderPageRemark){ changedFields.push(tf('importFieldChangeLine', {field: t('fieldOrderPageRemark'), from: existing.orderPageRemark || '(空白)', to: item.orderPageRemark})); existing.orderPageRemark = item.orderPageRemark; changed = true; }
@@ -1722,6 +1726,11 @@ async function submitTxBatchSimple(date, msg){
 
   if(txBatchItems.length === 0){ msg.className='msg error'; msg.textContent='請先把至少一項商品加入清單'; return; }
   if(!date){ msg.className='msg error'; msg.textContent='請選擇日期'; return; }
+  // 第二期:其他支出 / 海外採購,送出前先檢查匯率、支出欄位、分攤依據的資料是否齊全
+  if(currentTxType === 'in' && typeof pcValidate === 'function'){
+    const pcErr = pcValidate();
+    if(pcErr){ msg.className = 'msg error'; msg.textContent = '⚠ ' + pcErr; return; }
+  }
 
   // 進貨(type='in')的時候,如果這個品項是批量商品、而且開了「自動切換」,不直接加進這個批量
   // 商品自己的庫存,而是依加權數換算成主商品的數量,直接加進主商品的庫存——省掉「先進貨到批量
@@ -1879,6 +1888,7 @@ async function submitTxBatchSimple(date, msg){
       createdAt: new Date().toISOString()
     };
     if(batchTrackThis) purchase.batchTracked = true;
+    if(typeof pcApplyToPurchase === 'function') pcApplyToPurchase(purchase); // 幣種換算 + 其他支出分攤 → 底價/總價
     let purchaseSaved = false;
     try{ await upsertPurchase(purchase); purchases.push(purchase); purchaseSaved = true; }
     catch(e){ console.error('儲存進貨單失敗', e); }
@@ -1887,6 +1897,8 @@ async function submitTxBatchSimple(date, msg){
       try{ await batchSavePurchase(purchase); }
       catch(e){ console.error('建立批次失敗', e); showInfoModal(t('batchCreateFailed')); }
     }
+    if(typeof pcRememberExpenseNames === 'function' && purchase.costs) pcRememberExpenseNames(purchase.costs.expenses.map(e => e.name));
+    if(typeof pcReset === 'function') pcReset();
     removePurchaseReceipt();
     // 這筆用的供應商名稱,如果「進貨方管理」清單裡還沒有(例如是透過「+ 新增供應商」臨時打的
     // 名字),先幫忙建一筆空白的(電話/住址/附註都空著)進去,下次登記進出貨的下拉選單才會

@@ -411,9 +411,11 @@ function batchNetPurchaseLines(items){
     g.inc.forEach(it => {
       const key = it.expiry || '';
       let l = lines.find(x => x.expiry === key);
-      if(!l){ l = { productId: pid, expiry: key, qty: 0, amount: null, supplierLot: '' }; lines.push(l); }
+      if(!l){ l = { productId: pid, expiry: key, qty: 0, amount: null, totalAmount: null, origAmount: null, origCurrency: '', fxRate: null, supplierLot: '' }; lines.push(l); }
       l.qty += Number(it.qty) || 0;
       if(it.amount !== undefined && it.amount !== null) l.amount = (l.amount || 0) + Number(it.amount);
+      if(it.totalAmount !== undefined && it.totalAmount !== null) l.totalAmount = (l.totalAmount || 0) + Number(it.totalAmount);
+      if(it.origAmount !== undefined && it.origAmount !== null){ l.origAmount = (l.origAmount || 0) + Number(it.origAmount); l.origCurrency = it.origCurrency || l.origCurrency; l.fxRate = it.fxRate || l.fxRate; }
       if(it.supplierLot && !l.supplierLot) l.supplierLot = it.supplierLot;
     });
     g.cn.forEach(it => {
@@ -423,8 +425,11 @@ function batchNetPurchaseLines(items){
       lines.slice().sort((a, b) => ((a.expiry === key ? 0 : 1) - (b.expiry === key ? 0 : 1)) || batchExpiryCompare(a.expiry, b.expiry)).forEach(l => {
         if(left <= 0 || l.qty <= 0) return;
         const take = Math.min(left, l.qty);
+        const ratioLeft = (l.qty - take) / l.qty; // Credit Note 退掉的比例,總價/原幣金額照比例縮減
         l.qty -= take;
         if(unitAmt !== null && l.amount !== null) l.amount -= take * unitAmt;
+        if(l.totalAmount !== null) l.totalAmount *= ratioLeft;
+        if(l.origAmount !== null) l.origAmount *= ratioLeft;
         left -= take;
       });
     });
@@ -437,7 +442,10 @@ async function batchSavePurchase(purchase){
   const lines = batchNetPurchaseLines(purchase.items || []);
   const payload = lines.map(l => ({
     product_id: l.productId, expiry: l.expiry || '', qty: l.qty,
-    amount: l.amount === null ? null : l.amount, supplier_lot: l.supplierLot || ''
+    amount: l.amount === null ? null : l.amount, supplier_lot: l.supplierLot || '',
+    // 第二期:總價 = 底價 + 分攤的其他支出;沒有分攤時總價等於底價
+    total_amount: l.totalAmount !== null ? l.totalAmount : (l.amount === null ? null : l.amount),
+    orig_amount: l.origAmount, orig_currency: l.origCurrency || '', fx_rate: l.fxRate
   }));
   const data = await batchRpc('batch_save_purchase', {
     p_purchase_id: purchase.id, p_date: purchase.date, p_invoice_no: purchase.invoiceNo || null,

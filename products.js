@@ -151,7 +151,7 @@ function confirmCopyItem(){
     safetyStock: src.safetyStock !== undefined ? src.safetyStock : null,
     note: src.note || '', orderPageRemark: src.orderPageRemark || '',
     barcode: '', // barcode 不複製
-    boxLengthCm: src.boxLengthCm, boxWidthCm: src.boxWidthCm, boxHeightCm: src.boxHeightCm,
+    boxLengthCm: src.boxLengthCm, boxWidthCm: src.boxWidthCm, boxHeightCm: src.boxHeightCm, weightKg: src.weightKg,
     parentId: null
   };
   editingProductPhotoUrl = src.photoUrl || null;
@@ -289,6 +289,11 @@ function renderProductEditModalBody(p, opts){
       </div>
       <div class="field-hint">${t('boxDimensionsHint')}</div>
     </div>
+    <div class="field-block">
+      <label>${t('fieldWeightKg')}</label>
+      <input type="number" id="editProdWeightKg" min="0" step="0.001" value="${p.weightKg !== null && p.weightKg !== undefined ? p.weightKg : ''}" placeholder="kg" style="width:160px;" />
+      <div class="field-hint">${t('weightKgHint')}</div>
+    </div>
     ${!opts.isNew ? `
     <div class="field-block">
       <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-weight:400;">
@@ -425,6 +430,9 @@ async function saveProductEditModal(){
   const boxLengthCm = boxLRaw ? parseFloat(boxLRaw) : null;
   const boxWidthCm = boxWRaw ? parseFloat(boxWRaw) : null;
   const boxHeightCm = boxHRaw ? parseFloat(boxHRaw) : null;
+  const weightRawEl = document.getElementById('editProdWeightKg');
+  const weightKgParsed = weightRawEl && weightRawEl.value.trim() !== '' ? parseFloat(weightRawEl.value) : null;
+  const weightKg = (weightKgParsed !== null && !isNaN(weightKgParsed) && weightKgParsed >= 0) ? weightKgParsed : undefined;
 
   if(!name){ msg.className = 'msg error'; msg.textContent = '商品名稱不能空白'; return; }
   if(products.some(x => x.id !== id && x.name === name)){ msg.className = 'msg error'; msg.textContent = '已經有另一個商品叫這個名字了'; return; }
@@ -452,7 +460,8 @@ async function saveProductEditModal(){
       photoUrl: editingProductPhotoUrl || undefined,
       boxLengthCm: boxLengthCm !== null && !isNaN(boxLengthCm) ? boxLengthCm : undefined,
       boxWidthCm: boxWidthCm !== null && !isNaN(boxWidthCm) ? boxWidthCm : undefined,
-      boxHeightCm: boxHeightCm !== null && !isNaN(boxHeightCm) ? boxHeightCm : undefined
+      boxHeightCm: boxHeightCm !== null && !isNaN(boxHeightCm) ? boxHeightCm : undefined,
+      weightKg
     });
   } else if(isNewStandalone){
     products.push({
@@ -466,7 +475,8 @@ async function saveProductEditModal(){
       photoUrl: editingProductPhotoUrl || undefined,
       boxLengthCm: boxLengthCm !== null && !isNaN(boxLengthCm) ? boxLengthCm : undefined,
       boxWidthCm: boxWidthCm !== null && !isNaN(boxWidthCm) ? boxWidthCm : undefined,
-      boxHeightCm: boxHeightCm !== null && !isNaN(boxHeightCm) ? boxHeightCm : undefined
+      boxHeightCm: boxHeightCm !== null && !isNaN(boxHeightCm) ? boxHeightCm : undefined,
+      weightKg
     });
   } else {
     p.sku = sku;
@@ -488,6 +498,7 @@ async function saveProductEditModal(){
     p.boxLengthCm = boxLengthCm !== null && !isNaN(boxLengthCm) ? boxLengthCm : undefined;
     p.boxWidthCm = boxWidthCm !== null && !isNaN(boxWidthCm) ? boxWidthCm : undefined;
     p.boxHeightCm = boxHeightCm !== null && !isNaN(boxHeightCm) ? boxHeightCm : undefined;
+    p.weightKg = weightKg;
     const hiddenEl = document.getElementById('editProdHidden');
     if(hiddenEl) p.hidden = hiddenEl.checked;
     const showInTotalEl = document.getElementById('editProdShowInTotal');

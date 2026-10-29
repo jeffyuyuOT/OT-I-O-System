@@ -82,7 +82,7 @@ function renderPurchaseLog(){
           <tr>
             <td colspan="4" style="background:#fff;">
               ${orderBlockHtml('items', 'orderBlockItems', `<table class="stock-table" style="margin:2px 0;background:transparent;">
-                <thead><tr><th>${t('colProduct')}</th><th class="num">${t('colQty')}</th>${(p.items || []).some(it => it.amount) ? `<th class="num">${t('colAmount')}</th>` : ''}</tr></thead>
+                <thead><tr><th>${t('colProduct')}</th><th class="num">${t('colQty')}</th>${(p.items || []).some(it => it.amount) ? `<th class="num">${(p.costs && p.costs.expensesAud > 0) ? t('colBasePrice') : t('colAmount')}</th>` : ''}${(p.costs && p.costs.expensesAud > 0) ? `<th class="num">${t('colTotalPrice')}</th>` : ''}</tr></thead>
                 <tbody>
                   ${(p.items || []).map(it => {
                     const isCreditNote = it.docType === 'credit_note';
@@ -90,10 +90,12 @@ function renderPurchaseLog(){
                     const badge = isCreditNote ? ` <span style="color:var(--crit);font-weight:600;font-size:11px;">(${t('docTypeCreditNoteBadge')})</span>` : '';
                     const amountCell = (p.items || []).some(x => x.amount)
                       ? `<td class="num">${it.amount ? Number(isCreditNote ? -it.amount : it.amount).toFixed(2) : '–'}</td>` : '';
-                    return `<tr><td>${escapeHtmlForPrint(it.name)}${badge}</td><td class="num">${displayQty} ${escapeHtmlForPrint(it.unit || '')}</td>${amountCell}</tr>`;
+                    const totalCell = (p.costs && p.costs.expensesAud > 0)
+                      ? `<td class="num"><strong>${(typeof pcItemPrices === 'function' && pcItemPrices(it).total !== null) ? pcItemPrices(it).total.toFixed(2) : '–'}</strong></td>` : '';
+                    return `<tr><td>${escapeHtmlForPrint(it.name)}${badge}</td><td class="num">${displayQty} ${escapeHtmlForPrint(it.unit || '')}</td>${amountCell}${totalCell}</tr>`;
                   }).join('')}
                 </tbody>
-              </table>`)}
+              </table>${(p.costs && typeof pcPurchaseTotals === 'function') ? (() => { const tt = pcPurchaseTotals(p); return `<div style="font-size:12.5px;margin-top:4px;">${t('lblInvoiceSubtotal')}: <strong>${tt.base.toFixed(2)}</strong>${tt.expenses > 0 ? ` + ${t('lblOtherExpensesTotal')}: <strong>${tt.expenses.toFixed(2)}</strong> = ${t('lblPurchaseGrandTotal')}: <strong>${tt.total.toFixed(2)}</strong>` : ''} AUD${p.costs.overseas ? ` (${p.costs.currency})` : ''}</div>`; })() : ''}`)}
               ${p.note ? orderBlockHtml('remark', 'orderBlockRemark', `<p style="font-size:12.5px;color:var(--ink);margin:0;">${tf('purchaseNoteLabel', { note: escapeHtmlForPrint(p.note) })}</p>`) : ''}
               ${orderBlockHtml('party', 'orderBlockReceipt', getPurchaseReceiptFileList(p).length > 0
                 ? getPurchaseReceiptFileList(p).map(f => `<a href="${f.url}" target="_blank" style="font-size:12.5px;display:block;">📎 ${escapeHtmlForPrint(f.filename || t('linkViewUploadedReceipt'))}</a>`).join('')
@@ -130,8 +132,11 @@ function buildPurchaseWorkbook(p){
   const aoa = [];
   aoa.push([`Supplier: ${supplier}`, `Invoice No.: ${p.invoiceNo || ''}`]);
   aoa.push([`Date: ${p.date || ''}`]);
+  const hasOrig = (p.items || []).some(it => it.origCurrency);
   const headerRow = ['SKU', 'Name', 'Qty', 'Unit'];
-  if(hasAnyAmount) headerRow.push('Amount', 'Unit Price');
+  // 第二期:Base Price = 發票商品本身的金額(AUD);Total Price = Base Price + 分攤到的其他支出。沒有其他支出時兩者相同。
+  if(hasAnyAmount) headerRow.push('Base Price', 'Base Unit Price', 'Other Expenses (allocated)', 'Total Price', 'Total Unit Price');
+  if(hasAnyAmount && hasOrig) headerRow.push('Invoice Amount (orig.)', 'Invoice Currency', 'FX Rate (to AUD)');
   if(hasAnyDocType) headerRow.push('Document');
   aoa.push(headerRow);
   (p.items || []).forEach(it => {
@@ -149,14 +154,40 @@ function buildPurchaseWorkbook(p){
       prod ? prod.unit : (it.unit || '')
     ];
     if(hasAnyAmount){
-      row.push(displayAmount || '');
-      row.push(it.amount ? Math.round((displayAmount / displayQty) * 100) / 100 : ''); // 單價用「金額 ÷ 數量」現算,不是另外存的欄位——auto convert 換算單位之後,數量已經是換算後的單位,這裡算出來的就自然是換算後單位的單價(負數除負數還是正的單價,方向正確)
+      const pr = (typeof pcItemPrices === 'function') ? pcItemPrices(it) : { base: displayAmount, total: displayAmount };
+      const r2 = x => Math.round(x * 100) / 100;
+      row.push(pr.base !== null ? r2(pr.base) : '');
+      row.push(pr.base !== null && displayQty ? r2(pr.base / displayQty) : '');
+      row.push(pr.base !== null && pr.total !== null ? r2(pr.total - pr.base) : '');
+      row.push(pr.total !== null ? r2(pr.total) : '');
+      row.push(pr.total !== null && displayQty ? r2(pr.total / displayQty) : '');
+      if(hasOrig){
+        row.push(it.origAmount !== undefined ? (isCreditNote ? -it.origAmount : it.origAmount) : '');
+        row.push(it.origCurrency || '');
+        row.push(it.fxRate || '');
+      }
     }
     if(hasAnyDocType){
       row.push(it.docType ? `${it.docType === 'credit_note' ? 'Credit Note' : 'Invoice'}${it.sourceFilename ? ' - ' + it.sourceFilename : ''}` : '');
     }
     aoa.push(row);
   });
+
+  // 第二期:底價 / 其他支出 / 總價 合計(AUD),其他支出逐項列出(含原幣別與匯率)
+  if(hasAnyAmount && typeof pcPurchaseTotals === 'function'){
+    const tt = pcPurchaseTotals(p);
+    aoa.push([]);
+    aoa.push(['Invoice Items (Base Price)', '', '', '', tt.base]);
+    if(p.costs && p.costs.expenses && p.costs.expenses.length){
+      p.costs.expenses.forEach(e => {
+        aoa.push([`Other Expense: ${e.name}`, '', '', '', e.aud, `${e.amount} ${e.currency}${e.currency !== 'AUD' ? ' @ ' + e.rate : ''}`]);
+      });
+      const basisName = { volume: 'Volume', weight: 'Weight', boxes: 'Boxes', amount: 'Amount' }[p.costs.basis] || p.costs.basis;
+      aoa.push(['Allocated by', basisName]);
+    }
+    aoa.push(['Purchase Total (Total Price)', '', '', '', tt.total]);
+    if(p.costs && p.costs.overseas) aoa.push([`Invoice currency: ${p.costs.currency}`]);
+  }
 
   // 同一個商品(同一個 productId)在這張進貨單裡出現不只一筆的話——最常見的情境是原始發票
   // 一筆、後續因為缺貨另開的 Credit Note 退貨一筆——在原始逐筆明細下面另外加一段「Net Quantity
@@ -192,9 +223,7 @@ function buildPurchaseWorkbook(p){
   }
 
   const ws = XLSX.utils.aoa_to_sheet(aoa);
-  ws['!cols'] = hasAnyAmount
-    ? [{wch:10},{wch:32},{wch:8},{wch:10},{wch:12},{wch:12},{wch:24}]
-    : [{wch:10},{wch:32},{wch:8},{wch:10},{wch:24}];
+  ws['!cols'] = headerRow.map((h, i) => ({ wch: i === 0 ? 12 : i === 1 ? 32 : i < 4 ? 10 : 16 }));
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Purchase');
 
@@ -856,6 +885,12 @@ async function confirmEditPurchase(){
     try{ await ensureBatchDataLoaded(true); }catch(e){}
     const batchErr = batchValidatePurchaseEdit(p, cleanItems);
     if(batchErr){ msgEl.className = 'msg error'; msgEl.textContent = '⚠ ' + batchErr; return; }
+  }
+
+  // 第二期:有成本資料的進貨單,品項金額改了就用原本的其他支出/分攤依據重新算每行總價
+  if(p.costs && typeof pcRecompute === 'function'){
+    const costRes = pcRecompute({ items: cleanItems, costs: p.costs });
+    if(costRes.error){ msgEl.className = 'msg error'; msgEl.textContent = '⚠ ' + costRes.error; return; }
   }
 
   msgEl.className = 'msg'; msgEl.textContent = t('savingMsg');
