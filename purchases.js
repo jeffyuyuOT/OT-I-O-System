@@ -99,7 +99,7 @@ function renderPurchaseLog(){
                     return `<tr><td>${escapeHtmlForPrint(it.name)}${badge}</td><td class="num">${displayQty} ${escapeHtmlForPrint(it.unit || '')}</td>${amountCell}${totalCell}</tr>`;
                   }).join('')}
                 </tbody>
-              </table>${(p.costs && typeof pcPurchaseTotals === 'function') ? (() => { const tt = pcPurchaseTotals(p); return `<div style="font-size:12.5px;margin-top:4px;">${t('lblInvoiceSubtotal')}: <strong>${tt.base.toFixed(2)}</strong>${tt.expenses > 0 ? ` + ${t('lblOtherExpensesTotal')}: <strong>${tt.expenses.toFixed(2)}</strong> = ${t('lblPurchaseGrandTotal')}: <strong>${tt.total.toFixed(2)}</strong>` : ''} AUD${p.costs.overseas ? ` (${p.costs.currency})` : ''}</div>`; })() : ''}`)}
+              </table>${(p.costs && typeof pcPurchaseTotals === 'function') ? (() => { const tt = pcPurchaseTotals(p); return `<div style="font-size:12.5px;margin-top:4px;">${t('lblInvoiceSubtotal')}: <strong>${tt.base.toFixed(2)}</strong>${tt.expenses > 0 ? ` + ${t('lblOtherExpensesTotal')}: <strong>${tt.expenses.toFixed(2)}</strong> = ${t('lblPurchaseGrandTotal')}: <strong>${tt.total.toFixed(2)}</strong>` : ''} ${p.costs.baseCurrency || 'AUD'}${p.costs.overseas ? ` (${tf('pcInvoiceCurrencyShort', { cur: p.costs.currency })})` : ''}</div>`; })() : ''}`)}
               ${p.note ? orderBlockHtml('remark', 'orderBlockRemark', `<p style="font-size:12.5px;color:var(--ink);margin:0;">${tf('purchaseNoteLabel', { note: escapeHtmlForPrint(p.note) })}</p>`) : ''}
               ${orderBlockHtml('party', 'orderBlockReceipt', getPurchaseReceiptFileList(p).length > 0
                 ? getPurchaseReceiptFileList(p).map(f => `<a href="${f.url}" target="_blank" style="font-size:12.5px;display:block;">📎 ${escapeHtmlForPrint(f.filename || t('linkViewUploadedReceipt'))}</a>`).join('')
@@ -140,7 +140,7 @@ function buildPurchaseWorkbook(p){
   const headerRow = ['SKU', 'Name', 'Qty', 'Unit'];
   // 第二期:Base Price = 發票商品本身的金額(AUD);Total Price = Base Price + 分攤到的其他支出。沒有其他支出時兩者相同。
   if(hasAnyAmount) headerRow.push('Base Price', 'Base Unit Price', 'Other Expenses (allocated)', 'Total Price', 'Total Unit Price');
-  if(hasAnyAmount && hasOrig) headerRow.push('Invoice Amount (orig.)', 'Invoice Currency', 'FX Rate (to AUD)');
+  if(hasAnyAmount && hasOrig) headerRow.push('Invoice Amount (orig.)', 'Invoice Currency', `FX Rate (to ${(p.costs && p.costs.baseCurrency) || 'AUD'})`);
   if(hasAnyDocType) headerRow.push('Document');
   aoa.push(headerRow);
   (p.items || []).forEach(it => {
@@ -184,12 +184,13 @@ function buildPurchaseWorkbook(p){
     aoa.push(['Invoice Items (Base Price)', '', '', '', tt.base]);
     if(p.costs && p.costs.expenses && p.costs.expenses.length){
       p.costs.expenses.forEach(e => {
-        aoa.push([`Other Expense: ${e.name}`, '', '', '', e.aud, `${e.amount} ${e.currency}${e.currency !== 'AUD' ? ' @ ' + e.rate : ''}`]);
+        aoa.push([`Other Expense: ${e.name}`, '', '', '', e.aud, `${e.amount} ${e.currency}${e.currency !== ((p.costs && p.costs.baseCurrency) || 'AUD') ? ' @ ' + e.rate : ''}`]);
       });
       const basisName = { volume: 'Volume', weight: 'Weight', boxes: 'Boxes', amount: 'Amount' }[p.costs.basis] || p.costs.basis;
       aoa.push(['Allocated by', basisName]);
     }
     aoa.push(['Purchase Total (Total Price)', '', '', '', tt.total]);
+    aoa.push([`Amounts in: ${(p.costs && p.costs.baseCurrency) || 'AUD'}`]);
     if(p.costs && p.costs.overseas) aoa.push([`Invoice currency: ${p.costs.currency}`]);
   }
 
@@ -586,7 +587,8 @@ function renderEditPurchaseItemsList(){
   wrap.innerHTML = `
     <div style="display:flex;flex-direction:column;gap:6px;">
       ${editPurchaseWorkingItems.map((it, i) => `
-        <div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--line);${it._scanUpdated ? 'background:var(--warn-bg);' : ''}">
+        <div style="padding:6px 0;border-bottom:1px solid var(--line);${it._scanUpdated ? 'background:var(--warn-bg);' : ''}">
+         <div style="display:flex;align-items:center;gap:8px;">
           <div style="flex:1 1 140px;min-width:0;font-size:12.5px;">
             ${escapeHtmlForPrint(it.name || '')}${it.sku ? ` <span style="color:var(--ink-soft);">(${escapeHtmlForPrint(it.sku)})</span>` : ''}
             ${it.docType === 'credit_note' ? ` <span style="color:var(--crit);font-weight:600;font-size:11px;">(${t('docTypeCreditNoteBadge')})</span>` : ''}
@@ -594,10 +596,14 @@ function renderEditPurchaseItemsList(){
           </div>
           <input type="number" value="${it.qty}" min="0" step="any" style="width:70px;" oninput="updateEditPurchaseItemQty(${i}, this.value)" />
           <span style="font-size:11.5px;color:var(--ink-soft);">${escapeHtmlForPrint(it.unit || '')}</span>
-          ${editPurchaseIsBatchTracked() ? `<input type="date" value="${it.expiry || ''}" title="${t('batchColExpiry')}" style="width:130px;" onchange="updateEditPurchaseItemExpiry(${i}, this.value)" />
-          <input type="text" value="${escapeHtmlForPrint(it.supplierLot || '')}" placeholder="${t('batchFieldLot')}" style="width:100px;" oninput="updateEditPurchaseItemLot(${i}, this.value)" />` : ''}
           <input type="number" value="${it.amount !== undefined && it.amount !== null ? it.amount : ''}" min="0" step="any" placeholder="$" style="width:90px;" ${canEditPrice() ? '' : 'readonly title="' + t('priceReadOnlyTitle') + '"'} oninput="updateEditPurchaseItemAmount(${i}, this.value)" />
           <span class="del-link" onclick="removeEditPurchaseItem(${i})">${t('btnRemoveItem')}</span>
+         </div>
+         ${editPurchaseIsBatchTracked() ? `<div style="display:flex;align-items:center;gap:8px;margin-top:4px;flex-wrap:wrap;">
+          <span style="font-size:11.5px;color:var(--ink-soft);">${t('batchColExpiry')}</span>
+          <input type="date" value="${it.expiry || ''}" title="${t('batchColExpiry')}" style="width:140px;" onchange="updateEditPurchaseItemExpiry(${i}, this.value)" />
+          <input type="text" value="${escapeHtmlForPrint(it.supplierLot || '')}" placeholder="${t('batchFieldLot')}" style="flex:1 1 120px;min-width:100px;" oninput="updateEditPurchaseItemLot(${i}, this.value)" />
+         </div>` : ''}
         </div>
       `).join('')}
     </div>

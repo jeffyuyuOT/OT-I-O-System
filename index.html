@@ -3983,6 +3983,8 @@ function showScanToast(text, isError){
     }
     window.addEventListener('popstate', function(){
       history.pushState({ appTrap: true }, '');
+      // 批次追蹤的歷史紀錄頁面:返回鍵/返回手勢 = 回到上一頁(原本的清單)
+      try{ if(typeof batchTrackerBack === 'function') batchTrackerBack(true); }catch(e){}
     });
   } catch(e){ /* history API 不可用(極少見)就放棄,不影響其他功能 */ }
 })();

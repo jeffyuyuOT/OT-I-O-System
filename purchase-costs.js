@@ -20,11 +20,13 @@ let pcDateHooked = false;
 let pcState = pcNewState();
 
 function pcNewState(){
-  return { overseas: false, currency: 'AUD', rates: {}, manual: {}, expenses: [], basis: 'volume' };
+  // base = 最後換算成的幣種(預設 AUD);currency = 發票幣種;rates[cur] = 1 單位 cur 等於多少 base
+  return { overseas: false, currency: 'AUD', base: 'AUD', rates: {}, manual: {}, expenses: [], basis: 'volume' };
 }
 function pcActive(){
   return typeof batchActive === 'function' && batchActive() && typeof canEditPrice === 'function' && canEditPrice();
 }
+function pcBase(){ return (pcState && pcState.base) || 'AUD'; }
 function pcRound2(x){ return Math.round((Number(x) + Number.EPSILON) * 100) / 100; }
 function pcFmt(x){ return (x === null || x === undefined || isNaN(x)) ? '–' : Number(x).toFixed(2); }
 function pcEsc(s){ return String(s === null || s === undefined ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
@@ -69,40 +71,44 @@ function pcAddCurrency(){
   pcRender();
 }
 function pcRemoveCurrency(code){
-  if(code === 'AUD') return;
+  if(code === 'AUD' || code === pcState.base) return;
   pcCurrencies = pcCurrencies.filter(c => c !== code);
   pcSaveCurrencies();
-  if(pcState.currency === code) pcState.currency = 'AUD';
-  pcState.expenses.forEach(e => { if(e.currency === code) e.currency = 'AUD'; });
+  if(pcState.currency === code) pcState.currency = pcBase();
+  pcState.expenses.forEach(e => { if(e.currency === code) e.currency = pcBase(); });
   pcRender();
 }
 
 // ---------- 匯率 ----------
-// 1 單位外幣 = ? AUD。AUD 固定 1;其他幣種沒填回傳 null。
+// 1 單位外幣 = ? (換算幣種,預設 AUD)。跟換算幣種相同固定 1;其他幣種沒填回傳 null。
 function pcRateOf(cur){
-  if(!cur || cur === 'AUD') return 1;
+  if(!cur || cur === pcBase()) return 1;
   const r = parseFloat(pcState.rates[cur]);
   return (isFinite(r) && r > 0) ? r : null;
 }
 function pcUsedForeignCurrencies(){
   const set = new Set();
-  if(pcState.overseas && pcState.currency && pcState.currency !== 'AUD') set.add(pcState.currency);
-  pcState.expenses.forEach(e => { if(e.currency && e.currency !== 'AUD') set.add(e.currency); });
+  const base = pcBase();
+  if(pcState.overseas && pcState.currency && pcState.currency !== base) set.add(pcState.currency);
+  pcState.expenses.forEach(e => { if(e.currency && e.currency !== base) set.add(e.currency); });
   return Array.from(set);
 }
-// Frankfurter 沒有 TWD,TWD 改用 open.er-api.com(只有當日匯率)。取不到就回傳 null,讓使用者手動輸入。
-async function pcFetchRate(cur, dateStr){
+// Frankfurter 沒有 TWD(不管是來源還是換算幣種),TWD 相關改用 open.er-api.com(只有當日匯率)。
+// 取不到就回傳 null,讓使用者手動輸入。base = 換算幣種,預設 AUD。
+async function pcFetchRate(cur, dateStr, base){
+  base = base || 'AUD';
+  if(cur === base) return 1;
   try{
-    if(cur === 'TWD'){
-      const r = await fetch('https://open.er-api.com/v6/latest/TWD');
+    if(cur === 'TWD' || base === 'TWD'){
+      const r = await fetch('https://open.er-api.com/v6/latest/' + encodeURIComponent(cur));
       const j = await r.json();
-      const v = j && j.rates && j.rates.AUD;
+      const v = j && j.rates && j.rates[base];
       return (isFinite(v) && v > 0) ? v : null;
     }
     const d = /^\d{4}-\d{2}-\d{2}$/.test(dateStr || '') ? dateStr : 'latest';
-    const r = await fetch(`https://api.frankfurter.dev/v1/${d}?base=${encodeURIComponent(cur)}&symbols=AUD`);
+    const r = await fetch(`https://api.frankfurter.dev/v1/${d}?base=${encodeURIComponent(cur)}&symbols=${encodeURIComponent(base)}`);
     const j = await r.json();
-    const v = j && j.rates && j.rates.AUD;
+    const v = j && j.rates && j.rates[base];
     return (isFinite(v) && v > 0) ? v : null;
   }catch(e){ console.error('取得匯率失敗', cur, e); return null; }
 }
@@ -114,7 +120,7 @@ async function pcFetchRates(force){
   for(const cur of pcUsedForeignCurrencies()){
     if(pcState.manual[cur]) continue;
     if(!force && pcRateOf(cur)) continue;
-    const v = await pcFetchRate(cur, dateStr);
+    const v = await pcFetchRate(cur, dateStr, pcBase());
     if(v) pcState.rates[cur] = v; else failed.push(cur);
   }
   pcState.fetchFailed = failed;
@@ -159,7 +165,7 @@ function pcFillFromLast(e, supplier, excludePurchaseId){
   const last = pcLastExpenseFor(supplier, e.name, excludePurchaseId);
   if(!last) return false;
   e.amount = Number(last.exp.amount);
-  e.currency = last.exp.currency || 'AUD';
+  e.currency = last.exp.currency || pcBase();
   e.estimated = true;
   e.estimatedFrom = last.date;
   return true;
@@ -177,14 +183,25 @@ async function pcPrepare(){
 // ---------- 表單狀態 ----------
 function pcSetOverseas(on){
   pcState.overseas = !!on;
-  if(!on) pcState.currency = 'AUD';
-  else if(pcState.currency === 'AUD') pcState.currency = pcCurrencies.find(c => c !== 'AUD') || 'USD';
+  if(!on){
+    // 取消海外採購:換算幣種回到 AUD,已抓的匯率作廢
+    if(pcState.base !== 'AUD'){ pcState.base = 'AUD'; pcState.rates = {}; pcState.manual = {}; }
+    pcState.currency = 'AUD';
+  } else if(pcState.currency === pcBase()) pcState.currency = pcCurrencies.find(c => c !== pcBase()) || 'USD';
+  pcRender();
+  pcFetchRates(false);
+}
+// 換算幣種(最後存成本用的幣種),預設 AUD;改了之後匯率要重新取得
+function pcSetBase(cur){
+  if(!cur || cur === pcState.base) return;
+  pcState.base = cur;
+  pcState.rates = {}; pcState.manual = {}; pcState.fetchFailed = [];
   pcRender();
   pcFetchRates(false);
 }
 function pcSetInvoiceCurrency(cur){ pcState.currency = cur; pcRender(); pcFetchRates(false); }
 function pcAddExpense(){
-  pcState.expenses.push({ id: genId(), name: '', currency: 'AUD', amount: '' });
+  pcState.expenses.push({ id: genId(), name: '', currency: pcBase(), amount: '' });
   pcRender();
 }
 function pcRemoveExpense(id){ pcState.expenses = pcState.expenses.filter(e => e.id !== id); pcRender(); }
@@ -255,7 +272,7 @@ function pcBasisLabel(b){
 
 // 目前畫面上的待送出清單 → 分攤用的行(跟送出時的自動切換換算一致:自動切換的批量商品算成主商品)
 function pcMapTxItems(){
-  const overseas = pcState.overseas && pcState.currency !== 'AUD';
+  const overseas = pcState.overseas && pcState.currency !== pcBase();
   const rate = overseas ? pcRateOf(pcState.currency) : 1;
   return txBatchItems.map(it => {
     let prod = products.find(p => p.id === it.productId);
@@ -274,7 +291,7 @@ function pcExpenseRows(){
   return pcState.expenses.map(e => {
     const rate = pcRateOf(e.currency);
     const amt = (e.amount === '' || e.amount === undefined) ? null : Number(e.amount);
-    return { id: e.id, name: (e.name || '').trim(), currency: e.currency || 'AUD', amount: amt, rate, aud: (amt !== null && rate) ? pcRound2(amt * rate) : null, estimated: !!e.estimated, estimatedFrom: e.estimatedFrom || '' };
+    return { id: e.id, name: (e.name || '').trim(), currency: e.currency || pcBase(), amount: amt, rate, aud: (amt !== null && rate) ? pcRound2(amt * rate) : null, estimated: !!e.estimated, estimatedFrom: e.estimatedFrom || '' };
   });
 }
 function pcExpensesAudTotal(){
@@ -284,7 +301,7 @@ function pcExpensesAudTotal(){
 // 送出前檢查。回傳錯誤訊息(空字串 = 通過)。
 function pcValidate(){
   if(!pcActive()) return '';
-  if(pcState.overseas && pcState.currency !== 'AUD' && !pcRateOf(pcState.currency)) return tf('pcErrNoRate', { cur: pcState.currency });
+  if(pcState.overseas && pcState.currency !== pcBase() && !pcRateOf(pcState.currency)) return tf('pcErrNoRate', { cur: pcState.currency });
   // 完全空白的支出列直接略過;只填一半的擋下
   const rows = pcExpenseRows().filter(e => e.name || e.amount !== null);
   for(const e of rows){
@@ -305,7 +322,8 @@ function pcValidate(){
 // 送出時:把幣種換算、分攤結果、成本摘要寫進進貨單。purchase.items 已經是最後要存的版本。
 function pcApplyToPurchase(purchase){
   if(!pcActive()) return;
-  const overseas = pcState.overseas && pcState.currency !== 'AUD';
+  const base = pcBase();
+  const overseas = pcState.overseas && pcState.currency !== base;
   const rate = overseas ? pcRateOf(pcState.currency) : 1;
   purchase.items.forEach(it => {
     if(overseas && it.amount !== undefined && it.amount !== null){
@@ -320,7 +338,7 @@ function pcApplyToPurchase(purchase){
   const rates = {};
   pcUsedForeignCurrencies().forEach(c => { const r = pcRateOf(c); if(r) rates[c] = r; });
   purchase.costs = {
-    overseas, currency: overseas ? pcState.currency : 'AUD', basis: pcState.basis, rates,
+    overseas, currency: overseas ? pcState.currency : base, baseCurrency: base, basis: pcState.basis, rates,
     expenses: exps.map(e => { const o = { id: e.id, name: e.name, currency: e.currency, amount: e.amount, rate: e.rate, aud: e.aud }; if(e.estimated){ o.estimated = true; o.estimatedFrom = e.estimatedFrom; } return o; }),
     expensesAud
   };
@@ -375,7 +393,7 @@ function pcItemPrices(it){
 
 // ---------- 畫面 ----------
 function pcAmountColSuffix(){
-  return (typeof pcActive === 'function' && pcActive() && pcState.overseas && pcState.currency !== 'AUD') ? ` (${pcState.currency})` : '';
+  return (typeof pcActive === 'function' && pcActive() && pcState.overseas && pcState.currency !== pcBase()) ? ` (${pcState.currency})` : '';
 }
 function pcRender(){
   const wrap = document.getElementById('txPurchaseCostsWrap');
@@ -402,36 +420,40 @@ function pcRender(){
       ${e.estimated ? `<span style="color:var(--warn-dark,#b45309);font-size:11.5px;font-weight:600;">⚠ ${tf('pcEstimatedBadge', { date: e.estimatedFrom || '' })}</span>` : ''}
     </div>`).join('');
 
-  const rateRows = foreign.map(cur => `
-    <div style="display:flex;gap:6px;align-items:center;margin:4px 0;flex-wrap:wrap;font-size:12.5px;">
-      <span>1 ${cur} =</span>
+  const base = pcBase();
+  // 匯率輸入:1 單位外幣 = ? 換算幣種
+  const rateInline = (cur) => `
+      <span style="font-size:12.5px;">1 ${cur} =</span>
       <input type="number" step="0.000001" min="0" value="${pcState.rates[cur] || ''}" style="width:120px;" onchange="pcSetRate('${cur}',this.value)" />
-      <span>AUD</span>
+      <span style="font-size:12.5px;">${base}</span>
       <button class="btn ghost" onclick="pcRefetchRate('${cur}')">${t('pcFetchRate')}</button>
-      ${pcState.manual[cur] ? `<span style="color:var(--ink-soft);font-size:11.5px;">${t('pcRateManual')}</span>` : ''}
-    </div>`).join('');
+      ${pcState.manual[cur] ? `<span style="color:var(--ink-soft);font-size:11.5px;">${t('pcRateManual')}</span>` : ''}`;
+  // 發票幣種的匯率直接放在發票幣種旁邊;其他支出用到的其他外幣另外列在支出下方
+  const invoiceForeign = (pcState.overseas && pcState.currency !== base) ? pcState.currency : null;
+  const otherForeign = foreign.filter(c => c !== invoiceForeign);
+  const rateRows = otherForeign.map(cur => `<div style="display:flex;gap:6px;align-items:center;margin:4px 0;flex-wrap:wrap;">${rateInline(cur)}</div>`).join('');
 
   // 成本預覽
   let preview = '';
   const expTotal = exps.reduce((s, e) => s + (e.aud || 0), 0);
-  if(txBatchItems.length > 0 && (expTotal > 0 || (pcState.overseas && pcState.currency !== 'AUD'))){
+  if(txBatchItems.length > 0 && (expTotal > 0 || (pcState.overseas && pcState.currency !== pcBase()))){
     const items = pcMapTxItems();
     const res = pcAllocate(items, pcState.basis, expTotal);
     const lines = items.filter(r => !r.skip).map(r => {
       const alloc = res.shares[r.key] || 0;
       return `<tr><td class="row-name">${pcEsc(r.name)}</td><td class="row-num">${pcFmt(r.amountAud)}</td><td class="row-num">${expTotal > 0 ? pcFmt(alloc) : '–'}</td><td class="row-num"><strong>${pcFmt(r.amountAud + alloc)}</strong></td></tr>`;
     }).join('');
-    const fxRate = (pcState.overseas && pcState.currency !== 'AUD') ? (pcRateOf(pcState.currency) || 0) : 1;
+    const fxRate = (pcState.overseas && pcState.currency !== pcBase()) ? (pcRateOf(pcState.currency) || 0) : 1;
     const baseSum = txBatchItems.reduce((s, it) => {
       if(it.docType === 'others' || it.amount === undefined || it.amount === null) return s;
       return s + (it.docType === 'credit_note' ? -1 : 1) * Number(it.amount) * fxRate;
     }, 0);
     preview = `
       <div style="margin-top:8px;">
-        <div style="font-size:12.5px;font-weight:700;margin-bottom:4px;">${t('pcPreviewTitle')}</div>
+        <div style="font-size:12.5px;font-weight:700;margin-bottom:4px;">${tf('pcPreviewTitle', { base })}</div>
         ${res.missing.length ? `<div style="font-size:12px;color:var(--warn);margin-bottom:4px;">${tf('pcErrMissingBasis', { basis: pcBasisLabel(pcState.basis), names: res.missing.map(pcEsc).join('、') })}</div>` : ''}
         <table class="stock-table"><thead><tr><th>${t('colProduct')}</th><th class="num">${t('pcColBase')}</th><th class="num">${t('pcColAlloc')}</th><th class="num">${t('pcColTotal')}</th></tr></thead><tbody>${lines}</tbody></table>
-        <div style="font-size:12.5px;margin-top:4px;">${t('pcInvoiceTotal')}: <strong>${pcFmt(baseSum)}</strong> + ${t('pcExpenseTotal')}: <strong>${pcFmt(expTotal)}</strong> = ${t('pcGrandTotal')}: <strong>${pcFmt(baseSum + expTotal)}</strong> AUD</div>
+        <div style="font-size:12.5px;margin-top:4px;">${t('pcInvoiceTotal')}: <strong>${pcFmt(baseSum)}</strong> + ${t('pcExpenseTotal')}: <strong>${pcFmt(expTotal)}</strong> = ${t('pcGrandTotal')}: <strong>${pcFmt(baseSum + expTotal)}</strong> ${base}</div>
       </div>`;
   }
 
@@ -446,9 +468,13 @@ function pcRender(){
       <div style="display:flex;gap:8px;align-items:center;margin:6px 0 0 24px;flex-wrap:wrap;">
         <span style="font-size:12.5px;">${t('pcInvoiceCurrency')}</span>
         <select onchange="pcSetInvoiceCurrency(this.value)">${curOpts(pcState.currency)}</select>
+        <span style="font-size:12.5px;">${t('pcConvertTo')}</span>
+        <select onchange="pcSetBase(this.value)">${curOpts(base)}</select>
+        ${invoiceForeign ? rateInline(invoiceForeign) : ''}
         <span class="del-link" style="cursor:pointer;font-size:12px;" onclick="pcManageOpen=!pcManageOpen;pcRender();">${t('pcManageCurrencies')}</span>
       </div>
-      <div style="font-size:11.5px;color:var(--ink-soft);margin:2px 0 0 24px;">${t('pcInvoiceCurrencyHint')}</div>` : `
+      <div style="font-size:11.5px;color:var(--ink-soft);margin:2px 0 0 24px;">${tf('pcInvoiceCurrencyHint', { base })}</div>
+      ${base !== 'AUD' ? `<div style="font-size:11.5px;color:var(--warn);margin:2px 0 0 24px;">${t('pcBaseNotAudWarn')}</div>` : ''}` : `
       <div style="margin:4px 0 0 24px;"><span class="del-link" style="cursor:pointer;font-size:12px;" onclick="pcManageOpen=!pcManageOpen;pcRender();">${t('pcManageCurrencies')}</span></div>`}
       ${pcManageOpen ? `
       <div style="margin:6px 0 0 24px;display:flex;gap:6px;flex-wrap:wrap;align-items:center;">
@@ -470,10 +496,10 @@ function pcRender(){
         </select>
       </div>` : ''}
 
-      ${foreign.length ? `
-      <div style="font-size:12.5px;font-weight:700;margin-top:10px;">${t('pcRates')}</div>
-      ${rateRows}
-      <div style="font-size:11.5px;color:var(--ink-soft);">${t('pcRateSourceNote')}</div>
+      ${otherForeign.length ? `
+      <div style="font-size:12.5px;font-weight:700;margin-top:10px;">${tf('pcRates', { base })}</div>
+      ${rateRows}` : ''}
+      ${foreign.length ? `<div style="font-size:11.5px;color:var(--ink-soft);margin-top:4px;">${t('pcRateSourceNote')}</div>
       ${(pcState.fetchFailed || []).length ? `<div style="font-size:12px;color:var(--warn);">${tf('pcRateFetchFailed', { cur: pcState.fetchFailed.join(', ') })}</div>` : ''}` : ''}
       ${preview}
     </div>`;
@@ -490,23 +516,24 @@ function pcEditInit(p){
   const c = p.costs || {};
   pcEd = {
     purchaseId: p.id,
-    expenses: (c.expenses || []).map(e => ({ id: e.id || genId(), name: e.name, currency: e.currency || 'AUD', amount: e.amount, estimated: !!e.estimated, estimatedFrom: e.estimatedFrom || '' })),
+    base: c.baseCurrency || 'AUD',
+    expenses: (c.expenses || []).map(e => ({ id: e.id || genId(), name: e.name, currency: e.currency || c.baseCurrency || 'AUD', amount: e.amount, estimated: !!e.estimated, estimatedFrom: e.estimatedFrom || '' })),
     basis: c.basis || 'volume',
     rates: Object.assign({}, c.rates || {}),
     overseas: !!c.overseas,
     fetchFailed: []
   };
-  (c.expenses || []).forEach(e => { if(e.currency && e.currency !== 'AUD' && e.rate && !pcEd.rates[e.currency]) pcEd.rates[e.currency] = e.rate; });
+  (c.expenses || []).forEach(e => { if(e.currency && e.currency !== pcEd.base && e.rate && !pcEd.rates[e.currency]) pcEd.rates[e.currency] = e.rate; });
   if(!pcLoaded) pcEnsureLoaded();
   pcEditRender();
 }
 function pcEditClose(){ pcEd = null; const w = document.getElementById('editPurchaseCostsWrap'); if(w) w.innerHTML = ''; }
 function pcEdRateOf(cur){
-  if(!cur || cur === 'AUD') return 1;
+  if(!cur || cur === pcEd.base) return 1;
   const r = parseFloat(pcEd.rates[cur]);
   return (isFinite(r) && r > 0) ? r : null;
 }
-function pcEdAdd(){ pcEd.expenses.push({ id: genId(), name: '', currency: 'AUD', amount: '' }); pcEditRender(); }
+function pcEdAdd(){ pcEd.expenses.push({ id: genId(), name: '', currency: pcEd.base, amount: '' }); pcEditRender(); }
 function pcEdRemove(id){ pcEd.expenses = pcEd.expenses.filter(e => e.id !== id); pcEditRender(); }
 function pcEdUpdate(id, field, value){
   const e = pcEd.expenses.find(x => x.id === id);
@@ -533,10 +560,10 @@ async function pcEdFetchRates(force){
   const dateEl = document.getElementById('editPurchaseDateInput');
   const dateStr = dateEl ? dateEl.value : '';
   const failed = [];
-  const curs = Array.from(new Set(pcEd.expenses.map(e => e.currency).filter(c => c && c !== 'AUD')));
+  const curs = Array.from(new Set(pcEd.expenses.map(e => e.currency).filter(c => c && c !== pcEd.base)));
   for(const cur of curs){
     if(!force && pcEdRateOf(cur)) continue;
-    const v = await pcFetchRate(cur, dateStr);
+    const v = await pcFetchRate(cur, dateStr, pcEd.base);
     if(v) pcEd.rates[cur] = v; else failed.push(cur);
   }
   pcEd.fetchFailed = failed;
@@ -557,12 +584,12 @@ function pcEditRender(){
       ${e.estimated ? `<span style="color:var(--warn-dark,#b45309);font-size:11.5px;font-weight:600;">⚠ ${tf('pcEstimatedBadge', { date: e.estimatedFrom || '' })}</span>
         <span class="del-link" style="font-size:11.5px;" onclick="pcEdConfirmFinal('${e.id}')">${t('pcMarkFinal')}</span>` : ''}
     </div>`).join('');
-  const foreign = Array.from(new Set(pcEd.expenses.map(e => e.currency).filter(c => c && c !== 'AUD')));
+  const foreign = Array.from(new Set(pcEd.expenses.map(e => e.currency).filter(c => c && c !== pcEd.base)));
   const rateRows = foreign.map(cur => `
     <div style="display:flex;gap:6px;align-items:center;margin:4px 0;font-size:12.5px;flex-wrap:wrap;">
       <span>1 ${cur} =</span>
       <input type="number" step="0.000001" min="0" value="${pcEd.rates[cur] || ''}" style="width:120px;" onchange="pcEdSetRate('${cur}',this.value)" />
-      <span>AUD</span>
+      <span>${pcEd.base}</span>
     </div>`).join('');
   wrap.innerHTML = `
     <div class="field-block" style="border:1px solid var(--line,#ddd);border-radius:8px;padding:8px 10px;">
@@ -575,7 +602,7 @@ function pcEditRender(){
         <span style="font-size:12.5px;">${t('pcBasis')}</span>
         <select onchange="pcEdSetBasis(this.value)">${['volume', 'weight', 'boxes', 'amount'].map(b => `<option value="${b}" ${pcEd.basis === b ? 'selected' : ''}>${pcBasisLabel(b)}</option>`).join('')}</select>
       </div>` : ''}
-      ${foreign.length ? `<div style="font-size:12.5px;font-weight:700;margin-top:8px;">${t('pcRates')}</div>${rateRows}
+      ${foreign.length ? `<div style="font-size:12.5px;font-weight:700;margin-top:8px;">${tf('pcRates', { base: pcEd.base })}</div>${rateRows}
         <button type="button" class="btn ghost" style="font-size:12px;" onclick="pcEdFetchRates(true)">${t('pcFetchRate')}</button>` : ''}
       ${(pcEd.fetchFailed || []).length ? `<div style="font-size:12px;color:var(--warn);">${tf('pcRateFetchFailed', { cur: pcEd.fetchFailed.join(', ') })}</div>` : ''}
     </div>`;
@@ -598,14 +625,14 @@ function pcEditApply(p, cleanItems){
     if(!e.name || !e.name.trim() || amt === null || !(amt >= 0)) return { error: t('pcErrExpenseInvalid') };
     const rate = pcEdRateOf(e.currency);
     if(!rate) return { error: tf('pcErrNoRate', { cur: e.currency }) };
-    const o = { id: e.id, name: e.name.trim(), currency: e.currency || 'AUD', amount: amt, rate, aud: pcRound2(amt * rate) };
+    const o = { id: e.id, name: e.name.trim(), currency: e.currency || pcEd.base, amount: amt, rate, aud: pcRound2(amt * rate) };
     if(e.estimated){ o.estimated = true; o.estimatedFrom = e.estimatedFrom || ''; }
     exps.push(o);
   }
   if(!exps.length && !p.costs) return { changed: false };
   const rates = {};
-  exps.forEach(e => { if(e.currency !== 'AUD') rates[e.currency] = e.rate; });
-  const base = p.costs || { overseas: false, currency: 'AUD' };
+  exps.forEach(e => { if(e.currency !== pcEd.base) rates[e.currency] = e.rate; });
+  const base = p.costs || { overseas: false, currency: 'AUD', baseCurrency: 'AUD' };
   const newCosts = Object.assign({}, base, {
     basis: pcEd.basis,
     rates: Object.assign({}, base.rates || {}, rates),

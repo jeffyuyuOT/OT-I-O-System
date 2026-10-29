@@ -668,8 +668,7 @@ async function batchFillTxTags(root){
         html = (batchTxMoveCache[el.dataset.batchTx] || []).map(m => {
           const i = batchData.items.find(x => x.id === m.batch_item_id);
           if(!i) return '';
-          const costPart = (typeof canEditPrice === 'function' && canEditPrice()) ? ' · ' + batchCostWithFlag(m.unit_cost, i) : '';
-          return `<span class="batch-tag">${batchEsc(i.batchNo)} ×${batchFmtQty(Math.abs(Number(m.qty)))}${i.expiry ? ' · ' + batchEsc(i.expiry) : ''}${costPart}</span>`;
+          return `<span class="batch-tag">${batchEsc(i.batchNo)} ×${batchFmtQty(Math.abs(Number(m.qty)))}${i.expiry ? ' · ' + batchEsc(i.expiry) : ''}</span>`;
         }).join('');
       }
       el.innerHTML = html;
@@ -680,7 +679,7 @@ async function batchFillTxTags(root){
 // ------------------------------------------------------------
 // 庫存總覽 → 批次追蹤
 // ------------------------------------------------------------
-let bt = { view: 'product', category: '', search: '', productId: '', includeDepleted: false, batchId: '', from: '', to: '' };
+let bt = { view: 'product', category: '', search: '', productId: '', includeDepleted: false, batchId: '', from: '', to: '', histItemId: '', back: null };
 
 function batchTrackerSetView(v){ bt.view = v; renderBatchTracker(); }
 function batchTrackerOpenProduct(pid){ bt.view = 'product'; bt.productId = pid; renderBatchTracker(); }
@@ -700,6 +699,11 @@ function renderBatchTracker(){
     return;
   }
   const seg = (v, label) => `<button class="${bt.view === v ? 'active' : ''}" onclick="batchTrackerSetView('${v}')">${label}</button>`;
+  if(bt.view === 'history'){
+    // 歷史紀錄是一個頁面(不是視窗):整個批次追蹤區域換成歷史紀錄,按「上一頁」回到原本的清單
+    root.innerHTML = batchRenderHistoryPage();
+    return;
+  }
   let body = '';
   if(bt.view === 'batch') body = batchRenderBatchView();
   else if(bt.view === 'date') body = batchRenderDateView();
@@ -790,7 +794,7 @@ function batchRenderProductDetail(pid){
             <td>${batchEsc(i.supplierLot) || '–'}</td>
             <td>${batchEsc(i.invoiceNo) || '–'}</td>
             <td>${batchEsc(i.supplier) || '–'}</td>
-            <td><span class="del-link" onclick="batchOpenInfoPopup('${i.id}','history')">${t('batchBtnHistory')}</span></td>
+            <td><span class="del-link" onclick="batchTrackerOpenHistory('${i.id}')">${t('batchBtnHistory')}</span></td>
           </tr>`).join('')}
         ${untrackedRow}
       </tbody>
@@ -824,7 +828,7 @@ function batchRenderBatchView(){
           <td>${i.expiry ? batchEsc(i.expiry) + batchExpiryBadge(i.expiry) : '–'}</td>
           <td class="num">${batchFmtMoney(batchUnitCost(i))}</td>
           <td>${batchEsc(i.supplierLot) || '–'}</td>
-          <td><span class="del-link" onclick="batchOpenInfoPopup('${i.id}','history')">${t('batchBtnHistory')}</span></td>
+          <td><span class="del-link" onclick="batchTrackerOpenHistory('${i.id}')">${t('batchBtnHistory')}</span></td>
         </tr>`).join('')}</tbody>
     </table>`;
 }
@@ -896,6 +900,7 @@ async function batchBackfillAllocate(){
 function batchCloseInfoPopup(){ const ov = document.getElementById('batchInfoOverlay'); if(ov) ov.remove(); }
 const BATCH_KIND_LABEL_KEY = { out: 'batchKindOut', return: 'batchKindReturn', convert_out: 'batchKindConvertOut', convert_in: 'batchKindConvertIn', adjust: 'batchKindAdjust' };
 async function batchOpenInfoPopup(itemId, mode){
+  if(mode === 'history'){ batchTrackerOpenHistory(itemId); return; } // 歷史紀錄已改成頁面(見 batchRenderHistoryPage)
   const i = batchData.items.find(x => x.id === itemId);
   if(!i) return;
   batchCloseInfoPopup();
@@ -930,13 +935,6 @@ async function batchOpenInfoPopup(itemId, mode){
       ${sumKind('adjust') ? row(t('batchKindAdjust'), sumKind('adjust')) : ''}
       <tr style="font-weight:700;"><td>${t('batchColRemaining')}</td><td class="num">${batchFmtQty(i.remaining)} ${unit}</td></tr>
     </tbody></table>`;
-  } else {
-    body.innerHTML = head + `<table class="stock-table">
-      <thead><tr><th>${t('colDate')}</th><th>${t('colType')}</th><th class="num">${t('colQty')}</th><th>${t('batchColParty')}</th><th>${t('batchColOrderNo')}</th><th class="num">${t('batchColUnitCost')}</th></tr></thead>
-      <tbody>
-        <tr><td>${batchEsc(i.isOpening ? t('batchOpening') : i.batchDate)}</td><td>${t('batchKindIn')}</td><td class="num">+${batchFmtQty(i.qtyIn)} ${unit}</td><td>${batchEsc(i.supplier) || '–'}</td><td>${batchEsc(i.invoiceNo) || '–'}</td><td class="num">${batchFmtMoney(batchUnitCost(i))}</td></tr>
-        ${moves.map(m => `<tr><td>${batchEsc(m.mv_date)}</td><td>${t(BATCH_KIND_LABEL_KEY[m.kind] || 'batchKindAdjust')}</td><td class="num">${Number(m.qty) > 0 ? '+' : ''}${batchFmtQty(Number(m.qty))} ${unit}</td><td>${batchEsc(m.party) || '–'}</td><td>${batchEsc(m.order_no) || '–'}</td><td class="num">${batchCostWithFlag(m.unit_cost, i)}</td></tr>`).join('')}
-      </tbody></table>`;
   }
 }
 
@@ -1127,4 +1125,161 @@ function batchReturnUpdateSum(qty){
   let sum = 0;
   document.querySelectorAll('#batchPickerOverlay .batch-return-input').forEach(inp => { const v = parseFloat(inp.value); if(v > 0) sum += v; });
   el.textContent = tf('batchPickerSum', { sum: batchFmtQty(sum), qty: batchFmtQty(qty) });
+}
+
+// ------------------------------------------------------------
+// 批次追蹤 → 歷史紀錄(頁面)
+// 歷史紀錄是批次追蹤區域裡的一個「頁面」,不是視窗:按「上一頁」(或手機的返回手勢)回到原本的清單。
+// 點每一筆紀錄會跳出視窗,顯示對應的進貨單或訂單內容(這是唯一的視窗,所以不會有兩個視窗疊在一起)。
+// ------------------------------------------------------------
+let batchHist = { itemId: '', moves: [], loading: false };
+
+function batchTrackerOpenHistory(itemId){
+  bt.back = { view: bt.view, category: bt.category, search: bt.search, productId: bt.productId, includeDepleted: bt.includeDepleted, batchId: bt.batchId, from: bt.from, to: bt.to };
+  bt.view = 'history';
+  bt.histItemId = itemId;
+  batchHist = { itemId, moves: [], loading: true };
+  batchCloseInfoPopup();
+  renderBatchTracker();
+  try{ const root = document.getElementById('batchTrackerRoot'); if(root && root.scrollIntoView) root.scrollIntoView({ block: 'start' }); }catch(e){}
+  batchLoadHistoryMoves(itemId);
+}
+async function batchLoadHistoryMoves(itemId){
+  let moves = [];
+  try{
+    const { data, error } = await batchSelectMovements('id,mv_date,qty,kind,party,order_no,note,created_at,order_id,tx_id',
+      q => q.eq('batch_item_id', itemId).order('mv_date', { ascending: true }).order('id', { ascending: true }));
+    if(error) throw error;
+    moves = data || [];
+  } catch(e){ console.error('讀取批次歷史紀錄失敗', e); }
+  if(batchHist.itemId !== itemId) return;
+  batchHist.moves = moves; batchHist.loading = false;
+  if(bt.view === 'history' && bt.histItemId === itemId) renderBatchTracker();
+}
+// 回到上一頁(原本的清單,含原本的篩選/選到的商品)。fromSystem = 手機返回手勢/瀏覽器返回鍵觸發。
+function batchTrackerBack(fromSystem){
+  if(fromSystem){
+    // 有視窗開著就先關視窗;批次追蹤區域看不到時,不處理
+    if(document.getElementById('batchInfoOverlay')){ batchCloseInfoPopup(); return true; }
+    const root = document.getElementById('batchTrackerRoot');
+    if(!root || root.offsetParent === null) return false;
+  }
+  if(bt.view !== 'history') return false;
+  batchCloseInfoPopup();
+  if(bt.back) Object.assign(bt, bt.back); else bt.view = 'product';
+  bt.back = null; bt.histItemId = '';
+  renderBatchTracker();
+  return true;
+}
+function batchRenderHistoryPage(){
+  const back = `<div style="margin:6px 0 10px;"><button class="btn ghost" onclick="batchTrackerBack()">← ${t('batchBackPrev')}</button></div>`;
+  const i = batchData.items.find(x => x.id === bt.histItemId);
+  if(!i) return back + `<div class="empty-note">${t('batchNoBatches')}</div>`;
+  const unit = batchEsc(batchProductUnit(i.productId));
+  const head = `<div class="section-title" style="margin-top:0;">${batchEsc(batchProductName(i.productId))} · ${batchEsc(i.batchNo)}${i.expiry ? ' · ' + t('batchExpiryShort') + ' ' + batchEsc(i.expiry) : ''}</div>
+    <div style="font-size:12px;color:var(--ink-soft);margin-bottom:8px;">${t('batchHistClickHint')}</div>`;
+  if(batchHist.loading) return back + head + `<div class="empty-note">${t('batchLoading')}</div>`;
+  const rowStyle = 'cursor:pointer;';
+  const rows = [`<tr style="${rowStyle}" onclick="batchHistOpenRow(-1)"><td>${batchEsc(i.isOpening ? t('batchOpening') : i.batchDate)}</td><td>${t('batchKindIn')}</td><td class="num">+${batchFmtQty(i.qtyIn)} ${unit}</td><td>${batchEsc(i.supplier) || '–'}</td><td>${batchEsc(i.invoiceNo) || '–'}</td><td class="num">${batchFmtMoney(batchUnitCost(i))}</td></tr>`]
+    .concat(batchHist.moves.map((m, idx) => `<tr style="${rowStyle}" onclick="batchHistOpenRow(${idx})"><td>${batchEsc(m.mv_date)}</td><td>${t(BATCH_KIND_LABEL_KEY[m.kind] || 'batchKindAdjust')}</td><td class="num">${Number(m.qty) > 0 ? '+' : ''}${batchFmtQty(Number(m.qty))} ${unit}</td><td>${batchEsc(m.party) || '–'}</td><td>${batchEsc(m.order_no) || '–'}</td><td class="num">${batchCostWithFlag(m.unit_cost, i)}</td></tr>`));
+  return back + head + `<table class="stock-table">
+    <thead><tr><th>${t('colDate')}</th><th>${t('colType')}</th><th class="num">${t('colQty')}</th><th>${t('batchColParty')}</th><th>${t('batchColOrderNo')}</th><th class="num">${t('batchColUnitCost')}</th></tr></thead>
+    <tbody>${rows.join('')}</tbody></table>`;
+}
+
+// 單一視窗:顯示進貨單 / 訂單 / 異動內容
+function batchOpenDocModal(title, bodyHtml){
+  batchCloseInfoPopup();
+  const ov = document.createElement('div');
+  ov.id = 'batchInfoOverlay';
+  ov.className = 'modal-overlay';
+  ov.style.display = 'flex';
+  ov.style.zIndex = '1150';
+  ov.onclick = (e) => { if(e.target === ov) batchCloseInfoPopup(); };
+  ov.innerHTML = `<div class="modal-box modal-box-wide"><div class="section-title" style="margin-top:0;">${title}</div><div id="batchDocBody">${bodyHtml}</div>
+    <div class="modal-actions"><button class="btn ghost" onclick="batchCloseInfoPopup()">${t('btnClose') !== 'btnClose' ? t('btnClose') : 'Close'}</button></div></div>`;
+  document.body.appendChild(ov);
+}
+function batchSetDocBody(html){ const el = document.getElementById('batchDocBody'); if(el) el.innerHTML = html; }
+
+async function batchHistOpenRow(idx){
+  const i = batchData.items.find(x => x.id === bt.histItemId);
+  if(!i) return;
+  if(idx < 0){
+    if(i.isOpening || !i.purchaseId){ batchOpenDocModal(t('batchDocMove'), `<div class="empty-note">${t('batchDocOpeningNote')}</div>`); return; }
+    return batchShowPurchaseModal(i.purchaseId, i);
+  }
+  const m = batchHist.moves[idx];
+  if(!m) return;
+  if(m.order_id) return batchShowOrderModal(m.order_id, m, i);
+  if(m.tx_id && typeof transactions !== 'undefined'){
+    const tx = transactions.find(x => x.id === m.tx_id);
+    if(tx && tx.purchaseId) return batchShowPurchaseModal(tx.purchaseId, i);
+  }
+  batchShowMoveModal(m, i);
+}
+function batchShowMoveModal(m, i){
+  const unit = batchEsc(batchProductUnit(i.productId));
+  batchOpenDocModal(t('batchDocMove'), `<table class="stock-table"><tbody>
+    <tr><td>${t('colDate')}</td><td>${batchEsc(m.mv_date)}</td></tr>
+    <tr><td>${t('colType')}</td><td>${t(BATCH_KIND_LABEL_KEY[m.kind] || 'batchKindAdjust')}</td></tr>
+    <tr><td>${t('colQty')}</td><td>${Number(m.qty) > 0 ? '+' : ''}${batchFmtQty(Number(m.qty))} ${unit}</td></tr>
+    <tr><td>${t('batchColParty')}</td><td>${batchEsc(m.party) || '–'}</td></tr>
+    <tr><td>${t('batchColOrderNo')}</td><td>${batchEsc(m.order_no) || '–'}</td></tr>
+    <tr><td>${t('colNote')}</td><td>${batchEsc(m.note) || '–'}</td></tr>
+  </tbody></table>`);
+}
+async function batchShowPurchaseModal(purchaseId, item){
+  batchOpenDocModal(t('batchDocPurchase'), t('batchLoading'));
+  try{ await ensurePurchasesLoaded(); }catch(e){}
+  const p = purchases.find(x => x.id === purchaseId);
+  if(!p){ batchSetDocBody(`<div class="empty-note">${t('batchDocNotFound')}</div>`); return; }
+  const canPrice = typeof canEditPrice === 'function' && canEditPrice();
+  const items = (p.items || []).filter(it => it.docType !== 'others');
+  const showAmt = canPrice && items.some(it => it.amount);
+  const hasExp = canPrice && p.costs && (p.costs.expensesAud > 0);
+  const nos = [...new Set(batchData.items.filter(x => x.purchaseId === p.id).map(x => x.batchNo))];
+  const fm = n => (n === null || n === undefined) ? '–' : Number(n).toFixed(2);
+  const rows = items.map(it => {
+    const pr = (typeof pcItemPrices === 'function') ? pcItemPrices(it) : { base: it.amount, total: it.amount };
+    const isCn = it.docType === 'credit_note';
+    const hi = item && it.productId === item.productId ? 'background:var(--warn-bg);' : '';
+    return `<tr style="${hi}"><td>${batchEsc(it.name || batchProductName(it.productId))}${isCn ? ` <span style="color:var(--crit);font-size:11px;">(${t('docTypeCreditNoteBadge')})</span>` : ''}</td>
+      <td class="num">${isCn ? -it.qty : it.qty} ${batchEsc(it.unit || '')}</td>
+      <td>${it.expiry ? batchEsc(it.expiry) : '–'}</td>
+      ${showAmt ? `<td class="num">${fm(pr.base)}</td>${hasExp ? `<td class="num"><strong>${fm(pr.total)}</strong></td>` : ''}` : ''}</tr>`;
+  }).join('');
+  let totals = '';
+  if(showAmt && typeof pcPurchaseTotals === 'function'){
+    const tt = pcPurchaseTotals(p);
+    const cur = (p.costs && p.costs.baseCurrency) || 'AUD';
+    totals = `<div style="font-size:12.5px;margin-top:6px;">${t('lblInvoiceSubtotal')}: <strong>${fm(tt.base)}</strong>${tt.expenses > 0 ? ` + ${t('lblOtherExpensesTotal')}: <strong>${fm(tt.expenses)}</strong> = ${t('lblPurchaseGrandTotal')}: <strong>${fm(tt.total)}</strong>` : ''} ${cur}</div>
+      ${tt.expenses > 0 ? `<div style="font-size:12px;color:var(--ink-soft);margin-top:2px;">${(p.costs.expenses || []).map(e => `${batchEsc(e.name)} ${fm(e.amount)} ${batchEsc(e.currency)}${e.estimated ? ' ⚠' : ''}`).join(' · ')}</div>` : ''}`;
+  }
+  batchSetDocBody(`
+    <div style="font-size:12.5px;margin-bottom:8px;">${batchEsc(p.date || '')} · ${batchEsc(p.partyName || p.partyId || '') || '–'} · Invoice ${batchEsc(p.invoiceNo) || '–'}${nos.length ? ' · ' + nos.map(n => `<span class="batch-tag">${batchEsc(n)}</span>`).join(' ') : ''}</div>
+    <table class="stock-table"><thead><tr><th>${t('colProduct')}</th><th class="num">${t('colQty')}</th><th>${t('batchColExpiry')}</th>${showAmt ? `<th class="num">${hasExp ? t('colBasePrice') : t('colAmount')}</th>${hasExp ? `<th class="num">${t('colTotalPrice')}</th>` : ''}` : ''}</tr></thead><tbody>${rows}</tbody></table>
+    ${totals}
+    ${p.note ? `<div style="font-size:12px;color:var(--ink-soft);margin-top:6px;">${t('colNote')}: ${batchEsc(p.note)}</div>` : ''}`);
+}
+async function batchShowOrderModal(orderId, m, item){
+  batchOpenDocModal(t('batchDocOrder'), t('batchLoading'));
+  let o = (typeof orders !== 'undefined') ? orders.find(x => x.id === orderId) : null;
+  if(!o){
+    // 訂單只載入近期範圍;更早的訂單直接從資料庫抓這一筆
+    try{
+      const { data, error } = await sb.from('orders').select('id,payload').eq('id', orderId).maybeSingle();
+      if(error) throw error;
+      o = data ? data.payload : null;
+    } catch(e){ console.error('讀取訂單失敗', e); }
+  }
+  if(!o){ batchSetDocBody(`<div class="empty-note">${t('batchDocNotFound')}</div>`); return; }
+  const rows = (o.items || []).filter(it => !it.deleted).map(it => {
+    const hi = item && it.productId === item.productId ? 'background:var(--warn-bg);' : '';
+    return `<tr style="${hi}"><td>${batchEsc(it.name || batchProductName(it.productId))}</td><td class="num">${batchFmtQty(it.qty)} ${batchEsc(it.unit || batchProductUnit(it.productId))}</td></tr>`;
+  }).join('');
+  batchSetDocBody(`
+    <div style="font-size:12.5px;margin-bottom:8px;"><strong>${batchEsc(o.orderNo || m.order_no || '')}</strong> · ${batchEsc(o.date || '')}${o.partyName ? ' · ' + batchEsc(o.partyName) : ''}${o.deleted ? ` · <span style="color:var(--crit);">${t('batchDocOrderCancelled')}</span>` : ''}</div>
+    <table class="stock-table"><thead><tr><th>${t('colProduct')}</th><th class="num">${t('colQty')}</th></tr></thead><tbody>${rows}</tbody></table>
+    ${o.note ? `<div style="font-size:12px;color:var(--ink-soft);margin-top:6px;">${t('colNote')}: ${batchEsc(o.note)}</div>` : ''}`);
 }
