@@ -159,7 +159,8 @@ const I18N = {
     boxDimensionsHint: '單位是公分。填了之後,進貨預估頁面才能算出這個商品的體積。',
     // ----- 第二期:其他支出 / 海外採購 -----
     pcEstimatedBadge: '預估(沿用 {date})', pcMarkFinal: '確認為正式金額',
-    pcAutoFillHint: '項目名稱填好、金額留空時,會自動沿用「同一供應商、同名項目」上次的金額與幣種,標記為預估。拿到正式報關資料後,到「編輯進貨單」改成實際金額即可。',
+    pcLoadLastSet: '帶入 {supplier} 上次的其他支出({date})',
+    pcAutoFillHint: '項目名稱可以選之前用過的項目,會自動帶入上次的幣種與金額(可再修改)。海外採購且金額留空時,送出會沿用「同一供應商、同名項目」上次的金額並標記為預估;拿到正式報關資料後,到「編輯進貨單」改成實際金額即可。',
     pcErrNoHistory: '「{name}」沒有填金額,而且找不到這個供應商上次同名項目的金額,請手動輸入。',
     pcEditHint: '改金額後會視為正式金額;整張進貨單的每行總價與批次單價會依新的支出重算。標示「預估」的是沿用上次的金額。',
     pcEstimatedPurchaseBadge: '預估支出', pcEstimatedPurchaseTitle: '這張進貨單有沿用上次金額的其他支出,拿到正式資料後請到編輯進貨單更新',
@@ -962,7 +963,8 @@ const I18N = {
     boxDimensionsHint: 'Units are in centimeters. Fill these in to enable volume calculation on the Purchase Forecast page.',
     // ----- Phase 2: other expenses / overseas purchase -----
     pcEstimatedBadge: 'Estimated (from {date})', pcMarkFinal: 'Mark as final',
-    pcAutoFillHint: 'If you enter an item name and leave the amount blank, the amount and currency of the same item from this supplier\'s previous purchase are used and marked as estimated. When the real customs invoice arrives, update it via Edit purchase.',
+    pcLoadLastSet: 'Load {supplier}\'s previous other expenses ({date})',
+    pcAutoFillHint: 'Pick an item you used before and its previous currency and amount are filled in (you can edit them). For overseas purchases, a blank amount falls back to the same item from this supplier\'s previous purchase on submit and is marked as estimated; update it via Edit purchase when the real customs invoice arrives.',
     pcErrNoHistory: '"{name}" has no amount and no previous amount from this supplier was found. Please enter it manually.',
     pcEditHint: 'Changing an amount makes it final. Line totals and batch unit costs are recalculated from the new expenses. "Estimated" means the amount was carried over from the previous purchase.',
     pcEstimatedPurchaseBadge: 'Estimated expenses', pcEstimatedPurchaseTitle: 'This purchase has other expenses carried over from a previous purchase. Update them in Edit purchase once the real invoice arrives.',

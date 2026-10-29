@@ -17,6 +17,7 @@ let pcLoaded = false;
 let pcLoading = false;
 let pcManageOpen = false;
 let pcDateHooked = false;
+let pcPartyHooked = false;
 let pcState = pcNewState();
 
 function pcNewState(){
@@ -48,6 +49,7 @@ async function pcEnsureLoaded(){
     const n = await dbGet('purchaseExpenseNames');
     if(n && n.value){ const arr = JSON.parse(n.value); if(Array.isArray(arr)) pcExpenseNames = arr; }
   }catch(e){}
+  try{ await ensurePurchasesLoaded(); }catch(e){}   // 之前輸入過的支出(項目/金額/幣種)從進貨單歷史讀出來當記憶
   pcLoaded = true; pcLoading = false;
   pcRender();
 }
@@ -147,30 +149,87 @@ function pcSupplierName(){
   const el = document.getElementById('txParty');
   return el ? el.value.trim() : '';
 }
+// 所有進貨單裡出現過的其他支出(新的在前)
+function pcExpenseHistory(excludePurchaseId){
+  const out = [];
+  if(typeof purchases === 'undefined') return out;
+  purchases.forEach(p => {
+    if(p.id === excludePurchaseId) return;
+    ((p.costs && p.costs.expenses) || []).forEach(e => {
+      if(!e.name || e.amount === undefined || e.amount === null) return;
+      out.push({ name: e.name.trim(), currency: e.currency || 'AUD', amount: Number(e.amount), date: p.date || '', key: (p.date || '') + '|' + (p.createdAt || ''), supplier: (p.partyName || p.partyId || '').trim(), estimated: !!e.estimated, exp: e });
+    });
+  });
+  out.sort((a, b) => b.key.localeCompare(a.key));
+  return out;
+}
+// 同名項目最近一次的資料:優先同一個供應商,沒有再用其他供應商最近一次。
 function pcLastExpenseFor(supplier, name, excludePurchaseId){
   const sup = (supplier || '').trim().toLowerCase(), nm = (name || '').trim().toLowerCase();
-  if(!sup || !nm || typeof purchases === 'undefined') return null;
+  if(!nm) return null;
+  const hist = pcExpenseHistory(excludePurchaseId).filter(h => h.name.toLowerCase() === nm);
+  if(!hist.length) return null;
+  const same = sup ? hist.find(h => h.supplier.toLowerCase() === sup) : null;
+  const h = same || hist[0];
+  return { key: h.key, exp: h.exp, date: h.date, supplier: h.supplier, sameSupplier: !!same };
+}
+// 輸入項目名稱時的建議清單:這個供應商用過的在前(顯示上次的幣種/金額/日期),其次其他供應商用過的,最後是記住的名稱。
+function pcExpenseSuggestions(supplier, excludePurchaseId){
+  const sup = (supplier || '').trim().toLowerCase();
+  const hist = pcExpenseHistory(excludePurchaseId);
+  const seen = new Map();
+  const add = (h, withSupplier) => {
+    const k = h.name.toLowerCase();
+    if(seen.has(k)) return;
+    seen.set(k, { name: h.name, label: `${h.currency} ${h.amount}${h.estimated ? ' ⚠' : ''} · ${withSupplier && h.supplier ? h.supplier + ' ' : ''}${h.date}` });
+  };
+  if(sup) hist.filter(h => h.supplier.toLowerCase() === sup).forEach(h => add(h, false));
+  hist.forEach(h => add(h, true));
+  pcExpenseNames.forEach(n => { const k = n.toLowerCase(); if(!seen.has(k)) seen.set(k, { name: n, label: '' }); });
+  return Array.from(seen.values());
+}
+function pcNameDatalist(id, supplier, excludePurchaseId){
+  return `<datalist id="${id}">${pcExpenseSuggestions(supplier, excludePurchaseId).map(s => `<option value="${pcEsc(s.name)}" label="${pcEsc(s.label ? s.name + ' (' + s.label + ')' : s.name)}"></option>`).join('')}</datalist>`;
+}
+// 填入成功回傳 true。已有金額、找不到歷史都不動。
+// opts.strict:只接受同一供應商的紀錄(送出時沿用用);opts.overseas:海外採購且同供應商 → 標記為「預估」。
+function pcFillFromLast(e, supplier, excludePurchaseId, opts){
+  opts = opts || {};
+  if(!e.name || !e.name.trim() || (e.amount !== '' && e.amount !== undefined && e.amount !== null)) return false;
+  const last = pcLastExpenseFor(supplier, e.name, excludePurchaseId);
+  if(!last || (opts.strict && !last.sameSupplier)) return false;
+  e.amount = Number(last.exp.amount);
+  e.currency = last.exp.currency || pcBase();
+  if(opts.overseas && last.sameSupplier){ e.estimated = true; e.estimatedFrom = last.date; }
+  else { delete e.estimated; delete e.estimatedFrom; }
+  return true;
+}
+// 這個供應商最近一張有其他支出的進貨單的支出清單(給「帶入上次的其他支出」用)
+function pcLastExpenseSetFor(supplier, excludePurchaseId){
+  const sup = (supplier || '').trim().toLowerCase();
+  if(!sup || typeof purchases === 'undefined') return null;
   let best = null;
   purchases.forEach(p => {
     if(p.id === excludePurchaseId) return;
     if((p.partyName || p.partyId || '').trim().toLowerCase() !== sup) return;
-    const e = ((p.costs && p.costs.expenses) || []).find(x => (x.name || '').trim().toLowerCase() === nm && x.amount !== undefined && x.amount !== null);
-    if(!e) return;
+    if(!p.costs || !(p.costs.expenses || []).length) return;
     const key = (p.date || '') + '|' + (p.createdAt || '');
-    if(!best || key > best.key) best = { key, exp: e, date: p.date || '' };
+    if(!best || key > best.key) best = { key, date: p.date || '', expenses: p.costs.expenses };
   });
   return best;
 }
-// 填入成功回傳 true。已有金額、找不到歷史都不動。
-function pcFillFromLast(e, supplier, excludePurchaseId){
-  if(!e.name || !e.name.trim() || (e.amount !== '' && e.amount !== undefined && e.amount !== null)) return false;
-  const last = pcLastExpenseFor(supplier, e.name, excludePurchaseId);
-  if(!last) return false;
-  e.amount = Number(last.exp.amount);
-  e.currency = last.exp.currency || pcBase();
-  e.estimated = true;
-  e.estimatedFrom = last.date;
-  return true;
+function pcLoadLastSet(){
+  const last = pcLastExpenseSetFor(pcSupplierName());
+  if(!last) return;
+  const have = new Set(pcState.expenses.map(e => (e.name || '').trim().toLowerCase()));
+  last.expenses.forEach(e => {
+    if(!e.name || have.has(e.name.trim().toLowerCase())) return;
+    const row = { id: genId(), name: e.name, currency: e.currency || pcBase(), amount: Number(e.amount) };
+    if(pcState.overseas){ row.estimated = true; row.estimatedFrom = last.date; }  // 海外採購:沿用上次 = 預估
+    pcState.expenses.push(row);
+  });
+  pcRender();
+  pcFetchRates(false);
 }
 // 送出前:載入進貨單歷史,海外採購且有項目沒填金額 → 沿用上次;再補抓需要的匯率。
 async function pcPrepare(){
@@ -178,7 +237,7 @@ async function pcPrepare(){
   try{ await ensurePurchasesLoaded(); }catch(e){}
   const sup = pcSupplierName();
   let filled = false;
-  pcState.expenses.forEach(e => { if(pcFillFromLast(e, sup)) filled = true; });
+  pcState.expenses.forEach(e => { if(pcFillFromLast(e, sup, undefined, { strict: true, overseas: true })) filled = true; });
   if(filled) await pcFetchRates(false);
 }
 
@@ -205,9 +264,10 @@ function pcUpdateExpense(id, field, value){
   } else e[field] = value;
   pcRender();
   if(field === 'currency') pcFetchRates(false);
-  if(field === 'name' && pcState.overseas && (e.amount === '' || e.amount === undefined)){
+  if(field === 'name' && (e.amount === '' || e.amount === undefined)){
+    // 選了(或輸入了)之前用過的項目 → 帶入上次的幣種與金額(可以再改);海外採購且同供應商 = 標記為預估
     ensurePurchasesLoaded().then(() => {
-      if(pcFillFromLast(e, pcSupplierName())){ pcRender(); pcFetchRates(false); }
+      if(pcFillFromLast(e, pcSupplierName(), undefined, { overseas: pcState.overseas })){ pcRender(); pcFetchRates(false); }
     }).catch(() => {});
   }
 }
@@ -396,13 +456,19 @@ function pcRender(){
     const d = document.getElementById('txDate');
     if(d){ d.addEventListener('change', () => { if(pcUsedForeignCurrencies().length) pcFetchRates(true); }); pcDateHooked = true; }
   }
+  if(!pcPartyHooked){
+    const sp = document.getElementById('txParty');
+    if(sp){ sp.addEventListener('change', () => pcRender()); pcPartyHooked = true; }   // 換供應商 → 建議清單與「帶入上次」按鈕跟著更新
+  }
   wrap.style.display = '';
   // 系統預設幣種改了 → 之前取的匯率(對舊幣種)作廢
   if(pcState.ratesBase !== pcBase()){ pcState.rates = {}; pcState.manual = {}; pcState.fetchFailed = []; pcState.ratesBase = pcBase(); if(pcState.overseas && pcState.currency === pcBase()) pcState.currency = pcCurrencyList().find(c => c !== pcBase()) || 'USD'; setTimeout(() => { if(pcUsedForeignCurrencies().length) pcFetchRates(false); }, 0); }
   const curOpts = (sel) => pcCurrencyList().map(c => `<option value="${c}" ${c === sel ? 'selected' : ''}>${c}</option>`).join('');
   const foreign = pcUsedForeignCurrencies();
   const exps = pcExpenseRows();
-  const dl = `<datalist id="pcExpenseNameList">${pcExpenseNames.map(n => `<option value="${pcEsc(n)}"></option>`).join('')}</datalist>`;
+  const supplierNow = pcSupplierName();
+  const dl = pcNameDatalist('pcExpenseNameList', supplierNow);
+  const lastSet = pcLastExpenseSetFor(supplierNow);
 
   const expRows = pcState.expenses.map(e => `
     <div style="display:flex;gap:6px;align-items:center;margin:4px 0;flex-wrap:wrap;">
@@ -475,9 +541,10 @@ function pcRender(){
       </div>` : ''}
 
       <div style="font-size:12.5px;font-weight:700;margin-top:10px;">${t('pcExpenses')}</div>
-      ${pcState.overseas ? `<div style="font-size:11.5px;color:var(--ink-soft);">${t('pcAutoFillHint')}</div>` : ''}
+      <div style="font-size:11.5px;color:var(--ink-soft);">${t('pcAutoFillHint')}</div>
       ${dl}${expRows}
       <button class="btn ghost" onclick="pcAddExpense()" style="margin-top:2px;">${t('pcAddExpense')}</button>
+      ${lastSet ? `<button class="btn ghost" onclick="pcLoadLastSet()" style="margin-top:2px;">${tf('pcLoadLastSet', { supplier: pcEsc(supplierNow), date: lastSet.date })}</button>` : ''}
 
       ${pcState.expenses.length ? `
       <div style="display:flex;gap:8px;align-items:center;margin-top:8px;flex-wrap:wrap;">
@@ -535,6 +602,11 @@ function pcEdUpdate(id, field, value){
   } else e[field] = value;
   pcEditRender();
   if(field === 'currency') pcEdFetchRates(false);
+  if(field === 'name' && (e.amount === '' || e.amount === undefined)){
+    // 選了之前用過的項目 → 帶入上次的幣種與金額(可以再改)
+    const p = (typeof purchases !== 'undefined') ? purchases.find(x => x.id === pcEd.purchaseId) : null;
+    if(pcFillFromLast(e, p ? (p.partyName || p.partyId || '') : '', pcEd.purchaseId, { overseas: !!pcEd.overseas })){ pcEditRender(); pcEdFetchRates(false); }
+  }
 }
 function pcEdConfirmFinal(id){
   const e = pcEd.expenses.find(x => x.id === id);
@@ -565,7 +637,8 @@ function pcEditRender(){
   if(!wrap) return;
   if(!pcEd){ wrap.innerHTML = ''; return; }
   const curOpts = (sel) => pcCurrencyList().map(c => `<option value="${c}" ${c === sel ? 'selected' : ''}>${c}</option>`).join('');
-  const dl = `<datalist id="pcEdExpenseNameList">${pcExpenseNames.map(n => `<option value="${pcEsc(n)}"></option>`).join('')}</datalist>`;
+  const edPurchase = (typeof purchases !== 'undefined') ? purchases.find(x => x.id === pcEd.purchaseId) : null;
+  const dl = pcNameDatalist('pcEdExpenseNameList', edPurchase ? (edPurchase.partyName || edPurchase.partyId || '') : '', pcEd.purchaseId);
   const rows = pcEd.expenses.map(e => `
     <div style="display:flex;gap:6px;align-items:center;margin:4px 0;flex-wrap:wrap;${e.estimated ? 'background:var(--warn-bg);padding:4px;border-radius:6px;' : ''}">
       <input type="text" list="pcEdExpenseNameList" value="${pcEsc(e.name)}" placeholder="${t('pcExpenseName')}" style="width:170px;" onchange="pcEdUpdate('${e.id}','name',this.value)" />
