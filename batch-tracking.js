@@ -527,6 +527,8 @@ function updateTxBatchItemLot(batchItemId, value){
 }
 // 非進貨類型(出貨/調整):每一行的「批次」按鈕與預覽
 function batchTxRowPickable(it){
+  // 載入「待處理訂單」新增商品時只是改訂單內容、還不會出貨,不需要批次;等到核對頁按核對才分配批次
+  if(typeof registerOutFlowType !== 'undefined' && registerOutFlowType === 'load-pending') return false;
   return typeof currentTxType !== 'undefined' && currentTxType !== 'in' && batchIsTracked(it.productId) && it.qty > 0;
 }
 function batchTxRowPreviewHtml(it){
