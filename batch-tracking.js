@@ -109,6 +109,56 @@ function batchFmtQty(n){ return Number(n).toLocaleString(undefined, { maximumFra
 function batchFmtMoney(n){ return (n === null || n === undefined) ? '–' : '$' + Number(n).toFixed(2); }
 function batchUnitCost(i){ return (i.unitCostTotal !== null && i.unitCostTotal !== undefined) ? i.unitCostTotal : i.unitCostBase; }
 
+// ---- 出貨當下單價快照(batch_movements.unit_cost,見 sql/batch_tracking_phase2b_ship_cost_snapshot.sql)----
+// 畫面上顯示「目前的批次單價」;如果出貨當時的價格跟現在不同(例如後來更新了報關費),在旁邊標一個記號,
+// 點一下顯示出貨當時用的價格。SQL 還沒執行(沒有 unit_cost 欄位)時自動退回不含價格的查詢。
+let batchShipCostSupported = true;
+async function batchSelectMovements(cols, apply){
+  if(batchShipCostSupported){
+    const r = await apply(sb.from('batch_movements').select(cols + ',unit_cost'));
+    if(!r.error) return r;
+    if(!/unit_cost/i.test(r.error.message || '')) return r;
+    batchShipCostSupported = false;
+  }
+  return apply(sb.from('batch_movements').select(cols));
+}
+function batchNum(v){ return (v === null || v === undefined || v === '') ? null : Number(v); }
+function batchCostDiffers(ship, cur){
+  const a = batchNum(ship), b = batchNum(cur);
+  if(a === null && b === null) return false;
+  if(a === null || b === null) return true;
+  return Math.abs(a - b) >= 0.005;
+}
+// 目前批次單價 + (出貨價不同時)可點擊的記號
+function batchCostWithFlag(shipCost, item){
+  const cur = batchUnitCost(item);
+  const ship = batchNum(shipCost);
+  let html = batchFmtMoney(cur);
+  if(batchShipCostSupported && batchCostDiffers(ship, cur)){
+    html += ` <span class="batch-cost-flag" title="${batchEsc(t('batchCostFlagTitle'))}" style="cursor:pointer;color:var(--warn-dark,#b45309);font-weight:700;" onclick="batchShowShipCost(event, ${ship === null ? 'null' : ship}, ${cur === null || cur === undefined ? 'null' : cur})">ⓘ</span>`;
+  }
+  return html;
+}
+function batchShowShipCost(ev, ship, cur){
+  ev.stopPropagation();
+  const old = document.getElementById('batchShipCostPop');
+  if(old) old.remove();
+  const pop = document.createElement('div');
+  pop.id = 'batchShipCostPop';
+  pop.style.cssText = 'position:fixed;z-index:3000;background:#fff;border:1px solid var(--line,#ccc);border-radius:8px;box-shadow:0 4px 16px rgba(0,0,0,.18);padding:8px 12px;font-size:12.5px;max-width:260px;line-height:1.5;';
+  pop.innerHTML = `<div><strong>${t('batchShipCostLabel')}:</strong> ${ship === null ? t('batchShipCostNone') : batchFmtMoney(ship)}</div>
+    <div style="color:var(--ink-soft);">${t('batchCurrentCostLabel')}: ${batchFmtMoney(cur)}</div>`;
+  document.body.appendChild(pop);
+  const x = Math.min(ev.clientX, window.innerWidth - pop.offsetWidth - 8);
+  const y = Math.min(ev.clientY + 12, window.innerHeight - pop.offsetHeight - 8);
+  pop.style.left = Math.max(8, x) + 'px';
+  pop.style.top = Math.max(8, y) + 'px';
+  setTimeout(() => {
+    const close = () => { pop.remove(); document.removeEventListener('click', close, true); };
+    document.addEventListener('click', close, true);
+  }, 0);
+}
+
 // 有效期先到期先出;沒有有效期的排後面,依進貨日 FIFO(期初批次日期最舊)。資料庫端排序規則一樣。
 function batchFefoCompare(a, b){
   const ae = a.expiry || '', be = b.expiry || '';
@@ -604,7 +654,7 @@ async function batchFillTxTags(root){
     });
     for(let i = 0; i < need.length; i += 150){
       const chunk = need.slice(i, i + 150);
-      const { data, error } = await sb.from('batch_movements').select('tx_id,batch_item_id,qty,kind').in('tx_id', chunk);
+      const { data, error } = await batchSelectMovements('tx_id,batch_item_id,qty,kind', q => q.in('tx_id', chunk));
       if(error) throw error;
       chunk.forEach(id => { batchTxMoveCache[id] = []; });
       (data || []).forEach(m => { batchTxMoveCache[m.tx_id].push(m); });
@@ -618,7 +668,8 @@ async function batchFillTxTags(root){
         html = (batchTxMoveCache[el.dataset.batchTx] || []).map(m => {
           const i = batchData.items.find(x => x.id === m.batch_item_id);
           if(!i) return '';
-          return `<span class="batch-tag">${batchEsc(i.batchNo)} ×${batchFmtQty(Math.abs(Number(m.qty)))}${i.expiry ? ' · ' + batchEsc(i.expiry) : ''}</span>`;
+          const costPart = (typeof canEditPrice === 'function' && canEditPrice()) ? ' · ' + batchCostWithFlag(m.unit_cost, i) : '';
+          return `<span class="batch-tag">${batchEsc(i.batchNo)} ×${batchFmtQty(Math.abs(Number(m.qty)))}${i.expiry ? ' · ' + batchEsc(i.expiry) : ''}${costPart}</span>`;
         }).join('');
       }
       el.innerHTML = html;
@@ -859,7 +910,7 @@ async function batchOpenInfoPopup(itemId, mode){
   document.body.appendChild(ov);
   let moves = [];
   try{
-    const { data, error } = await sb.from('batch_movements').select('mv_date,qty,kind,party,order_no,note,created_at').eq('batch_item_id', itemId).order('mv_date', { ascending: true }).order('id', { ascending: true });
+    const { data, error } = await batchSelectMovements('mv_date,qty,kind,party,order_no,note,created_at', q => q.eq('batch_item_id', itemId).order('mv_date', { ascending: true }).order('id', { ascending: true }));
     if(error) throw error;
     moves = data || [];
   } catch(e){ console.error(e); }
@@ -881,10 +932,10 @@ async function batchOpenInfoPopup(itemId, mode){
     </tbody></table>`;
   } else {
     body.innerHTML = head + `<table class="stock-table">
-      <thead><tr><th>${t('colDate')}</th><th>${t('colType')}</th><th class="num">${t('colQty')}</th><th>${t('batchColParty')}</th><th>${t('batchColOrderNo')}</th></tr></thead>
+      <thead><tr><th>${t('colDate')}</th><th>${t('colType')}</th><th class="num">${t('colQty')}</th><th>${t('batchColParty')}</th><th>${t('batchColOrderNo')}</th><th class="num">${t('batchColUnitCost')}</th></tr></thead>
       <tbody>
-        <tr><td>${batchEsc(i.isOpening ? t('batchOpening') : i.batchDate)}</td><td>${t('batchKindIn')}</td><td class="num">+${batchFmtQty(i.qtyIn)} ${unit}</td><td>${batchEsc(i.supplier) || '–'}</td><td>${batchEsc(i.invoiceNo) || '–'}</td></tr>
-        ${moves.map(m => `<tr><td>${batchEsc(m.mv_date)}</td><td>${t(BATCH_KIND_LABEL_KEY[m.kind] || 'batchKindAdjust')}</td><td class="num">${Number(m.qty) > 0 ? '+' : ''}${batchFmtQty(Number(m.qty))} ${unit}</td><td>${batchEsc(m.party) || '–'}</td><td>${batchEsc(m.order_no) || '–'}</td></tr>`).join('')}
+        <tr><td>${batchEsc(i.isOpening ? t('batchOpening') : i.batchDate)}</td><td>${t('batchKindIn')}</td><td class="num">+${batchFmtQty(i.qtyIn)} ${unit}</td><td>${batchEsc(i.supplier) || '–'}</td><td>${batchEsc(i.invoiceNo) || '–'}</td><td class="num">${batchFmtMoney(batchUnitCost(i))}</td></tr>
+        ${moves.map(m => `<tr><td>${batchEsc(m.mv_date)}</td><td>${t(BATCH_KIND_LABEL_KEY[m.kind] || 'batchKindAdjust')}</td><td class="num">${Number(m.qty) > 0 ? '+' : ''}${batchFmtQty(Number(m.qty))} ${unit}</td><td>${batchEsc(m.party) || '–'}</td><td>${batchEsc(m.order_no) || '–'}</td><td class="num">${batchCostWithFlag(m.unit_cost, i)}</td></tr>`).join('')}
       </tbody></table>`;
   }
 }
