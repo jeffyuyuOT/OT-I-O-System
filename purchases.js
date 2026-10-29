@@ -56,11 +56,14 @@ function renderPurchaseLog(){
     return;
   }
   const sorted = filtered.sort((a, b) => (b.date || '').localeCompare(a.date || '') || (b.createdAt || '').localeCompare(a.createdAt || ''));
+  // 批次追蹤開啟時,批次號獨立一欄(不再塞在 Invoice 欄裡,沒有 Invoice No. 時才不會被誤認成 Invoice)
+  const showBatchCol = typeof batchActive === 'function' && batchActive();
   container.innerHTML = `<table class="stock-table purchase-log-table">
       <thead><tr>
         <th>${t('colPurchaseDate')}</th>
         <th>${t('colPurchaseParty')}</th>
         <th>${t('colPurchaseInvoiceNo')}</th>
+        ${showBatchCol ? `<th>${t('batchColBatch')}</th>` : ''}
         <th></th>
       </tr></thead>
       <tbody>
@@ -68,7 +71,8 @@ function renderPurchaseLog(){
           <tr>
             <td class="pl-date" style="cursor:pointer;white-space:nowrap;" onclick="togglePurchaseDetail('${p.id}')"><span class="td-mobile-label">${t('colPurchaseDate')}</span><span style="display:inline-block;width:14px;">${expandedPurchaseId === p.id ? '▾' : '▸'}</span>${escapeHtmlForPrint(p.date || '')}</td>
             <td class="pl-party" style="cursor:pointer;" onclick="togglePurchaseDetail('${p.id}')"><span class="td-mobile-label">${t('colPurchaseParty')}</span>${escapeHtmlForPrint(p.partyName || p.partyId || '')}${(typeof pcEstimateBadge === 'function') ? pcEstimateBadge(p) : ''}</td>
-            <td class="pl-invoice" style="cursor:pointer;" onclick="togglePurchaseDetail('${p.id}')"><span class="td-mobile-label">${t('colPurchaseInvoiceNo')}</span>${escapeHtmlForPrint(p.invoiceNo || '')}${(typeof batchPurchaseTagHtml === 'function') ? batchPurchaseTagHtml(p) : ''}${getPurchaseReceiptFileList(p).length > 0 ? ` <span title="${t('hasReceiptAttachedTitle')}">📎</span>` : ''}</td>
+            <td class="pl-invoice" style="cursor:pointer;" onclick="togglePurchaseDetail('${p.id}')"><span class="td-mobile-label">${t('colPurchaseInvoiceNo')}</span>${escapeHtmlForPrint(p.invoiceNo || '')}${getPurchaseReceiptFileList(p).length > 0 ? ` <span title="${t('hasReceiptAttachedTitle')}">📎</span>` : ''}</td>
+            ${showBatchCol ? (() => { const bt = (typeof batchPurchaseTagHtml === 'function') ? batchPurchaseTagHtml(p).trim() : ''; return `<td class="pl-batch" style="cursor:pointer;" onclick="togglePurchaseDetail('${p.id}')">${bt ? `<span class="td-mobile-label">${t('batchColBatch')}</span>${bt}` : ''}</td>`; })() : ''}
             <td class="pl-actions" style="white-space:nowrap;">
               <span class="del-link" onclick="openEditPurchaseModal('${p.id}')">${t('btnEdit')}</span>
               &nbsp;·&nbsp;
@@ -80,7 +84,7 @@ function renderPurchaseLog(){
           </tr>
           ${expandedPurchaseId === p.id ? `
           <tr>
-            <td colspan="4" style="background:#fff;">
+            <td colspan="${showBatchCol ? 5 : 4}" style="background:#fff;">
               ${orderBlockHtml('items', 'orderBlockItems', `<table class="stock-table" style="margin:2px 0;background:transparent;">
                 <thead><tr><th>${t('colProduct')}</th><th class="num">${t('colQty')}</th>${(p.items || []).some(it => it.amount) ? `<th class="num">${(p.costs && p.costs.expensesAud > 0) ? t('colBasePrice') : t('colAmount')}</th>` : ''}${(p.costs && p.costs.expensesAud > 0) ? `<th class="num">${t('colTotalPrice')}</th>` : ''}</tr></thead>
                 <tbody>

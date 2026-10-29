@@ -862,13 +862,15 @@
     #purchaseLogTable table.purchase-log-table, #purchaseLogTable table.purchase-log-table tbody{ display:block; width:100%; }
     #purchaseLogTable table.purchase-log-table > tbody > tr{
       display:grid; grid-template-columns:1fr 1fr; column-gap:10px; row-gap:4px;
-      grid-template-areas: "date invoice" "party party" "actions actions";
+      grid-template-areas: "date invoice" "party party" "batch batch" "actions actions";
       padding:12px 0; border-bottom:1px solid var(--line);
     }
     #purchaseLogTable table.purchase-log-table > tbody > tr > td{ border-bottom:none; padding:0 !important; white-space:normal !important; }
     #purchaseLogTable table.purchase-log-table td.pl-date{ grid-area:date; font-weight:600; }
     #purchaseLogTable table.purchase-log-table td.pl-party{ grid-area:party; }
     #purchaseLogTable table.purchase-log-table td.pl-invoice{ grid-area:invoice; }
+    #purchaseLogTable table.purchase-log-table td.pl-batch{ grid-area:batch; }
+    #purchaseLogTable table.purchase-log-table td.pl-batch:empty{ display:none; }
     #purchaseLogTable table.purchase-log-table td.pl-actions{ grid-area:actions; margin-top:4px; white-space:normal !important; }
     #purchaseLogTable table.purchase-log-table .pl-actions-br{ display:block; content:""; margin-top:4px; }
     /* 展開後的明細列(colspan 那一整列)不是卡片欄位的一部分,維持原本橫跨整列的樣子。 */
