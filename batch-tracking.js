@@ -893,15 +893,24 @@ function batchOpenPickerForExistingItem(productId){
   const order = orders.find(o => o.id === registerLoadedOrderId);
   const item = order ? order.items.find(x => x.productId === productId && !x.deleted) : null;
   const input = document.getElementById('txExistingItemQtyInput_' + productId);
-  if(!item || !input) return;
-  const delta = parseFloat(input.value) - item.qty;
-  if(!(delta > 0)){ showInfoModal(t('batchPickNeedIncrease')); return; }
   const pending = registerPendingItemChanges[productId];
+  if(!item) return;
+  // 編輯中用輸入框的數字;不在編輯中則用已暫存的新數量
+  const typed = input ? parseFloat(input.value) : (pending && pending.type === 'qty' ? pending.newQty : NaN);
+  const delta = typed - item.qty;
+  if(!(delta > 0)){ showInfoModal(t('batchPickNeedIncrease')); return; }
   batchOpenPicker({
     productId, qty: delta, unit: item.unit,
     picks: batchEditPicks[productId] || (pending && pending.picks) || [],
     onSave: picks => {
       if(picks.length) batchEditPicks[productId] = picks; else delete batchEditPicks[productId];
+      if(!input){
+        // 不在編輯中(數量已暫存):指定的批次直接存進暫存變更,並重畫預覽
+        if(pending){ if(picks.length) pending.picks = picks; else delete pending.picks; }
+        delete batchEditPicks[productId];
+        renderTxExistingItems();
+        return;
+      }
       const btn = document.getElementById('batchExistBtn_' + productId);
       if(btn) btn.textContent = t('btnBatchPick') + (picks.length ? ' ✓' : '');
     }
@@ -936,12 +945,12 @@ async function batchFillOrderBreakdown(root, order){
       const pid = el.dataset.pid;
       const item = order.items.find(x => x.productId === pid && !x.deleted);
       const cur = Object.assign({}, map[pid] || {});
-      const add = {};
+      const add = {}, manual = {};
       let addUntracked = 0;
       const pending = registerPendingItemChanges[pid];
       if(item && pending && pending.type === 'qty' && pending.newQty > item.qty){
         const alloc = batchPreviewAllocation(pid, pending.newQty - item.qty, pending.picks);
-        alloc.lines.forEach(l => { add[l.item.id] = (add[l.item.id] || 0) + l.qty; });
+        alloc.lines.forEach(l => { add[l.item.id] = (add[l.item.id] || 0) + l.qty; if(l.manual) manual[l.item.id] = true; });
         addUntracked = alloc.untracked;
       }
       const ids = [...new Set([...Object.keys(cur), ...Object.keys(add)])]
@@ -949,7 +958,7 @@ async function batchFillOrderBreakdown(root, order){
       let html = ids.map(i => {
         const base = cur[i.id] || 0, plus = add[i.id] || 0;
         const exp = i.expiry ? ' · ' + t('batchExpiryShort') + ' ' + batchEsc(i.expiry) : '';
-        return `<span class="batch-tag">${batchEsc(i.batchNo)} ×${batchFmtQty(base + plus)}${exp}${plus ? `<i style="color:var(--warn-dark,#B8860B);font-weight:700;">+${batchFmtQty(plus)}</i>` : ''}</span>`;
+        return `<span class="batch-tag">${batchEsc(i.batchNo)} ×${batchFmtQty(base + plus)}${exp}${plus ? `<i style="color:var(--warn-dark,#B8860B);font-weight:700;">+${batchFmtQty(plus)} ${manual[i.id] ? t('batchManualTag') : t('batchAutoTag')}</i>` : ''}</span>`;
       }).join('');
       if(addUntracked > 0) html += `<span class="batch-tag batch-tag-warn">${t('batchUntracked')} +${batchFmtQty(addUntracked)}</span>`;
       el.innerHTML = html;

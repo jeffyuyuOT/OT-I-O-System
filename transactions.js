@@ -424,6 +424,7 @@ function renderTxExistingItems(){
           <span style="flex:1;">${it.name}${it.sku ? ` (${it.sku})` : ''}</span>
           <span><span style="text-decoration:line-through;color:var(--ink-soft);">${it.qty}</span> → <span style="color:var(--warn-dark);font-weight:600;">${pending.newQty}</span> ${it.unit}</span>
           <span class="del-link" onclick="registerExistingItemEditKey='${it.productId}';renderTxExistingItems();">${t('btnEditQty')}</span>
+          ${(typeof batchExistingItemButtonHtml === 'function') ? batchExistingItemButtonHtml(it, pending) : ''}
           <span class="del-link" onclick="undoPendingItemChange('${it.productId}')">${t('btnUndo')}</span>
           ${(typeof batchExistingItemLineHtml === 'function') ? batchExistingItemLineHtml(it) : ''}
         </div>
@@ -435,6 +436,7 @@ function renderTxExistingItems(){
         <span style="flex:1;">${it.name}${it.sku ? ` (${it.sku})` : ''}</span>
         <span>${it.qty} ${it.unit}${it.qty < 0 ? ` <span style="color:var(--safe);font-weight:600;font-size:11px;">(${t('stockedInLabel')})</span>` : ''}</span>
         <span class="del-link" onclick="registerExistingItemEditKey='${it.productId}';renderTxExistingItems();">${t('btnEditQty')}</span>
+        ${(typeof batchExistingItemButtonHtml === 'function') ? batchExistingItemButtonHtml(it, pending) : ''}
         <span class="del-link" style="color:var(--crit);" onclick="deleteTxExistingItem('${it.productId}')">${t('btnDelete')}</span>
         ${(typeof batchExistingItemLineHtml === 'function') ? batchExistingItemLineHtml(it) : ''}
       </div>
