@@ -548,7 +548,7 @@ function batchTxRowPreviewHtml(it){
 function batchTxRowButtonHtml(it){
   if(!batchTxRowPickable(it)) return '';
   const has = it.batchPicks && it.batchPicks.length > 0;
-  return `<button onclick="batchOpenPickerForTxItem('${it.batchItemId}')" title="${t('btnBatchPick')}">🏷️${has ? '✓' : ''}</button>`;
+  return `<button onclick="batchOpenPickerForTxItem('${it.batchItemId}')" title="${t('btnBatchPick')}">${t('btnBatchPick')}${has ? ' ✓' : ''}</button>`;
 }
 function batchOpenPickerForTxItem(batchItemId){
   const it = txBatchItems.find(x => x.batchItemId === batchItemId);
@@ -1003,4 +1003,69 @@ async function batchOpenOrderBreakdownView(productId){
     ${rows.length === 0 ? `<div class="empty-note">${t('batchOrderViewEmpty')}</div>` : `
     <table class="stock-table"><thead><tr><th>${t('batchColBatch')}</th><th>${t('batchColExpiry')}</th><th class="num">${t('batchColAllocated')}</th></tr></thead>
     <tbody>${rows.map(r => `<tr><td>${batchEsc(r.item.batchNo)}${r.item.isOpening ? ' (' + t('batchOpening') + ')' : ''}</td><td>${r.item.expiry ? batchEsc(r.item.expiry) : '–'}</td><td class="num">${batchFmtQty(r.qty)} ${unit}</td></tr>`).join('')}</tbody></table>`}`;
+}
+
+// 載入已完成訂單、減少數量:這個品項如果用了兩個以上的批次,儲存時問要從哪個批次退回(扣掉)。
+// 只有一個批次就不用問。回傳 picks([{ batchItemId, qty }]);使用者取消回傳 null;不需要問回傳 []。
+async function batchAskReturnPicks(order, productId, qty, unit, name){
+  if(!batchActive() || !batchIsTracked(productId)) return [];
+  let rows = [];
+  try{
+    batchOrderCache = {};
+    await ensureBatchDataLoaded();
+    const map = await batchGetOrderBreakdown(order.id);
+    rows = Object.keys(map[productId] || {}).map(id => ({ item: batchData.items.find(x => x.id === id), qty: map[productId][id] }))
+      .filter(r => r.item && r.qty > 0).sort((a, b) => b.qty - a.qty || batchFefoCompare(a.item, b.item));
+  } catch(e){ console.error(e); return []; }
+  if(rows.length < 2) return [];
+  // 預設:數量最多的批次先退(跟資料庫自動規則一致)
+  let left = qty;
+  const pre = {};
+  rows.forEach(r => { const take = Math.min(r.qty, left); pre[r.item.id] = take; left -= take; });
+  return new Promise(resolve => {
+    batchClosePicker();
+    const ov = document.createElement('div');
+    ov.id = 'batchPickerOverlay';
+    ov.className = 'modal-overlay';
+    ov.style.display = 'flex';
+    ov.style.zIndex = '1150';
+    const u = batchEsc(unit || '');
+    ov.innerHTML = `<div class="modal-box modal-box-wide">
+      <div class="section-title" style="margin-top:0;">${t('batchReturnTitle')}</div>
+      <p style="margin-bottom:10px;">${batchEsc(name)} · ${tf('batchReturnHint', { qty: batchFmtQty(qty), unit: u })}</p>
+      <table class="stock-table">
+        <thead><tr><th>${t('batchColBatch')}</th><th>${t('batchColExpiry')}</th><th class="num">${t('batchReturnColShipped')}</th><th class="num">${t('batchReturnColReturn')}</th></tr></thead>
+        <tbody>${rows.map(r => `<tr><td>${batchEsc(r.item.batchNo)}</td><td>${r.item.expiry ? batchEsc(r.item.expiry) : '–'}</td><td class="num">${batchFmtQty(r.qty)}</td>
+          <td class="num"><input type="number" class="batch-return-input" data-id="${r.item.id}" data-max="${r.qty}" min="0" max="${r.qty}" step="1" value="${pre[r.item.id] || ''}" oninput="batchReturnUpdateSum(${qty})" style="width:80px;" /></td></tr>`).join('')}</tbody>
+      </table>
+      <div id="batchReturnSum" style="font-size:12px;margin:8px 0;color:var(--ink-soft);"></div>
+      <div id="batchReturnMsg" class="msg"></div>
+      <div class="modal-actions">
+        <button class="btn ghost" id="batchReturnCancel">${t('btnCancel')}</button>
+        <button class="btn" id="batchReturnOk">${t('btnConfirmYes')}</button>
+      </div></div>`;
+    document.body.appendChild(ov);
+    batchReturnUpdateSum(qty);
+    document.getElementById('batchReturnCancel').onclick = () => { ov.remove(); resolve(null); };
+    document.getElementById('batchReturnOk').onclick = () => {
+      const picks = [];
+      ov.querySelectorAll('.batch-return-input').forEach(inp => {
+        const v = parseFloat(inp.value);
+        if(v > 0) picks.push({ batchItemId: inp.dataset.id, qty: v, max: parseFloat(inp.dataset.max) });
+      });
+      const sum = picks.reduce((s, p) => s + p.qty, 0);
+      const msg = document.getElementById('batchReturnMsg');
+      if(picks.some(p => p.qty > p.max + 1e-9)){ msg.className = 'msg error'; msg.textContent = t('batchReturnOverShipped'); return; }
+      if(Math.abs(sum - qty) > 1e-9){ msg.className = 'msg error'; msg.textContent = tf('batchReturnSumMismatch', { qty: batchFmtQty(qty) }); return; }
+      ov.remove();
+      resolve(picks.map(p => ({ batchItemId: p.batchItemId, qty: p.qty })));
+    };
+  });
+}
+function batchReturnUpdateSum(qty){
+  const el = document.getElementById('batchReturnSum');
+  if(!el) return;
+  let sum = 0;
+  document.querySelectorAll('#batchPickerOverlay .batch-return-input').forEach(inp => { const v = parseFloat(inp.value); if(v > 0) sum += v; });
+  el.textContent = tf('batchPickerSum', { sum: batchFmtQty(sum), qty: batchFmtQty(qty) });
 }

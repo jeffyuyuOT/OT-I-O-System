@@ -2237,6 +2237,17 @@ async function submitLoadCompletedFlow(date, msg){
     if(ch.newQty < 0 && ch.item.qty > 0){ msg.className = 'msg error'; msg.textContent = `⚠ ${tf('errReduceBelowZero', { name: ch.item.name })}`; return; }
   }
 
+  // 批次追蹤:減少數量的品項如果用了兩個以上的批次,先問要從哪個批次扣(退回)
+  if(typeof batchAskReturnPicks === 'function'){
+    for(const ch of pendingQtyChanges){
+      if(ch.newQty < ch.item.qty && ch.newQty > 0){
+        const picks = await batchAskReturnPicks(order, ch.item.productId, ch.item.qty - ch.newQty, ch.item.unit, ch.item.name);
+        if(picks === null){ msg.className = 'msg'; msg.textContent = ''; return; } // 使用者取消,整個儲存中止
+        ch.returnPicks = picks;
+      }
+    }
+  }
+
   // 已完成訂單的「改數量」會真的動庫存,送出前先在前端檢查每一筆「增加數量」是否有足夠庫存——
   // 這樣才不會等到確認視窗按下確定、開始逐筆呼叫 RPC 之後才發現某一筆不夠,變成一半套用成功、
   // 一半失敗的尷尬狀態。減少數量/刪除不會有庫存不夠的問題,不用檢查。
@@ -2295,7 +2306,7 @@ async function submitLoadCompletedFlow(date, msg){
       }
     }
 
-    for(const { item, newQty, picks } of pendingQtyChanges){
+    for(const { item, newQty, picks, returnPicks } of pendingQtyChanges){
       const oldQty = item.qty;
       const txId = genId();
       const noteText = tf('orderItemQtyChangedNote', { orderNo: order.orderNo || '', name: item.name, oldQty, newQty, unit: item.unit });
@@ -2324,7 +2335,10 @@ async function submitLoadCompletedFlow(date, msg){
           // 增加的數量:有在「批次」按鈕指定的批次就照指定,其餘自動(先到期先出)
           const pk = (picks && picks.length) ? { [tx.id]: picks.map(p => ({ batch_item_id: p.batchItemId, qty: p.qty })) } : undefined;
           await batchAllocateAfter([tx], pk);
-        } else await batchReturnAfter([tx]);
+        } else {
+          const rp = (returnPicks && returnPicks.length) ? { [tx.id]: returnPicks.map(p => ({ batch_item_id: p.batchItemId, qty: p.qty })) } : {};
+          await batchReturnAfter([tx], rp);
+        }
       }
       // 伺服器那邊已經確定扣庫存成功了,這裡才去動 product_locations,避免庫存扣了/位置卻沒
       // 對應更新的不一致。
