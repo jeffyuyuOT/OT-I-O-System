@@ -186,8 +186,9 @@ function batchClosePicker(){
 function batchOpenPicker(opts){
   batchClosePicker();
   const items = batchItemsOfProduct(opts.productId);
+  // 預設顯示「目前實際會怎麼分配」(自動分配的結果,或已指定的批次加上自動補的部分),可以直接改數字
   const cur = {};
-  (opts.picks || []).forEach(p => { cur[p.batchItemId] = p.qty; });
+  batchPreviewAllocation(opts.productId, opts.qty, opts.picks).lines.forEach(l => { cur[l.item.id] = (cur[l.item.id] || 0) + l.qty; });
   const rows = items.map(i => `
     <tr>
       <td>${batchEsc(i.batchNo)}${i.isOpening ? ' <span style="color:var(--ink-soft);font-size:11px;">(' + t('batchOpening') + ')</span>' : ''}</td>
@@ -206,9 +207,10 @@ function batchOpenPicker(opts){
       <p style="margin-bottom:10px;">${batchEsc(batchProductName(opts.productId))} · ${tf('batchPickerHint', { qty: batchFmtQty(opts.qty), unit: batchEsc(opts.unit || '') })}</p>
       ${items.length === 0 ? `<div class="empty-note">${t('batchPickerNoBatches')}</div>` : `
       <table class="stock-table">
-        <thead><tr><th>${t('batchColBatch')}</th><th>${t('batchColExpiry')}</th><th class="num">${t('batchColRemaining')}</th><th class="num">${t('batchColTake')}</th></tr></thead>
+        <thead><tr><th>${t('batchColBatch')}</th><th>${t('batchColExpiry')}</th><th class="num">${t('batchColRemaining')}</th><th class="num">${t('batchColAllocated')}</th></tr></thead>
         <tbody>${rows}</tbody>
       </table>`}
+      <div style="font-size:11.5px;color:var(--ink-soft);">${t('batchPickerEditHint')}</div>
       <div id="batchPickerSum" style="font-size:12px;margin:8px 0;color:var(--ink-soft);"></div>
       <div id="batchPickerMsg" class="msg"></div>
       <div class="modal-actions">
@@ -248,8 +250,12 @@ function batchPickerSave(){
   const sum = picks.reduce((s, p) => s + p.qty, 0);
   if(sum > batchPickerOpts.qty + 1e-9){ msg.className = 'msg error'; msg.textContent = t('batchPickerOverQty'); return; }
   const onSave = batchPickerOpts.onSave;
+  // 如果改完的數字跟自動分配的結果一樣,就維持「自動」,不算手動指定
+  const auto = {};
+  batchPreviewAllocation(batchPickerOpts.productId, batchPickerOpts.qty, []).lines.forEach(l => { auto[l.item.id] = (auto[l.item.id] || 0) + l.qty; });
+  const same = picks.length === Object.keys(auto).length && picks.every(p => Math.abs((auto[p.batchItemId] || 0) - p.qty) < 1e-9);
   batchClosePicker();
-  if(onSave) onSave(picks.map(p => ({ batchItemId: p.batchItemId, qty: p.qty })));
+  if(onSave) onSave(same ? [] : picks.map(p => ({ batchItemId: p.batchItemId, qty: p.qty })));
 }
 
 // ------------------------------------------------------------
@@ -263,6 +269,7 @@ function batchOrderItemButtonHtml(o, it){
   return `<span class="del-link" style="margin-left:8px;" onclick="batchOpenPickerForOrderItem('${o.id}','${it.productId}')">${t('btnBatchPick')}${has ? ' ✓' : ''}</span>`;
 }
 function batchOrderItemPreviewHtml(o, it){
+  return ''; // 不主動顯示分配結果,點「批次」按鈕在視窗裡看/改
   if(!batchIsTracked(it.productId) || !(it.qty > 0)) return '';
   return batchAllocLabelHtml(batchPreviewAllocation(it.productId, it.qty, batchPicks[batchPickKey(o.id, it.productId)]));
 }
@@ -534,6 +541,7 @@ function batchTxRowPickable(it){
   return typeof currentTxType !== 'undefined' && currentTxType !== 'in' && batchIsTracked(it.productId) && it.qty > 0;
 }
 function batchTxRowPreviewHtml(it){
+  return ''; // 不主動顯示,點「批次」按鈕在視窗裡看/改
   if(!batchTxRowPickable(it)) return '';
   return batchAllocLabelHtml(batchPreviewAllocation(it.productId, it.qty, it.batchPicks));
 }
@@ -881,13 +889,13 @@ function batchExistingItemTracked(it){
   return typeof registerOutFlowType !== 'undefined' && registerOutFlowType === 'load-completed' && batchIsTracked(it.productId) && it.qty > 0;
 }
 function batchExistingItemLineHtml(it){
+  return ''; // 不主動顯示,點「批次」按鈕在視窗裡看
   if(!batchExistingItemTracked(it)) return '';
   return `<div class="batch-alloc-line batch-order-line" data-pid="${it.productId}"></div>`;
 }
 function batchExistingItemButtonHtml(it, pending){
   if(!batchExistingItemTracked(it)) return '';
-  const has = (batchEditPicks[it.productId] && batchEditPicks[it.productId].length) || (pending && pending.picks && pending.picks.length);
-  return `<span class="del-link" id="batchExistBtn_${it.productId}" onclick="batchOpenPickerForExistingItem('${it.productId}')">${t('btnBatchPick')}${has ? ' ✓' : ''}</span>`;
+  return `<span class="del-link" onclick="batchOpenOrderBreakdownView('${it.productId}')">${t('btnBatchPick')}</span>`;
 }
 function batchOpenPickerForExistingItem(productId){
   const order = orders.find(o => o.id === registerLoadedOrderId);
@@ -964,4 +972,35 @@ async function batchFillOrderBreakdown(root, order){
       el.innerHTML = html;
     });
   } catch(e){ console.warn('訂單批次明細載入失敗', e); }
+}
+
+// 載入已完成訂單:原本的品項已經出貨,批次視窗只能看(每個批次出了多少),不能改。
+async function batchOpenOrderBreakdownView(productId){
+  const order = orders.find(o => o.id === registerLoadedOrderId);
+  if(!order) return;
+  batchClosePicker();
+  const ov = document.createElement('div');
+  ov.id = 'batchPickerOverlay';
+  ov.className = 'modal-overlay';
+  ov.style.display = 'flex';
+  ov.style.zIndex = '1150';
+  ov.innerHTML = `<div class="modal-box modal-box-wide"><div id="batchOrderViewBody">${t('batchLoading')}</div>
+    <div class="modal-actions"><button class="btn ghost" onclick="batchClosePicker()">${t('btnClose')}</button></div></div>`;
+  document.body.appendChild(ov);
+  let rows = [];
+  try{
+    batchOrderCache = {}; // 每次都重新讀,確保反映最新儲存的結果
+    await ensureBatchDataLoaded();
+    const map = await batchGetOrderBreakdown(order.id);
+    rows = Object.keys(map[productId] || {}).map(id => ({ item: batchData.items.find(x => x.id === id), qty: map[productId][id] }))
+      .filter(r => r.item && r.qty > 0).sort((a, b) => batchFefoCompare(a.item, b.item));
+  } catch(e){ console.error(e); }
+  const body = document.getElementById('batchOrderViewBody');
+  if(!body) return;
+  const unit = batchEsc(batchProductUnit(productId));
+  body.innerHTML = `<div class="section-title" style="margin-top:0;">${t('batchPickerTitle')}</div>
+    <p style="margin-bottom:10px;">${batchEsc(batchProductName(productId))} · ${t('batchOrderViewHint')}</p>
+    ${rows.length === 0 ? `<div class="empty-note">${t('batchOrderViewEmpty')}</div>` : `
+    <table class="stock-table"><thead><tr><th>${t('batchColBatch')}</th><th>${t('batchColExpiry')}</th><th class="num">${t('batchColAllocated')}</th></tr></thead>
+    <tbody>${rows.map(r => `<tr><td>${batchEsc(r.item.batchNo)}${r.item.isOpening ? ' (' + t('batchOpening') + ')' : ''}</td><td>${r.item.expiry ? batchEsc(r.item.expiry) : '–'}</td><td class="num">${batchFmtQty(r.qty)} ${unit}</td></tr>`).join('')}</tbody></table>`}`;
 }

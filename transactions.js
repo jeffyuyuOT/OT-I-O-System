@@ -423,7 +423,7 @@ function renderTxExistingItems(){
         <div style="display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--line);">
           <span style="flex:1;">${it.name}${it.sku ? ` (${it.sku})` : ''}</span>
           <span><span style="text-decoration:line-through;color:var(--ink-soft);">${it.qty}</span> → <span style="color:var(--warn-dark);font-weight:600;">${pending.newQty}</span> ${it.unit}</span>
-          <span class="del-link" onclick="registerExistingItemEditKey='${it.productId}';renderTxExistingItems();">${t('btnEditQty')}</span>
+          ${registerOutFlowType === 'load-pending' ? `<span class="del-link" onclick="registerExistingItemEditKey='${it.productId}';renderTxExistingItems();">${t('btnEditQty')}</span>` : ''}
           ${(typeof batchExistingItemButtonHtml === 'function') ? batchExistingItemButtonHtml(it, pending) : ''}
           <span class="del-link" onclick="undoPendingItemChange('${it.productId}')">${t('btnUndo')}</span>
           ${(typeof batchExistingItemLineHtml === 'function') ? batchExistingItemLineHtml(it) : ''}
@@ -435,7 +435,7 @@ function renderTxExistingItems(){
       <div style="display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--line);">
         <span style="flex:1;">${it.name}${it.sku ? ` (${it.sku})` : ''}</span>
         <span>${it.qty} ${it.unit}${it.qty < 0 ? ` <span style="color:var(--safe);font-weight:600;font-size:11px;">(${t('stockedInLabel')})</span>` : ''}</span>
-        <span class="del-link" onclick="registerExistingItemEditKey='${it.productId}';renderTxExistingItems();">${t('btnEditQty')}</span>
+        ${registerOutFlowType === 'load-pending' ? `<span class="del-link" onclick="registerExistingItemEditKey='${it.productId}';renderTxExistingItems();">${t('btnEditQty')}</span>` : ''}
         ${(typeof batchExistingItemButtonHtml === 'function') ? batchExistingItemButtonHtml(it, pending) : ''}
         <span class="del-link" style="color:var(--crit);" onclick="deleteTxExistingItem('${it.productId}')">${t('btnDelete')}</span>
         ${(typeof batchExistingItemLineHtml === 'function') ? batchExistingItemLineHtml(it) : ''}
@@ -2218,6 +2218,25 @@ async function submitLoadCompletedFlow(date, msg){
   const noteVal = noteInput ? noteInput.value.trim() : '';
   const { pendingQtyChanges, pendingDeletes } = collectPendingItemChanges(order);
 
+  // 「新增商品」清單裡的商品如果訂單裡已經有了,就是對那個品項增加(+)或減少(-)數量——
+  // 增加的部分可以指定從哪些批次出,減少的部分退回原批次。其餘(訂單裡沒有的)才是真正新增的品項。
+  const newItems = [];
+  for(const it of txBatchItems){
+    const existing = order.items.find(x => x.productId === it.productId && !x.deleted);
+    if(!existing){ newItems.push(it); continue; }
+    if(pendingDeletes.includes(existing)){ msg.className = 'msg error'; msg.textContent = `⚠ ${tf('errItemMarkedForDelete', { name: existing.name })}`; return; }
+    let ch = pendingQtyChanges.find(c => c.item === existing);
+    if(!ch){ ch = { item: existing, newQty: existing.qty, picks: [] }; pendingQtyChanges.push(ch); }
+    ch.newQty += it.qty;
+    if(it.qty > 0 && it.batchPicks && it.batchPicks.length) ch.picks = (ch.picks || []).concat(it.batchPicks);
+  }
+  for(let i = pendingQtyChanges.length - 1; i >= 0; i--){
+    const ch = pendingQtyChanges[i];
+    if(ch.newQty === ch.item.qty){ pendingQtyChanges.splice(i, 1); continue; }
+    if(ch.newQty === 0){ pendingQtyChanges.splice(i, 1); pendingDeletes.push(ch.item); continue; }
+    if(ch.newQty < 0 && ch.item.qty > 0){ msg.className = 'msg error'; msg.textContent = `⚠ ${tf('errReduceBelowZero', { name: ch.item.name })}`; return; }
+  }
+
   // 已完成訂單的「改數量」會真的動庫存,送出前先在前端檢查每一筆「增加數量」是否有足夠庫存——
   // 這樣才不會等到確認視窗按下確定、開始逐筆呼叫 RPC 之後才發現某一筆不夠,變成一半套用成功、
   // 一半失敗的尷尬狀態。減少數量/刪除不會有庫存不夠的問題,不用檢查。
@@ -2236,7 +2255,7 @@ async function submitLoadCompletedFlow(date, msg){
   if(noteVal !== (order.note || '')) changes.push(t('changeSummaryNote'));
   if(pendingQtyChanges.length > 0) changes.push(formatQtyChangesSummary(pendingQtyChanges));
   if(pendingDeletes.length > 0) changes.push(formatDeletesSummary(pendingDeletes));
-  if(txBatchItems.length > 0) changes.push(formatNewItemsSummary(txBatchItems));
+  if(newItems.length > 0) changes.push(formatNewItemsSummary(newItems));
 
   const doSave = async () => {
     const dateChanged = date && date !== order.date;
@@ -2359,8 +2378,8 @@ async function submitLoadCompletedFlow(date, msg){
     }
     registerPendingItemChanges = {};
 
-    if(txBatchItems.length > 0){
-      const insufficient = txBatchItems
+    if(newItems.length > 0){
+      const insufficient = newItems
         .filter(it => it.qty > 0)
         .map(it => ({ ...it, available: computeTotalStock(it.productId) - computePendingReserved(it.productId) }))
         .filter(it => it.qty > it.available);
@@ -2369,7 +2388,7 @@ async function submitLoadCompletedFlow(date, msg){
         msg.textContent = `⚠ ${insufficient.map(it => `「${it.name}」需要 ${it.qty} ${it.unit},庫存剩 ${it.available} ${it.unit}`).join('; ')}`;
         return;
       }
-      const batchItems = txBatchItems.map(it => ({ productId: it.productId, sku: it.sku||'', name: it.name, unit: it.unit, qty: it.qty }));
+      const batchItems = newItems.map(it => ({ productId: it.productId, sku: it.sku||'', name: it.name, unit: it.unit, qty: it.qty }));
       const result = await mergeItemsIntoCompletedOrderCore(orderId, batchItems, date, party);
       if(!result.ok){
         msg.className = 'msg error';
