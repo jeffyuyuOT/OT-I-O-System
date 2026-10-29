@@ -206,6 +206,7 @@ function updateMultipackSettingsUI(){
   if(cefSelect) cefSelect.value = completedExportFormat;
   const hmiBox = document.getElementById('hideMultipackIconToggle');
   if(hmiBox) hmiBox.checked = hideMultipackIconOnOrderPage;
+  if(typeof renderSystemCurrencySetting === 'function') renderSystemCurrencySetting();
   renderAccountingEmailList();
   const slmSelect = document.getElementById('stockLocationModeSelect');
   if(slmSelect){
@@ -1046,4 +1047,68 @@ async function restoreForecastDataFromBackup(backup){
     console.error('還原進貨預估/匯出紀錄失敗', e);
     return false;
   }
+}
+
+
+// ============================================================
+// 系統預設幣種(系統管理 → 系統設置)
+// 進貨單的其他支出 / 海外採購一律換算成這個幣種,批次成本也以這個幣種記錄與顯示。預設 AUD。
+// 更改只影響之後新建立的進貨單:已經建立的進貨單與批次成本保留當時的幣種,不會被換算。
+// 存在 app_data 'systemCurrency'。
+// ============================================================
+let systemCurrency = 'AUD';
+function getSystemCurrency(){ return systemCurrency || 'AUD'; }
+async function loadSystemCurrency(){
+  try{
+    const r = await dbGet('systemCurrency');
+    if(r && r.value && /^[A-Z]{3}$/.test(String(r.value).trim().toUpperCase())) systemCurrency = String(r.value).trim().toUpperCase();
+  } catch(e){ /* 沒存過,維持預設 AUD */ }
+}
+async function renderSystemCurrencySetting(){
+  const sel = document.getElementById('systemCurrencySelect');
+  if(!sel) return;
+  if(typeof pcEnsureLoaded === 'function'){ try{ await pcEnsureLoaded(); }catch(e){} }
+  const list = Array.from(new Set(['AUD'].concat((typeof pcCurrencies !== 'undefined') ? pcCurrencies : []).concat([getSystemCurrency()])));
+  sel.innerHTML = list.map(c => `<option value="${c}">${c}</option>`).join('');
+  sel.value = getSystemCurrency();
+  // 常用幣種清單(進貨單幣種下拉選單用):AUD 與目前的系統預設幣種不能移除
+  const chips = document.getElementById('currencyListChips');
+  if(chips){
+    const protect = new Set(['AUD', getSystemCurrency()]);
+    chips.innerHTML = list.map(c => `<span style="background:var(--bg-soft,#f5f5f0);border-radius:12px;padding:2px 10px;font-size:12px;">${c}${protect.has(c) ? '' : ` <span style="cursor:pointer;color:var(--crit);" onclick="removeCurrencyFromList('${c}')">✕</span>`}</span>`).join('');
+  }
+}
+function addCurrencyToList(){
+  const el = document.getElementById('currencyListNew');
+  if(!el) return;
+  const ok = (typeof pcAddCurrencyCode === 'function') ? pcAddCurrencyCode(el.value) : false;
+  el.value = '';
+  if(ok) renderSystemCurrencySetting();
+}
+function removeCurrencyFromList(code){
+  if(typeof pcRemoveCurrency === 'function') pcRemoveCurrency(code);
+  renderSystemCurrencySetting();
+}
+async function applySystemCurrency(code){
+  code = String(code || '').trim().toUpperCase();
+  if(!/^[A-Z]{3}$/.test(code) || code === getSystemCurrency()){ renderSystemCurrencySetting(); return; }
+  showConfirmModal(tf('systemCurrencyChangeConfirm', { from: getSystemCurrency(), to: code }), async () => {
+    systemCurrency = code;
+    try{ await dbSet('systemCurrency', code); }
+    catch(e){ console.error('儲存系統預設幣種失敗', e); }
+    if(typeof pcCurrencies !== 'undefined' && !pcCurrencies.includes(code)){
+      pcCurrencies.push(code);
+      if(typeof pcSaveCurrencies === 'function') pcSaveCurrencies();
+    }
+    await renderSystemCurrencySetting();
+    try{ if(typeof pcRender === 'function') pcRender(); }catch(e){}
+    try{ if(typeof renderBatchTracker === 'function' && document.getElementById('batchTrackerRoot')) renderBatchTracker(); }catch(e){}
+  }, () => { renderSystemCurrencySetting(); });
+}
+function applySystemCurrencyFromInput(){
+  const el = document.getElementById('systemCurrencyOther');
+  if(!el) return;
+  const code = el.value.trim().toUpperCase();
+  el.value = '';
+  applySystemCurrency(code);
 }

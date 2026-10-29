@@ -862,13 +862,15 @@
     #purchaseLogTable table.purchase-log-table, #purchaseLogTable table.purchase-log-table tbody{ display:block; width:100%; }
     #purchaseLogTable table.purchase-log-table > tbody > tr{
       display:grid; grid-template-columns:1fr 1fr; column-gap:10px; row-gap:4px;
-      grid-template-areas: "date invoice" "party party" "actions actions";
+      grid-template-areas: "date invoice" "party party" "batch batch" "actions actions";
       padding:12px 0; border-bottom:1px solid var(--line);
     }
     #purchaseLogTable table.purchase-log-table > tbody > tr > td{ border-bottom:none; padding:0 !important; white-space:normal !important; }
     #purchaseLogTable table.purchase-log-table td.pl-date{ grid-area:date; font-weight:600; }
     #purchaseLogTable table.purchase-log-table td.pl-party{ grid-area:party; }
     #purchaseLogTable table.purchase-log-table td.pl-invoice{ grid-area:invoice; }
+    #purchaseLogTable table.purchase-log-table td.pl-batch{ grid-area:batch; }
+    #purchaseLogTable table.purchase-log-table td.pl-batch:empty{ display:none; }
     #purchaseLogTable table.purchase-log-table td.pl-actions{ grid-area:actions; margin-top:4px; white-space:normal !important; }
     #purchaseLogTable table.purchase-log-table .pl-actions-br{ display:block; content:""; margin-top:4px; }
     /* 展開後的明細列(colspan 那一整列)不是卡片欄位的一部分,維持原本橫跨整列的樣子。 */
@@ -1163,6 +1165,25 @@
           <p style="font-size:11.5px;color:var(--ink-soft);margin:0;" data-i18n="hideMultipackIconHint">
             勾選後,訂貨頁面 multipack 商品名稱前面的「⧉」圖示不顯示,商品名稱直接往前對齊,跟其他一般商品的名稱起始位置一致。
           </p>
+        </div>
+
+        <div class="settings-card">
+          <div class="section-title" data-i18n="secSystemCurrency">系統預設幣種</div>
+          <p style="font-size:11.5px;color:var(--ink-soft);margin:0 0 8px;" data-i18n="systemCurrencyHint">進貨單的其他支出、海外採購都會統一換算成這個幣種,批次成本也以這個幣種記錄與顯示。更改只影響之後新建立的進貨單,已建立的進貨單與批次成本不會被換算。預設 AUD。</p>
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+            <select id="systemCurrencySelect" onchange="applySystemCurrency(this.value)"></select>
+            <input id="systemCurrencyOther" type="text" maxlength="3" data-i18n-placeholder="systemCurrencyOtherPlaceholder" placeholder="其他幣種代碼,例如 TWD" style="width:170px;text-transform:uppercase;" />
+            <button class="btn ghost" onclick="applySystemCurrencyFromInput()" data-i18n="btnUseCurrency">改用這個幣種</button>
+          </div>
+          <div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--line);">
+            <div style="font-size:12.5px;font-weight:700;" data-i18n="secCurrencyList">管理常用幣種</div>
+            <p style="font-size:11.5px;color:var(--ink-soft);margin:2px 0 8px;" data-i18n="currencyListHint">進貨單的幣種下拉選單(發票幣種、其他支出的幣種)使用這份清單。AUD 與目前的系統預設幣種不能移除。</p>
+            <div id="currencyListChips" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px;"></div>
+            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+              <input id="currencyListNew" type="text" maxlength="3" data-i18n-placeholder="pcCurrencyCodePlaceholder" placeholder="幣種代碼,例如 USD" style="width:170px;text-transform:uppercase;" />
+              <button class="btn ghost" onclick="addCurrencyToList()" data-i18n="pcAddCurrency">加入</button>
+            </div>
+          </div>
         </div>
 
         <div class="settings-card">
@@ -1511,6 +1532,7 @@
           <span data-i18n="browseAllProductsLabel">瀏覽所有商品(不勾選:只顯示這個出貨方訂貨時看得到的商品;勾選:顯示庫存總覽裡所有商品,隱藏商品除外)</span>
         </label>
       </div>
+      <div id="txBatchTrackWrap" style="display:none;margin-top:8px;"></div>
       <div class="form-grid" style="grid-template-columns:1fr 1.3fr 1fr auto;margin-top:6px;">
         <div class="field">
           <label data-i18n="fieldFilterByCategory">依分類篩選商品</label>
@@ -1526,7 +1548,9 @@
         </div>
         <button class="btn ghost" onclick="addToTxBatch()" data-i18n="btnAddToBatch">+ 加入清單</button>
       </div>
+      <div id="txBatchExtraFields" style="display:none;"></div>
       <div id="txBatchList" style="margin-top:12px;"></div>
+      <div id="txPurchaseCostsWrap" style="display:none;"></div>
       <div id="txSubmitArea" style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;">
         <button class="btn" onclick="submitTxBatch()" data-i18n="btnRegister">提交</button>
       </div>
@@ -1597,6 +1621,7 @@
     <div class="subtab-bar">
       <button class="subtab-btn active" onclick="switchOverviewSubTab('subtab-overview-summary')" id="btn-subtab-overview-summary" data-i18n="subtabOverviewSummary">庫存統計</button>
       <button class="subtab-btn" onclick="switchOverviewSubTab('subtab-overview-location')" id="btn-subtab-overview-location" data-i18n="subtabOverviewLocation">庫存分布</button>
+      <button class="subtab-btn" onclick="switchOverviewSubTab('subtab-overview-batch')" id="btn-subtab-overview-batch" data-i18n="subtabOverviewBatch">批次追蹤</button>
     </div>
 
     <div id="subtab-overview-summary" class="subtab-content active-subtab">
@@ -1669,6 +1694,12 @@
         </div>
       </div>
       <div id="stockLocationDetail"></div>
+    </div>
+    </div>
+
+    <div id="subtab-overview-batch" class="subtab-content">
+    <div class="section">
+      <div id="batchTrackerRoot"></div>
     </div>
     </div>
   </div>
@@ -2517,6 +2548,7 @@
         <button type="button" class="btn ghost" style="font-size:12px;" onclick="addEditPurchaseItem()" data-i18n="btnAddItem">+ 新增品項</button>
       </div>
     </div>
+    <div id="editPurchaseCostsWrap"></div>
     <div id="editPurchaseModalMsg" class="msg"></div>
     <div class="modal-actions">
       <button class="btn ghost" onclick="closeEditPurchaseModal()" data-i18n="btnCancel">取消</button>
@@ -2788,6 +2820,8 @@
 <script src="receipt-scan.js"></script>
 <script src="orders.js"></script>
 <script src="transactions.js"></script>
+<script src="batch-tracking.js"></script>
+<script src="purchase-costs.js"></script>
 <script src="parties.js"></script>
 <script src="quick-lists.js"></script>
 <script src="stock-location.js"></script>
@@ -3255,6 +3289,7 @@ async function loadData(){
     if(HISTORY_RANGE_OPTIONS.includes(n)) historyRangeMonths = n;
   } catch(e){ /* 沒設定過就用預設 3 個月 */ }
   await Promise.all([loadTransactions(), loadOrders(), tablesP]);
+  if(typeof ensureBatchDataLoaded === 'function') ensureBatchDataLoaded(); // 批次追蹤資料(不阻塞開機)
   try{
     const p = await dbGet('products');
     products = p ? JSON.parse(p.value) : [];
@@ -3349,6 +3384,7 @@ async function loadData(){
   await loadSubTabOrder();
   await loadQuickLists();
   await loadForecastPrefs();
+  await loadSystemCurrency();
   await loadForecastRecords();
   populateAllQuickListSelects();
   syncCategoryOrder();
@@ -3967,6 +4003,8 @@ function showScanToast(text, isError){
     }
     window.addEventListener('popstate', function(){
       history.pushState({ appTrap: true }, '');
+      // 批次追蹤的歷史紀錄頁面:返回鍵/返回手勢 = 回到上一頁(原本的清單)
+      try{ if(typeof batchTrackerBack === 'function') batchTrackerBack(true); }catch(e){}
     });
   } catch(e){ /* history API 不可用(極少見)就放棄,不影響其他功能 */ }
 })();

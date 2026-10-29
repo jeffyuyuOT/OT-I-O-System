@@ -77,6 +77,7 @@ const MASTER_COLUMN_ALIASES = {
   boxLength: ['boxlength','length','長','箱長','長度cm','lengthcm','長(cm)'],
   boxWidth: ['boxwidth','width','寬','箱寬','寬度cm','widthcm','寬(cm)'],
   boxHeight: ['boxheight','height','高','箱高','高度cm','heightcm','高(cm)'],
+  weightKg: ['weightkg','weight(kg)','weightinkg','重量','重量kg','重量(kg)','kg'],
   hidden: ['hidden','隱藏','ishidden','是否隱藏'],
   autoConvertOnStockIn: ['autoconvert','autoconvertonstockin','自動切換','進貨自動切換'],
   orderPageRemark: ['orderpageremark','訂貨頁面附註','訂貨附註','orderremark'],
@@ -199,6 +200,7 @@ function parseMasterExcelFile(){
         const colBoxLength = findColumnIndex(headerRow, MASTER_COLUMN_ALIASES.boxLength);
         const colBoxWidth = findColumnIndex(headerRow, MASTER_COLUMN_ALIASES.boxWidth);
         const colBoxHeight = findColumnIndex(headerRow, MASTER_COLUMN_ALIASES.boxHeight);
+        const colWeightKg = findColumnIndex(headerRow, MASTER_COLUMN_ALIASES.weightKg);
         const colHidden = findColumnIndex(headerRow, MASTER_COLUMN_ALIASES.hidden);
         const colAutoConvert = findColumnIndex(headerRow, MASTER_COLUMN_ALIASES.autoConvertOnStockIn);
         const colOrderPageRemark = findColumnIndex(headerRow, MASTER_COLUMN_ALIASES.orderPageRemark);
@@ -252,6 +254,7 @@ function parseMasterExcelFile(){
             boxLengthCm: colBoxLength !== -1 ? parseNumericCell(row[colBoxLength]) : null,
             boxWidthCm: colBoxWidth !== -1 ? parseNumericCell(row[colBoxWidth]) : null,
             boxHeightCm: colBoxHeight !== -1 ? parseNumericCell(row[colBoxHeight]) : null,
+            weightKg: colWeightKg !== -1 ? parseNumericCell(row[colWeightKg]) : null,
             hidden: colHidden !== -1 && row[colHidden] !== null && row[colHidden] !== undefined && row[colHidden] !== '' ? parseBoolLikeCell(row[colHidden]) : null,
             autoConvertOnStockIn: colAutoConvert !== -1 && row[colAutoConvert] !== null && row[colAutoConvert] !== undefined && row[colAutoConvert] !== '' ? parseBoolLikeCell(row[colAutoConvert]) : null,
             orderPageRemark: colOrderPageRemark !== -1 && row[colOrderPageRemark] !== null && row[colOrderPageRemark] !== undefined && String(row[colOrderPageRemark]).trim() !== '' ? String(row[colOrderPageRemark]).trim() : null,

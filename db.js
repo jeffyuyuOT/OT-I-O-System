@@ -88,6 +88,8 @@ async function insertTransactions(txList){
   const deltaMap = {};
   txList.forEach(tx => { deltaMap[tx.productId] = (deltaMap[tx.productId] || 0) + txStockDelta(tx); });
   await dbAdjustStockBatch(deltaMap);
+  // 批次追蹤:出貨→分配批次、restock→退回批次(不會丟錯誤,失敗只會跳提示)
+  if(typeof batchAfterInsert === 'function') await batchAfterInsert(txList);
 }
 
 // 刪除一或多筆交易紀錄(傳完整物件,不是只傳 id,因為要知道該還原多少庫存)。

@@ -524,6 +524,9 @@ function switchOverviewSubTab(subtabId){
   if(subtabId === 'subtab-overview-location'){
     renderStockLocationProductSelect();
   }
+  if(subtabId === 'subtab-overview-batch' && typeof renderBatchTracker === 'function'){
+    renderBatchTracker();
+  }
 }
 
 function switchOrderSubTab(subtabId){

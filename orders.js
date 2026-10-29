@@ -672,12 +672,14 @@ function orderItemRowHtml(o, it, isPending, readOnly, context){
     ? `<span style="color:var(--crit);">${qtyHistoryStr}</span>${qtyLabel}`
     : qtyLabel;
   return `
-    <div>
+    <div style="flex-wrap:wrap;">
       <span>${it.sku ? `<span class="sku-tooltip-trigger" data-sku="${it.sku.replace(/"/g,'&quot;')}">${it.name}</span>` : it.name}</span>
       <span>${qtyDisplay}
         ${canEdit ? `<span class="del-link" style="margin-left:8px;" onclick="startEditOrderItemQty('${context}','${o.id}','${it.productId}')">${t('btnEditQty')}</span>` : ''}
+        ${(canEdit && context === 'verify' && typeof batchOrderItemButtonHtml === 'function') ? batchOrderItemButtonHtml(o, it) : ''}
         ${canEdit ? `<span class="del-link" style="margin-left:8px;color:var(--crit);" onclick="${deleteFn}('${o.id}','${it.productId}')">${t('btnDelete')}</span>` : ''}
       </span>
+      ${(context === 'verify' && typeof batchOrderItemPreviewHtml === 'function') ? batchOrderItemPreviewHtml(o, it) : ''}
       ${it.note ? `<div style="font-size:11px;color:var(--ink-soft);font-style:italic;">${t('noteLabelPrefix')}${it.note.replace(/</g,'&lt;')}</div>` : ''}
     </div>
   `;
@@ -1020,6 +1022,9 @@ async function saveOrderItemQty(context, orderId, productId){
   };
   transactions.push(tx);
   productStockMap[productId] = (productStockMap[productId] || 0) - qtyDelta;
+  if(typeof batchAllocateAfter === 'function'){
+    if(qtyDelta > 0) await batchAllocateAfter([tx]); else await batchReturnAfter([tx]);
+  }
 
   // 伺服器那邊(adjust_order_item_qty RPC)已經確定扣庫存成功了,這裡才去動 product_locations,
   // 避免庫存扣了/位置卻沒對應更新的不一致。
@@ -1639,7 +1644,8 @@ async function verifyOrder(orderId){
     showInfoModal(t('errVerifyNoActiveItems'));
     return;
   }
-  showConfirmModal(tf('confirmVerifyOrder', {orderNo: order.orderNo || orderId, n: activeItems.length}), async () => {
+  const batchWarnText = (typeof batchVerifyWarnings === 'function') ? batchVerifyWarnings(order, activeItems) : '';
+  showConfirmModal(tf('confirmVerifyOrder', {orderNo: order.orderNo || orderId, n: activeItems.length}) + batchWarnText, async () => {
     // 扣庫存之前,先問清楚每個商品要從哪個位置扣——如果列印撿貨單的時候已經問過(order.pickedLocationAllocations)
     // 而且那個答案現在還有效,直接沿用不用再問一次;只有沒問過、或答案已經失效(例如位置被轉走了)
     // 的商品才會真的跳出視窗問。中途按取消的話這裡會 throw,整個核對直接中止,不會扣庫存、
@@ -1692,6 +1698,17 @@ async function verifyOrder(orderId){
     order.status = 'confirmed';
     order.confirmedAt = confirmedAt;
     expandedOrderIds.delete(orderId);
+    // 批次追蹤:核對成功後把這張訂單的出貨分配到批次(核對頁手動指定的批次一併帶入)。失敗不影響核對結果。
+    if(typeof batchAllocateAfter === 'function'){
+      const outTxs = rpcItems.map(it => transactions.find(x => x.id === it.txId)).filter(Boolean);
+      const picksByTx = {};
+      outTxs.forEach(tx => {
+        const picks = batchPicks[batchPickKey(orderId, tx.productId)];
+        if(picks && picks.length) picksByTx[tx.id] = picks.map(p => ({ batch_item_id: p.batchItemId, qty: p.qty }));
+      });
+      await batchAllocateAfter(outTxs, picksByTx);
+      batchClearPicksForOrder(orderId);
+    }
     // 伺服器那邊的總庫存已經確定扣成功了,這裡才去動 product_locations——如果先扣位置、
     // RPC 才失敗,位置資料會跟實際庫存對不起來。
     await applyLocationDeductions(locationChoices);

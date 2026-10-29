@@ -152,7 +152,7 @@ function renderLog(){
             <td class="col-party">${tx.party || '—'}</td>
             <td class="col-note">${tx.invoiceNo ? `<span style="color:var(--ink-soft);">${tf('invoiceNoInline', {no: tx.invoiceNo.replace(/</g,'&lt;')})}</span>${tx.note ? ' ' : ''}` : ''}${tx.note
               ? `<span class="tx-note-text" onclick="toggleTxNoteDisplay(this)" title="${t('btnViewNoteTitle')}">${tx.note.replace(/</g,'&lt;')}</span>`
-              : (tx.invoiceNo ? '' : '—')}</td>
+              : (tx.invoiceNo ? '' : '—')}${(typeof batchTxTagPlaceholder === 'function') ? (() => { const ph = batchTxTagPlaceholder(tx); return ph ? '<div>' + ph + '</div>' : ''; })() : ''}</td>
             <td class="col-actions" style="white-space:nowrap;">
               <span class="del-link action-text-edit" onclick="startAppendNoteToTx('${tx.id}')">${t('btnAddNote')}</span>
               <span class="del-link action-icon-edit" onclick="startAppendNoteToTx('${tx.id}')" title="${t('btnAddNote')}">➕</span>
@@ -162,6 +162,7 @@ function renderLog(){
       </tbody>
     </table>
   `;
+  if(typeof batchFillTxTags === 'function') batchFillTxTags(container); // 批次追蹤:補上每筆的批次標籤
 }
 
 // action_type(存在 inventory_log 資料表裡的英文代碼)→ 顯示用翻譯 key 的對照表。
