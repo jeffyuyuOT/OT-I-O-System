@@ -106,7 +106,12 @@ function batchEsc(s){ return String(s === null || s === undefined ? '' : s).repl
 function batchProductName(pid){ const p = products.find(x => x.id === pid); return p ? p.name : pid; }
 function batchProductUnit(pid){ const p = products.find(x => x.id === pid); return p ? (p.unit || '') : ''; }
 function batchFmtQty(n){ return Number(n).toLocaleString(undefined, { maximumFractionDigits: 4 }); }
-function batchFmtMoney(n){ return (n === null || n === undefined) ? '–' : '$' + Number(n).toFixed(2); }
+// 金額顯示跟隨「系統預設幣種」(系統管理 → 系統設置):AUD 維持 $,其他幣種顯示幣種代碼
+function batchFmtMoney(n){
+  if(n === null || n === undefined) return '–';
+  const cur = (typeof getSystemCurrency === 'function') ? getSystemCurrency() : 'AUD';
+  return (cur === 'AUD' ? '$' : cur + ' ') + Number(n).toFixed(2);
+}
 function batchUnitCost(i){ return (i.unitCostTotal !== null && i.unitCostTotal !== undefined) ? i.unitCostTotal : i.unitCostBase; }
 
 // ---- 出貨當下單價快照(batch_movements.unit_cost,見 sql/batch_tracking_phase2b_ship_cost_snapshot.sql)----

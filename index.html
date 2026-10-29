@@ -1168,6 +1168,16 @@
         </div>
 
         <div class="settings-card">
+          <div class="section-title" data-i18n="secSystemCurrency">系統預設幣種</div>
+          <p style="font-size:11.5px;color:var(--ink-soft);margin:0 0 8px;" data-i18n="systemCurrencyHint">進貨單的其他支出、海外採購都會統一換算成這個幣種,批次成本也以這個幣種記錄與顯示。更改只影響之後新建立的進貨單,已建立的進貨單與批次成本不會被換算。預設 AUD。</p>
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+            <select id="systemCurrencySelect" onchange="applySystemCurrency(this.value)"></select>
+            <input id="systemCurrencyOther" type="text" maxlength="3" data-i18n-placeholder="systemCurrencyOtherPlaceholder" placeholder="其他幣種代碼,例如 TWD" style="width:170px;text-transform:uppercase;" />
+            <button class="btn ghost" onclick="applySystemCurrencyFromInput()" data-i18n="btnUseCurrency">改用這個幣種</button>
+          </div>
+        </div>
+
+        <div class="settings-card">
           <div class="section-title" data-i18n="secHistoryRange">歷史資料預設顯示範圍</div>
           <p style="font-size:11.5px;color:var(--ink-soft);margin:0 0 8px;" data-i18n="historyRangeHint">
             進出貨紀錄、已完成訂單開啟時,「從」日期預設往前推幾個月,而且只載入這段期間的資料,載入會比較快。要看更早的紀錄,把「從」日期調早(或清空)就會自動補載入。不影響庫存數字、平均月銷量跟進貨預估。
@@ -3365,6 +3375,7 @@ async function loadData(){
   await loadSubTabOrder();
   await loadQuickLists();
   await loadForecastPrefs();
+  await loadSystemCurrency();
   await loadForecastRecords();
   populateAllQuickListSelects();
   syncCategoryOrder();
