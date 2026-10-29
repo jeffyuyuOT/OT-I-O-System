@@ -672,7 +672,7 @@ function orderItemRowHtml(o, it, isPending, readOnly, context){
     ? `<span style="color:var(--crit);">${qtyHistoryStr}</span>${qtyLabel}`
     : qtyLabel;
   return `
-    <div>
+    <div style="flex-wrap:wrap;">
       <span>${it.sku ? `<span class="sku-tooltip-trigger" data-sku="${it.sku.replace(/"/g,'&quot;')}">${it.name}</span>` : it.name}</span>
       <span>${qtyDisplay}
         ${canEdit ? `<span class="del-link" style="margin-left:8px;" onclick="startEditOrderItemQty('${context}','${o.id}','${it.productId}')">${t('btnEditQty')}</span>` : ''}

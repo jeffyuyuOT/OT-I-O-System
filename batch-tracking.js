@@ -35,7 +35,7 @@ function batchActive(){ return batchFeatureOn() && batchAvailable; }
     .batch-tag{ display:inline-block; font-family:'IBM Plex Mono',monospace; font-size:11px; padding:1px 6px; border:1px solid var(--line); border-radius:2px; margin:2px 4px 0 0; background:#fff; color:var(--ink); white-space:nowrap; }
     .batch-tag i{ font-style:normal; color:var(--ink-soft); margin-left:4px; }
     .batch-tag-warn{ border-color:var(--crit); color:var(--crit); }
-    .batch-alloc-line{ font-size:11px; margin-top:2px; }
+    .order-items div.batch-alloc-line, .batch-alloc-line{ display:block; flex:0 0 100%; width:100%; font-size:11px; margin-top:2px; padding:0; border-bottom:none; text-align:left; }
     .batch-link{ color:var(--ink); text-decoration:underline; cursor:pointer; }
     .batch-seg{ display:inline-flex; gap:0; border:1px solid var(--line); border-radius:2px; overflow:hidden; }
     .batch-seg button{ border:0; background:#fff; padding:6px 14px; font-family:inherit; font-size:12.5px; cursor:pointer; }
@@ -744,7 +744,7 @@ function batchRenderBatchView(){
       <span style="font-size:12px;color:var(--ink-soft);">${batchEsc(h.isOpening ? t('batchOpening') : h.batchDate)} · Invoice ${batchEsc(h.invoiceNo) || '–'} · ${batchEsc(h.supplier) || '–'}</span>
     </div>
     <table class="stock-table">
-      <thead><tr><th>${t('colProduct')}</th><th class="num">${t('batchColQtyIn')}</th><th class="num">${t('batchColRemaining')}</th><th>${t('batchColExpiry')}</th><th class="num">${t('batchColUnitCost')}</th><th>${t('batchFieldLot')}</th></tr></thead>
+      <thead><tr><th>${t('colProduct')}</th><th class="num">${t('batchColQtyIn')}</th><th class="num">${t('batchColRemaining')}</th><th>${t('batchColExpiry')}</th><th class="num">${t('batchColUnitCost')}</th><th>${t('batchFieldLot')}</th><th></th></tr></thead>
       <tbody>${items.sort((a, b) => batchProductName(a.productId).localeCompare(batchProductName(b.productId))).map(i => `
         <tr>
           <td><span class="batch-link" onclick="batchTrackerOpenProduct('${i.productId}')">${batchEsc(batchProductName(i.productId))}</span></td>
@@ -753,6 +753,7 @@ function batchRenderBatchView(){
           <td>${i.expiry ? batchEsc(i.expiry) + batchExpiryBadge(i.expiry) : '–'}</td>
           <td class="num">${batchFmtMoney(batchUnitCost(i))}</td>
           <td>${batchEsc(i.supplierLot) || '–'}</td>
+          <td><span class="del-link" onclick="batchOpenInfoPopup('${i.id}','history')">${t('batchBtnHistory')}</span></td>
         </tr>`).join('')}</tbody>
     </table>`;
 }

@@ -54,7 +54,7 @@ const I18N = {
     batchManualTag: '指定',
     batchBackToList: '返回清單',
     batchBtnBackfill: '補分配',
-    batchBtnHistory: '歷史',
+    batchBtnHistory: '歷史紀錄',
     batchColBatch: '批次',
     batchColBatchCount: '批次數',
     batchColDate: '進貨日',
