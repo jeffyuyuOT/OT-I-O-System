@@ -548,7 +548,7 @@ function batchTxRowPreviewHtml(it){
 function batchTxRowButtonHtml(it){
   if(!batchTxRowPickable(it)) return '';
   const has = it.batchPicks && it.batchPicks.length > 0;
-  return `<button onclick="batchOpenPickerForTxItem('${it.batchItemId}')" title="${t('btnBatchPick')}">📦${has ? '✓' : ''}</button>`;
+  return `<button onclick="batchOpenPickerForTxItem('${it.batchItemId}')" title="${t('btnBatchPick')}">🏷️${has ? '✓' : ''}</button>`;
 }
 function batchOpenPickerForTxItem(batchItemId){
   const it = txBatchItems.find(x => x.batchItemId === batchItemId);
