@@ -1071,6 +1071,23 @@ async function renderSystemCurrencySetting(){
   const list = Array.from(new Set(['AUD'].concat((typeof pcCurrencies !== 'undefined') ? pcCurrencies : []).concat([getSystemCurrency()])));
   sel.innerHTML = list.map(c => `<option value="${c}">${c}</option>`).join('');
   sel.value = getSystemCurrency();
+  // 常用幣種清單(進貨單幣種下拉選單用):AUD 與目前的系統預設幣種不能移除
+  const chips = document.getElementById('currencyListChips');
+  if(chips){
+    const protect = new Set(['AUD', getSystemCurrency()]);
+    chips.innerHTML = list.map(c => `<span style="background:var(--bg-soft,#f5f5f0);border-radius:12px;padding:2px 10px;font-size:12px;">${c}${protect.has(c) ? '' : ` <span style="cursor:pointer;color:var(--crit);" onclick="removeCurrencyFromList('${c}')">✕</span>`}</span>`).join('');
+  }
+}
+function addCurrencyToList(){
+  const el = document.getElementById('currencyListNew');
+  if(!el) return;
+  const ok = (typeof pcAddCurrencyCode === 'function') ? pcAddCurrencyCode(el.value) : false;
+  el.value = '';
+  if(ok) renderSystemCurrencySetting();
+}
+function removeCurrencyFromList(code){
+  if(typeof pcRemoveCurrency === 'function') pcRemoveCurrency(code);
+  renderSystemCurrencySetting();
 }
 async function applySystemCurrency(code){
   code = String(code || '').trim().toUpperCase();

@@ -159,6 +159,8 @@ const I18N = {
     boxDimensionsHint: '單位是公分。填了之後,進貨預估頁面才能算出這個商品的體積。',
     // ----- 第二期:其他支出 / 海外採購 -----
     pcEstimatedBadge: '預估(沿用 {date})', pcMarkFinal: '確認為正式金額',
+    pcViewOriginal: '查看原始紀錄', pcOriginalTitle: '原始紀錄(原幣別)', pcOriginalRates: '使用的匯率', pcOriginalItems: '發票商品',
+    pcColOrigAmount: '原始金額', pcColFxRate: '匯率', pcColConverted: '換算金額', pcOriginalInvoiceTotal: '發票商品合計(原幣別 → 換算後)',
     pcLoadLastSet: '帶入 {supplier} 上次的其他支出({date})',
     pcAutoFillHint: '項目名稱可以選之前用過的項目,會自動帶入上次的幣種與金額(可再修改)。海外採購且金額留空時,送出會沿用「同一供應商、同名項目」上次的金額並標記為預估;拿到正式報關資料後,到「編輯進貨單」改成實際金額即可。',
     pcErrNoHistory: '「{name}」沒有填金額,而且找不到這個供應商上次同名項目的金額,請手動輸入。',
@@ -596,6 +598,7 @@ const I18N = {
     secMultipackSettings: 'Multipack 商品設定',
     secOrderVerifySettings: '訂單核對設定',
     secSystemCurrency: '系統預設幣種',
+    secCurrencyList: '管理常用幣種', currencyListHint: '進貨單的幣種下拉選單(發票幣種、其他支出的幣種)使用這份清單。AUD 與目前的系統預設幣種不能移除。',
     systemCurrencyHint: '進貨單的其他支出、海外採購都會統一換算成這個幣種,批次成本也以這個幣種記錄與顯示。更改只影響之後新建立的進貨單,已建立的進貨單與批次成本不會被換算。預設 AUD。',
     systemCurrencyOtherPlaceholder: '其他幣種代碼,例如 TWD', btnUseCurrency: '改用這個幣種',
     systemCurrencyChangeConfirm: '要把系統預設幣種從 {from} 改成 {to} 嗎?\n\n只影響之後新建立的進貨單。已經建立的進貨單與批次成本不會被換算,仍是 {from} 的數字,批次追蹤頁會把它們全部顯示成 {to},請留意。',
@@ -963,6 +966,8 @@ const I18N = {
     boxDimensionsHint: 'Units are in centimeters. Fill these in to enable volume calculation on the Purchase Forecast page.',
     // ----- Phase 2: other expenses / overseas purchase -----
     pcEstimatedBadge: 'Estimated (from {date})', pcMarkFinal: 'Mark as final',
+    pcViewOriginal: 'View original', pcOriginalTitle: 'Original record (original currency)', pcOriginalRates: 'Exchange rates used', pcOriginalItems: 'Invoice items',
+    pcColOrigAmount: 'Original amount', pcColFxRate: 'FX rate', pcColConverted: 'Converted', pcOriginalInvoiceTotal: 'Invoice items (original → converted)',
     pcLoadLastSet: 'Load {supplier}\'s previous other expenses ({date})',
     pcAutoFillHint: 'Pick an item you used before and its previous currency and amount are filled in (you can edit them). For overseas purchases, a blank amount falls back to the same item from this supplier\'s previous purchase on submit and is marked as estimated; update it via Edit purchase when the real customs invoice arrives.',
     pcErrNoHistory: '"{name}" has no amount and no previous amount from this supplier was found. Please enter it manually.',
@@ -1400,6 +1405,7 @@ const I18N = {
     secMultipackSettings: 'Multi-pack Product Settings',
     secOrderVerifySettings: 'Order Verification Settings',
     secSystemCurrency: 'System default currency',
+    secCurrencyList: 'Manage currencies', currencyListHint: 'The currency dropdowns on purchases (invoice currency, expense currency) use this list. AUD and the current system default currency cannot be removed.',
     systemCurrencyHint: 'Other expenses and overseas purchases are converted to this currency, and batch costs are recorded and shown in it. Changing it only affects purchases created afterwards; existing purchases and batch costs are NOT converted. Default: AUD.',
     systemCurrencyOtherPlaceholder: 'Other currency code, e.g. TWD', btnUseCurrency: 'Use this currency',
     systemCurrencyChangeConfirm: 'Change the system default currency from {from} to {to}?\n\nOnly purchases created afterwards are affected. Existing purchases and batch costs are not converted: they stay as {from} numbers but the batch tracker will show them all as {to}. Please be careful.',

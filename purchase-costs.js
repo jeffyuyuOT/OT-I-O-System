@@ -15,7 +15,6 @@ let pcCurrencies = PC_DEFAULT_CURRENCIES.slice();
 let pcExpenseNames = [];
 let pcLoaded = false;
 let pcLoading = false;
-let pcManageOpen = false;
 let pcDateHooked = false;
 let pcPartyHooked = false;
 let pcState = pcNewState();
@@ -66,13 +65,13 @@ async function pcRememberExpenseNames(names){
     try{ await dbSet('purchaseExpenseNames', JSON.stringify(pcExpenseNames)); }catch(e){ console.error('儲存支出項目失敗', e); }
   }
 }
-function pcAddCurrency(){
-  const el = document.getElementById('pcNewCurrency');
-  if(!el) return;
-  const code = el.value.trim().toUpperCase();
-  if(!/^[A-Z]{3}$/.test(code)) return;
+// 常用幣種清單的新增/移除:介面在「系統管理 → 系統設置 → 系統預設幣種」(settings.js),這裡只放邏輯。
+function pcAddCurrencyCode(code){
+  code = String(code || '').trim().toUpperCase();
+  if(!/^[A-Z]{3}$/.test(code)) return false;
   if(!pcCurrencies.includes(code)){ pcCurrencies.push(code); pcSaveCurrencies(); }
   pcRender();
+  return true;
 }
 function pcRemoveCurrency(code){
   if(code === 'AUD' || code === pcBase()) return;
@@ -529,16 +528,8 @@ function pcRender(){
         <select onchange="pcSetInvoiceCurrency(this.value)">${curOpts(pcState.currency)}</select>
         <span style="font-size:12.5px;color:var(--ink-soft);">${tf('pcConvertToFixed', { base })}</span>
         ${invoiceForeign ? rateInline(invoiceForeign) : ''}
-        <span class="del-link" style="cursor:pointer;font-size:12px;" onclick="pcManageOpen=!pcManageOpen;pcRender();">${t('pcManageCurrencies')}</span>
       </div>
-      <div style="font-size:11.5px;color:var(--ink-soft);margin:2px 0 0 24px;">${tf('pcInvoiceCurrencyHint', { base })}</div>` : `
-      <div style="margin:4px 0 0 24px;"><span class="del-link" style="cursor:pointer;font-size:12px;" onclick="pcManageOpen=!pcManageOpen;pcRender();">${t('pcManageCurrencies')}</span></div>`}
-      ${pcManageOpen ? `
-      <div style="margin:6px 0 0 24px;display:flex;gap:6px;flex-wrap:wrap;align-items:center;">
-        ${pcCurrencyList().map(c => `<span style="background:var(--bg-soft,#f5f5f0);border-radius:12px;padding:2px 10px;font-size:12px;">${c}${(c !== 'AUD' && c !== base) ? ` <span style="cursor:pointer;color:var(--crit);" onclick="pcRemoveCurrency('${c}')">✕</span>` : ''}</span>`).join('')}
-        <input id="pcNewCurrency" type="text" maxlength="3" placeholder="${t('pcCurrencyCodePlaceholder')}" style="width:110px;text-transform:uppercase;" />
-        <button class="btn ghost" onclick="pcAddCurrency()">${t('pcAddCurrency')}</button>
-      </div>` : ''}
+      <div style="font-size:11.5px;color:var(--ink-soft);margin:2px 0 0 24px;">${tf('pcInvoiceCurrencyHint', { base })}</div>` : ''}
 
       <div style="font-size:12.5px;font-weight:700;margin-top:10px;">${t('pcExpenses')}</div>
       <div style="font-size:11.5px;color:var(--ink-soft);">${t('pcAutoFillHint')}</div>
@@ -713,4 +704,66 @@ function pcEditApply(p, cleanItems){
 function pcEstimateBadge(p){
   if(!p || !p.costs || !(p.costs.expenses || []).some(e => e.estimated)) return '';
   return ` <span title="${pcEsc(t('pcEstimatedPurchaseTitle'))}" style="color:var(--warn-dark,#b45309);font-weight:600;font-size:11px;">⚠ ${t('pcEstimatedPurchaseBadge')}</span>`;
+}
+
+// ============================================================
+// 進貨紀錄 → 「查看原始紀錄」:顯示原本幣種的金額、幣種、匯率與換算後金額
+// ============================================================
+function pcHasOriginalData(p){
+  if(!p || !p.costs) return false;
+  const base = p.costs.baseCurrency || 'AUD';
+  return !!p.costs.overseas
+    || (p.costs.expenses || []).some(e => e.currency && e.currency !== base)
+    || (p.items || []).some(it => it.origCurrency);
+}
+function pcCloseOriginalModal(){ const ov = document.getElementById('pcOriginalOverlay'); if(ov) ov.remove(); }
+function pcOpenOriginalModal(purchaseId){
+  const p = (typeof purchases !== 'undefined') ? purchases.find(x => x.id === purchaseId) : null;
+  if(!p || !p.costs) return;
+  pcCloseOriginalModal();
+  const base = p.costs.baseCurrency || 'AUD';
+  const fm = n => (n === null || n === undefined || n === '' || isNaN(n)) ? '–' : Number(n).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const fx = r => (r === null || r === undefined || r === '') ? '–' : String(Number(Number(r).toPrecision(8)));
+  const items = (p.items || []).filter(it => it.docType !== 'others');
+  let origSum = 0, origCur = '', origAny = false;
+  const itemRows = items.map(it => {
+    const isCn = it.docType === 'credit_note';
+    const sign = isCn ? -1 : 1;
+    const hasOrig = it.origAmount !== undefined && it.origAmount !== null;
+    if(hasOrig){ origSum += sign * Number(it.origAmount); origCur = it.origCurrency || origCur; origAny = true; }
+    return `<tr>
+      <td>${pcEsc(it.name || '')}${isCn ? ` <span style="color:var(--crit);font-size:11px;">(${t('docTypeCreditNoteBadge')})</span>` : ''}</td>
+      <td class="num">${isCn ? -it.qty : it.qty} ${pcEsc(it.unit || '')}</td>
+      <td class="num">${hasOrig ? `${fm(sign * it.origAmount)} ${pcEsc(it.origCurrency || '')}` : (it.amount !== undefined && it.amount !== null ? `${fm(sign * it.amount)} ${pcEsc(base)}` : '–')}</td>
+      <td class="num">${hasOrig ? fx(it.fxRate) : '–'}</td>
+      <td class="num">${it.amount !== undefined && it.amount !== null ? `${fm(sign * it.amount)} ${pcEsc(base)}` : '–'}</td>
+    </tr>`;
+  }).join('');
+  const expRows = (p.costs.expenses || []).map(e => `<tr>
+      <td>${pcEsc(e.name)}${e.estimated ? ` <span style="color:var(--warn-dark,#b45309);font-size:11px;">⚠ ${tf('pcEstimatedBadge', { date: e.estimatedFrom || '' })}</span>` : ''}</td>
+      <td class="num">${fm(e.amount)} ${pcEsc(e.currency || '')}</td>
+      <td class="num">${e.currency && e.currency !== base ? fx(e.rate) : '–'}</td>
+      <td class="num">${fm(e.aud)} ${pcEsc(base)}</td>
+    </tr>`).join('');
+  const rateLine = Object.keys(p.costs.rates || {}).map(c => `1 ${pcEsc(c)} = ${fx(p.costs.rates[c])} ${pcEsc(base)}`).join(' · ');
+  const tt = pcPurchaseTotals(p);
+  const html = `
+    <div style="font-size:12.5px;margin-bottom:8px;">${pcEsc(p.date || '')} · ${pcEsc(p.partyName || p.partyId || '') || '–'}${p.invoiceNo ? ' · Invoice ' + pcEsc(p.invoiceNo) : ''}</div>
+    <div style="font-size:12.5px;margin-bottom:8px;">${p.costs.overseas ? `${t('pcInvoiceCurrency')}: <strong>${pcEsc(p.costs.currency)}</strong> → ${tf('pcConvertToFixed', { base: pcEsc(base) })}` : tf('pcConvertToFixed', { base: pcEsc(base) })}${rateLine ? `<br><span style="color:var(--ink-soft);">${t('pcOriginalRates')}: ${rateLine}</span>` : ''}</div>
+    <div style="font-size:12.5px;font-weight:700;margin:6px 0 4px;">${t('pcOriginalItems')}</div>
+    <table class="stock-table"><thead><tr><th>${t('colProduct')}</th><th class="num">${t('colQty')}</th><th class="num">${t('pcColOrigAmount')}</th><th class="num">${t('pcColFxRate')}</th><th class="num">${t('pcColConverted')}</th></tr></thead><tbody>${itemRows}</tbody></table>
+    ${origAny ? `<div style="font-size:12.5px;margin-top:4px;">${t('pcOriginalInvoiceTotal')}: <strong>${fm(origSum)} ${pcEsc(origCur)}</strong> → <strong>${fm(tt.base)} ${pcEsc(base)}</strong></div>` : ''}
+    ${expRows ? `<div style="font-size:12.5px;font-weight:700;margin:10px 0 4px;">${t('pcExpenses')}</div>
+    <table class="stock-table"><thead><tr><th>${t('pcExpenseName')}</th><th class="num">${t('pcColOrigAmount')}</th><th class="num">${t('pcColFxRate')}</th><th class="num">${t('pcColConverted')}</th></tr></thead><tbody>${expRows}</tbody></table>
+    <div style="font-size:12.5px;margin-top:4px;">${t('pcExpenseTotal')}: <strong>${fm(tt.expenses)} ${pcEsc(base)}</strong></div>` : ''}
+    <div style="font-size:12.5px;margin-top:8px;">${t('pcGrandTotal')}: <strong>${fm(tt.total)} ${pcEsc(base)}</strong></div>`;
+  const ov = document.createElement('div');
+  ov.id = 'pcOriginalOverlay';
+  ov.className = 'modal-overlay';
+  ov.style.display = 'flex';
+  ov.style.zIndex = '1150';
+  ov.onclick = (e) => { if(e.target === ov) pcCloseOriginalModal(); };
+  ov.innerHTML = `<div class="modal-box modal-box-wide"><div class="section-title" style="margin-top:0;">${t('pcOriginalTitle')}</div>${html}
+    <div class="modal-actions"><button class="btn ghost" onclick="pcCloseOriginalModal()">${t('btnClose') !== 'btnClose' ? t('btnClose') : 'Close'}</button></div></div>`;
+  document.body.appendChild(ov);
 }

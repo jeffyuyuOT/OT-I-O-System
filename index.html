@@ -1175,6 +1175,15 @@
             <input id="systemCurrencyOther" type="text" maxlength="3" data-i18n-placeholder="systemCurrencyOtherPlaceholder" placeholder="其他幣種代碼,例如 TWD" style="width:170px;text-transform:uppercase;" />
             <button class="btn ghost" onclick="applySystemCurrencyFromInput()" data-i18n="btnUseCurrency">改用這個幣種</button>
           </div>
+          <div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--line);">
+            <div style="font-size:12.5px;font-weight:700;" data-i18n="secCurrencyList">管理常用幣種</div>
+            <p style="font-size:11.5px;color:var(--ink-soft);margin:2px 0 8px;" data-i18n="currencyListHint">進貨單的幣種下拉選單(發票幣種、其他支出的幣種)使用這份清單。AUD 與目前的系統預設幣種不能移除。</p>
+            <div id="currencyListChips" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px;"></div>
+            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+              <input id="currencyListNew" type="text" maxlength="3" data-i18n-placeholder="pcCurrencyCodePlaceholder" placeholder="幣種代碼,例如 USD" style="width:170px;text-transform:uppercase;" />
+              <button class="btn ghost" onclick="addCurrencyToList()" data-i18n="pcAddCurrency">加入</button>
+            </div>
+          </div>
         </div>
 
         <div class="settings-card">
