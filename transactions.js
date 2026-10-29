@@ -1728,6 +1728,7 @@ async function submitTxBatchSimple(date, msg){
   if(!date){ msg.className='msg error'; msg.textContent='請選擇日期'; return; }
   // 第二期:其他支出 / 海外採購,送出前先檢查匯率、支出欄位、分攤依據的資料是否齊全
   if(currentTxType === 'in' && typeof pcValidate === 'function'){
+    if(typeof pcPrepare === 'function') await pcPrepare(); // 海外採購:支出項目沒填金額 → 沿用同供應商上次的金額(預估)
     const pcErr = pcValidate();
     if(pcErr){ msg.className = 'msg error'; msg.textContent = '⚠ ' + pcErr; return; }
   }

@@ -155,6 +155,11 @@ const I18N = {
     fieldBoxDimensions: '箱子尺寸(公分)', fieldBoxLength: '長', fieldBoxWidth: '寬', fieldBoxHeight: '高',
     boxDimensionsHint: '單位是公分。填了之後,進貨預估頁面才能算出這個商品的體積。',
     // ----- 第二期:其他支出 / 海外採購 -----
+    pcEstimatedBadge: '預估(沿用 {date})', pcMarkFinal: '確認為正式金額',
+    pcAutoFillHint: '項目名稱填好、金額留空時,會自動沿用「同一供應商、同名項目」上次的金額與幣種,標記為預估。拿到正式報關資料後,到「編輯進貨單」改成實際金額即可。',
+    pcErrNoHistory: '「{name}」沒有填金額,而且找不到這個供應商上次同名項目的金額,請手動輸入。',
+    pcEditHint: '改金額後會視為正式金額;整張進貨單的每行總價與批次單價會依新的支出重算。標示「預估」的是沿用上次的金額。',
+    pcEstimatedPurchaseBadge: '預估支出', pcEstimatedPurchaseTitle: '這張進貨單有沿用上次金額的其他支出,拿到正式資料後請到編輯進貨單更新',
     pcSectionTitle: '其他支出與海外採購', pcOverseas: '海外採購', pcInvoiceCurrency: '發票幣種',
     pcInvoiceCurrencyHint: '一張發票一個幣種;上面清單的「金額」欄請填這個幣種的金額,送出時依匯率換算成 AUD。',
     pcManageCurrencies: '管理常用幣種', pcAddCurrency: '加入', pcCurrencyCodePlaceholder: '幣種代碼,例如 USD',
@@ -945,6 +950,11 @@ const I18N = {
     fieldBoxDimensions: 'Box Dimensions (cm)', fieldBoxLength: 'Length', fieldBoxWidth: 'Width', fieldBoxHeight: 'Height',
     boxDimensionsHint: 'Units are in centimeters. Fill these in to enable volume calculation on the Purchase Forecast page.',
     // ----- Phase 2: other expenses / overseas purchase -----
+    pcEstimatedBadge: 'Estimated (from {date})', pcMarkFinal: 'Mark as final',
+    pcAutoFillHint: 'If you enter an item name and leave the amount blank, the amount and currency of the same item from this supplier\'s previous purchase are used and marked as estimated. When the real customs invoice arrives, update it via Edit purchase.',
+    pcErrNoHistory: '"{name}" has no amount and no previous amount from this supplier was found. Please enter it manually.',
+    pcEditHint: 'Changing an amount makes it final. Line totals and batch unit costs are recalculated from the new expenses. "Estimated" means the amount was carried over from the previous purchase.',
+    pcEstimatedPurchaseBadge: 'Estimated expenses', pcEstimatedPurchaseTitle: 'This purchase has other expenses carried over from a previous purchase. Update them in Edit purchase once the real invoice arrives.',
     pcSectionTitle: 'Other expenses & overseas purchase', pcOverseas: 'Overseas purchase', pcInvoiceCurrency: 'Invoice currency',
     pcInvoiceCurrencyHint: 'One currency per invoice. Enter the "Amount" column above in this currency; it is converted to AUD on submit.',
     pcManageCurrencies: 'Manage currencies', pcAddCurrency: 'Add', pcCurrencyCodePlaceholder: 'Code, e.g. USD',

@@ -67,7 +67,7 @@ function renderPurchaseLog(){
         ${sorted.map(p => `
           <tr>
             <td class="pl-date" style="cursor:pointer;white-space:nowrap;" onclick="togglePurchaseDetail('${p.id}')"><span class="td-mobile-label">${t('colPurchaseDate')}</span><span style="display:inline-block;width:14px;">${expandedPurchaseId === p.id ? '▾' : '▸'}</span>${escapeHtmlForPrint(p.date || '')}</td>
-            <td class="pl-party" style="cursor:pointer;" onclick="togglePurchaseDetail('${p.id}')"><span class="td-mobile-label">${t('colPurchaseParty')}</span>${escapeHtmlForPrint(p.partyName || p.partyId || '')}</td>
+            <td class="pl-party" style="cursor:pointer;" onclick="togglePurchaseDetail('${p.id}')"><span class="td-mobile-label">${t('colPurchaseParty')}</span>${escapeHtmlForPrint(p.partyName || p.partyId || '')}${(typeof pcEstimateBadge === 'function') ? pcEstimateBadge(p) : ''}</td>
             <td class="pl-invoice" style="cursor:pointer;" onclick="togglePurchaseDetail('${p.id}')"><span class="td-mobile-label">${t('colPurchaseInvoiceNo')}</span>${escapeHtmlForPrint(p.invoiceNo || '')}${(typeof batchPurchaseTagHtml === 'function') ? batchPurchaseTagHtml(p) : ''}${getPurchaseReceiptFileList(p).length > 0 ? ` <span title="${t('hasReceiptAttachedTitle')}">📎</span>` : ''}</td>
             <td class="pl-actions" style="white-space:nowrap;">
               <span class="del-link" onclick="openEditPurchaseModal('${p.id}')">${t('btnEdit')}</span>
@@ -484,12 +484,14 @@ function openEditPurchaseModal(purchaseId){
   renderEditPurchaseReceiptList();
   populateEditPurchaseAddItemSelect();
   renderEditPurchaseItemsList();
+  if(typeof pcEditInit === 'function') pcEditInit(p);
   document.getElementById('editPurchaseModalOverlay').style.display = 'flex';
 }
 function closeEditPurchaseModal(){
   editPurchaseTargetId = null;
   editPurchaseWorkingReceiptFiles = [];
   editPurchaseWorkingItems = [];
+  if(typeof pcEditClose === 'function') pcEditClose();
   document.getElementById('editPurchaseModalOverlay').style.display = 'none';
 }
 function renderEditPurchaseReceiptList(){
@@ -888,9 +890,11 @@ async function confirmEditPurchase(){
   }
 
   // 第二期:有成本資料的進貨單,品項金額改了就用原本的其他支出/分攤依據重新算每行總價
-  if(p.costs && typeof pcRecompute === 'function'){
-    const costRes = pcRecompute({ items: cleanItems, costs: p.costs });
+  let costsChanged = false;
+  if(typeof pcEditApply === 'function'){
+    const costRes = pcEditApply(p, cleanItems);
     if(costRes.error){ msgEl.className = 'msg error'; msgEl.textContent = '⚠ ' + costRes.error; return; }
+    costsChanged = !!costRes.changed;
   }
 
   msgEl.className = 'msg'; msgEl.textContent = t('savingMsg');
@@ -938,7 +942,7 @@ async function confirmEditPurchase(){
       }
     }
     // 批次追蹤:同步批次(數量/有效期/批號/日期/Invoice/供應商有改才呼叫)
-    if(p.batchTracked && typeof batchSavePurchase === 'function' && (itemsChanged || dateVal !== oldDate || partyVal !== oldParty || invoiceVal !== oldInvoice)){
+    if(p.batchTracked && typeof batchSavePurchase === 'function' && (itemsChanged || costsChanged || dateVal !== oldDate || partyVal !== oldParty || invoiceVal !== oldInvoice)){
       try{ await batchSavePurchase(p); }
       catch(be){
         console.error('同步批次失敗', be);
