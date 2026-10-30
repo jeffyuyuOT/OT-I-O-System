@@ -165,25 +165,39 @@ function showTxMainFormArea(visible){
 // 的值,不用另外改);選「+ 新增」才會顯示 txParty 這個文字輸入框讓你打新名字——新輸入的
 // 名字這裡不會自動存進「進貨方管理」清單,要去系統管理那邊正式新增,才會留住電話/住址/
 // 附註這些額外資料,單純這裡打字送出去的話下次不會出現在下拉選單裡。
+// 這張進貨單用的進貨方 id:下拉選的優先;手動輸入的名稱剛好只對應到一個已存在的進貨方時也用它
+function purchaseSupplierIdFor(partyName){
+  if(txSelectedSupplierId){
+    const sup = purchaseSuppliers.find(x => x.id === txSelectedSupplierId);
+    if(sup && sup.name === partyName) return sup.id;
+  }
+  const same = purchaseSuppliers.filter(x => (x.name || '').trim().toLowerCase() === (partyName || '').trim().toLowerCase());
+  return same.length === 1 ? same[0].id : '';
+}
+let txSelectedSupplierId = '';   // 登記進貨:下拉選到的進貨方 id(名稱可以重複,用 id 區分);手動輸入新名稱時是空字串
 function populateTxPartyHistorySelect(){
   const sel = document.getElementById('txPartyHistorySelect');
   if(!sel) return;
-  const sortedNames = purchaseSuppliers.map(s => s.name).sort((a,b) => a.localeCompare(b));
+  const sorted = purchaseSuppliers.slice().sort((a,b) => (a.name || '').localeCompare(b.name || '') || (a.code || '').localeCompare(b.code || ''));
   sel.innerHTML = `<option value="">${t('optSelectSupplier')}</option>` +
-    sortedNames.map(p => `<option value="${p.replace(/"/g,'&quot;')}">${escapeHtmlForPrint(p)}</option>`).join('') +
+    sorted.map(s => `<option value="${s.id}">${escapeHtmlForPrint(supplierOptionLabel(s))}</option>`).join('') +
     `<option value="__new__">${t('optAddNewSupplier')}</option>`;
   sel.value = '';
+  txSelectedSupplierId = '';
   document.getElementById('txParty').style.display = 'none';
 }
 function onTxPartyHistorySelectChange(value){
   const partyInput = document.getElementById('txParty');
   if(value === '__new__'){
+    txSelectedSupplierId = '';
     partyInput.style.display = '';
     partyInput.value = '';
     partyInput.focus();
   } else {
+    const sup = purchaseSuppliers.find(x => x.id === value);
+    txSelectedSupplierId = sup ? sup.id : '';
     partyInput.style.display = 'none';
-    partyInput.value = value;
+    partyInput.value = sup ? sup.name : '';
   }
 }
 
@@ -483,7 +497,7 @@ function populateTxPartySelect(){
   if(!partySelect) return;
   const prev = partySelect.value;
   partySelect.innerHTML = `<option value="">${t('optUnspecified')}</option>` +
-    (shippingParties || []).map(sp => `<option value="${sp.id}">${sp.name.replace(/</g,'&lt;')}</option>`).join('');
+    (shippingParties || []).map(sp => `<option value="${sp.id}">${partyOptionLabel(sp).replace(/</g,'&lt;')}</option>`).join('');
   if([...partySelect.options].some(o => o.value === prev)) partySelect.value = prev;
 }
 
@@ -1053,7 +1067,7 @@ function renderTxPreview(matches, unmatched){
           <label style="font-size:11px;color:var(--ink-soft);display:block;margin-bottom:4px;">指定出貨方(建立的訂單要正式歸到哪一個出貨方,強烈建議選填)</label>
           <select id="txImportOrderParty">
             <option value="" data-i18n="partyAutoMatchOptionLabel">— 依匯入的對象名稱自動比對,比對不到就沒有出貨方 —</option>
-            ${shippingParties.map(sp => `<option value="${sp.id}">${sp.name.replace(/"/g,'&quot;')}</option>`).join('')}
+            ${shippingParties.map(sp => `<option value="${sp.id}">${partyOptionLabel(sp).replace(/"/g,'&quot;')}</option>`).join('')}
           </select>
         </div>` : ''}
         <button class="btn" onclick="confirmTxImport()">確認匯入 ${matches.length} 筆紀錄(進貨 ${inCount} / 出貨 ${outCount}${restockCount > 0 ? ` / 入庫 ${restockCount}` : ''})</button>
@@ -1860,7 +1874,7 @@ async function submitTxBatchSimple(date, msg){
   if(currentTxType === 'in'){
     const purchase = {
       id: purchaseId,
-      date, partyId: party, partyName: party, invoiceNo, note,
+      date, partyId: party, partyName: party, supplierId: purchaseSupplierIdFor(party), invoiceNo, note,
       items: txBatchItems.map(it => {
         const p = products.find(pp => pp.id === it.productId);
         if(p && p.parentId && p.autoConvertOnStockIn){

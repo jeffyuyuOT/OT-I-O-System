@@ -29,6 +29,20 @@ function formatEmailedTimeShort(iso){
   } catch(e){ return ''; }
 }
 
+// 進貨單的「進貨方」篩選鍵 / 顯示文字(見 renderPurchaseLog)
+function purchasePartyKey(p){
+  if(p.supplierId && purchaseSuppliers.some(x => x.id === p.supplierId)) return 'id:' + p.supplierId;
+  const name = (p.partyName || p.partyId || '').trim();
+  if(!name) return 'name:';
+  const same = purchaseSuppliers.filter(x => (x.name || '').trim().toLowerCase() === name.toLowerCase());
+  return same.length === 1 ? 'id:' + same[0].id : 'name:' + name;
+}
+function purchasePartyLabel(p){
+  const key = purchasePartyKey(p);
+  if(key.startsWith('id:')){ const sup = purchaseSuppliers.find(x => 'id:' + x.id === key); if(sup) return supplierOptionLabel(sup); }
+  return p.partyName || p.partyId || '';
+}
+
 function renderPurchaseLog(){
   const container = document.getElementById('purchaseLogTable');
   if(!container) return;
@@ -38,12 +52,21 @@ function renderPurchaseLog(){
   // (如果篩選後那個進貨方已經不在清單裡,才會被重設成「全部對象」)。
   const partySel = document.getElementById('purchaseLogPartyFilter');
   const prevParty = partySel.value;
-  const distinctPartiesSet = new Set(purchases.map(p => p.partyName || p.partyId || '').filter(Boolean));
+  // 篩選值:有進貨方 id 的用 'id:<id>';舊進貨單沒有 id 時,名稱剛好只對應一個進貨方就歸給它,否則用 'name:<名稱>'
+  const partyOpts = new Map();   // key -> label
+  purchases.forEach(p => {
+    const key = purchasePartyKey(p);
+    if(key === 'name:' || partyOpts.has(key)) return;
+    partyOpts.set(key, purchasePartyLabel(p));
+  });
   // 從「進貨方管理 → 進貨紀錄」跳過來時,這個進貨方可能還沒有任何進貨單:仍保留它的選項,篩選結果就是空的
-  if(prevParty && typeof purchaseSuppliers !== 'undefined' && purchaseSuppliers.some(x => x.name === prevParty)) distinctPartiesSet.add(prevParty);
-  const distinctParties = [...distinctPartiesSet].sort();
-  partySel.innerHTML = `<option value="">${t('logPartyAll')}</option>` + distinctParties.map(p => `<option value="${p.replace(/"/g,'&quot;')}">${p}</option>`).join('');
-  if(distinctParties.includes(prevParty)) partySel.value = prevParty;
+  if(prevParty && prevParty.startsWith('id:') && !partyOpts.has(prevParty)){
+    const sup = purchaseSuppliers.find(x => 'id:' + x.id === prevParty);
+    if(sup) partyOpts.set(prevParty, supplierOptionLabel(sup));
+  }
+  const sortedOpts = [...partyOpts.entries()].sort((a, b) => a[1].localeCompare(b[1]));
+  partySel.innerHTML = `<option value="">${t('logPartyAll')}</option>` + sortedOpts.map(([k, label]) => `<option value="${k.replace(/"/g,'&quot;')}">${escapeHtmlForPrint(label)}</option>`).join('');
+  if(partyOpts.has(prevParty)) partySel.value = prevParty;
 
   const dateFrom = document.getElementById('purchaseLogDateFrom').value;
   const dateTo = document.getElementById('purchaseLogDateTo').value;
@@ -52,7 +75,7 @@ function renderPurchaseLog(){
   let filtered = purchases.slice();
   if(dateFrom) filtered = filtered.filter(p => (p.date || '') >= dateFrom);
   if(dateTo) filtered = filtered.filter(p => (p.date || '') <= dateTo);
-  if(partyFilter) filtered = filtered.filter(p => (p.partyName || p.partyId || '') === partyFilter);
+  if(partyFilter) filtered = filtered.filter(p => purchasePartyKey(p) === partyFilter);
 
   if(filtered.length === 0){
     container.innerHTML = `<div class="empty-note">${t('noPurchasesYet')}</div>`;
@@ -73,7 +96,7 @@ function renderPurchaseLog(){
         ${sorted.map(p => `
           <tr>
             <td class="pl-date" style="cursor:pointer;white-space:nowrap;" onclick="togglePurchaseDetail('${p.id}')"><span class="td-mobile-label">${t('colPurchaseDate')}</span><span style="display:inline-block;width:14px;">${expandedPurchaseId === p.id ? '▾' : '▸'}</span>${escapeHtmlForPrint(p.date || '')}</td>
-            <td class="pl-party" style="cursor:pointer;" onclick="togglePurchaseDetail('${p.id}')"><span class="td-mobile-label">${t('colPurchaseParty')}</span>${escapeHtmlForPrint(p.partyName || p.partyId || '')}${(typeof pcEstimateBadge === 'function') ? pcEstimateBadge(p) : ''}</td>
+            <td class="pl-party" style="cursor:pointer;" onclick="togglePurchaseDetail('${p.id}')"><span class="td-mobile-label">${t('colPurchaseParty')}</span>${escapeHtmlForPrint(purchasePartyLabel(p))}${(typeof pcEstimateBadge === 'function') ? pcEstimateBadge(p) : ''}</td>
             <td class="pl-invoice" style="cursor:pointer;" onclick="togglePurchaseDetail('${p.id}')"><span class="td-mobile-label">${t('colPurchaseInvoiceNo')}</span>${escapeHtmlForPrint(p.invoiceNo || '')}${getPurchaseReceiptFileList(p).length > 0 ? ` <span title="${t('hasReceiptAttachedTitle')}">📎</span>` : ''}</td>
             ${showBatchCol ? (() => { const bt = (typeof batchPurchaseTagHtml === 'function') ? batchPurchaseTagHtml(p).trim() : ''; return `<td class="pl-batch" style="cursor:pointer;" onclick="togglePurchaseDetail('${p.id}')">${bt ? `<span class="td-mobile-label">${t('batchColBatch')}</span>${bt}` : ''}</td>`; })() : ''}
             <td class="pl-actions" style="white-space:nowrap;">
@@ -445,36 +468,44 @@ let editPurchaseWorkingItems = [];
 // currentName 是這張進貨單目前的進貨方名稱:如果剛好對得到清單裡的某個供應商,下拉選單直接選中
 // 那筆;對不到的話(例如供應商後來被刪掉了,或本來就是手打的名字),視為「新增供應商」模式,
 // 文字輸入框直接顯示、並帶入原本的名字,不會讓使用者看不到原本填的是什麼。
-function populateEditPurchasePartySelect(currentName){
+let editPurchaseSupplierId = '';   // 編輯進貨單:目前選的進貨方 id(手動輸入新名稱時是空字串)
+function populateEditPurchasePartySelect(currentName, currentSupplierId){
   const sel = document.getElementById('editPurchasePartySelect');
   const input = document.getElementById('editPurchasePartyInput');
   if(!sel || !input) return;
-  const sortedNames = purchaseSuppliers.map(s => s.name).sort((a,b) => a.localeCompare(b));
+  const sorted = purchaseSuppliers.slice().sort((a,b) => (a.name || '').localeCompare(b.name || '') || (a.code || '').localeCompare(b.code || ''));
   sel.innerHTML = `<option value="">${t('optSelectSupplier')}</option>` +
-    sortedNames.map(p => `<option value="${p.replace(/"/g,'&quot;')}">${escapeHtmlForPrint(p)}</option>`).join('') +
+    sorted.map(s => `<option value="${s.id}">${escapeHtmlForPrint(supplierOptionLabel(s))}</option>`).join('') +
     `<option value="__new__">${t('optAddNewSupplier')}</option>`;
-  if(currentName && sortedNames.includes(currentName)){
-    sel.value = currentName;
+  // 先用進貨單上記的 id 找;舊進貨單沒有 id 時,名稱剛好只對應一個進貨方才用它
+  let match = currentSupplierId ? sorted.find(x => x.id === currentSupplierId) : null;
+  if(!match && currentName){
+    const same = sorted.filter(x => x.name === currentName);
+    if(same.length === 1) match = same[0];
+  }
+  if(match){
+    sel.value = match.id; editPurchaseSupplierId = match.id;
     input.style.display = 'none';
-    input.value = currentName;
+    input.value = match.name;
   } else {
-    sel.value = '__new__';
+    sel.value = '__new__'; editPurchaseSupplierId = '';
     input.style.display = '';
     input.value = currentName || '';
   }
-}
-function onEditPurchasePartySelectChange(value){
+}function onEditPurchasePartySelectChange(value){
   const input = document.getElementById('editPurchasePartyInput');
   if(value === '__new__'){
+    editPurchaseSupplierId = '';
     input.style.display = '';
     input.value = '';
     input.focus();
   } else {
+    const sup = purchaseSuppliers.find(x => x.id === value);
+    editPurchaseSupplierId = sup ? sup.id : '';
     input.style.display = 'none';
-    input.value = value;
+    input.value = sup ? sup.name : '';
   }
-}
-function openEditPurchaseModal(purchaseId){
+}function openEditPurchaseModal(purchaseId){
   const p = purchases.find(x => x.id === purchaseId);
   if(!p) return;
   editPurchaseTargetId = purchaseId;
@@ -482,7 +513,7 @@ function openEditPurchaseModal(purchaseId){
   editPurchaseWorkingItems = (p.items || []).map(it => ({...it}));
   document.getElementById('editPurchaseDateInput').value = p.date || '';
   { const _amt = document.getElementById('editPurchaseAddItemAmount'); if(_amt){ _amt.disabled = !canEditPrice(); if(!canEditPrice()) _amt.value = ''; } }
-  populateEditPurchasePartySelect(p.partyName || p.partyId || '');
+  populateEditPurchasePartySelect(p.partyName || p.partyId || '', p.supplierId || '');
   document.getElementById('editPurchaseInvoiceInput').value = p.invoiceNo || '';
   document.getElementById('editPurchaseNoteInput').value = p.note || '';
   document.getElementById('editPurchaseReceiptUploadMsg').textContent = '';
@@ -943,6 +974,7 @@ async function confirmEditPurchase(){
   p.date = dateVal;
   p.partyName = partyVal;
   p.partyId = partyVal;
+  if(editPurchaseSupplierId) p.supplierId = editPurchaseSupplierId; else delete p.supplierId;
   p.invoiceNo = invoiceVal;
   p.note = noteVal;
   p.items = cleanItems;

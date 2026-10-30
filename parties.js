@@ -34,7 +34,7 @@ function populatePartySelect(){
     } else {
       sel.disabled = false;
       sel.innerHTML = `<option value="">${t('optUnspecified')}</option>` +
-        shippingParties.map(sp => `<option value="${sp.id}">${sp.name.replace(/"/g,'&quot;')}</option>`).join('');
+        shippingParties.map(sp => `<option value="${sp.id}">${partyOptionLabel(sp).replace(/"/g,'&quot;')}</option>`).join('');
       if(shippingParties.some(sp => sp.id === prev)) sel.value = prev;
     }
     // 「幫既有訂單新增商品」模式中,不管上面跑哪個分支,出貨方一律鎖定成那張訂單本身的出貨方,
@@ -52,6 +52,34 @@ function populatePartySelect(){
   populatePendingOrderPartyFilter();
 }
 
+// ----- 編號(ID):出貨方 C001…、進貨方 S001…;建立後固定不變,名稱可以重複(用編號區分)-----
+function nextEntityCode(prefix, list){
+  let max = 0;
+  const re = new RegExp('^' + prefix + '(\\d+)$');
+  (list || []).forEach(x => { const m = re.exec(x.code || ''); if(m) max = Math.max(max, parseInt(m[1], 10)); });
+  return prefix + String(max + 1).padStart(3, '0');
+}
+// 給還沒有編號的出貨方補編號(依名稱排序);有補回傳 true(呼叫端要存檔)
+function ensurePartyCodes(){
+  const todo = shippingParties.filter(sp => !sp.code).sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+  todo.forEach(sp => { sp.code = nextEntityCode('C', shippingParties); });
+  return todo.length > 0;
+}
+// 給還沒有編號的進貨方補編號;回傳被補了編號的那幾筆(呼叫端要存檔)
+function ensureSupplierCodes(){
+  const todo = purchaseSuppliers.filter(s => !s.code).sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+  todo.forEach(s => { s.code = nextEntityCode('S', purchaseSuppliers); });
+  return todo;
+}
+// 下拉選單的選項文字:名稱重複的才加上編號,不重複的維持原本只有名稱
+function entityOptionLabel(entity, list){
+  const name = entity.name || '';
+  const dup = (list || []).some(x => x.id !== entity.id && (x.name || '').trim().toLowerCase() === name.trim().toLowerCase());
+  return dup && entity.code ? `${name} (${entity.code})` : name;
+}
+function partyOptionLabel(sp){ return entityOptionLabel(sp, shippingParties); }
+function supplierOptionLabel(s){ return entityOptionLabel(s, purchaseSuppliers); }
+
 // ----- 出貨方:搜尋 + 獨立編輯視窗 -----
 let partySearchQuery = '';
 function onPartySearchInput(v){ partySearchQuery = v || ''; renderPartiesTable(); }
@@ -67,6 +95,7 @@ function openPartyEditModal(id){
   if(id && !sp) return;
   editingPartyId = id || '__new__';
   document.getElementById('partyEditModalTitle').textContent = sp ? t('modalEditPartyTitle') : t('modalAddPartyTitle');
+  document.getElementById('partyCodeText').textContent = sp ? (sp.code || '') : t('codeAutoAssigned');
   document.getElementById('partyNameInput').value = sp ? sp.name : '';
   document.getElementById('partyContactPersonInput').value = sp ? (sp.contactPerson || '') : '';
   // 舊資料的「聯絡方式」是一格自由文字(電話 / Line / Email),第一次開啟編輯時帶進「聯繫電話」,存檔後就改用新欄位
@@ -92,7 +121,6 @@ async function savePartyEdit(){
   if(!sp) return;
   const name = document.getElementById('partyNameInput').value.trim();
   if(!name){ msg.className = 'msg error'; msg.textContent = t('errPartyNameEmpty'); return; }
-  if(shippingParties.some(x => x.id !== sp.id && x.name === name)){ msg.className = 'msg error'; msg.textContent = t('errPartyNameDuplicate'); return; }
   const discRaw = document.getElementById('partyDiscountInput').value.trim();
   let discount = 0;
   if(discRaw !== ''){
@@ -108,7 +136,7 @@ async function savePartyEdit(){
   sp.orderFrequency = document.getElementById('partyFrequencySelect').value || 'weekly';
   sp.discount = discount;
   delete sp.contact;   // 舊的「聯絡方式」欄位已拆成 聯繫人 / 聯繫電話,內容在上面已帶進 phone
-  if(isNew) shippingParties.push(sp);
+  if(isNew){ sp.code = nextEntityCode('C', shippingParties); shippingParties.push(sp); }
   editingPartyId = null;
   document.getElementById('partyEditModalOverlay').style.display = 'none';
   await saveShippingParties();
@@ -176,7 +204,7 @@ function renderPartiesTable(){
     return;
   }
   const q = partySearchQuery.trim().toLowerCase();
-  const list = q ? shippingParties.filter(sp => (sp.name || '').toLowerCase().includes(q)) : shippingParties;
+  const list = q ? shippingParties.filter(sp => (sp.name || '').toLowerCase().includes(q) || (sp.code || '').toLowerCase().includes(q)) : shippingParties;
   if(list.length === 0){
     container.innerHTML = `<div class="empty-note">${t('noPartiesMatchSearch')}</div>`;
     return;
@@ -185,6 +213,7 @@ function renderPartiesTable(){
   const rows = list.map(sp => {
     return `
       <tr>
+        <td class="row-code" style="white-space:nowrap;color:var(--ink-soft);font-family:'IBM Plex Mono',monospace;font-size:12px;">${esc(sp.code || '')}</td>
         <td class="row-name">${esc(sp.name)}</td>
         <td><span class="mini-label">${t('fieldPartyPhone')}</span>${esc(sp.phone !== undefined ? sp.phone : (sp.contact || '')) || '—'}</td>
         <td class="row-note"><span class="mini-label">${t('colNote')}</span>${esc(sp.note || '') || '—'}</td>
@@ -197,12 +226,12 @@ function renderPartiesTable(){
           <button onclick="deleteParty('${sp.id}')" title="${t('deletePartyTitle')}">✕</button>
         </td>
       </tr>
-      ${openPartyProductPanelId === sp.id ? `<tr><td colspan="5">${renderPartyProductPanelHtml(sp)}</td></tr>` : ''}
+      ${openPartyProductPanelId === sp.id ? `<tr><td colspan="6">${renderPartyProductPanelHtml(sp)}</td></tr>` : ''}
     `;
   }).join('');
   container.innerHTML = `
     <table class="stock-table">
-      <thead><tr><th>${t('fieldPartyName')}</th><th>${t('fieldPartyPhone')}</th><th>${t('colNote')}</th><th>${t('colOrderFrequency')}</th><th></th></tr></thead>
+      <thead><tr><th>${t('colCode')}</th><th>${t('fieldPartyName')}</th><th>${t('fieldPartyPhone')}</th><th>${t('colNote')}</th><th>${t('colOrderFrequency')}</th><th></th></tr></thead>
       <tbody>${rows}</tbody>
     </table>
   `;
@@ -338,10 +367,11 @@ function renderSupplierManagementTable(){
   }
   const sorted = purchaseSuppliers.slice().sort((a, b) => a.name.localeCompare(b.name));
   container.innerHTML = `<table class="stock-table">
-    <thead><tr><th>${t('fieldSupplierName')}</th><th>${t('fieldSupplierContact')}</th><th>${t('fieldSupplierPhone')}</th><th>${t('fieldSupplierAddress')}</th><th>${t('fieldSupplierNote')}</th><th></th></tr></thead>
+    <thead><tr><th>${t('colCode')}</th><th>${t('fieldSupplierName')}</th><th>${t('fieldSupplierContact')}</th><th>${t('fieldSupplierPhone')}</th><th>${t('fieldSupplierAddress')}</th><th>${t('fieldSupplierNote')}</th><th></th></tr></thead>
     <tbody>
       ${sorted.map(s => `
         <tr>
+          <td style="white-space:nowrap;color:var(--ink-soft);font-family:'IBM Plex Mono',monospace;font-size:12px;">${escapeHtmlForPrint(s.code || '')}</td>
           <td>${escapeHtmlForPrint(s.name)}</td>
           <td>${escapeHtmlForPrint(s.contact || '')}</td>
           <td>${escapeHtmlForPrint(s.phone || '')}</td>
@@ -371,11 +401,12 @@ function supplierGoPurchaseHistory(supplierId){
   if(from) from.value = ''; if(to) to.value = '';
   const sel = document.getElementById('purchaseLogPartyFilter');
   if(sel){
-    // 這個進貨方還沒有任何進貨單時,選項清單裡不會有它的名字,先補一個,篩選結果就是空的(而不是被重設成全部)
-    if(![...sel.options].some(o => o.value === sup.name)){
-      const opt = document.createElement('option'); opt.value = sup.name; opt.textContent = sup.name; sel.appendChild(opt);
+    // 篩選值用編號對應的 id('id:<supplierId>');這個進貨方還沒有任何進貨單時,選項清單裡不會有它,先補一個
+    const key = 'id:' + sup.id;
+    if(![...sel.options].some(o => o.value === key)){
+      const opt = document.createElement('option'); opt.value = key; opt.textContent = supplierOptionLabel(sup); sel.appendChild(opt);
     }
-    sel.value = sup.name;
+    sel.value = key;
   }
   renderPurchaseLog();
 }
@@ -412,6 +443,7 @@ function openSupplierEditModal(supplierId, prefillName){
   editingSupplierId = supplierId;
   const s = supplierId ? purchaseSuppliers.find(x => x.id === supplierId) : null;
   document.getElementById('supplierEditModalTitle').textContent = s ? t('modalEditSupplierTitle') : t('modalAddSupplierTitle');
+  document.getElementById('supplierCodeText').textContent = s ? (s.code || '') : t('codeAutoAssigned');
   document.getElementById('supplierNameInput').value = s ? s.name : (prefillName || '');
   document.getElementById('supplierContactInput').value = s ? s.contact || '' : '';
   document.getElementById('supplierPhoneInput').value = s ? s.phone || '' : '';
@@ -434,11 +466,9 @@ async function saveSupplierEdit(){
   if(!name){ msgEl.className = 'msg error'; msgEl.textContent = t('errEnterSupplierName'); return; }
   // 名稱不能跟其他供應商重複(資料庫本身也有唯一索引擋著,這裡先在前端擋一次,錯誤訊息比較
   // 好懂,不用等資料庫回傳一串技術性的錯誤)——編輯自己的話,名稱沒變不算重複。
-  const dup = purchaseSuppliers.find(s => s.id !== editingSupplierId && s.name.toLowerCase() === name.toLowerCase());
-  if(dup){ msgEl.className = 'msg error'; msgEl.textContent = t('errSupplierNameDuplicate'); return; }
 
   msgEl.className = 'msg'; msgEl.textContent = t('savingMsg');
-  const s = editingSupplierId ? purchaseSuppliers.find(x => x.id === editingSupplierId) : { id: genId() };
+  const s = editingSupplierId ? purchaseSuppliers.find(x => x.id === editingSupplierId) : { id: genId(), code: nextEntityCode('S', purchaseSuppliers) };
   const oldName = s.name;
   s.name = name; s.contact = contact; s.phone = phone; s.address = address; s.note = note;
   try{

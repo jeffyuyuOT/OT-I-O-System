@@ -2679,6 +2679,10 @@
   <div class="modal-box" style="max-width:min(480px, 92vw);max-height:90vh;overflow-y:auto;">
     <div class="section-title" style="margin-bottom:12px;" id="partyEditModalTitle" data-i18n="modalAddPartyTitle">新增出貨方</div>
     <div class="field-block">
+      <label data-i18n="colCode">編號</label>
+      <div id="partyCodeText" style="font-family:'IBM Plex Mono',monospace;font-size:13px;color:var(--ink-soft);"></div>
+    </div>
+    <div class="field-block">
       <label data-i18n="fieldPartyName">出貨方名稱</label>
       <input type="text" id="partyNameInput" style="width:100%;" />
     </div>
@@ -2725,6 +2729,10 @@
 <div id="supplierEditModalOverlay" class="modal-overlay" style="display:none;">
   <div class="modal-box" style="max-width:min(440px, 92vw);">
     <div class="section-title" style="margin-bottom:12px;" id="supplierEditModalTitle" data-i18n="modalAddSupplierTitle">新增供應商</div>
+    <div class="field-block">
+      <label data-i18n="colCode">編號</label>
+      <div id="supplierCodeText" style="font-family:'IBM Plex Mono',monospace;font-size:13px;color:var(--ink-soft);"></div>
+    </div>
     <div class="field-block">
       <label data-i18n="fieldSupplierName">名稱</label>
       <input type="text" id="supplierNameInput" style="width:100%;" />
@@ -3375,6 +3383,7 @@ async function loadData(){
     shippingParties = partiesResult ? JSON.parse(partiesResult.value) : [];
   } catch(e){ shippingParties = []; }
   shippingParties.forEach(sp => { if(!Array.isArray(sp.hiddenProductIds)) sp.hiddenProductIds = []; });
+  if(ensurePartyCodes()) saveShippingParties();   // 還沒有編號(C001…)的出貨方補上編號並存檔
   try{
     const langResult = await dbGet('lang');
     if(langResult && (langResult.value === 'en' || langResult.value === 'zh')) lang = langResult.value;
@@ -3867,6 +3876,7 @@ async function silentBackgroundRefresh(){
       try{
         shippingParties = JSON.parse(partiesResult.value);
         shippingParties.forEach(sp => { if(!Array.isArray(sp.hiddenProductIds)) sp.hiddenProductIds = []; });
+        ensurePartyCodes();
       } catch(e){ /* 解析失敗就沿用現有的,下一輪再試 */ }
     }
     recomputeOrderCounterFromOrders();

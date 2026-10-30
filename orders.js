@@ -596,7 +596,7 @@ function populateCompletedOrderPartyFilter(){
     if(!sel) return;
     const prev = sel.value;
     sel.innerHTML = `<option value="">${t('optAllParties')}</option>` +
-      shippingParties.map(sp => `<option value="${sp.id}">${sp.name.replace(/"/g,'&quot;')}</option>`).join('');
+      shippingParties.map(sp => `<option value="${sp.id}">${partyOptionLabel(sp).replace(/"/g,'&quot;')}</option>`).join('');
     if(shippingParties.some(sp => sp.id === prev)) sel.value = prev;
   });
 }
@@ -606,7 +606,7 @@ function populatePendingOrderPartyFilter(){
   if(!sel) return;
   const prev = sel.value;
   sel.innerHTML = `<option value="">${t('optAllParties')}</option>` +
-    shippingParties.map(sp => `<option value="${sp.id}">${sp.name.replace(/"/g,'&quot;')}</option>`).join('');
+    shippingParties.map(sp => `<option value="${sp.id}">${partyOptionLabel(sp).replace(/"/g,'&quot;')}</option>`).join('');
   if(shippingParties.some(sp => sp.id === prev)) sel.value = prev;
 }
 
@@ -1146,7 +1146,7 @@ function renderPendingOrders(){
       <div style="margin:8px 0;">
         <select id="orderPartyInput_${o.id}" style="width:100%;max-width:320px;">
           <option value="">${t('optUnspecified')}</option>
-          ${shippingParties.map(sp => `<option value="${sp.id}" ${sp.id === o.partyId ? 'selected' : ''}>${sp.name.replace(/"/g,'&quot;')}</option>`).join('')}
+          ${shippingParties.map(sp => `<option value="${sp.id}" ${sp.id === o.partyId ? 'selected' : ''}>${partyOptionLabel(sp).replace(/"/g,'&quot;')}</option>`).join('')}
         </select>
         <div style="margin-top:4px;display:flex;gap:8px;">
           <button class="btn" onclick="saveOrderParty('${o.id}')">${t('btnSave')}</button>

@@ -401,20 +401,31 @@ function supplierToRow(s){
   // 聯繫人欄位(purchase_suppliers.contact)需要先執行 sql/purchase_suppliers_contact_column.sql;
   // 沒填聯繫人時不帶這個欄位,還沒執行 SQL 也不影響其他資料的儲存。
   if(s.contact) row.contact = s.contact;
+  // 編號(purchase_suppliers.code)同樣需要先執行 sql/purchase_suppliers_contact_column.sql;
+  if(s.code) row.code = s.code;
   return row;
 }
 function rowToSupplier(row){
-  return { id: row.id, name: row.name, contact: row.contact || '', phone: row.phone || '', address: row.address || '', note: row.note || '' };
+  return { id: row.id, name: row.name, code: row.code || '', contact: row.contact || '', phone: row.phone || '', address: row.address || '', note: row.note || '' };
 }
 async function loadPurchaseSuppliers(){
   try{
     const { data, error } = await sb.from('purchase_suppliers').select('*');
     if(error) throw error;
     purchaseSuppliers = (data || []).map(rowToSupplier);
+    // 還沒有編號的進貨方補上編號(S001、S002…,依名稱排序、之後固定不變)
+    const missing = (typeof ensureSupplierCodes === 'function') ? ensureSupplierCodes() : [];
+    for(const sup of missing){ try{ await upsertPurchaseSupplier(sup); }catch(e){ console.error('補進貨方編號失敗', e); } }
   } catch(e){ console.error('讀取進貨方管理清單失敗', e); purchaseSuppliers = []; }
 }
 async function upsertPurchaseSupplier(s){
-  const { error } = await sb.from('purchase_suppliers').upsert(supplierToRow(s));
+  let { error } = await sb.from('purchase_suppliers').upsert(supplierToRow(s));
+  if(error && /column/i.test(error.message || '') && /(contact|code)/i.test(error.message || '')){
+    // 還沒執行 sql/purchase_suppliers_contact_column.sql(缺 contact / code 欄位):先不帶這兩個欄位存,其他資料不受影響
+    const row = supplierToRow(s); delete row.contact; delete row.code;
+    console.warn('purchase_suppliers 缺少 contact / code 欄位,請執行 sql/purchase_suppliers_contact_column.sql');
+    ({ error } = await sb.from('purchase_suppliers').upsert(row));
+  }
   if(error){ console.error('儲存進貨方失敗', error); throw error; }
   scheduleAutoBackup();
 }
