@@ -648,8 +648,7 @@ function pcEditRender(){
     </div>`).join('');
   wrap.innerHTML = `
     <div class="field-block" style="border:1px solid var(--line,#ddd);border-radius:8px;padding:8px 10px;">
-      <label>${t('pcExpenses')}</label>
-      <div style="font-size:11.5px;color:var(--ink-soft);">${t('pcEditHint')}</div>
+      <label>${t('pcExpenses')} <span role="button" tabindex="0" title="${t('pcInfoIconTitle')}" aria-label="${t('pcInfoIconTitle')}" style="cursor:pointer;color:var(--ink-soft);font-size:14px;margin-left:4px;user-select:none;" onclick="showInfoModal(t('pcEditHint'))" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();showInfoModal(t('pcEditHint'));}">ⓘ</span></label>
       ${dl}${rows}
       <button type="button" class="btn ghost" style="font-size:12px;" onclick="pcEdAdd()">${t('pcAddExpense')}</button>
       ${pcEd.expenses.length ? `
