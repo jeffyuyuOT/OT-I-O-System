@@ -1186,6 +1186,16 @@
           </div>
         </div>
 
+        <div class="settings-card" id="batchExpirySettingCard">
+          <div class="section-title" data-i18n="secBatchExpiry">批次到期提醒</div>
+          <p style="font-size:11.5px;color:var(--ink-soft);margin:0 0 8px;" data-i18n="batchExpiryHint">還有庫存的批次,有效期在這個天數內會在庫存總覽顯示 🟠「快到期」,已過有效期顯示 🔴「已過期」。預設 30 天。</p>
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+            <input id="batchExpiryWarnDaysInput" type="number" min="1" max="365" step="1" style="width:90px;" onchange="applyBatchExpiryWarnDays(this.value)" />
+            <span style="font-size:12.5px;" data-i18n="batchExpiryDaysUnit">天</span>
+          </div>
+          <div id="batchExpirySettingMsg" class="msg"></div>
+        </div>
+
         <div class="settings-card">
           <div class="section-title" data-i18n="secHistoryRange">歷史資料預設顯示範圍</div>
           <p style="font-size:11.5px;color:var(--ink-soft);margin:0 0 8px;" data-i18n="historyRangeHint">
@@ -1639,6 +1649,11 @@
             <option value="warn" data-i18n="statusFilterWarn">🟡 黃燈(庫存偏低)</option>
             <option value="safe" data-i18n="statusFilterSafe">🟢 綠燈(庫存充足)</option>
             <option value="none" data-i18n="statusFilterNone">⚪ 灰燈(無出貨紀錄)</option>
+          </select>
+          <select id="expiryFilter" onchange="renderStockCards()" style="display:none;">
+            <option value="" data-i18n="expiryFilterAll">到期:全部</option>
+            <option value="soon" data-i18n="expiryFilterSoon">🟠 快到期</option>
+            <option value="expired" data-i18n="expiryFilterExpired">🔴 已過期</option>
           </select>
         </div>
         <div class="overview-toolbar-right" style="display:flex;gap:10px;align-items:flex-start;flex-wrap:wrap;justify-content:flex-end;">
@@ -3385,6 +3400,7 @@ async function loadData(){
   await loadQuickLists();
   await loadForecastPrefs();
   await loadSystemCurrency();
+  await loadBatchExpiryWarnDays();
   await loadForecastRecords();
   populateAllQuickListSelects();
   syncCategoryOrder();

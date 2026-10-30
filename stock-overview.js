@@ -15,6 +15,24 @@ function productFamilyMatchesSearch(rootP, q){
   return hit(rootP) || getChildProducts(rootP.id).some(hit);
 }
 
+// 一個商品家族(主商品 + 底下所有 multipack 子商品)的全部商品 id
+function stockFamilyIds(rootP){
+  return [rootP.id].concat(getChildProducts(rootP.id).map(c => c.id));
+}
+// 商品名稱旁的到期標記(🟠 快到期 / 🔴 已過期),滑鼠移上去(或手機點一下)顯示是哪幾個批次。
+function stockExpiryBadgeHtml(productIds){
+  const sum = batchExpirySummary(productIds);
+  if(!sum.status) return '';
+  const tip = sum.lines.slice(0, 6).map(l => {
+    const when = l.days < 0 ? t('batchExpired') : tf('batchExpiresInDays', { n: l.days });
+    return `${l.batchNo}  ${l.expiry}(${when})  ${t('batchRemainShort')} ${batchFmtQty(l.remaining)} ${batchProductUnit(l.productId)}`;
+  }).join('\n') + (sum.lines.length > 6 ? `\n… +${sum.lines.length - 6}` : '');
+  const icon = sum.status === 'expired' ? '🔴' : '🟠';
+  const label = sum.status === 'expired' ? t('batchExpired') : tf('batchExpiresInDays', { n: sum.lines[0].days });
+  const color = sum.status === 'expired' ? 'var(--crit)' : '#B8860B';
+  return `<span class="stock-expiry-badge" title="${batchEsc(tip)}" onclick="event.stopPropagation();showInfoModal(this.getAttribute('title'));document.getElementById('confirmModalText').style.whiteSpace='pre-line'" style="margin-left:6px;font-size:11px;font-weight:700;color:${color};cursor:pointer;white-space:nowrap;">${icon} ${batchEsc(label)}</span>`;
+}
+
 function renderStockCards(){
   const container = document.getElementById('stockCards');
   if(products.length === 0){
@@ -22,6 +40,11 @@ function renderStockCards(){
     return;
   }
   syncCategoryOrder();
+  const batchOn = (typeof batchActive === 'function') && batchActive();
+  const expirySel = document.getElementById('expiryFilter');
+  if(expirySel) expirySel.style.display = batchOn ? '' : 'none';
+  if(batchOn && !batchData.loaded && typeof ensureBatchDataLoaded === 'function') ensureBatchDataLoaded();   // 載完會自動重畫
+  const expiryFilter = batchOn && expirySel ? expirySel.value : '';
   const now = new Date();
   const catFilter = document.getElementById('categoryFilter').value;
   // 快捷清單篩選:有選一份清單的話,只列出清單裡的商品(以家族主商品為單位),而且還是會再套用
@@ -130,11 +153,13 @@ function renderStockCards(){
           : (getChildProducts(p.id).length > 0 ? `<span class="del-link" onclick="openParentToChildConversionModal('${p.id}')" title="${t('titleConvertToChild')}">${t('btnSwitchQty')}</span>` : ''))
       : '';
 
+    const expiryBadge = batchOn ? stockExpiryBadgeHtml(isSubRow ? [p.id] : stockFamilyIds(familyParent || p)) : '';
+
     return `
       <tr id="stockRow_${p.id}" class="stock-row row-${gauge.cls} ${selectedProductIds.has(p.id) ? 'selected-row' : ''} ${p.hidden ? 'hidden-product-row' : ''}">
         <td class="row-check"><input type="checkbox" ${selectedProductIds.has(p.id) ? 'checked' : ''} onchange="toggleSelectProduct('${p.id}', this.checked)" /></td>
         <td class="row-indicator"><span class="dot dot-${gauge.cls}" title="${gauge.label}"></span></td>
-        <td class="row-name" style="${isSubRow ? 'padding-left:26px;' : ''}">${p.sku ? `<span class="sku-tooltip-trigger" data-sku="${p.sku.replace(/"/g,'&quot;')}">${p.name}</span>` : p.name}${p.photoUrl ? `<span class="del-link" title="${t('btnViewPhoto')}" onclick="openProductPhotoModal('${p.id}')" style="margin-left:4px;">📷</span>` : ''}${expandArrow}<span class="row-unit">${p.unit}</span>${p.barcode ? `<span title="${tf('barcodeValueTitle', {barcode: p.barcode})}" style="margin-left:4px;">🏷️</span>` : ''}${p.hidden ? `<span class="hidden-badge">${t('hiddenBadge')}</span>` : ''}${p.orderable ? `<span class="orderable-badge">${t('orderableBadge')}</span>` : ''}</td>
+        <td class="row-name" style="${isSubRow ? 'padding-left:26px;' : ''}">${p.sku ? `<span class="sku-tooltip-trigger" data-sku="${p.sku.replace(/"/g,'&quot;')}">${p.name}</span>` : p.name}${p.photoUrl ? `<span class="del-link" title="${t('btnViewPhoto')}" onclick="openProductPhotoModal('${p.id}')" style="margin-left:4px;">📷</span>` : ''}${expandArrow}<span class="row-unit">${p.unit}</span>${expiryBadge}${p.barcode ? `<span title="${tf('barcodeValueTitle', {barcode: p.barcode})}" style="margin-left:4px;">🏷️</span>` : ''}${p.hidden ? `<span class="hidden-badge">${t('hiddenBadge')}</span>` : ''}${p.orderable ? `<span class="orderable-badge">${t('orderableBadge')}</span>` : ''}</td>
         <td class="row-num row-stock-own"><span class="td-mobile-label">${t('colStock')}</span>${stock}</td>
         <td class="row-num row-stock-total"><span class="td-mobile-label">${t('colTotalStock')}</span><span class="row-value-line">${isSubRow ? '—' : totalStockDisplay}<span class="row-edit-cart">${editCartLinks}</span></span></td>
         <td class="row-num row-avg" ${avgTitle ? `title="${avgTitle}"` : ''}><span class="td-mobile-label">${t('colAvgOut')}</span>${avgLabel}</td>
@@ -173,6 +198,12 @@ function renderStockCards(){
         return gaugeInfo(remain).cls === statusFilter;
       });
     }
+    if(expiryFilter){
+      items = items.filter(p => {
+        const st = batchExpirySummary(stockFamilyIds(p)).status;
+        return expiryFilter === 'soon' ? (st === 'soon' || st === 'expired') : st === 'expired';
+      });
+    }
     if(items.length === 0) return;
     anyItems = true;
     items = sortStockItems(items, now);
@@ -207,7 +238,7 @@ function renderStockCards(){
   });
 
   if(!anyItems){
-    container.innerHTML = `<div class="empty-note">${(statusFilter || quickListSet || searchQ) ? t('noProductsMatchFilters') : '這個分類目前沒有商品。'}</div>`;
+    container.innerHTML = `<div class="empty-note">${(statusFilter || expiryFilter || quickListSet || searchQ) ? t('noProductsMatchFilters') : '這個分類目前沒有商品。'}</div>`;
     return;
   }
 

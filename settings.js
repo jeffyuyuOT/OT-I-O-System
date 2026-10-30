@@ -239,6 +239,7 @@ function updateMultipackSettingsUI(){
   const hmiBox = document.getElementById('hideMultipackIconToggle');
   if(hmiBox) hmiBox.checked = hideMultipackIconOnOrderPage;
   if(typeof renderSystemCurrencySetting === 'function') renderSystemCurrencySetting();
+  renderBatchExpirySetting();
   renderAccountingEmailList();
   const slmSelect = document.getElementById('stockLocationModeSelect');
   if(slmSelect){
@@ -1151,4 +1152,40 @@ function applySystemCurrencyFromInput(){
   const code = el.value.trim().toUpperCase();
   el.value = '';
   applySystemCurrency(code);
+}
+
+
+// ============================================================
+// 批次到期提醒天數(系統管理 → 系統設置)
+// 庫存總覽的到期燈號 🟠(快到期)與批次追蹤頁的到期標記,都用這個天數判斷。預設 30 天。
+// 存在 app_data 'batchExpiryWarnDays'。
+// ============================================================
+let batchExpiryWarnDays = 30;
+function getBatchExpiryWarnDays(){ return batchExpiryWarnDays; }
+async function loadBatchExpiryWarnDays(){
+  try{
+    const r = await dbGet('batchExpiryWarnDays');
+    const n = r && r.value !== undefined && r.value !== null ? parseInt(r.value, 10) : NaN;
+    if(Number.isFinite(n) && n >= 1 && n <= 365) batchExpiryWarnDays = n;
+  } catch(e){ /* 沒存過,維持預設 30 */ }
+}
+function renderBatchExpirySetting(){
+  const el = document.getElementById('batchExpiryWarnDaysInput');
+  if(el) el.value = String(batchExpiryWarnDays);
+  const card = document.getElementById('batchExpirySettingCard');
+  if(card) card.style.display = (typeof batchFeatureOn === 'function' && batchFeatureOn()) ? '' : 'none';
+}
+async function applyBatchExpiryWarnDays(v){
+  const msg = document.getElementById('batchExpirySettingMsg');
+  const n = parseInt(v, 10);
+  if(!Number.isFinite(n) || n < 1 || n > 365){
+    if(msg){ msg.className = 'msg error'; msg.textContent = t('batchExpiryDaysInvalid'); }
+    renderBatchExpirySetting();
+    return;
+  }
+  batchExpiryWarnDays = n;
+  try{ await dbSet('batchExpiryWarnDays', String(n)); if(msg){ msg.className = 'msg ok'; msg.textContent = t('batchExpiryDaysSaved'); } }
+  catch(e){ console.error('儲存到期提醒天數失敗', e); if(msg){ msg.className = 'msg error'; msg.textContent = t('batchExpiryDaysSaveFailed'); } }
+  try{ if(typeof renderStockCards === 'function' && document.getElementById('stockCards')) renderStockCards(); }catch(e){}
+  try{ if(typeof renderBatchTracker === 'function' && document.getElementById('batchTrackerRoot')) renderBatchTracker(); }catch(e){}
 }

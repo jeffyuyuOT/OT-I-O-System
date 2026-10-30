@@ -14,7 +14,8 @@
 // - 批次相關的任何失敗都不能讓原本的進出貨/核對失敗:錯誤只會跳提示,
 //   沒分配到的出貨會出現在批次追蹤頁的「未分配出貨」清單,可以補分配。
 // ============================================================
-const BATCH_EXPIRY_WARN_DAYS = 30;
+const BATCH_EXPIRY_WARN_DAYS = 30;               // 預設值;實際用 batchWarnDays()(系統設置可改)
+function batchWarnDays(){ return (typeof getBatchExpiryWarnDays === 'function') ? getBatchExpiryWarnDays() : BATCH_EXPIRY_WARN_DAYS; }
 
 let batchAvailable = true;                       // 資料表不存在時變 false → 功能整個停用
 let batchData = { items: [], loaded: false, stale: false, error: '' };
@@ -86,6 +87,7 @@ async function loadBatchData(){
     if(e && (e.code === 'PGRST205' || e.code === '42P01' || /does not exist|schema cache/i.test(e.message || ''))) batchAvailable = false;
     batchData.items = []; batchData.loaded = true; batchData.stale = false; batchData.error = (e && e.message) || String(e);
   }
+  try{ if(typeof renderStockCards === 'function' && document.getElementById('stockCards')) renderStockCards(); }catch(e){}
   try{ if(typeof renderVerifyPage === 'function') renderVerifyPage(); }catch(e){}
   try{ if(typeof renderTxBatchList === 'function') renderTxBatchList(); }catch(e){}
   try{ if(typeof renderLog === 'function' && document.getElementById('logTable')) renderLog(); }catch(e){}
@@ -188,11 +190,26 @@ function batchDaysUntil(dateStr){
   const today = new Date(); today.setHours(0, 0, 0, 0);
   return Math.round((new Date(parts[0], parts[1] - 1, parts[2]) - today) / 86400000);
 }
+// 庫存總覽用:一組商品(一個商品家族)裡「還有庫存」的批次行的到期狀態。
+// 回傳 { status: 'expired'|'soon'|'', lines: [{ batchNo, expiry, days, remaining, productId }] }(lines 只含已過期/快到期的,依有效期由近到遠)。
+function batchExpirySummary(productIds){
+  if(!batchActive() || !batchData.loaded) return { status: '', lines: [] };
+  const ids = new Set(productIds), warn = batchWarnDays();
+  const lines = [];
+  batchData.items.forEach(i => {
+    if(!ids.has(i.productId) || !i.expiry || !(i.remaining > 0)) return;
+    const d = batchDaysUntil(i.expiry);
+    if(d <= warn) lines.push({ batchNo: i.batchNo, expiry: i.expiry, days: d, remaining: i.remaining, productId: i.productId });
+  });
+  lines.sort((a, b) => a.days - b.days);
+  const status = lines.length === 0 ? '' : (lines[0].days < 0 ? 'expired' : 'soon');
+  return { status, lines };
+}
 function batchExpiryBadge(expiry){
   if(!expiry) return '';
   const d = batchDaysUntil(expiry);
   if(d < 0) return ` <span style="color:var(--crit);font-weight:700;">🔴 ${t('batchExpired')}</span>`;
-  if(d <= BATCH_EXPIRY_WARN_DAYS) return ` <span style="color:#B8860B;font-weight:700;">🟠 ${tf('batchExpiresInDays', { n: d })}</span>`;
+  if(d <= batchWarnDays()) return ` <span style="color:#B8860B;font-weight:700;">🟠 ${tf('batchExpiresInDays', { n: d })}</span>`;
   return '';
 }
 
