@@ -114,6 +114,27 @@ async function findLatestBackupInFolder(dirHandle){
   return { filename: latestName, text };
 }
 
+// 還原後台紀錄:用內容比對去重(見 importFullBackup 的說明),只寫入資料庫裡還沒有的紀錄。
+async function restoreInventoryLogsFromBackup(logs){
+  const keyOf = r => [
+    new Date(r.created_at).getTime(), r.action_type || '', r.actor || '', r.description || '', r.order_no || ''
+  ].join('\u0001');
+  const existing = await fetchAllPages(() => sb.from('inventory_log')
+    .select('id,created_at,action_type,actor,description,order_no').order('id', { ascending: true }));
+  const seen = new Set(existing.map(keyOf));
+  const toInsert = [];
+  logs.forEach(r => {
+    const k = keyOf(r);
+    if(seen.has(k)) return;
+    seen.add(k);   // 備份檔本身有完全相同的兩筆時,只寫一筆
+    toInsert.push({ created_at: r.created_at, action_type: r.action_type, actor: r.actor || null, description: r.description, order_no: r.order_no || null });
+  });
+  for(let i = 0; i < toInsert.length; i += 500){
+    const { error } = await sb.from('inventory_log').insert(toInsert.slice(i, i + 500));
+    if(error) throw error;
+  }
+}
+
 // 還原備份後,把批次資料的處理結果轉成提示文字(成功且正常就不顯示)。
 function batchRestoreMsg(res){
   if(!res || res.skipped) return '';
@@ -647,13 +668,12 @@ function importFullBackup(){
         const forecastRestoreOk = await restoreForecastDataFromBackup(backup);
         const batchRes = await batchRestoreFromBackup(backup);
         // inventory_log 是稽核用途的紀錄,故意不開放前端刪除(見 clearInventoryLogTable 旁邊的
-        // 說明)——還原備份的時候也一樣不整批覆蓋,只把備份裡的紀錄用 upsert 補進去,已經存在的
-        // (id 相同)就跳過不動,不會覆蓋掉還原當下資料庫裡已經有的紀錄。
+        // 說明)——還原備份的時候也一樣不整批覆蓋,只把「資料庫裡還沒有」的紀錄補進去。
+        // 這張表的 id 是由資料庫自己產生的(GENERATED ALWAYS),不能帶 id 寫入,所以改用內容
+        // (時間+動作+操作者+說明+訂單號)比對有沒有重複,重複的跳過,不會覆蓋或重複新增。
         if(Array.isArray(backup.inventoryLogs) && backup.inventoryLogs.length > 0){
-          try{
-            const { error: logErr } = await sb.from('inventory_log').upsert(backup.inventoryLogs, { onConflict: 'id', ignoreDuplicates: true });
-            if(logErr) throw logErr;
-          } catch(e){ console.error('還原後台紀錄失敗', e); }
+          try{ await restoreInventoryLogsFromBackup(backup.inventoryLogs); }
+          catch(e){ console.error('還原後台紀錄失敗', e); }
         }
         if(Array.isArray(backup.deliveryNotes) && backup.deliveryNotes.length > 0){
           try{ await upsertDeliveryNotes(backup.deliveryNotes); }
