@@ -183,15 +183,12 @@ function renderPartiesTable(){
   }
   const esc = escapeHtmlForPrint;
   const rows = list.map(sp => {
-    const disc = partyDiscountOf(sp);
     return `
       <tr>
         <td class="row-name">${esc(sp.name)}</td>
-        <td><span class="mini-label">${t('fieldPartyContactPerson')}</span>${esc(sp.contactPerson || '') || '—'}</td>
         <td><span class="mini-label">${t('fieldPartyPhone')}</span>${esc(sp.phone !== undefined ? sp.phone : (sp.contact || '')) || '—'}</td>
         <td class="row-note"><span class="mini-label">${t('colNote')}</span>${esc(sp.note || '') || '—'}</td>
         <td><span class="mini-label">${t('colOrderFrequency')}</span>${t(sp.orderFrequency === 'fortnight' ? 'freqFortnight' : (sp.orderFrequency === 'monthly' ? 'freqMonthly' : 'freqWeekly'))}</td>
-        <td><span class="mini-label">Discount</span>${disc ? disc + '%' : '—'}</td>
         <td class="row-action" style="white-space:nowrap;">
           <span class="del-link" onclick="partyGoNewOrder('${sp.id}')" style="margin-right:6px;">${t('btnPartyNewOrder')}</span>
           <span class="del-link" onclick="partyGoOrderHistory('${sp.id}')" style="margin-right:6px;">${t('btnPartyOrderHistory')}</span>
@@ -200,12 +197,12 @@ function renderPartiesTable(){
           <button onclick="deleteParty('${sp.id}')" title="${t('deletePartyTitle')}">✕</button>
         </td>
       </tr>
-      ${openPartyProductPanelId === sp.id ? `<tr><td colspan="7">${renderPartyProductPanelHtml(sp)}</td></tr>` : ''}
+      ${openPartyProductPanelId === sp.id ? `<tr><td colspan="5">${renderPartyProductPanelHtml(sp)}</td></tr>` : ''}
     `;
   }).join('');
   container.innerHTML = `
     <table class="stock-table">
-      <thead><tr><th>${t('fieldPartyName')}</th><th>${t('fieldPartyContactPerson')}</th><th>${t('fieldPartyPhone')}</th><th>${t('colNote')}</th><th>${t('colOrderFrequency')}</th><th>Discount</th><th></th></tr></thead>
+      <thead><tr><th>${t('fieldPartyName')}</th><th>${t('fieldPartyPhone')}</th><th>${t('colNote')}</th><th>${t('colOrderFrequency')}</th><th></th></tr></thead>
       <tbody>${rows}</tbody>
     </table>
   `;
