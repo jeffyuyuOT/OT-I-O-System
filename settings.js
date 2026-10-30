@@ -39,6 +39,8 @@ async function runAutoBackup(){
     forecastPrefs: { unitChoice: forecastUnitChoice, boxBasis: forecastBoxBasis },
     exportEmailLogs
   };
+  try{ const bt = await batchExportForBackup(); if(bt) backup.batchTracking = bt; }
+  catch(e){ console.error('自動備份:讀取批次資料失敗,這份備份不含批次資料', e); }
   const content = JSON.stringify(backup, null, 2);
 
   if(backupDirHandle){
@@ -112,6 +114,14 @@ async function findLatestBackupInFolder(dirHandle){
   return { filename: latestName, text };
 }
 
+// 還原備份後,把批次資料的處理結果轉成提示文字(成功且正常就不顯示)。
+function batchRestoreMsg(res){
+  if(!res || res.skipped) return '';
+  if(!res.ok) return ' ' + t(res.missingFn ? 'warnBatchRestoreNeedSql' : 'warnBatchRestoreFailed');
+  if(res.cleared) return ' ' + t('noteBatchBackupHadNoBatches');
+  return '';
+}
+
 async function restoreFromBackupFolder(){
   const msg = document.getElementById('backupMsg');
   if(!window.showDirectoryPicker){
@@ -177,6 +187,7 @@ async function restoreFromBackupFolder(){
     await saveCategoryOrder();
     await restoreQuickListsFromBackup(backup);
     const forecastRestoreOk = await restoreForecastDataFromBackup(backup);
+    const batchRes = await batchRestoreFromBackup(backup);
     const seqSynced = await syncOrderNoSequenceAfterRestore(orders);
     // 這個資料夾既然能讀,順便記起來,之後自動備份也直接寫進同一個地方。
     backupDirHandle = dirHandle;
@@ -184,7 +195,7 @@ async function restoreFromBackupFolder(){
     updateAutoBackupStatus();
     msg.className = seqSynced ? 'msg ok' : 'msg error';
     msg.textContent = tf('restoredFromFileMsg', { filename: found.filename, products: products.length, transactions: transactions.length, orders: orders.length })
-      + (seqSynced ? '' : ' ' + t('warnOrderNoSeqSyncFailed')) + (forecastRestoreOk ? '' : ' ' + t('warnForecastRestoreFailed'));
+      + (seqSynced ? '' : ' ' + t('warnOrderNoSeqSyncFailed')) + (forecastRestoreOk ? '' : ' ' + t('warnForecastRestoreFailed')) + batchRestoreMsg(batchRes);
     renderTabBar();
     renderAll();
   });
@@ -454,6 +465,7 @@ async function clearAllData(){
     await clearInventoryLogTable();        // 透過 RPC 清空 inventory_log(繞過 RLS 限制)
 
     await replaceAllTransactions([]);      // 清空 transactions 表 + 重建庫存快取為空
+    await batchClearAll();                 // 清空批次追蹤三張表(batches / batch_items / batch_movements)
     await replaceAllOrders([]);            // 清空 orders 表
     await clearAllDeliveryNotes();         // 清空 delivery_notes 表(訂單都清空了,留著也是孤兒資料)
     await clearAllPurchases();             // 清空 purchases 表(進出貨紀錄都清空了,留著也是孤兒資料)
@@ -547,6 +559,13 @@ async function exportFullBackup(){
     deliveryNotes,
     purchases
   };
+  const msg0 = document.getElementById('backupMsg');
+  try{ const bt = await batchExportForBackup(); if(bt) backup.batchTracking = bt; }
+  catch(e){
+    console.error('匯出備份:讀取批次資料失敗', e);
+    if(msg0){ msg0.className = 'msg error'; msg0.textContent = t('warnBatchBackupReadFailed'); }
+    return;   // 寧可不產生備份,也不要產生一份缺批次資料、之後還原會清掉批次的備份
+  }
   const filename = `stock_ledger_backup_${todayISO()}.json`;
   const content = JSON.stringify(backup, null, 2);
   const msg = document.getElementById('backupMsg');
@@ -626,6 +645,7 @@ function importFullBackup(){
         await saveCategoryOrder();
         await restoreQuickListsFromBackup(backup);
         const forecastRestoreOk = await restoreForecastDataFromBackup(backup);
+        const batchRes = await batchRestoreFromBackup(backup);
         // inventory_log 是稽核用途的紀錄,故意不開放前端刪除(見 clearInventoryLogTable 旁邊的
         // 說明)——還原備份的時候也一樣不整批覆蓋,只把備份裡的紀錄用 upsert 補進去,已經存在的
         // (id 相同)就跳過不動,不會覆蓋掉還原當下資料庫裡已經有的紀錄。
@@ -649,7 +669,7 @@ function importFullBackup(){
         const seqSynced = await syncOrderNoSequenceAfterRestore(orders);
         msg.className = seqSynced ? 'msg ok' : 'msg error';
         msg.textContent = tf('restoredBackupMsg', { products: products.length, transactions: transactions.length, orders: orders.length })
-          + (seqSynced ? '' : ' ' + t('warnOrderNoSeqSyncFailed')) + (forecastRestoreOk ? '' : ' ' + t('warnForecastRestoreFailed'));
+          + (seqSynced ? '' : ' ' + t('warnOrderNoSeqSyncFailed')) + (forecastRestoreOk ? '' : ' ' + t('warnForecastRestoreFailed')) + batchRestoreMsg(batchRes);
         fileInput.value = '';
         renderTabBar();
         renderAll();

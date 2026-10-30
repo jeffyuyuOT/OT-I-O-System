@@ -1288,3 +1288,68 @@ async function batchShowOrderModal(orderId, m, item){
     <table class="stock-table"><thead><tr><th>${t('colProduct')}</th><th class="num">${t('colQty')}</th></tr></thead><tbody>${rows}</tbody></table>
     ${o.note ? `<div style="font-size:12px;color:var(--ink-soft);margin-top:6px;">${t('colNote')}: ${batchEsc(o.note)}</div>` : ''}`);
 }
+
+// ------------------------------------------------------------
+// 第三期:備份 / 還原 / 清除全部資料
+// 批次三張表只開放讀取,寫入走 RPC(sql/batch_tracking_phase3_backup.sql)。
+// ------------------------------------------------------------
+function batchIsMissingTableError(e){
+  return !!(e && (e.code === 'PGRST205' || e.code === '42P01' || /does not exist|schema cache/i.test(e.message || '')));
+}
+function batchIsMissingFunctionError(e){
+  return !!(e && (e.code === 'PGRST202' || e.code === '42883' || /could not find the function|does not exist/i.test(e.message || '')));
+}
+
+// 備份用:回傳 { version, batches, items, movements };功能關閉或資料表不存在時回傳 null(備份檔就不含這一段)。
+async function batchExportForBackup(){
+  if(!batchFeatureOn()) return null;
+  try{
+    const [batches, items, movements] = await Promise.all([
+      fetchAllPages(() => sb.from('batches').select('*').order('id', { ascending: true })),
+      fetchAllPages(() => sb.from('batch_items').select('*').order('id', { ascending: true })),
+      fetchAllPages(() => sb.from('batch_movements').select('*').order('id', { ascending: true }))
+    ]);
+    return { version: 1, batches, items, movements };
+  } catch(e){
+    if(batchIsMissingTableError(e)) return null;
+    // 其他錯誤(網路…)不能默默產生一份不含批次資料的備份,讓呼叫端知道
+    throw e;
+  }
+}
+
+// 還原用:必須在 replaceAllTransactions 之後呼叫。
+// 回傳 { ok, restored, cleared, skipped }:
+//   restored = 備份檔含批次資料並已寫回;cleared = 備份檔沒有批次資料(舊備份),批次表已清空以免和還原後的庫存對不上;
+//   skipped = 功能關閉/資料表不存在;ok=false = 失敗(通常是 SQL 還沒執行)。
+async function batchRestoreFromBackup(backup){
+  if(!batchFeatureOn() || !batchAvailable) return { ok: true, skipped: true };
+  try{
+    const bt3 = backup && backup.batchTracking;
+    if(bt3 && Array.isArray(bt3.batches) && Array.isArray(bt3.items) && Array.isArray(bt3.movements)){
+      await batchRpc('batch_restore_all', { p_batches: bt3.batches, p_items: bt3.items, p_movements: bt3.movements });
+      return { ok: true, restored: true };
+    }
+    await batchRpc('batch_clear_all', {});
+    return { ok: true, cleared: true };
+  } catch(e){
+    console.error('還原批次資料失敗', e);
+    if(batchIsMissingTableError(e)) return { ok: true, skipped: true };
+    return { ok: false, error: (e && e.message) || String(e), missingFn: batchIsMissingFunctionError(e) };
+  } finally {
+    batchMarkStale();
+    try{ await ensureBatchDataLoaded(true); }catch(e){}
+  }
+}
+
+// 清除全部資料用。失敗會丟出例外(讓 clearAllData 跟其他清除步驟一樣整個報錯)。
+async function batchClearAll(){
+  if(!batchFeatureOn() || !batchAvailable) return;
+  try{
+    await batchRpc('batch_clear_all', {});
+  } catch(e){
+    if(batchIsMissingTableError(e)) return;
+    throw e;
+  } finally {
+    batchData.items = []; batchMarkStale();
+  }
+}
