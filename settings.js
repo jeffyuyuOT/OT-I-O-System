@@ -464,8 +464,8 @@ async function clearAllData(){
     // 避免「清到一半失敗」導致部分資料表已清空、部分還留著的不一致狀態。
     await clearInventoryLogTable();        // 透過 RPC 清空 inventory_log(繞過 RLS 限制)
 
+    await batchClearAll();                 // 清空批次追蹤三張表(batches / batch_items / batch_movements);放在動 transactions 之前,失敗時其他資料不會被清到一半
     await replaceAllTransactions([]);      // 清空 transactions 表 + 重建庫存快取為空
-    await batchClearAll();                 // 清空批次追蹤三張表(batches / batch_items / batch_movements)
     await replaceAllOrders([]);            // 清空 orders 表
     await clearAllDeliveryNotes();         // 清空 delivery_notes 表(訂單都清空了,留著也是孤兒資料)
     await clearAllPurchases();             // 清空 purchases 表(進出貨紀錄都清空了,留著也是孤兒資料)
@@ -509,7 +509,7 @@ async function clearAllData(){
     showInfoModal(t('restoreDefaultSuccessAll'));
   } catch(e){
     console.error('Clear All Data 失敗', e);
-    showInfoModal(t('restoreDefaultError'));
+    showInfoModal(batchIsMissingFunctionError(e) ? t('warnBatchClearNeedSql') : t('restoreDefaultError'));
   }
 }
 
