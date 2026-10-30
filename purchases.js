@@ -584,8 +584,18 @@ function renderEditPurchaseItemsList(){
     wrap.innerHTML = `<div class="empty-note" style="padding:8px 0;">${lang === 'en' ? 'No items.' : '（沒有品項）'}</div>`;
     return;
   }
+  // 欄位標題列:跟每列的版面對齊(品名 / 數量 / 單位 / 金額 / 移除),金額標題帶系統預設幣種。
+  const hdrCss = 'font-size:11px;color:var(--ink-soft);';
+  const hdr = `<div style="display:flex;align-items:center;gap:8px;${hdrCss}">
+          <div style="flex:1 1 140px;min-width:0;"></div>
+          <span style="width:70px;">${t('colQty')}</span>
+          <span style="width:46px;flex:none;visibility:hidden;">${t('colQty')}</span>
+          <span style="width:90px;">${t('colAmount')} (${escapeHtmlForPrint(typeof getSystemCurrency === 'function' ? getSystemCurrency() : 'AUD')})</span>
+          <span style="visibility:hidden;">${t('btnRemoveItem')}</span>
+        </div>`;
   wrap.innerHTML = `
     <div style="display:flex;flex-direction:column;gap:6px;">
+      ${hdr}
       ${editPurchaseWorkingItems.map((it, i) => `
         <div style="padding:6px 0;border-bottom:1px solid var(--line);${it._scanUpdated ? 'background:var(--warn-bg);' : ''}">
          <div style="display:flex;align-items:center;gap:8px;">
@@ -595,7 +605,7 @@ function renderEditPurchaseItemsList(){
             ${it._scanUpdated ? `<span style="color:var(--warn-dark);font-size:11px;margin-left:4px;">🔍</span>` : ''}
           </div>
           <input type="number" value="${it.qty}" min="0" step="any" style="width:70px;" oninput="updateEditPurchaseItemQty(${i}, this.value)" />
-          <span style="font-size:11.5px;color:var(--ink-soft);">${escapeHtmlForPrint(it.unit || '')}</span>
+          <span style="font-size:11.5px;color:var(--ink-soft);width:46px;flex:none;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtmlForPrint(it.unit || '')}</span>
           <input type="number" value="${it.amount !== undefined && it.amount !== null ? it.amount : ''}" min="0" step="any" placeholder="$" style="width:90px;" ${canEditPrice() ? '' : 'readonly title="' + t('priceReadOnlyTitle') + '"'} oninput="updateEditPurchaseItemAmount(${i}, this.value)" />
           <span class="del-link" onclick="removeEditPurchaseItem(${i})">${t('btnRemoveItem')}</span>
          </div>
