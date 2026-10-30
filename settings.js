@@ -240,6 +240,7 @@ function updateMultipackSettingsUI(){
   if(hmiBox) hmiBox.checked = hideMultipackIconOnOrderPage;
   if(typeof renderSystemCurrencySetting === 'function') renderSystemCurrencySetting();
   renderBatchExpirySetting();
+  if(typeof renderSellPriceSetting === 'function') renderSellPriceSetting();
   renderAccountingEmailList();
   const slmSelect = document.getElementById('stockLocationModeSelect');
   if(slmSelect){

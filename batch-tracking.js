@@ -60,10 +60,19 @@ async function batchRpc(name, args){
 
 async function loadBatchData(){
   try{
+    const itemSelect = cols => () => sb.from('batch_items')
+      .select('id,batch_id,product_id,expiry,qty_in,unit_cost_base,unit_cost_total,supplier_lot,batches(' + cols + ')')
+      .order('id', { ascending: true });
+    const fetchItems = async () => {
+      // margin_pct 欄位需要先執行 sql/batch_tracking_phase3c_margin.sql;還沒執行就先不帶這個欄位
+      try{ return await fetchAllPages(itemSelect('batch_no,batch_date,purchase_id,is_opening,invoice_no,supplier,margin_pct')); }
+      catch(e){
+        if(/margin_pct/i.test((e && e.message) || '')) return fetchAllPages(itemSelect('batch_no,batch_date,purchase_id,is_opening,invoice_no,supplier'));
+        throw e;
+      }
+    };
     const [itemRows, stockRows] = await Promise.all([
-      fetchAllPages(() => sb.from('batch_items')
-        .select('id,batch_id,product_id,expiry,qty_in,unit_cost_base,unit_cost_total,supplier_lot,batches(batch_no,batch_date,purchase_id,is_opening,invoice_no,supplier)')
-        .order('id', { ascending: true })),
+      fetchItems(),
       fetchAllPages(() => sb.from('batch_item_stock').select('batch_item_id,remaining').order('batch_item_id', { ascending: true }))
     ]);
     const remMap = {};
@@ -77,6 +86,7 @@ async function loadBatchData(){
         supplierLot: r.supplier_lot || '',
         batchNo: b.batch_no || '', batchDate: b.batch_date || '', purchaseId: b.purchase_id || '',
         isOpening: !!b.is_opening, invoiceNo: b.invoice_no || '', supplier: b.supplier || '',
+        marginPct: (b.margin_pct === null || b.margin_pct === undefined) ? null : Number(b.margin_pct),
         remaining: remMap[r.id] !== undefined ? remMap[r.id] : Number(r.qty_in)
       };
     });
@@ -524,6 +534,10 @@ async function batchSavePurchase(purchase){
     p_purchase_id: purchase.id, p_date: purchase.date, p_invoice_no: purchase.invoiceNo || null,
     p_supplier: purchase.partyName || null, p_items: payload
   });
+  // 第三期:新批次先帶入預設 margin(已經有 margin 的批次不動);margin 欄位沒建立(SQL 未執行)時略過
+  try{
+    if(data && data.batch_id && typeof spDefaultMargin === 'function') await batchRpc('batch_set_margin', { p_batch_id: data.batch_id, p_margin: spDefaultMargin(), p_only_if_null: true });
+  }catch(e){ console.warn('設定批次預設 margin 失敗', e); }
   batchMarkStale();
   try{ await ensureBatchDataLoaded(); }catch(e){}
   return data;
@@ -820,7 +834,7 @@ function batchRenderProductDetail(pid){
             <td><span class="batch-link" onclick="batchTrackerOpenBatch('${i.batchId}')">${batchEsc(i.batchNo)}</span>${i.isOpening ? ' <span style="color:var(--ink-soft);font-size:11px;">(' + t('batchOpening') + ')</span>' : ''}</td>
             <td>${i.expiry ? batchEsc(i.expiry) + batchExpiryBadge(i.expiry) : '–'}</td>
             <td class="num">${batchFmtQty(i.remaining)} ${batchEsc(batchProductUnit(pid))}</td>
-            <td class="num">${batchFmtMoney(batchUnitCost(i))}</td>
+            <td class="num">${(typeof spPriceCellHtml === 'function') ? spPriceCellHtml(i) : batchFmtMoney(batchUnitCost(i))}</td>
             <td>${batchEsc(i.supplierLot) || '–'}</td>
             <td>${batchEsc(i.invoiceNo) || '–'}</td>
             <td>${batchEsc(i.supplier) || '–'}</td>
@@ -842,12 +856,21 @@ function batchRenderBatchView(){
   const items = batchData.items.filter(i => i.batchId === bt.batchId);
   if(items.length === 0) return `<div class="empty-note">${t('batchNoBatches')}</div>`;
   const h = items[0];
+  // margin:這個批次的加價百分比(沒設定過的舊批次用目前的預設值);Sell price = Total price × (1 + margin%)
+  const marginBar = (typeof spMarginOf === 'function' && !h.isOpening) ? `
+    <div style="margin:0 0 10px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+      <strong style="font-size:12.5px;">Margin</strong>
+      <input type="number" min="0" step="any" value="${spMarginOf(h)}" style="width:90px;" onchange="spSaveBatchMargin('${h.batchId}', this.value)" /><span>%</span>
+      <span class="batch-link" style="font-size:12px;" onclick="spOpenDefaultMarginModal()">${t('spManageDefault')}</span>
+      <span style="font-size:11.5px;color:var(--ink-soft);">Sell price = Total price × (1 + Margin%)</span>
+    </div>` : '';
   return `
     <div style="margin:6px 0 10px;display:flex;gap:12px;align-items:center;flex-wrap:wrap;">
       <span class="batch-link" onclick="bt.batchId='';renderBatchTracker();">← ${t('batchBackToList')}</span>
       <strong>${batchEsc(h.batchNo)}</strong>
       <span style="font-size:12px;color:var(--ink-soft);">${batchEsc(h.isOpening ? t('batchOpening') : h.batchDate)} · Invoice ${batchEsc(h.invoiceNo) || '–'} · ${batchEsc(h.supplier) || '–'}</span>
     </div>
+    ${marginBar}
     <table class="stock-table">
       <thead><tr><th>${t('colProduct')}</th><th class="num">${t('batchColQtyIn')}</th><th class="num">${t('batchColRemaining')}</th><th>${t('batchColExpiry')}</th><th class="num">${t('batchColUnitCost')}</th><th>${t('batchFieldLot')}</th><th></th></tr></thead>
       <tbody>${items.sort((a, b) => batchProductName(a.productId).localeCompare(batchProductName(b.productId))).map(i => `
@@ -856,7 +879,7 @@ function batchRenderBatchView(){
           <td class="num">${batchFmtQty(i.qtyIn)}</td>
           <td class="num">${batchFmtQty(i.remaining)} ${batchEsc(batchProductUnit(i.productId))}</td>
           <td>${i.expiry ? batchEsc(i.expiry) + batchExpiryBadge(i.expiry) : '–'}</td>
-          <td class="num">${batchFmtMoney(batchUnitCost(i))}</td>
+          <td class="num">${(typeof spPriceCellHtml === 'function') ? spPriceCellHtml(i) : batchFmtMoney(batchUnitCost(i))}</td>
           <td>${batchEsc(i.supplierLot) || '–'}</td>
           <td><span class="del-link" onclick="batchTrackerOpenHistory('${i.id}')">${t('batchBtnHistory')}</span></td>
         </tr>`).join('')}</tbody>
