@@ -17,10 +17,11 @@ security definer
 set search_path = public
 as $$
 begin
-  -- batch_items / batch_movements 有 on delete cascade,但還是明確全部刪一次
-  delete from public.batch_movements;
-  delete from public.batch_items;
-  delete from public.batches;
+  -- batch_items / batch_movements 有 on delete cascade,但還是明確全部刪一次。
+  -- 注意:Supabase 預設啟用 pg_safeupdate,沒有 WHERE 的 DELETE 會被擋(連 function 裡面也是),所以每個都帶 where。
+  delete from public.batch_movements where id is not null;
+  delete from public.batch_items     where id is not null;
+  delete from public.batches         where id is not null;
 end $$;
 
 create or replace function public.batch_restore_all(
