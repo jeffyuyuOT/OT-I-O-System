@@ -24,6 +24,7 @@ let batchTxMoveCache = {};                       // txId -> [{ batch_item_id, qt
 let batchPicks = {};                             // `${orderId}::${productId}` -> [{ batchItemId, qty }](核對頁手動指定)
 let txBatchTrackChecked = true;                  // 登記進貨「進入批次追蹤」勾選狀態(預設勾選)
 let batchFormExtrasSig = '';
+let batchOrderDetailCache = {};                  // orderId -> Promise<{ productId: [{ item, qty, shipCost }] }>(已完成訂單詳情用)
 let batchOrderCache = {};                        // orderId -> Promise<{ productId: { batchItemId: qty } }>
 let batchEditPicks = {};                         // productId -> [{ batchItemId, qty }](登記進出貨→載入已完成訂單,改數量時暫存的指定批次)
 
@@ -99,7 +100,7 @@ function ensureBatchDataLoaded(force){
   if(!batchDataPromise) batchDataPromise = loadBatchData().finally(() => { batchDataPromise = null; });
   return batchDataPromise;
 }
-function batchMarkStale(){ batchData.stale = true; batchTxMoveCache = {}; batchOrderCache = {}; }
+function batchMarkStale(){ batchData.stale = true; batchTxMoveCache = {}; batchOrderCache = {}; batchOrderDetailCache = {}; }
 
 // ------------------------------------------------------------
 // 小工具
@@ -1379,4 +1380,67 @@ async function batchClearAll(){
   } finally {
     batchData.items = []; batchMarkStale();
   }
+}
+
+
+// ------------------------------------------------------------
+// 第三期:已完成訂單詳情顯示用了哪些批次(+ 出貨價和目前批次單價不同的 ⓘ)
+// ------------------------------------------------------------
+// 訂單商品列下方的佔位元素;batchFillOrderDetailLines 會依訂單 id / 商品 id 非同步填入標籤。
+function batchOrderDetailLineHtml(o, it){
+  if(!batchFeatureOn() || !batchAvailable || !o || o.deleted || it.deleted || !(it.qty > 0)) return '';
+  return `<div class="batch-alloc-line batch-order-detail-line" data-oid="${batchEsc(o.id)}" data-pid="${batchEsc(it.productId)}"></div>`;
+}
+// 某張訂單每個商品實際用的批次:{ productId: [{ item, qty(淨出貨量), shipCost(出貨當時批次單價,加權平均) }] }
+function batchGetOrderDetail(orderId){
+  if(batchOrderDetailCache[orderId]) return batchOrderDetailCache[orderId];
+  const p = (async () => {
+    const { data, error } = await batchSelectMovements('batch_item_id,qty,kind', q => q.eq('order_id', orderId).in('kind', ['out', 'return']));
+    if(error) throw error;
+    const acc = {};   // itemId -> { qty, costSum, costQty, anyCost }
+    (data || []).forEach(m => {
+      const a = acc[m.batch_item_id] = acc[m.batch_item_id] || { qty: 0, costSum: 0, costQty: 0, anyCost: false };
+      const q = -Number(m.qty);               // 出貨(負)→ 正的使用量;退回(正)→ 扣回
+      a.qty += q;
+      const c = batchNum(m.unit_cost);
+      if(c !== null){ a.anyCost = true; a.costSum += c * q; a.costQty += q; }
+    });
+    const out = {};
+    Object.keys(acc).forEach(id => {
+      const i = batchData.items.find(x => x.id === id);
+      const a = acc[id];
+      if(!i || !(a.qty > 1e-9)) return;
+      const shipCost = (a.anyCost && Math.abs(a.costQty) > 1e-9) ? a.costSum / a.costQty : null;
+      (out[i.productId] = out[i.productId] || []).push({ item: i, qty: a.qty, shipCost });
+    });
+    return out;
+  })();
+  batchOrderDetailCache[orderId] = p;
+  p.catch(() => { delete batchOrderDetailCache[orderId]; });
+  return p;
+}
+async function batchFillOrderDetailLines(root){
+  try{
+    if(!root || !batchFeatureOn()) return;
+    const els = Array.from(root.querySelectorAll('.batch-order-detail-line'));
+    if(els.length === 0) return;
+    await ensureBatchDataLoaded();
+    if(!batchActive()) return;
+    const orderIds = [...new Set(els.map(el => el.dataset.oid))];
+    const results = {};
+    await Promise.all(orderIds.map(async id => { try{ results[id] = await batchGetOrderDetail(id); }catch(e){ console.warn('訂單批次明細載入失敗', id, e); } }));
+    els.forEach(el => {
+      const map = results[el.dataset.oid];
+      const rows = map && map[el.dataset.pid];
+      if(!rows || rows.length === 0){ el.innerHTML = ''; return; }
+      el.innerHTML = rows.slice().sort((a, b) => batchFefoCompare(a.item, b.item)).map(r => {
+        const i = r.item, cur = batchUnitCost(i);
+        const flag = (batchShipCostSupported && batchCostDiffers(r.shipCost, cur))
+          ? ` <span class="batch-cost-flag" title="${batchEsc(t('batchCostFlagTitle'))}" style="cursor:pointer;color:var(--warn-dark,#b45309);font-weight:700;" onclick="batchShowShipCost(event, ${r.shipCost === null ? 'null' : r.shipCost}, ${cur === null || cur === undefined ? 'null' : cur})">ⓘ</span>`
+          : '';
+        const exp = i.expiry ? ' · ' + t('batchExpiryShort') + ' ' + batchEsc(i.expiry) : '';
+        return `<span class="batch-tag">${batchEsc(i.batchNo)}${i.isOpening ? ' (' + t('batchOpening') + ')' : ''} ×${batchFmtQty(r.qty)}${exp}${flag}</span>`;
+      }).join('');
+    });
+  } catch(e){ console.warn('訂單批次標籤載入失敗', e); }
 }

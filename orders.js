@@ -680,6 +680,7 @@ function orderItemRowHtml(o, it, isPending, readOnly, context){
         ${canEdit ? `<span class="del-link" style="margin-left:8px;color:var(--crit);" onclick="${deleteFn}('${o.id}','${it.productId}')">${t('btnDelete')}</span>` : ''}
       </span>
       ${(context === 'verify' && typeof batchOrderItemPreviewHtml === 'function') ? batchOrderItemPreviewHtml(o, it) : ''}
+      ${(context === 'completed' && typeof batchOrderDetailLineHtml === 'function') ? batchOrderDetailLineHtml(o, it) : ''}
       ${it.note ? `<div style="font-size:11px;color:var(--ink-soft);font-style:italic;">${t('noteLabelPrefix')}${it.note.replace(/</g,'&lt;')}</div>` : ''}
     </div>
   `;
@@ -785,6 +786,8 @@ function renderCompletedOrdersInto(container, recentOnly){
       </div>
     `;
   }).join('');
+  // 批次追蹤:已完成訂單展開後,每個商品下面顯示用了哪些批次(非同步載入,載完才填進去)
+  if(typeof batchFillOrderDetailLines === 'function') batchFillOrderDetailLines(container);
 }
 
 // 訂單卡片展開內容的區塊:每個區塊有自己的標題跟淺色背景(品項=淺灰、備註=淺米、對象=淺藍灰、簽收=淺綠灰),
