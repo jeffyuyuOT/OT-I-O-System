@@ -804,7 +804,7 @@ function batchRenderProductDetail(pid){
     if(Math.abs(diff) > 1e-9) untrackedRow = `<tr style="background:var(--bg-soft,#f5f5f0);"><td colspan="2">${diff > 0 ? t('batchUntracked') : t('batchOverTracked')}</td><td class="num">${batchFmtQty(Math.abs(diff))}</td><td colspan="5" style="font-size:11.5px;color:var(--ink-soft);">${t('batchUntrackedHint')}</td></tr>`;
   }catch(e){}
   return `
-    <div style="margin:14px 0 6px;font-size:22px;font-weight:700;line-height:1.25;">${batchEsc(p ? p.name : pid)}</div>
+    <div style="margin:12px 0 8px;"><span style="display:inline-block;padding:5px 12px;background:rgba(0,0,0,0.07);border-radius:3px;font-weight:700;">${batchEsc(p ? p.name : pid)}</span></div>
     <div style="margin:0 0 10px;display:flex;gap:14px;align-items:center;flex-wrap:wrap;">
       <span class="batch-link" onclick="bt.productId='';renderBatchTracker();">← ${t('batchBackToList')}</span>
       <label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer;">
