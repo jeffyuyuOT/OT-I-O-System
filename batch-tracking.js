@@ -1213,7 +1213,7 @@ function batchRenderHistoryPage(){
     .concat(batchHist.moves.map((m, idx) => `<tr style="${rowStyle}" onclick="batchHistOpenRow(${idx})"><td>${batchEsc(m.mv_date)}</td><td>${t(BATCH_KIND_LABEL_KEY[m.kind] || 'batchKindAdjust')}</td><td class="num">${Number(m.qty) > 0 ? '+' : ''}${batchFmtQty(Number(m.qty))} ${unit}</td><td>${batchEsc(m.party) || '–'}</td><td>${batchEsc(m.order_no) || '–'}</td><td class="num">${batchCostWithFlag(m.unit_cost, i)}</td></tr>`));
   return back + head + `<table class="stock-table">
     <thead>
-      <tr><th style="border-bottom:none;"></th><th style="border-bottom:none;"></th><th class="num" style="border-bottom:none;white-space:nowrap;">${tf('batchHistRemaining', { qty: batchFmtQty(i.remaining) + ' ' + unit })}</th><th colspan="3" style="border-bottom:none;"></th></tr>
+      <tr><th style="border-bottom:none;"></th><th style="border-bottom:none;"></th><th class="num" style="border-bottom:none;white-space:nowrap;padding-bottom:6px;"><span style="display:inline-block;padding:4px 10px;background:rgba(0,0,0,0.07);border-radius:3px;font-size:14px;font-weight:700;color:var(--ink);text-transform:none;letter-spacing:0;">${tf('batchHistRemaining', { qty: batchFmtQty(i.remaining) + ' ' + unit })}</span></th><th colspan="3" style="border-bottom:none;"></th></tr>
       <tr><th>${t('colDate')}</th><th>${t('colType')}</th><th class="num">${t('colQty')}</th><th>${t('batchColParty')}</th><th>${t('batchColOrderNo')}</th><th class="num">${t('batchColUnitCost')}</th></tr>
     </thead>
     <tbody>${rows.join('')}</tbody></table>`;
