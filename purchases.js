@@ -628,6 +628,24 @@ function updateEditPurchaseItemExpiry(index, value){
   const it = editPurchaseWorkingItems[index];
   if(!it) return;
   if(value) it.expiry = value; else delete it.expiry;
+  // 同商品、同有效期的品項合併成一列(有效期不同才分開列);合併後重畫清單
+  if(editPurchaseMergeDuplicateAt(index)) renderEditPurchaseItemsList();
+}
+// 兩列是不是「同一批」:同商品、同單據類型(發票 / Credit Note)、同有效期
+function editPurchaseSameLineKey(a, b){
+  return a.productId === b.productId && (a.docType || '') === (b.docType || '') && (a.expiry || '') === (b.expiry || '');
+}
+// 把第 index 列併進它前面「同一批」的那一列(數量、金額相加;供應商批號沿用第一個有填的)。有合併回傳 true。
+function editPurchaseMergeDuplicateAt(index){
+  const it = editPurchaseWorkingItems[index];
+  if(!it) return false;
+  const target = editPurchaseWorkingItems.find((x, i) => i !== index && editPurchaseSameLineKey(x, it));
+  if(!target) return false;
+  target.qty = (target.qty || 0) + (it.qty || 0);
+  if(it.amount !== undefined && it.amount !== null) target.amount = (target.amount || 0) + it.amount;
+  if(!target.supplierLot && it.supplierLot) target.supplierLot = it.supplierLot;
+  editPurchaseWorkingItems.splice(index, 1);
+  return true;
 }
 function updateEditPurchaseItemLot(index, value){
   const it = editPurchaseWorkingItems[index];
@@ -675,10 +693,10 @@ function addEditPurchaseItem(){
   const p = products.find(x => x.id === productId);
   if(!p) return;
   const amountVal = (!canEditPrice() || amountInput.value === '') ? undefined : parseFloat(amountInput.value);
-  // 手動新增的品項,如果剛好跟清單裡已經有的某一項是同一個商品、也同樣沒有 docType/來源檔案
-  // (代表都是一般手動輸入的,不是分屬不同收據來源),直接把數量/金額併進那一列,不要平白多出
-  // 重複的兩列看起來像同一個商品被記兩筆帳。
-  const existing = editPurchaseWorkingItems.find(it => it.productId === productId && !it.docType && !it.sourceFilename);
+  // 新增的品項,如果清單裡已經有「同商品、同單據類型、同樣沒有有效期」的一列,直接把數量/金額併進去,
+  // 不要平白多出重複的兩列看起來像同一個商品被記兩筆帳。(新增當下還沒填有效期,之後在那一列填的有效期
+  // 如果跟另一列相同,會在 updateEditPurchaseItemExpiry 自動合併;有效期不同才會分開列。)
+  const existing = editPurchaseWorkingItems.find(it => it.productId === productId && !it.docType && !it.expiry);
   if(existing){
     existing.qty = (existing.qty || 0) + qty;
     if(amountVal !== undefined) existing.amount = (existing.amount || 0) + amountVal;
