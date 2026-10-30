@@ -125,3 +125,122 @@ async function applyShowSellPrice(checked){
   try{ await dbSet('showSellPrice', checked ? 'true' : 'false'); } catch(e){ console.error('儲存失敗', e); }
   try{ if(typeof renderAll === 'function') renderAll(); }catch(e){}
 }
+
+// ============================================================
+// 訂單商品的售價
+// ============================================================
+function spPartyDiscountOfOrder(order){
+  const sp = (typeof shippingParties !== 'undefined' && order) ? shippingParties.find(x => x.id === order.partyId) : null;
+  return (typeof partyDiscountOf === 'function') ? partyDiscountOf(sp) : 0;
+}
+function spPartyDiscountById(partyId){
+  const sp = (typeof shippingParties !== 'undefined') ? shippingParties.find(x => x.id === partyId) : null;
+  return (typeof partyDiscountOf === 'function') ? partyDiscountOf(sp) : 0;
+}
+// 依預計(或指定)的批次分配算加權平均 Sell price,再套出貨方 Discount
+// 回傳 { unit, base, discountPct, manual, frozen, lines:[{ batchNo, expiry, qty, ratio, sell }], untracked, unpricedQty }
+function spPriceCalc(productId, qty, picks, discountPct){
+  const alloc = batchPreviewAllocation(productId, qty, picks);
+  const lines = alloc.lines.map(l => ({ batchNo: l.item.batchNo, isOpening: l.item.isOpening, expiry: l.item.expiry || '', qty: l.qty, sell: spSellUnit(l.item), manual: !!l.manual }));
+  const priced = lines.filter(l => l.sell !== null);
+  const pricedQty = priced.reduce((s, l) => s + l.qty, 0);
+  const totalQty = lines.reduce((s, l) => s + l.qty, 0);
+  lines.forEach(l => { l.ratio = totalQty > 0 ? l.qty / totalQty : 0; });
+  const base = pricedQty > 0 ? priced.reduce((s, l) => s + l.sell * l.qty, 0) / pricedQty : null;
+  const unit = base === null ? null : spRound2(base * (1 - (discountPct || 0) / 100));
+  return { unit, base: base === null ? null : spRound2(base), discountPct: discountPct || 0, manual: false, frozen: false, lines, untracked: alloc.untracked, unpricedQty: totalQty - pricedQty };
+}
+function spPriceOrderItem(order, it){
+  const disc = spPartyDiscountOfOrder(order);
+  if(it.sellFrozen){
+    return { unit: Number.isFinite(Number(it.sellPrice)) ? Number(it.sellPrice) : null, base: null, discountPct: Number(it.sellDiscount) || 0, manual: !!it.sellPriceManual, frozen: true, lines: [], untracked: 0, unpricedQty: 0 };
+  }
+  // 已核對(已完成)但沒有固定售價的訂單(例如功能上線前的舊訂單):不再依目前批次推算,顯示空白
+  if(typeof isPreVerificationStatus === 'function' && !isPreVerificationStatus(order)){
+    return { unit: null, base: null, discountPct: disc, manual: false, frozen: false, legacy: true, lines: [], untracked: 0, unpricedQty: 0 };
+  }
+  if(it.sellPriceManual && Number.isFinite(Number(it.sellPrice))){
+    return { unit: Number(it.sellPrice), base: null, discountPct: disc, manual: true, frozen: false, lines: [], untracked: 0, unpricedQty: 0 };
+  }
+  if(!(it.qty > 0) || !batchIsTracked(it.productId)) return { unit: null, base: null, discountPct: disc, manual: false, frozen: false, lines: [], untracked: it.qty > 0 ? it.qty : 0, unpricedQty: 0 };
+  return spPriceCalc(it.productId, it.qty, it.batchPicks, disc);
+}
+// 訂單品項後面的售價(可點擊看明細;editable=true 時明細視窗裡可以手動改)
+function spOrderPriceHtml(order, it){
+  if(!spEnabled() || !order || !it || it.deleted) return '';
+  const pr = spPriceOrderItem(order, it);
+  const label = pr.unit === null ? '–' : spMoney(pr.unit);
+  const mark = pr.manual ? ' ✎' : '';
+  return `<span class="batch-link sp-order-price" title="${batchEsc(t('spPriceClickHint'))}" style="margin-left:8px;font-weight:600;" onclick="event.stopPropagation();spOpenOrderPricePopup('${order.id}','${it.productId}')">${label}${mark}</span>`;
+}
+function spCloseOrderPopup(){ const o = document.getElementById('spOrderPriceOverlay'); if(o) o.remove(); }
+function spOpenOrderPricePopup(orderId, productId){
+  const order = orders.find(o => o.id === orderId);
+  const it = order ? order.items.find(x => x.productId === productId && !x.deleted) : null;
+  if(!order || !it) return;
+  spCloseOrderPopup();
+  const pr = spPriceOrderItem(order, it);
+  const unit = batchEsc(it.unit || batchProductUnit(productId));
+  // 已完成(已固定售價)的訂單不能改;已簽收的訂單也不能改;沒有「編輯價錢」權限只能看
+  const canEdit = !pr.frozen && !pr.legacy && !order.signedAt && !order.deleted && canEditPrice();
+  let body = '';
+  if(pr.frozen){
+    body = `<p style="margin:0 0 6px;">Sell price: <strong>${spMoney(pr.unit)}</strong> / ${unit}</p>
+      ${pr.discountPct ? `<p style="margin:0;font-size:12px;color:var(--ink-soft);">Discount ${pr.discountPct}%</p>` : ''}
+      <p style="margin:8px 0 0;font-size:11.5px;color:var(--ink-soft);">${t('spFrozenNote')}</p>`;
+  } else if(pr.legacy){
+    body = `<p style="margin:0;font-size:12.5px;color:var(--ink-soft);">${t('spLegacyNote')}</p>`;
+  } else {
+    const calc = pr.manual ? spPriceCalc(productId, it.qty, it.batchPicks, pr.discountPct) : pr;
+    const rows = calc.lines.map(l => `<tr><td>${batchEsc(l.batchNo)}${l.isOpening ? ' (' + t('batchOpening') + ')' : ''}</td><td class="num">${batchFmtQty(l.qty)}</td><td class="num">${Math.round(l.ratio * 1000) / 10}%</td><td class="num">${spMoney(l.sell)}</td></tr>`).join('');
+    body = `${calc.lines.length ? `<table class="stock-table"><thead><tr><th>${t('batchColBatch')}</th><th class="num">${t('colQty')}</th><th class="num">${t('spRatio')}</th><th class="num">Sell price</th></tr></thead><tbody>${rows}</tbody></table>` : `<div class="empty-note">${t('spNoBatchCost')}</div>`}
+      ${calc.untracked > 0 ? `<p style="font-size:11.5px;color:var(--warn-dark,#b45309);margin:6px 0 0;">${t('batchUntracked')}: ${batchFmtQty(calc.untracked)}</p>` : ''}
+      ${calc.base !== null ? `<p style="margin:8px 0 2px;font-size:12.5px;">${t('spWeighted')}: <strong>${spMoney(calc.base)}</strong>${calc.discountPct ? ` · Discount ${calc.discountPct}% → <strong>${spMoney(calc.unit)}</strong>` : ''}</p>` : ''}
+      ${pr.manual ? `<p style="margin:6px 0 0;font-size:12.5px;color:var(--warn-dark,#b45309);">${t('spManualNow')}: <strong>${spMoney(pr.unit)}</strong></p>` : ''}
+      ${canEdit ? `<div style="margin-top:10px;display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
+        <span>${t('spManualPrice')}</span><input id="spManualPriceInput" type="number" min="0" step="0.01" value="${pr.unit === null ? '' : pr.unit}" style="width:110px;" />
+        <button class="btn" onclick="spSaveManualPrice('${orderId}','${productId}')">${t('btnSave')}</button>
+        ${pr.manual ? `<button class="btn ghost" onclick="spResetManualPrice('${orderId}','${productId}')">${t('spResetAuto')}</button>` : ''}
+      </div>` : ''}`;
+  }
+  const ov = document.createElement('div');
+  ov.id = 'spOrderPriceOverlay'; ov.className = 'modal-overlay'; ov.style.display = 'flex'; ov.style.zIndex = '1150';
+  ov.onclick = e => { if(e.target === ov) spCloseOrderPopup(); };
+  ov.innerHTML = `<div class="modal-box" style="max-width:min(460px,92vw);">
+    <div class="section-title" style="margin-top:0;">${batchEsc(it.name || batchProductName(productId))} · ${batchFmtQty(it.qty)} ${unit}</div>
+    ${body}
+    <div class="modal-actions"><button class="btn ghost" onclick="spCloseOrderPopup()">${t('btnClose')}</button></div>
+  </div>`;
+  document.body.appendChild(ov);
+}
+function spRefreshOrderViews(){
+  try{ if(typeof renderPendingOrders === 'function') renderPendingOrders(); }catch(e){}
+  try{ if(typeof renderOrders === 'function') renderOrders(); }catch(e){}
+  try{ if(typeof renderTxExistingItems === 'function' && document.getElementById('txExistingItemsList')) renderTxExistingItems(); }catch(e){}
+  try{ if(typeof renderVerifyPage === 'function' && document.getElementById('verifyPageOrderItems')) renderVerifyPage(); }catch(e){}
+}
+async function spSaveManualPrice(orderId, productId){
+  const order = orders.find(o => o.id === orderId);
+  const it = order ? order.items.find(x => x.productId === productId && !x.deleted) : null;
+  const el = document.getElementById('spManualPriceInput');
+  if(!order || !it || !el || !canEditPrice() || order.signedAt) return;
+  const n = Number(el.value);
+  if(el.value.trim() === '' || !Number.isFinite(n) || n < 0){ showInfoModal(t('spPriceInvalid')); return; }
+  it.sellPrice = spRound2(n); it.sellPriceManual = true;
+  try{ await upsertOrders([order]); } catch(e){ console.error('儲存售價失敗', e); showInfoModal(t('spMarginSaveFailed')); return; }
+  spCloseOrderPopup(); spRefreshOrderViews();
+}
+async function spResetManualPrice(orderId, productId){
+  const order = orders.find(o => o.id === orderId);
+  const it = order ? order.items.find(x => x.productId === productId && !x.deleted) : null;
+  if(!order || !it || !canEditPrice() || order.signedAt) return;
+  delete it.sellPrice; delete it.sellPriceManual;
+  try{ await upsertOrders([order]); } catch(e){ console.error('儲存售價失敗', e); showInfoModal(t('spMarginSaveFailed')); return; }
+  spCloseOrderPopup(); spRefreshOrderViews();
+}
+// 登記進出貨清單(尚未建立訂單的品項)用:依出貨方 Discount 與預計批次算售價
+function spTxItemPriceHtml(it, partyId){
+  if(!spEnabled() || !it || !(it.qty > 0) || !batchIsTracked(it.productId)) return '–';
+  const pr = spPriceCalc(it.productId, it.qty, null, spPartyDiscountById(partyId));
+  return pr.unit === null ? '–' : spMoney(pr.unit);
+}

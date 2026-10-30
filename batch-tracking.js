@@ -1003,7 +1003,28 @@ function batchExistingItemLineHtml(it){
   if(!batchExistingItemTracked(it)) return '';
   return `<div class="batch-alloc-line batch-order-line" data-pid="${it.productId}"></div>`;
 }
+// 載入「待處理訂單」時:每個品項可以先指定要從哪些批次出(只存在這張訂單上,決定預計的 Sell price;核對時優先使用)
+function batchPendingItemPickable(it){
+  return typeof registerOutFlowType !== 'undefined' && registerOutFlowType === 'load-pending' && batchIsTracked(it.productId) && it.qty > 0;
+}
+function batchOpenPickerForPendingItem(productId){
+  const order = orders.find(o => o.id === registerLoadedOrderId);
+  const item = order ? order.items.find(x => x.productId === productId && !x.deleted) : null;
+  if(!order || !item) return;
+  batchOpenPicker({
+    productId, qty: item.qty, unit: item.unit, picks: item.batchPicks || [],
+    onSave: async picks => {
+      if(picks.length) item.batchPicks = picks; else delete item.batchPicks;
+      try{ await upsertOrders([order]); } catch(e){ console.error('儲存批次指定失敗', e); showInfoModal(t('spMarginSaveFailed')); }
+      if(typeof spRefreshOrderViews === 'function') spRefreshOrderViews(); else renderTxExistingItems();
+    }
+  });
+}
 function batchExistingItemButtonHtml(it, pending){
+  if(batchPendingItemPickable(it)){
+    const has = (it.batchPicks || []).length > 0;
+    return `<span class="del-link" onclick="batchOpenPickerForPendingItem('${it.productId}')">${t('btnBatchPick')}${has ? ' ✓' : ''}</span>`;
+  }
   if(!batchExistingItemTracked(it)) return '';
   return `<span class="del-link" onclick="batchOpenOrderBreakdownView('${it.productId}')">${t('btnBatchPick')}</span>`;
 }

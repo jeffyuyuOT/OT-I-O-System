@@ -674,7 +674,7 @@ function orderItemRowHtml(o, it, isPending, readOnly, context){
   return `
     <div style="flex-wrap:wrap;">
       <span>${it.sku ? `<span class="sku-tooltip-trigger" data-sku="${it.sku.replace(/"/g,'&quot;')}">${it.name}</span>` : it.name}</span>
-      <span>${qtyDisplay}
+      <span>${qtyDisplay}${((context === 'pending' || context === 'verify' || context === 'completed') && typeof spOrderPriceHtml === 'function') ? spOrderPriceHtml(o, it) : ''}
         ${canEdit ? `<span class="del-link" style="margin-left:8px;" onclick="startEditOrderItemQty('${context}','${o.id}','${it.productId}')">${t('btnEditQty')}</span>` : ''}
         ${(canEdit && context === 'verify' && typeof batchOrderItemButtonHtml === 'function') ? batchOrderItemButtonHtml(o, it) : ''}
         ${canEdit ? `<span class="del-link" style="margin-left:8px;color:var(--crit);" onclick="${deleteFn}('${o.id}','${it.productId}')">${t('btnDelete')}</span>` : ''}
@@ -760,7 +760,7 @@ function renderCompletedOrdersInto(container, recentOnly){
         <div class="order-card-head" style="cursor:pointer;" onclick="toggleOrderExpand('${o.id}')">
           <span class="order-card-date">
             <span style="display:inline-block;width:14px;">${isExpanded ? '▾' : '▸'}</span>
-            ${o.orderNo ? `<span style="color:var(--ink-soft);font-weight:400;">${o.orderNo}</span> · ` : ''}${o.date}${o.partyName ? ` <span style="font-weight:400;color:var(--ink-soft);">· ${tf('orderCardPartyLabel', {name: o.partyName})}</span>` : ''}
+            ${o.orderNo ? `<span style="color:var(--ink-soft);font-weight:400;">${o.orderNo}</span> · ` : ''}${o.date}${o.partyName ? ` <span style="font-weight:400;color:var(--ink-soft);">· ${(o.partyId && hasCapability('cap-manage-parties')) ? tf('orderCardPartyLabel', {name: `<span class="batch-link" title="${t('btnEdit')}" onclick="event.stopPropagation();openPartyEditModal('${o.partyId}')">${escapeHtmlForPrint(o.partyName)}</span>`}) : tf('orderCardPartyLabel', {name: o.partyName})}</span>` : ''}
             ${o.remark ? `<span title="${t('orderHasRemarkTitle')}" style="margin-left:6px;color:var(--yellow-dark);">📝</span>` : ''}
             ${wasModified ? `<span title="${t('orderWasModifiedTitle')}" style="margin-left:6px;color:var(--warn);">✎</span>` : ''}
           </span>
@@ -1155,7 +1155,7 @@ function renderPendingOrders(){
       </div>
     ` : `
       <div style="margin:8px 0;font-size:12px;color:var(--ink-soft);">
-        ${o.partyId ? tf('orderCardPartyLabel', {name: o.partyName || ''}) : `<span style="color:var(--crit);">${t('orderNoPartyLinkedWarning')}</span>`}
+        ${o.partyId ? tf('orderCardPartyLabel', {name: hasCapability('cap-manage-parties') ? `<span class="batch-link" title="${t('btnEdit')}" onclick="openPartyEditModal('${o.partyId}')">${escapeHtmlForPrint(o.partyName || '')}</span>` : (o.partyName || '')}) : `<span style="color:var(--crit);">${t('orderNoPartyLinkedWarning')}</span>`}
         <span class="del-link" style="margin-left:8px;" onclick="startEditOrderParty('${o.id}')">${t('btnEditOrderParty')}</span>
       </div>
     `;
@@ -1706,7 +1706,8 @@ async function verifyOrder(orderId){
       const outTxs = rpcItems.map(it => transactions.find(x => x.id === it.txId)).filter(Boolean);
       const picksByTx = {};
       outTxs.forEach(tx => {
-        const picks = batchPicks[batchPickKey(orderId, tx.productId)];
+        const savedItem = order.items.find(x => x.productId === tx.productId && !x.deleted);
+        const picks = batchPicks[batchPickKey(orderId, tx.productId)] || (savedItem && savedItem.batchPicks);
         if(picks && picks.length) picksByTx[tx.id] = picks.map(p => ({ batch_item_id: p.batchItemId, qty: p.qty }));
       });
       await batchAllocateAfter(outTxs, picksByTx);

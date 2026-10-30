@@ -144,6 +144,7 @@ async function savePartyEdit(){
   populatePartySelect();
   renderOrders(); // 已建立的訂單卡片上顯示的出貨方名稱也一併更新
   try{ if(typeof renderPendingOrders === 'function') renderPendingOrders(); }catch(e){}
+  try{ if(typeof renderTxExistingItems === 'function') renderTxExistingItems(); if(typeof renderTxBatchList === 'function') renderTxBatchList(); }catch(e){}   // 折扣改了,登記進出貨頁的售價也立即更新
   const pm = document.getElementById('partyMsg');
   if(pm){ pm.className = 'msg ok'; pm.textContent = isNew ? tf('partyAddedMsg', { name }) : ''; }
 }
