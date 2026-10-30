@@ -397,10 +397,14 @@ async function loadReceiptLineMappings(){
 }
 
 function supplierToRow(s){
-  return { id: s.id, name: s.name, phone: s.phone || null, address: s.address || null, note: s.note || null, updated_at: new Date().toISOString() };
+  const row = { id: s.id, name: s.name, phone: s.phone || null, address: s.address || null, note: s.note || null, updated_at: new Date().toISOString() };
+  // 聯繫人欄位(purchase_suppliers.contact)需要先執行 sql/purchase_suppliers_contact_column.sql;
+  // 沒填聯繫人時不帶這個欄位,還沒執行 SQL 也不影響其他資料的儲存。
+  if(s.contact) row.contact = s.contact;
+  return row;
 }
 function rowToSupplier(row){
-  return { id: row.id, name: row.name, phone: row.phone || '', address: row.address || '', note: row.note || '' };
+  return { id: row.id, name: row.name, contact: row.contact || '', phone: row.phone || '', address: row.address || '', note: row.note || '' };
 }
 async function loadPurchaseSuppliers(){
   try{

@@ -38,7 +38,10 @@ function renderPurchaseLog(){
   // (如果篩選後那個進貨方已經不在清單裡,才會被重設成「全部對象」)。
   const partySel = document.getElementById('purchaseLogPartyFilter');
   const prevParty = partySel.value;
-  const distinctParties = [...new Set(purchases.map(p => p.partyName || p.partyId || '').filter(Boolean))].sort();
+  const distinctPartiesSet = new Set(purchases.map(p => p.partyName || p.partyId || '').filter(Boolean));
+  // 從「進貨方管理 → 進貨紀錄」跳過來時,這個進貨方可能還沒有任何進貨單:仍保留它的選項,篩選結果就是空的
+  if(prevParty && typeof purchaseSuppliers !== 'undefined' && purchaseSuppliers.some(x => x.name === prevParty)) distinctPartiesSet.add(prevParty);
+  const distinctParties = [...distinctPartiesSet].sort();
   partySel.innerHTML = `<option value="">${t('logPartyAll')}</option>` + distinctParties.map(p => `<option value="${p.replace(/"/g,'&quot;')}">${p}</option>`).join('');
   if(distinctParties.includes(prevParty)) partySel.value = prevParty;
 
