@@ -1851,7 +1851,10 @@
     <div id="subtab-purchase-mgmt-suppliers" class="supply-pane">
       <div class="toolbar">
         <div class="section-title" style="margin:0;" data-i18n="secSupplierManagement">進貨方管理</div>
-        <button class="btn" onclick="openSupplierEditModal(null)" data-i18n="btnAddSupplier">+ 新增供應商</button>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          <button class="btn ghost" onclick="importSuppliersFromPurchases()" data-i18n="btnImportSuppliers">從進貨單匯入進貨方</button>
+          <button class="btn" onclick="openSupplierEditModal(null)" data-i18n="btnAddSupplier">+ 新增供應商</button>
+        </div>
       </div>
       <p style="font-size:11.5px;color:var(--ink-soft);margin:0 0 12px;" data-i18n="supplierManagementDesc">
         登記進出貨的進貨方下拉選單會依這個清單顯示(依名稱排序);刪除的供應商不會再出現在下拉選單裡,但不會影響已經建立的進貨單紀錄。

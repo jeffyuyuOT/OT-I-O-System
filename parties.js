@@ -189,7 +189,7 @@ function renderPartiesTable(){
         <td><span class="mini-label">${t('fieldPartyPhone')}</span>${esc(sp.phone !== undefined ? sp.phone : (sp.contact || '')) || '—'}</td>
         <td class="row-note"><span class="mini-label">${t('colNote')}</span>${esc(sp.note || '') || '—'}</td>
         <td><span class="mini-label">${t('colOrderFrequency')}</span>${t(sp.orderFrequency === 'fortnight' ? 'freqFortnight' : (sp.orderFrequency === 'monthly' ? 'freqMonthly' : 'freqWeekly'))}</td>
-        <td class="row-action" style="white-space:nowrap;">
+        <td class="row-action" style="white-space:nowrap;text-align:right;">
           <span class="del-link" onclick="partyGoNewOrder('${sp.id}')" style="margin-right:6px;">${t('btnPartyNewOrder')}</span>
           <span class="del-link" onclick="partyGoOrderHistory('${sp.id}')" style="margin-right:6px;">${t('btnPartyOrderHistory')}</span>
           <span class="del-link" onclick="openPartyEditModal('${sp.id}')" style="margin-right:6px;">${t('btnEdit')}</span>
@@ -347,7 +347,7 @@ function renderSupplierManagementTable(){
           <td>${escapeHtmlForPrint(s.phone || '')}</td>
           <td>${escapeHtmlForPrint(s.address || '')}</td>
           <td>${escapeHtmlForPrint(s.note || '')}</td>
-          <td style="white-space:nowrap;">
+          <td style="white-space:nowrap;text-align:right;">
             <span class="del-link" onclick="supplierGoPurchaseHistory('${s.id}')">${t('btnSupplierPurchaseHistory')}</span>
             &nbsp;·&nbsp;
             <span class="del-link" onclick="openSupplierEditModal('${s.id}')">${t('btnEdit')}</span>
@@ -380,12 +380,39 @@ function supplierGoPurchaseHistory(supplierId){
   renderPurchaseLog();
 }
 
+// 登記進貨時用了「進貨方管理」清單裡還沒有的進貨方 → 問要不要加入;要的話開出跟進貨方管理一樣的編輯視窗(名稱已帶入)
+function askAddSupplierToManagement(name){
+  if(!name) return;
+  if(purchaseSuppliers.some(x => (x.name || '').toLowerCase() === name.toLowerCase())) return;
+  showConfirmModal(tf('confirmAddSupplierToMgmt', { name }), () => { openSupplierEditModal(null, name); });
+}
+// 把「進貨單紀錄裡出現過、但進貨方管理清單裡還沒有」的進貨方一次補進清單(只建名稱,電話/住址之後再編輯)
+async function importSuppliersFromPurchases(){
+  try{ if(typeof ensurePurchasesLoaded === 'function') await ensurePurchasesLoaded(); }catch(e){}
+  const known = new Set(purchaseSuppliers.map(x => (x.name || '').toLowerCase()));
+  const names = [...new Set((purchases || []).map(p => (p.partyName || '').trim()).filter(Boolean))]
+    .filter(n => !known.has(n.toLowerCase())).sort((a, b) => a.localeCompare(b));
+  if(names.length === 0){ showInfoModal(t('importSuppliersNone')); return; }
+  const shown = names.slice(0, 15).join('、') + (names.length > 15 ? '…' : '');
+  showConfirmModal(tf('importSuppliersConfirm', { n: names.length, names: shown }), async () => {
+    let failed = 0;
+    for(const n of names){
+      const sup = { id: genId(), name: n, contact: '', phone: '', address: '', note: '' };
+      try{ await upsertPurchaseSupplier(sup); purchaseSuppliers.push(sup); }
+      catch(e){ failed++; console.error('匯入進貨方失敗', n, e); }
+    }
+    renderSupplierManagementTable();
+    populateTxPartyHistorySelect();
+    showInfoModal(failed ? tf('importSuppliersPartial', { ok: names.length - failed, failed }) : tf('importSuppliersDone', { n: names.length }));
+  });
+}
+
 let editingSupplierId = null;
-function openSupplierEditModal(supplierId){
+function openSupplierEditModal(supplierId, prefillName){
   editingSupplierId = supplierId;
   const s = supplierId ? purchaseSuppliers.find(x => x.id === supplierId) : null;
   document.getElementById('supplierEditModalTitle').textContent = s ? t('modalEditSupplierTitle') : t('modalAddSupplierTitle');
-  document.getElementById('supplierNameInput').value = s ? s.name : '';
+  document.getElementById('supplierNameInput').value = s ? s.name : (prefillName || '');
   document.getElementById('supplierContactInput').value = s ? s.contact || '' : '';
   document.getElementById('supplierPhoneInput').value = s ? s.phone || '' : '';
   document.getElementById('supplierAddressInput').value = s ? s.address || '' : '';

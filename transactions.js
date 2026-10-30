@@ -1901,16 +1901,10 @@ async function submitTxBatchSimple(date, msg){
     if(typeof pcRememberExpenseNames === 'function' && purchase.costs) pcRememberExpenseNames(purchase.costs.expenses.map(e => e.name));
     if(typeof pcReset === 'function') pcReset();
     removePurchaseReceipt();
-    // 這筆用的供應商名稱,如果「進貨方管理」清單裡還沒有(例如是透過「+ 新增供應商」臨時打的
-    // 名字),先幫忙建一筆空白的(電話/住址/附註都空著)進去,下次登記進出貨的下拉選單才會
-    // 看得到,不用還要特地跑去系統管理那邊補建一次。使用者之後可以再去系統管理補上電話/住址
-    // 這些細節資料。
-    if(party && !purchaseSuppliers.some(s => s.name.toLowerCase() === party.toLowerCase())){
-      const newSupplier = { id: genId(), name: party, phone: '', address: '', note: '' };
-      purchaseSuppliers.push(newSupplier);
-      try{ await upsertPurchaseSupplier(newSupplier); }
-      catch(e){ console.error('自動建立進貨方失敗', e); }
-    }
+    // 這筆用的供應商名稱,如果「進貨方管理」清單裡還沒有(例如是透過「+ 新增供應商」臨時打的名字),
+    // 跳視窗問要不要加入;要的話開出進貨方管理的編輯視窗(名稱已帶入),可以順便補聯繫人/電話/住址。
+    // 不加入也不影響這張進貨單。
+    if(party && typeof askAddSupplierToManagement === 'function') askAddSupplierToManagement(party);
     populateTxPartyHistorySelect(); // 剛剛這筆用的供應商,馬上就會出現在下拉選單裡,不用重新整理頁面
 
     // 有勾選「寄送給會計」才會寄——寄信失敗不影響這張進貨單本身已經建立成功這件事,只是在畫面上
