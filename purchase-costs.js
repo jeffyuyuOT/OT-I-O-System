@@ -531,8 +531,7 @@ function pcRender(){
       </div>
       <div style="font-size:11.5px;color:var(--ink-soft);margin:2px 0 0 24px;">${tf('pcInvoiceCurrencyHint', { base })}</div>` : ''}
 
-      <div style="font-size:12.5px;font-weight:700;margin-top:10px;">${t('pcExpenses')}</div>
-      <div style="font-size:11.5px;color:var(--ink-soft);">${t('pcAutoFillHint')}</div>
+      <div style="font-size:12.5px;font-weight:700;margin-top:10px;">${t('pcExpenses')} <span role="button" tabindex="0" title="${t('pcInfoIconTitle')}" aria-label="${t('pcInfoIconTitle')}" style="cursor:pointer;color:var(--ink-soft);font-size:14px;font-weight:400;margin-left:4px;user-select:none;" onclick="showInfoModal(t('pcAutoFillHint'))" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();showInfoModal(t('pcAutoFillHint'));}">ⓘ</span></div>
       ${dl}${expRows}
       <button class="btn ghost" onclick="pcAddExpense()" style="margin-top:2px;">${t('pcAddExpense')}</button>
       ${lastSet ? `<button class="btn ghost" onclick="pcLoadLastSet()" style="margin-top:2px;">${tf('pcLoadLastSet', { supplier: pcEsc(supplierNow), date: lastSet.date })}</button>` : ''}
