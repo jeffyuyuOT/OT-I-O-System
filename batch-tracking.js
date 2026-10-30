@@ -735,12 +735,16 @@ function renderBatchTracker(){
     return;
   }
   let body = '';
+  let toolbarFilters = '';
   if(bt.view === 'batch') body = batchRenderBatchView();
   else if(bt.view === 'date') body = batchRenderDateView();
-  else body = batchRenderProductView();
+  else { toolbarFilters = batchProductFiltersHtml(); body = batchRenderProductView(); }
   root.innerHTML = `
     <div class="toolbar" style="margin-bottom:10px;">
-      <div class="section-title" style="margin:0;">${t('batchTrackerTitle')}</div>
+      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+        <div class="section-title" style="margin:0;">${t('batchTrackerTitle')}</div>
+        ${toolbarFilters}
+      </div>
       <div class="batch-seg">${seg('product', t('batchViewProduct'))}${seg('batch', t('batchViewBatch'))}${seg('date', t('batchViewDate'))}</div>
     </div>
     <div id="batchUnallocatedBanner"></div>
@@ -748,26 +752,21 @@ function renderBatchTracker(){
   batchLoadUnallocatedBanner();
 }
 
-function batchRenderProductView(){
+// 商品頁的「分類篩選 + 搜尋」放在標題列(跟「批次追蹤」標題同一行)
+function batchProductFiltersHtml(){
   const trackedIds = [...new Set(batchData.items.map(i => i.productId))];
   const usedCats = [...new Set(trackedIds.map(pid => { const p = products.find(x => x.id === pid); return p ? (p.category || '未分類') : null; }).filter(Boolean))];
   const catLabelFn = (c) => (typeof catLabel === 'function') ? catLabel(c) : c;
-  const filters = `
-    <div class="filter-row" style="margin-bottom:10px;">
-      <div class="field">
-        <label>${t('fieldFilterByCategory')}</label>
-        <select onchange="bt.category=this.value;bt.productId='';renderBatchTracker();">
-          <option value="">${t('catFilterAll')}</option>
-          ${usedCats.map(c => `<option value="${batchEsc(c)}" ${bt.category === c ? 'selected' : ''}>${batchEsc(catLabelFn(c))}</option>`).join('')}
-        </select>
-      </div>
-      <div class="field" style="min-width:220px;">
-        <label>${t('batchSearchProduct')}</label>
-        <input type="text" value="${batchEsc(bt.search)}" oninput="bt.search=this.value;batchTrackerRefreshList();" />
-      </div>
-    </div>`;
-  if(bt.productId) return filters + batchRenderProductDetail(bt.productId);
-  return filters + `<div id="batchProductList">${batchProductListHtml()}</div>`;
+  return `
+    <select title="${t('fieldFilterByCategory')}" onchange="bt.category=this.value;bt.productId='';renderBatchTracker();">
+      <option value="">${t('catFilterAll')}</option>
+      ${usedCats.map(c => `<option value="${batchEsc(c)}" ${bt.category === c ? 'selected' : ''}>${batchEsc(catLabelFn(c))}</option>`).join('')}
+    </select>
+    <input type="search" value="${batchEsc(bt.search)}" placeholder="${batchEsc(t('batchSearchProduct'))}" style="width:190px;" oninput="bt.search=this.value;batchTrackerRefreshList();" />`;
+}
+function batchRenderProductView(){
+  if(bt.productId) return batchRenderProductDetail(bt.productId);
+  return `<div id="batchProductList">${batchProductListHtml()}</div>`;
 }
 function batchTrackerRefreshList(){
   const el = document.getElementById('batchProductList');
@@ -805,9 +804,9 @@ function batchRenderProductDetail(pid){
     if(Math.abs(diff) > 1e-9) untrackedRow = `<tr style="background:var(--bg-soft,#f5f5f0);"><td colspan="2">${diff > 0 ? t('batchUntracked') : t('batchOverTracked')}</td><td class="num">${batchFmtQty(Math.abs(diff))}</td><td colspan="5" style="font-size:11.5px;color:var(--ink-soft);">${t('batchUntrackedHint')}</td></tr>`;
   }catch(e){}
   return `
-    <div style="margin:6px 0 10px;display:flex;gap:12px;align-items:center;flex-wrap:wrap;">
+    <div style="margin:14px 0 6px;font-size:22px;font-weight:700;line-height:1.25;">${batchEsc(p ? p.name : pid)}</div>
+    <div style="margin:0 0 10px;display:flex;gap:14px;align-items:center;flex-wrap:wrap;">
       <span class="batch-link" onclick="bt.productId='';renderBatchTracker();">← ${t('batchBackToList')}</span>
-      <strong>${batchEsc(p ? p.name : pid)}</strong>
       <label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer;">
         <input type="checkbox" ${bt.includeDepleted ? 'checked' : ''} onchange="bt.includeDepleted=this.checked;renderBatchTracker();" /> ${t('batchIncludeDepleted')}
       </label>
@@ -819,7 +818,7 @@ function batchRenderProductDetail(pid){
           <tr>
             <td><span class="batch-link" onclick="batchTrackerOpenBatch('${i.batchId}')">${batchEsc(i.batchNo)}</span>${i.isOpening ? ' <span style="color:var(--ink-soft);font-size:11px;">(' + t('batchOpening') + ')</span>' : ''}</td>
             <td>${i.expiry ? batchEsc(i.expiry) + batchExpiryBadge(i.expiry) : '–'}</td>
-            <td class="num"><span class="batch-link" onclick="batchOpenInfoPopup('${i.id}','qty')">${batchFmtQty(i.remaining)} ${batchEsc(batchProductUnit(pid))}</span></td>
+            <td class="num">${batchFmtQty(i.remaining)} ${batchEsc(batchProductUnit(pid))}</td>
             <td class="num">${batchFmtMoney(batchUnitCost(i))}</td>
             <td>${batchEsc(i.supplierLot) || '–'}</td>
             <td>${batchEsc(i.invoiceNo) || '–'}</td>
@@ -854,7 +853,7 @@ function batchRenderBatchView(){
         <tr>
           <td><span class="batch-link" onclick="batchTrackerOpenProduct('${i.productId}')">${batchEsc(batchProductName(i.productId))}</span></td>
           <td class="num">${batchFmtQty(i.qtyIn)}</td>
-          <td class="num"><span class="batch-link" onclick="batchOpenInfoPopup('${i.id}','qty')">${batchFmtQty(i.remaining)} ${batchEsc(batchProductUnit(i.productId))}</span></td>
+          <td class="num">${batchFmtQty(i.remaining)} ${batchEsc(batchProductUnit(i.productId))}</td>
           <td>${i.expiry ? batchEsc(i.expiry) + batchExpiryBadge(i.expiry) : '–'}</td>
           <td class="num">${batchFmtMoney(batchUnitCost(i))}</td>
           <td>${batchEsc(i.supplierLot) || '–'}</td>
@@ -1213,7 +1212,10 @@ function batchRenderHistoryPage(){
   const rows = [`<tr style="${rowStyle}" onclick="batchHistOpenRow(-1)"><td>${batchEsc(i.isOpening ? t('batchOpening') : i.batchDate)}</td><td>${t('batchKindIn')}</td><td class="num">+${batchFmtQty(i.qtyIn)} ${unit}</td><td>${batchEsc(i.supplier) || '–'}</td><td>${batchEsc(i.invoiceNo) || '–'}</td><td class="num">${batchFmtMoney(batchUnitCost(i))}</td></tr>`]
     .concat(batchHist.moves.map((m, idx) => `<tr style="${rowStyle}" onclick="batchHistOpenRow(${idx})"><td>${batchEsc(m.mv_date)}</td><td>${t(BATCH_KIND_LABEL_KEY[m.kind] || 'batchKindAdjust')}</td><td class="num">${Number(m.qty) > 0 ? '+' : ''}${batchFmtQty(Number(m.qty))} ${unit}</td><td>${batchEsc(m.party) || '–'}</td><td>${batchEsc(m.order_no) || '–'}</td><td class="num">${batchCostWithFlag(m.unit_cost, i)}</td></tr>`));
   return back + head + `<table class="stock-table">
-    <thead><tr><th>${t('colDate')}</th><th>${t('colType')}</th><th class="num">${t('colQty')}</th><th>${t('batchColParty')}</th><th>${t('batchColOrderNo')}</th><th class="num">${t('batchColUnitCost')}</th></tr></thead>
+    <thead>
+      <tr><th style="border-bottom:none;"></th><th style="border-bottom:none;"></th><th class="num" style="border-bottom:none;white-space:nowrap;">${tf('batchHistRemaining', { qty: batchFmtQty(i.remaining) + ' ' + unit })}</th><th colspan="3" style="border-bottom:none;"></th></tr>
+      <tr><th>${t('colDate')}</th><th>${t('colType')}</th><th class="num">${t('colQty')}</th><th>${t('batchColParty')}</th><th>${t('batchColOrderNo')}</th><th class="num">${t('batchColUnitCost')}</th></tr>
+    </thead>
     <tbody>${rows.join('')}</tbody></table>`;
 }
 
