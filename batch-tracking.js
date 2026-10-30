@@ -533,10 +533,18 @@ function batchValidatePurchaseEdit(purchase, newItems){
   if(!batchActive() || !purchase.batchTracked) return '';
   const mine = batchData.items.filter(i => i.purchaseId === purchase.id && i.qtyIn > 0);
   const lines = batchNetPurchaseLines(newItems);
+  const sameKey = (l, i) => l.productId === i.productId && l.expiry === (i.expiry || '');
   for(const i of mine){
     const used = i.qtyIn - i.remaining;
     if(used <= 0) continue;
-    const l = lines.find(x => x.productId === i.productId && x.expiry === (i.expiry || ''));
+    let l = lines.find(x => sameKey(x, i));
+    if(!l){
+      // 只是改了有效期:同商品舊的行裡沒對應的只有這一行、新的清單裡沒對應現有行的也只有一行 → 視為同一行改有效期
+      // (資料庫 batch_save_purchase 用同樣規則,出貨紀錄會跟著這一行走)
+      const oldUnmatched = mine.filter(m => m.productId === i.productId && !lines.some(x => sameKey(x, m)));
+      const newUnmatched = lines.filter(x => x.productId === i.productId && !mine.some(m => sameKey(x, m)));
+      if(oldUnmatched.length === 1 && newUnmatched.length === 1) l = newUnmatched[0];
+    }
     const newQty = l ? l.qty : 0;
     if(newQty < used - 1e-9) return tf('batchEditBelowUsed', { name: batchProductName(i.productId), batch: i.batchNo, used: batchFmtQty(used) });
   }
