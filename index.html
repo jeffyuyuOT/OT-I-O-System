@@ -1503,7 +1503,7 @@
           <label id="txPartyLabel" data-i18n="partyLabelIn">進貨方(供應商)</label>
           <select id="txPartyHistorySelect" style="display:none;" onchange="onTxPartyHistorySelectChange(this.value)"></select>
           <input id="txParty" type="text" placeholder="例如:大盤商 A" data-i18n-placeholder="partyPlaceholderIn" />
-          <select id="txPartySelect" style="display:none;"></select>
+          <select id="txPartySelect" style="display:none;" onchange="if(typeof renderTxBatchList === 'function') renderTxBatchList()"></select>
         </div>
         <div class="field" id="txInvoiceFieldWrap" style="display:none;">
           <label data-i18n="fieldInvoiceNo">Invoice 號碼(選填)</label>

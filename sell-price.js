@@ -244,3 +244,45 @@ function spTxItemPriceHtml(it, partyId){
   const pr = spPriceCalc(it.productId, it.qty, null, spPartyDiscountById(partyId));
   return pr.unit === null ? '–' : spMoney(pr.unit);
 }
+
+// ---- 核對 / 直接建立已完成訂單時,把每個品項的售價固定下來(之後不能改)----
+// 用「還沒出貨」當下的批次分配預覽計算(跟資料庫實際分配用同一套先到期先出規則);手動設定過的售價照用。
+function spFreezeOne(order, it){
+  if(it.deleted) return it;
+  const disc = spPartyDiscountOfOrder(order);
+  let unit = null, manual = false;
+  if(it.sellPriceManual && Number.isFinite(Number(it.sellPrice))){ unit = Number(it.sellPrice); manual = true; }
+  else if(it.qty > 0 && typeof batchActive === 'function' && batchActive() && batchIsTracked(it.productId)){
+    unit = spPriceCalc(it.productId, it.qty, it.batchPicks, disc).unit;
+  }
+  const out = Object.assign({}, it, { sellFrozen: true, sellDiscount: disc, sellPriceManual: manual });
+  if(unit === null) delete out.sellPrice; else out.sellPrice = unit;
+  return out;
+}
+function spFreezeItems(order){ return (order.items || []).map(it => spFreezeOne(order, it)); }
+
+// ---- 訂單匯出:每個商品的 Total price(進貨底價 + 分攤的其他支出),依這些訂單實際用到的批次用量加權平均 ----
+async function spExportTotalPriceMap(orderList){
+  const map = {};
+  try{
+    if(typeof batchActive !== 'function' || !batchActive()) return map;
+    await ensureBatchDataLoaded();
+    const ids = orderList.map(o => o.id);
+    const acc = {};   // productId -> { sum, qty }
+    for(let i = 0; i < ids.length; i += 100){
+      const chunk = ids.slice(i, i + 100);
+      const { data, error } = await sb.from('batch_movements').select('batch_item_id,qty,kind').in('order_id', chunk).in('kind', ['out', 'return']);
+      if(error) throw error;
+      (data || []).forEach(m => {
+        const item = batchData.items.find(x => x.id === m.batch_item_id);
+        const price = item ? spTotalUnit(item) : null;
+        if(price === null) return;
+        const q = -Number(m.qty);
+        const a = acc[item.productId] = acc[item.productId] || { sum: 0, qty: 0 };
+        a.sum += price * q; a.qty += q;
+      });
+    }
+    Object.keys(acc).forEach(pid => { if(acc[pid].qty > 1e-9) map[pid] = spRound2(acc[pid].sum / acc[pid].qty); });
+  } catch(e){ console.warn('匯出:計算 Total price 失敗,Price 欄位留空', e); }
+  return map;
+}

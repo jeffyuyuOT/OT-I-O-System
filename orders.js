@@ -680,7 +680,6 @@ function orderItemRowHtml(o, it, isPending, readOnly, context){
         ${canEdit ? `<span class="del-link" style="margin-left:8px;color:var(--crit);" onclick="${deleteFn}('${o.id}','${it.productId}')">${t('btnDelete')}</span>` : ''}
       </span>
       ${(context === 'verify' && typeof batchOrderItemPreviewHtml === 'function') ? batchOrderItemPreviewHtml(o, it) : ''}
-      ${(context === 'completed' && typeof batchOrderDetailLineHtml === 'function') ? batchOrderDetailLineHtml(o, it) : ''}
       ${it.note ? `<div style="font-size:11px;color:var(--ink-soft);font-style:italic;">${t('noteLabelPrefix')}${it.note.replace(/</g,'&lt;')}</div>` : ''}
     </div>
   `;
@@ -786,8 +785,6 @@ function renderCompletedOrdersInto(container, recentOnly){
       </div>
     `;
   }).join('');
-  // 批次追蹤:已完成訂單展開後,每個商品下面顯示用了哪些批次(非同步載入,載完才填進去)
-  if(typeof batchFillOrderDetailLines === 'function') batchFillOrderDetailLines(container);
 }
 
 // 訂單卡片展開內容的區塊:每個區塊有自己的標題跟淺色背景(品項=淺灰、備註=淺米、對象=淺藍灰、簽收=淺綠灰),
@@ -1667,6 +1664,8 @@ async function verifyOrder(orderId){
     const noteText = `${order.orderNo || ''}${order.note ? '、' + order.note : ''}`;
     const confirmedAt = new Date().toISOString();
     const updatedPayload = { ...order, status: 'confirmed', confirmedAt };
+    // 售價在核對當下固定下來(已完成訂單之後不能改售價):依預計批次分配的加權 Sell price 套出貨方 Discount;手動設定過的照用
+    if(typeof spFreezeItems === 'function') updatedPayload.items = spFreezeItems(order);
 
     const { error } = await sb.rpc('verify_order', {
       p_order_id: orderId,
@@ -1700,6 +1699,7 @@ async function verifyOrder(orderId){
     });
     order.status = 'confirmed';
     order.confirmedAt = confirmedAt;
+    if(updatedPayload.items) order.items = updatedPayload.items;
     expandedOrderIds.delete(orderId);
     // 批次追蹤:核對成功後把這張訂單的出貨分配到批次(核對頁手動指定的批次一併帶入)。失敗不影響核對結果。
     if(typeof batchAllocateAfter === 'function'){
@@ -2259,7 +2259,7 @@ function buildOrderAggregation(list, exportMode){
 // (根本不會出現在訂貨頁面)、被全域隱藏的商品都算進來——這樣不同訂單匯出的檔案結構、商品順序
 // 都會一致。這張訂單沒有數量的商品那一列用 Excel 的隱藏列處理掉,資料還在,只是預設不顯示、
 // 也不會被印出來。
-function buildOrderSheetAoa(list, partyLabel, dateLabel, exportMode){
+function buildOrderSheetAoa(list, partyLabel, dateLabel, exportMode, priceMap){
   const { aggregated, byCategory: orderByCategory } = buildOrderAggregation(list, exportMode);
   const qtyByProductId = {};
   aggregated.forEach(g => { qtyByProductId[g.productId] = g; });
@@ -2286,7 +2286,9 @@ function buildOrderSheetAoa(list, partyLabel, dateLabel, exportMode){
   aoa.push(['Customer:', partyLabel, 'Orders:', orderNos.join(', ')]);
   aoa.push(['Period:', dateLabel]);
   aoa.push([]);
-  aoa.push(['SKU','Product Name','Qty','Unit','Remarks']);
+  // 有傳入 priceMap(匯出下載時,批次追蹤開啟)才多一欄 Price = Total price(進貨底價 + 分攤的其他支出,不是 Sell price)
+  const withPrice = !!priceMap;
+  aoa.push(withPrice ? ['SKU','Product Name','Qty','Unit','Price','Remarks'] : ['SKU','Product Name','Qty','Unit','Remarks']);
 
   let isFirstGroup = true;
   catList.forEach((cat) => {
@@ -2315,7 +2317,7 @@ function buildOrderSheetAoa(list, partyLabel, dateLabel, exportMode){
       .forEach(p => {
         const g = qtyByProductId[p.id];
         const rowIdx = aoa.length;
-        aoa.push([p.sku || '', p.name, g ? g.qty : '', p.unit, '']);
+        aoa.push(withPrice ? [p.sku || '', p.name, g ? g.qty : '', p.unit, (g && priceMap[p.id] !== undefined) ? priceMap[p.id] : '', ''] : [p.sku || '', p.name, g ? g.qty : '', p.unit, '']);
         if(!g) hiddenRows.add(rowIdx);
       });
   });
@@ -2325,7 +2327,7 @@ function buildOrderSheetAoa(list, partyLabel, dateLabel, exportMode){
 
 function buildOrderSheetWorkbook(aoa, hiddenRows){
   const ws = XLSX.utils.aoa_to_sheet(aoa);
-  ws['!cols'] = [{wch:14},{wch:28},{wch:8},{wch:8},{wch:16}];
+  ws['!cols'] = [{wch:14},{wch:28},{wch:8},{wch:8},{wch:12},{wch:16}];
   if(hiddenRows && hiddenRows.size > 0){
     const rowMeta = [];
     aoa.forEach((_, i) => { rowMeta[i] = hiddenRows.has(i) ? { hidden: true } : {}; });
@@ -2366,7 +2368,8 @@ async function exportOrdersSheet(exportMode){
     ? (dateFrom === dateTo ? dateFrom : `${dateFrom} ~ ${dateTo}`)
     : (dateFrom ? `After ${dateFrom}` : (dateTo ? `Before ${dateTo}` : 'All dates'));
 
-  const { aoa, aggregated, hiddenRows } = buildOrderSheetAoa(list, partyLabel, dateLabel, exportMode);
+  const priceMap = (typeof spExportTotalPriceMap === 'function' && typeof batchActive === 'function' && batchActive()) ? await spExportTotalPriceMap(list) : null;
+  const { aoa, aggregated, hiddenRows } = buildOrderSheetAoa(list, partyLabel, dateLabel, exportMode, priceMap);
 
   const label = partyObj ? (partyObj.name.replace(/[^a-zA-Z0-9\u4e00-\u9fa5]/g, '') || 'Party') : 'AllParties';
   const rangeLabel = (dateFrom || dateTo) ? `_${dateFrom || 'start'}_${dateTo || 'end'}` : '';
@@ -2378,14 +2381,15 @@ async function exportOrdersSheet(exportMode){
 }
 
 // 匯出「單一一筆」訂單:Period 直接就是這張訂單自己的日期,不會混到其他訂單的日期範圍。
-function exportSingleOrderSheet(orderId, exportMode){
+async function exportSingleOrderSheet(orderId, exportMode){
   const order = orders.find(o => o.id === orderId);
   if(!order) return;
   if(typeof XLSX === 'undefined'){ showInfoModal('Excel 套件載入失敗,請重新整理頁面再試一次'); return; }
 
   const partyLabel = order.partyName || 'Unspecified';
   const dateLabel = order.date;
-  const { aoa, hiddenRows } = buildOrderSheetAoa([order], partyLabel, dateLabel, exportMode);
+  const priceMap = (typeof spExportTotalPriceMap === 'function' && typeof batchActive === 'function' && batchActive()) ? await spExportTotalPriceMap([order]) : null;
+  const { aoa, hiddenRows } = buildOrderSheetAoa([order], partyLabel, dateLabel, exportMode, priceMap);
 
   const safeParty = (order.partyName || 'Order').replace(/[^a-zA-Z0-9\u4e00-\u9fa5]/g, '') || 'Order';
   const noPart = order.orderNo ? `${order.orderNo.replace('#','')}_` : '';

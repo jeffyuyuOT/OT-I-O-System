@@ -2023,6 +2023,7 @@ async function submitNewOrderFlow(action, date, msg){
       items: txBatchItems.map(it => ({ productId: it.productId, sku: it.sku||'', name: it.name, unit: it.unit, qty: it.qty })),
       status: 'confirmed', createdAt: new Date().toISOString(), confirmedAt: new Date().toISOString(), orderNo
     };
+    if(typeof spFreezeItems === 'function') newOrder.items = spFreezeItems(newOrder);   // 售價在建立當下固定(出貨前的批次分配預覽)
     const newTxs = txBatchItems.map(it => ({
       id: genId(), productId: it.productId, type: it.qty > 0 ? 'out' : 'restock', qty: Math.abs(it.qty), date, party,
       note: orderNo, system: true, orderId
@@ -2595,6 +2596,7 @@ async function mergeItemsIntoCompletedOrderCore(orderId, batchItems, date, party
     qtyHistory: [{ added: true, at: new Date().toISOString(), qty: it.qty }]
   }));
   order.items = [...prevItems, ...newOrderItems];
+  if(typeof spFreezeOne === 'function'){ order.items = order.items.map(it => (newOrderItems.includes(it) && !it.sellFrozen) ? spFreezeOne(order, it) : it); }   // 核對後新增的品項,售價也在加入當下固定
 
   const prevPostVerifyChanges = order.postVerifyChanges ? [...order.postVerifyChanges] : [];
   if(!order.postVerifyChanges) order.postVerifyChanges = [];
