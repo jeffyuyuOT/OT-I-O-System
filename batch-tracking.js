@@ -816,7 +816,7 @@ function batchProductListHtml(){
         <td>${batchEsc(p.name)}</td>
         <td class="num">${batchFmtQty(total)} ${batchEsc(p.unit || '')}</td>
         <td class="num">${live.length}</td>
-        <td>${nearest ? batchEsc(nearest.expiry) + batchExpiryIconHtml(nearest.expiry) : '–'}</td>
+        <td>${nearest ? batchEsc(nearest.expiry) + batchExpiryBadge(nearest.expiry) : '–'}</td>
       </tr>`;
     }).join('')}</tbody></table>`;
 }
