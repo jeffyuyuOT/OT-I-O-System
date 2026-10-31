@@ -957,6 +957,12 @@ function batchBatchTableHtml(list){
     </tr>`).join('')}</tbody></table>`;
 }
 function batchRenderDateView(){
+  const mode = bt.dateMode === 'expiry' ? 'expiry' : 'received';
+  const seg = `<div style="margin:0 0 10px;"><div class="batch-seg">
+      <button class="${mode === 'received' ? 'active' : ''}" onclick="bt.dateMode='received';renderBatchTracker();">${t('batchDateModeReceived')}</button>
+      <button class="${mode === 'expiry' ? 'active' : ''}" onclick="bt.dateMode='expiry';renderBatchTracker();">${t('batchDateModeExpiry')}</button>
+    </div></div>`;
+  if(mode === 'expiry') return seg + batchRenderExpiryList();
   const batches = {};
   batchData.items.forEach(i => {
     if(bt.from && i.batchDate < bt.from) return;
@@ -965,12 +971,37 @@ function batchRenderDateView(){
     batches[i.batchId].n++;
   });
   const list = Object.values(batches).sort((a, b) => (b.date || '').localeCompare(a.date || '') || b.no.localeCompare(a.no));
-  return `
+  return seg + `
     <div class="filter-row" style="margin-bottom:10px;">
       <div class="field"><label>${t('batchDateFrom')}</label><input type="date" value="${bt.from}" onchange="bt.from=this.value;renderBatchTracker();" /></div>
       <div class="field"><label>${t('batchDateTo')}</label><input type="date" value="${bt.to}" onchange="bt.to=this.value;renderBatchTracker();" /></div>
     </div>
     ${batchBatchTableHtml(list)}`;
+}
+// 依有效期看:所有「還有庫存、有填有效期」的批次商品行,有效期最早的排最前面(已過期的在最上面)
+function batchRenderExpiryList(){
+  const warn = batchWarnDays();
+  const live = batchData.items.filter(i => i.remaining > 0);
+  const withExp = live.filter(i => i.expiry);
+  const noExpCount = live.length - withExp.length;
+  let rows = withExp.slice().sort((a, b) => a.expiry.localeCompare(b.expiry) || batchProductName(a.productId).localeCompare(batchProductName(b.productId)));
+  if(bt.expOnly) rows = rows.filter(i => batchDaysUntil(i.expiry) <= warn);
+  const table = rows.length === 0 ? `<div class="empty-note">${t('batchNoExpiryRows')}</div>` : `<table class="stock-table">
+    <thead><tr><th>${t('batchColExpiry')}</th><th>${t('colProduct')}</th><th>${t('batchColBatch')}</th><th class="num">${t('batchColRemaining')}</th></tr></thead>
+    <tbody>${rows.map(i => `<tr>
+      <td>${batchEsc(i.expiry)}${batchExpiryBadge(i.expiry, true)}</td>
+      <td><span class="batch-link" onclick="batchTrackerOpenProduct('${i.productId}')">${batchEsc(batchProductName(i.productId))}</span></td>
+      <td><span class="batch-link" onclick="batchTrackerOpenBatch('${i.batchId}')">${batchEsc(i.batchNo)}</span></td>
+      <td class="num">${batchFmtQty(i.remaining)} ${batchEsc(batchProductUnit(i.productId))}</td>
+    </tr>`).join('')}</tbody></table>`;
+  return `
+    <div style="margin:0 0 10px;">
+      <label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer;">
+        <input type="checkbox" ${bt.expOnly ? 'checked' : ''} onchange="bt.expOnly=this.checked;renderBatchTracker();" /> ${t('batchExpOnlyLabel')}
+      </label>
+    </div>
+    ${table}
+    ${noExpCount > 0 ? `<div style="font-size:11.5px;color:var(--ink-soft);margin-top:8px;">${tf('batchNoExpiryNote', { n: noExpCount })}</div>` : ''}`;
 }
 
 // 「未分配出貨」橫幅:已追蹤商品的出貨交易還沒(完整)分配到批次(例如分配那一步剛好斷線)
