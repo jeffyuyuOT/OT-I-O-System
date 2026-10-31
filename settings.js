@@ -240,6 +240,7 @@ function updateMultipackSettingsUI(){
   if(hmiBox) hmiBox.checked = hideMultipackIconOnOrderPage;
   if(typeof renderSystemCurrencySetting === 'function') renderSystemCurrencySetting();
   renderBatchExpirySetting();
+  applySettingsGroup();
   if(typeof renderSellPriceSetting === 'function') renderSellPriceSetting();
   renderAccountingEmailList();
   const slmSelect = document.getElementById('stockLocationModeSelect');
@@ -1189,4 +1190,22 @@ async function applyBatchExpiryWarnDays(v){
   catch(e){ console.error('儲存到期提醒天數失敗', e); if(msg){ msg.className = 'msg error'; msg.textContent = t('batchExpiryDaysSaveFailed'); } }
   try{ if(typeof renderStockCards === 'function' && document.getElementById('stockCards')) renderStockCards(); }catch(e){}
   try{ if(typeof renderBatchTracker === 'function' && document.getElementById('batchTrackerRoot')) renderBatchTracker(); }catch(e){}
+}
+
+
+// ============================================================
+// 系統設置:卡片分組(一次只顯示一組)。警告橫幅(沒有資料時的提示)不屬於任何組,永遠顯示。
+// ============================================================
+let settingsGroupCurrent = 'ui';
+function applySettingsGroup(){
+  document.querySelectorAll('#subtab-sys-settings .settings-card[data-sgroup]').forEach(card => {
+    card.classList.toggle('sgroup-hidden', card.dataset.sgroup !== settingsGroupCurrent);
+  });
+  document.querySelectorAll('#settingsGroupNav button[data-sgroup-btn]').forEach(b => {
+    b.classList.toggle('active', b.dataset.sgroupBtn === settingsGroupCurrent);
+  });
+}
+function switchSettingsGroup(g){
+  settingsGroupCurrent = g;
+  applySettingsGroup();
 }
