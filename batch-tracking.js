@@ -228,11 +228,12 @@ function batchShowExpiryInfo(expiry){
   const d = batchDaysUntil(expiry);
   showInfoModal((d < 0 ? t('batchExpired') : tf('batchExpiresInDays', { n: d })) + ' (EXP ' + expiry + ')');
 }
-function batchExpiryBadge(expiry){
+function batchExpiryBadge(expiry, small){
   if(!expiry) return '';
   const d = batchDaysUntil(expiry);
-  if(d < 0) return ` <span style="color:var(--crit);font-weight:700;">🔴 ${t('batchExpired')}</span>`;
-  if(d <= batchWarnDays()) return ` <span style="color:#B8860B;font-weight:700;">🟠 ${tf('batchExpiresInDays', { n: d })}</span>`;
+  const sz = small ? 'font-size:11px;' : '';   // small:商品頁 / 批次頁用,比預設再小一點
+  if(d < 0) return ` <span style="color:var(--crit);font-weight:700;${sz}">🔴 ${t('batchExpired')}</span>`;
+  if(d <= batchWarnDays()) return ` <span style="color:#B8860B;font-weight:700;${sz}">🟠 ${tf('batchExpiresInDays', { n: d })}</span>`;
   return '';
 }
 
@@ -844,7 +845,7 @@ function batchRenderProductDetail(pid){
         ${items.length === 0 ? `<tr><td colspan="5" class="empty-note">${t('batchNoBatches')}</td></tr>` : items.map(i => `
           <tr>
             <td><span class="batch-link" onclick="batchTrackerOpenBatch('${i.batchId}')">${batchEsc(i.batchNo)}</span>${i.isOpening ? ' <span style="color:var(--ink-soft);font-size:11px;">(' + t('batchOpening') + ')</span>' : ''}</td>
-            <td>${i.expiry ? batchEsc(i.expiry) + batchExpiryIconHtml(i.expiry) : '–'}</td>
+            <td>${i.expiry ? batchEsc(i.expiry) + batchExpiryBadge(i.expiry, true) : '–'}</td>
             <td class="num">${batchFmtQty(i.remaining)} ${batchEsc(batchProductUnit(pid))}</td>
             <td class="num">${(typeof spSellCellHtml === 'function') ? spSellCellHtml(i) : batchFmtMoney(batchUnitCost(i))}</td>
             <td style="white-space:nowrap;"><span class="del-link" onclick="batchTrackerOpenHistory('${i.id}')">${t('batchBtnHistory')}</span> <span class="batch-link" style="margin-left:6px;" title="${batchEsc(t('batchDetailsTitle'))}" onclick="batchOpenItemDetail('${i.id}')">ⓘ</span></td>
@@ -939,7 +940,7 @@ function batchRenderBatchView(){
         <tr>
           <td><span class="batch-link" onclick="batchTrackerOpenProduct('${i.productId}')">${batchEsc(batchProductName(i.productId))}</span></td>
           <td class="num">${batchFmtQty(i.remaining)} ${batchEsc(batchProductUnit(i.productId))}</td>
-          <td>${i.expiry ? batchEsc(i.expiry) + batchExpiryIconHtml(i.expiry) : '–'}</td>
+          <td>${i.expiry ? batchEsc(i.expiry) + batchExpiryBadge(i.expiry, true) : '–'}</td>
           <td class="num">${(typeof spSellCellHtml === 'function') ? spSellCellHtml(i) : batchFmtMoney(batchUnitCost(i))}</td>
           <td><span class="del-link" onclick="batchTrackerOpenHistory('${i.id}')">${t('batchBtnHistory')}</span></td>
         </tr>`).join('')}</tbody>
