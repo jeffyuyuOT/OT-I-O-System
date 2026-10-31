@@ -1189,12 +1189,24 @@
         </div>
 
         <div class="settings-card" id="sellPriceSettingCard">
-          <div class="section-title" data-i18n="secSellPrice">訂單顯示 Sell price</div>
-          <p style="font-size:11.5px;color:var(--ink-soft);margin:0 0 8px;" data-i18n="sellPriceHint">勾選後,「新增訂單」、「待處理訂單」、「已完成訂單」會顯示每個商品的 Sell price(依批次 margin 與出貨方 Discount 計算)。不勾選則不顯示。批次追蹤頁的 margin 與 Sell price 不受影響。</p>
-          <label style="display:flex;align-items:center;gap:8px;font-size:12.5px;cursor:pointer;">
-            <input type="checkbox" id="showSellPriceToggle" onchange="applyShowSellPrice(this.checked)" />
-            <span data-i18n="sellPriceToggleLabel">在訂單顯示 Sell price</span>
-          </label>
+          <div class="section-title" data-i18n="secSellPrice">Sell price 顯示方式</div>
+          <div style="display:flex;flex-direction:column;gap:8px;font-size:12.5px;">
+            <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+              <input type="radio" name="sellPriceMode" value="export" onchange="applySellPriceMode(this.value)" />
+              <span data-i18n="sellPriceModeExport">僅匯出檔案顯示</span>
+              <span role="button" tabindex="0" class="info-icon" style="cursor:pointer;color:var(--ink-soft);font-size:14px;" onclick="event.preventDefault();spShowModeHelp('export')">ⓘ</span>
+            </label>
+            <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+              <input type="radio" name="sellPriceMode" value="all" onchange="applySellPriceMode(this.value)" />
+              <span data-i18n="sellPriceModeAll">訂單跟匯出都顯示</span>
+              <span role="button" tabindex="0" class="info-icon" style="cursor:pointer;color:var(--ink-soft);font-size:14px;" onclick="event.preventDefault();spShowModeHelp('all')">ⓘ</span>
+            </label>
+            <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+              <input type="radio" name="sellPriceMode" value="none" onchange="applySellPriceMode(this.value)" />
+              <span data-i18n="sellPriceModeNone">不顯示 Sell price</span>
+              <span role="button" tabindex="0" class="info-icon" style="cursor:pointer;color:var(--ink-soft);font-size:14px;" onclick="event.preventDefault();spShowModeHelp('none')">ⓘ</span>
+            </label>
+          </div>
         </div>
 
         <div class="settings-card" id="batchExpirySettingCard">

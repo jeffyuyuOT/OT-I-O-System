@@ -5,17 +5,23 @@
 // - margin 是「每個批次」一個數字(batches.margin_pct),新批次建立時先帶入預設值(系統預設 margin,
 //   app_data 'batchDefaultMargin'),之後可以在批次頁手動改;沒設定過的舊批次用目前的預設值。
 // - 訂單商品的售價 = 用到的批次 Sell price 依用量加權平均 × (1 − 出貨方 Discount%)。
-// - 「訂單顯示 Sell price」開關(系統設置,app_data 'showSellPrice')決定新增訂單 / 待處理訂單 / 已完成訂單
+// - 「Sell price 顯示方式」(系統設置,app_data 'sellPriceMode':none / export / all)決定新增訂單 / 待處理訂單 / 已完成訂單
 //   要不要顯示售價;批次頁的 margin / Sell price 不受這個開關影響。
 // 依賴:batch-tracking.js(批次資料與分配預覽)。
 // ============================================================
-let spShowSellPrice = false;
+// Sell price 顯示方式(系統設置):'none' 不顯示 / 'export' 僅已完成訂單的匯出檔案顯示 / 'all' 訂單畫面與匯出都顯示
+let spSellPriceMode = 'none';
 let spDefaultMarginPct = 0;
 
 async function loadSellPriceSettings(){
   try{
-    const r = await dbGet('showSellPrice');
-    spShowSellPrice = !!(r && String(r.value) === 'true');
+    const r = await dbGet('sellPriceMode');
+    if(r && ['none', 'export', 'all'].includes(String(r.value))) spSellPriceMode = String(r.value);
+    else {
+      // 舊版的勾選開關(showSellPrice = true)等於「訂單跟匯出都顯示」
+      const old = await dbGet('showSellPrice');
+      if(old && String(old.value) === 'true') spSellPriceMode = 'all';
+    }
   } catch(e){}
   try{
     const r = await dbGet('batchDefaultMargin');
@@ -25,7 +31,9 @@ async function loadSellPriceSettings(){
 }
 function spDefaultMargin(){ return spDefaultMarginPct; }
 // 要不要在訂單畫面顯示售價(開關打開、而且批次追蹤可用)
-function spEnabled(){ return spShowSellPrice && typeof batchActive === 'function' && batchActive(); }
+function spEnabled(){ return spSellPriceMode === 'all' && typeof batchActive === 'function' && batchActive(); }
+// 已完成訂單的匯出檔案要不要多一欄 Sell price('export' 或 'all')
+function spExportEnabled(){ return (spSellPriceMode === 'export' || spSellPriceMode === 'all') && typeof batchActive === 'function' && batchActive(); }
 
 function spRound2(n){ return Math.round((Number(n) + Number.EPSILON) * 100) / 100; }
 function spMarginOf(item){
@@ -115,17 +123,20 @@ function spShowPricePopup(itemId){
 
 // ---- 系統設置:訂單顯示 Sell price ----
 function renderSellPriceSetting(){
-  const box = document.getElementById('showSellPriceToggle');
-  if(box) box.checked = spShowSellPrice;
+  document.querySelectorAll('input[name="sellPriceMode"]').forEach(r => { r.checked = (r.value === spSellPriceMode); });
   const card = document.getElementById('sellPriceSettingCard');
   if(card) card.style.display = (typeof batchFeatureOn === 'function' && batchFeatureOn()) ? '' : 'none';
 }
-async function applyShowSellPrice(checked){
-  spShowSellPrice = !!checked;
-  try{ await dbSet('showSellPrice', checked ? 'true' : 'false'); } catch(e){ console.error('儲存失敗', e); }
+// 選項說明太長,不直接顯示,點旁邊的 ⓘ 才跳出視窗
+function spShowModeHelp(mode){
+  const key = { export: 'sellPriceModeExportHelp', all: 'sellPriceModeAllHelp', none: 'sellPriceModeNoneHelp' }[mode];
+  if(key) showInfoModal(t(key));
+}async function applySellPriceMode(mode){
+  if(!['none', 'export', 'all'].includes(mode)) return;
+  spSellPriceMode = mode;
+  try{ await dbSet('sellPriceMode', mode); } catch(e){ console.error('儲存失敗', e); }
   try{ if(typeof renderAll === 'function') renderAll(); }catch(e){}
 }
-
 // ============================================================
 // 訂單商品的售價
 // ============================================================
@@ -364,4 +375,19 @@ function spTxItemsTotal(partyId){
     if(pr.unit === null) missing++; else sum += pr.unit * it.qty;
   });
   return { sum: spRound2(sum), missing };
+}
+
+// 已完成訂單匯出:每個商品的 Sell price(單價),依各訂單核對當下固定的售價,以出貨數量加權平均
+function spExportSellPriceMap(orderList){
+  const acc = {};
+  orderList.forEach(o => (o.items || []).forEach(it => {
+    if(it.deleted || !(it.qty > 0) || !it.sellFrozen) return;
+    const v = Number(it.sellPrice);
+    if(!Number.isFinite(v)) return;
+    const a = acc[it.productId] = acc[it.productId] || { sum: 0, qty: 0 };
+    a.sum += v * it.qty; a.qty += it.qty;
+  }));
+  const map = {};
+  Object.keys(acc).forEach(pid => { if(acc[pid].qty > 0) map[pid] = spRound2(acc[pid].sum / acc[pid].qty); });
+  return map;
 }

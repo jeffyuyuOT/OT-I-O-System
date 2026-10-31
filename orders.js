@@ -2278,7 +2278,7 @@ function buildOrderAggregation(list, exportMode){
 // (根本不會出現在訂貨頁面)、被全域隱藏的商品都算進來——這樣不同訂單匯出的檔案結構、商品順序
 // 都會一致。這張訂單沒有數量的商品那一列用 Excel 的隱藏列處理掉,資料還在,只是預設不顯示、
 // 也不會被印出來。
-function buildOrderSheetAoa(list, partyLabel, dateLabel, exportMode, priceMap){
+function buildOrderSheetAoa(list, partyLabel, dateLabel, exportMode, priceMap, sellMap){
   const { aggregated, byCategory: orderByCategory } = buildOrderAggregation(list, exportMode);
   const qtyByProductId = {};
   aggregated.forEach(g => { qtyByProductId[g.productId] = g; });
@@ -2307,7 +2307,8 @@ function buildOrderSheetAoa(list, partyLabel, dateLabel, exportMode, priceMap){
   aoa.push([]);
   // 有傳入 priceMap(匯出下載時,批次追蹤開啟)才多一欄 Price = Total price(進貨底價 + 分攤的其他支出,不是 Sell price)
   const withPrice = !!priceMap;
-  aoa.push(withPrice ? ['SKU','Product Name','Qty','Unit','Price','Remarks'] : ['SKU','Product Name','Qty','Unit','Remarks']);
+  const withSell = !!sellMap;    // 系統設置的 Sell price 顯示方式為「僅匯出」或「訂單跟匯出都顯示」時才有
+  aoa.push(['SKU','Product Name','Qty','Unit'].concat(withPrice ? ['Price'] : [], withSell ? ['Sell price'] : [], ['Remarks']));
 
   let isFirstGroup = true;
   catList.forEach((cat) => {
@@ -2336,7 +2337,7 @@ function buildOrderSheetAoa(list, partyLabel, dateLabel, exportMode, priceMap){
       .forEach(p => {
         const g = qtyByProductId[p.id];
         const rowIdx = aoa.length;
-        aoa.push(withPrice ? [p.sku || '', p.name, g ? g.qty : '', p.unit, (g && priceMap[p.id] !== undefined) ? priceMap[p.id] : '', ''] : [p.sku || '', p.name, g ? g.qty : '', p.unit, '']);
+        aoa.push([p.sku || '', p.name, g ? g.qty : '', p.unit].concat(withPrice ? [(g && priceMap[p.id] !== undefined) ? priceMap[p.id] : ''] : [], withSell ? [(g && sellMap[p.id] !== undefined) ? sellMap[p.id] : ''] : [], ['']));
         if(!g) hiddenRows.add(rowIdx);
       });
   });
@@ -2346,7 +2347,7 @@ function buildOrderSheetAoa(list, partyLabel, dateLabel, exportMode, priceMap){
 
 function buildOrderSheetWorkbook(aoa, hiddenRows){
   const ws = XLSX.utils.aoa_to_sheet(aoa);
-  ws['!cols'] = [{wch:14},{wch:28},{wch:8},{wch:8},{wch:12},{wch:16}];
+  ws['!cols'] = [{wch:14},{wch:28},{wch:8},{wch:8},{wch:12},{wch:12},{wch:16}];
   if(hiddenRows && hiddenRows.size > 0){
     const rowMeta = [];
     aoa.forEach((_, i) => { rowMeta[i] = hiddenRows.has(i) ? { hidden: true } : {}; });
@@ -2388,7 +2389,8 @@ async function exportOrdersSheet(exportMode){
     : (dateFrom ? `After ${dateFrom}` : (dateTo ? `Before ${dateTo}` : 'All dates'));
 
   const priceMap = (typeof spExportTotalPriceMap === 'function' && typeof batchActive === 'function' && batchActive()) ? await spExportTotalPriceMap(list) : null;
-  const { aoa, aggregated, hiddenRows } = buildOrderSheetAoa(list, partyLabel, dateLabel, exportMode, priceMap);
+  const sellMap = (typeof spExportEnabled === 'function' && spExportEnabled()) ? spExportSellPriceMap(list) : null;
+  const { aoa, aggregated, hiddenRows } = buildOrderSheetAoa(list, partyLabel, dateLabel, exportMode, priceMap, sellMap);
 
   const label = partyObj ? (partyObj.name.replace(/[^a-zA-Z0-9\u4e00-\u9fa5]/g, '') || 'Party') : 'AllParties';
   const rangeLabel = (dateFrom || dateTo) ? `_${dateFrom || 'start'}_${dateTo || 'end'}` : '';
@@ -2408,7 +2410,8 @@ async function exportSingleOrderSheet(orderId, exportMode){
   const partyLabel = order.partyName || 'Unspecified';
   const dateLabel = order.date;
   const priceMap = (typeof spExportTotalPriceMap === 'function' && typeof batchActive === 'function' && batchActive()) ? await spExportTotalPriceMap([order]) : null;
-  const { aoa, hiddenRows } = buildOrderSheetAoa([order], partyLabel, dateLabel, exportMode, priceMap);
+  const sellMap = (typeof spExportEnabled === 'function' && spExportEnabled()) ? spExportSellPriceMap([order]) : null;
+  const { aoa, hiddenRows } = buildOrderSheetAoa([order], partyLabel, dateLabel, exportMode, priceMap, sellMap);
 
   const safeParty = (order.partyName || 'Order').replace(/[^a-zA-Z0-9\u4e00-\u9fa5]/g, '') || 'Order';
   const noPart = order.orderNo ? `${order.orderNo.replace('#','')}_` : '';
