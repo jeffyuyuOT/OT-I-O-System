@@ -671,16 +671,35 @@ function orderItemRowHtml(o, it, isPending, readOnly, context){
   const qtyDisplay = qtyHistoryStr
     ? `<span style="color:var(--crit);">${qtyHistoryStr}</span>${qtyLabel}`
     : qtyLabel;
+  // 顯示 Sell price 時:單價 | 數量 | 總價 三欄對齊,操作連結(改數量 / 批次 / 刪除)放在最右邊
+  const priceOn = (context === 'pending' || context === 'verify' || context === 'completed') && typeof spEnabled === 'function' && spEnabled();
+  const actionLinks = `${canEdit ? `<span class="del-link" style="margin-left:8px;" onclick="startEditOrderItemQty('${context}','${o.id}','${it.productId}')">${t('btnEditQty')}</span>` : ''}
+        ${(canEdit && context === 'verify' && typeof batchOrderItemButtonHtml === 'function') ? batchOrderItemButtonHtml(o, it) : ''}
+        ${canEdit ? `<span class="del-link" style="margin-left:8px;color:var(--crit);" onclick="${deleteFn}('${o.id}','${it.productId}')">${t('btnDelete')}</span>` : ''}`;
+  const nameHtml = it.sku ? `<span class="sku-tooltip-trigger" data-sku="${it.sku.replace(/"/g,'&quot;')}">${it.name}</span>` : it.name;
+  const tail = `${(context === 'verify' && typeof batchOrderItemPreviewHtml === 'function') ? batchOrderItemPreviewHtml(o, it) : ''}
+      ${it.note ? `<div style="font-size:11px;color:var(--ink-soft);font-style:italic;">${t('noteLabelPrefix')}${it.note.replace(/</g,'&lt;')}</div>` : ''}`;
+  if(priceOn){
+    return `
+    <div style="flex-wrap:wrap;">
+      <span style="flex:1;min-width:0;">${nameHtml}</span>
+      <span style="display:inline-flex;align-items:center;gap:10px;">
+        ${spUnitCellHtml(o, it)}
+        <span style="${SP_QTY_W}">${qtyDisplay}</span>
+        ${spTotalCellHtml(o, it)}
+        ${canEdit ? `<span style="${SP_ACTIONS_W}">${actionLinks}</span>` : ''}
+      </span>
+      ${tail}
+    </div>
+  `;
+  }
   return `
     <div style="flex-wrap:wrap;">
-      <span>${it.sku ? `<span class="sku-tooltip-trigger" data-sku="${it.sku.replace(/"/g,'&quot;')}">${it.name}</span>` : it.name}</span>
-      <span>${qtyDisplay}${((context === 'pending' || context === 'verify' || context === 'completed') && typeof spOrderPriceHtml === 'function') ? spOrderPriceHtml(o, it) : ''}
-        ${canEdit ? `<span class="del-link" style="margin-left:8px;" onclick="startEditOrderItemQty('${context}','${o.id}','${it.productId}')">${t('btnEditQty')}</span>` : ''}
-        ${(canEdit && context === 'verify' && typeof batchOrderItemButtonHtml === 'function') ? batchOrderItemButtonHtml(o, it) : ''}
-        ${canEdit ? `<span class="del-link" style="margin-left:8px;color:var(--crit);" onclick="${deleteFn}('${o.id}','${it.productId}')">${t('btnDelete')}</span>` : ''}
+      <span>${nameHtml}</span>
+      <span>${qtyDisplay}
+        ${actionLinks}
       </span>
-      ${(context === 'verify' && typeof batchOrderItemPreviewHtml === 'function') ? batchOrderItemPreviewHtml(o, it) : ''}
-      ${it.note ? `<div style="font-size:11px;color:var(--ink-soft);font-style:italic;">${t('noteLabelPrefix')}${it.note.replace(/</g,'&lt;')}</div>` : ''}
+      ${tail}
     </div>
   `;
 }
@@ -767,7 +786,7 @@ function renderCompletedOrdersInto(container, recentOnly){
             <span class="order-head-action" onclick="event.stopPropagation()"><button class="btn ghost" onclick="openOrderActionModal('${o.id}', 'completed')">${t('lblAction')} ▾</button></span></span>
         </div>
         ${isExpanded ? `
-          ${orderBlockHtml('items', 'orderBlockItems', `<div class="order-items">${itemsHtml}</div>`)}
+          ${orderBlockHtml('items', 'orderBlockItems', `${(typeof spColsHeaderHtml === 'function') ? spColsHeaderHtml(false) : ''}<div class="order-items">${itemsHtml}</div>${(typeof spOrderTotalRowHtml === 'function') ? spOrderTotalRowHtml(o, false) : ''}`)}
           ${orderBlockHtml('remark', 'orderBlockRemark', remarkHtml)}
           ${o.signedAt && o.signInfo ? orderBlockHtml('sign', 'secSignInfo', `
           <div style="font-size:12.5px;color:var(--ink);">
@@ -1173,7 +1192,7 @@ function renderPendingOrders(){
           </span>
         </div>
         ${isExpanded ? `
-          ${orderBlockHtml('items', 'orderBlockItems', `<div class="order-items">${itemsHtml}</div>`)}
+          ${orderBlockHtml('items', 'orderBlockItems', `${(typeof spColsHeaderHtml === 'function') ? spColsHeaderHtml(false) : ''}<div class="order-items">${itemsHtml}</div>${(typeof spOrderTotalRowHtml === 'function') ? spOrderTotalRowHtml(o, false) : ''}`)}
           ${orderBlockHtml('remark', 'orderBlockRemark', remarkHtml)}
           ${o.deleted ? '' : orderBlockHtml('party', 'orderBlockParty', partyEditHtml)}
           <div class="order-card-actions">
@@ -1787,7 +1806,7 @@ function renderVerifyPage(){
     itemsEl.innerHTML = `<div class="empty-note">${t('noOrderLoadedForVerify')}</div>`;
   } else {
     infoEl.innerHTML = `${activeOrder.orderNo ? `<b>${activeOrder.orderNo}</b> · ` : ''}${activeOrder.date}${activeOrder.partyName ? ` · ${tf('orderCardPartyLabel', {name: activeOrder.partyName})}` : ''}${activeOrder.note ? `<br/>${t('noteLabelPrefix')}${activeOrder.note}` : ''}`;
-    itemsEl.innerHTML = activeOrder.items.map(it => orderItemRowHtml(activeOrder, it, true, false, 'verify')).join('') || `<div class="empty-note">${t('orderHistoryNoItemsLeft')}</div>`;
+    itemsEl.innerHTML = (typeof spColsHeaderHtml === 'function' ? spColsHeaderHtml(true) : '') + (activeOrder.items.map(it => orderItemRowHtml(activeOrder, it, true, false, 'verify')).join('') || `<div class="empty-note">${t('orderHistoryNoItemsLeft')}</div>`) + (typeof spOrderTotalRowHtml === 'function' ? spOrderTotalRowHtml(activeOrder, true) : '');
   }
 
   renderVerifyPageRightItems();

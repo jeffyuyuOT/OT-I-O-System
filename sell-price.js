@@ -286,3 +286,80 @@ async function spExportTotalPriceMap(orderList){
   } catch(e){ console.warn('匯出:計算 Total price 失敗,Price 欄位留空', e); }
   return map;
 }
+
+// ============================================================
+// 訂單商品列的欄位:單價 | 數量 | 總價(單價 × 數量),上面有標題,訂單最下面有總金額
+// ============================================================
+const SP_UNIT_W = 'width:84px;text-align:right;flex:none;';
+const SP_QTY_W = 'min-width:96px;text-align:right;flex:none;';
+const SP_TOTAL_W = 'width:96px;text-align:right;flex:none;';
+const SP_ACTIONS_W = 'width:150px;text-align:right;flex:none;white-space:nowrap;';
+
+// 這個品項目前的單價(null = 沒有價格);qty 可以覆蓋(登記進出貨頁暫存的新數量)
+function spItemUnit(order, it){
+  if(!it || it.deleted) return null;
+  return spPriceOrderItem(order, it).unit;
+}
+function spItemTotal(order, it, qtyOverride){
+  const unit = spItemUnit(order, it);
+  const q = qtyOverride !== undefined ? qtyOverride : it.qty;
+  if(unit === null || !(q > 0)) return null;
+  return spRound2(unit * q);
+}
+// 單價欄(可點擊看明細 / 手動改價)
+function spUnitCellHtml(order, it){
+  const inner = (typeof spOrderPriceHtml === 'function') ? spOrderPriceHtml(order, it) : '';
+  return `<span style="${SP_UNIT_W}">${inner ? inner.replace('margin-left:8px;', '') : '–'}</span>`;
+}
+function spTotalCellHtml(order, it, qtyOverride){
+  const v = spItemTotal(order, it, qtyOverride);
+  return `<span style="${SP_TOTAL_W}font-weight:600;">${v === null ? '–' : spMoney(v)}</span>`;
+}
+// 標題列:單價 / 數量 / 總價(withActions = 這個清單每列右邊有「改數量 / 批次 / 刪除」,要留同樣的寬度才對得齊)
+function spColsHeaderHtml(withActions){
+  if(!spEnabled()) return '';
+  return `<div class="sp-cols-head" style="display:flex;gap:10px;justify-content:flex-end;align-items:center;font-size:11px;color:var(--ink-soft);padding:2px 0;border-bottom:none;">
+    <span style="flex:1;"></span><span style="${SP_UNIT_W}">${t('spColUnitPrice')}</span><span style="${SP_QTY_W}">${t('colQty')}</span><span style="${SP_TOTAL_W}">${t('spColTotalPrice')}</span>${withActions ? `<span style="${SP_ACTIONS_W}"></span>` : ''}
+  </div>`;
+}
+// 一張訂單的總金額(沒有價格的品項不算進去,有的話旁邊註明)
+function spOrderTotal(order, overrides){
+  let sum = 0, missing = 0;
+  (order.items || []).forEach(it => {
+    if(it.deleted) return;
+    const ov = overrides ? overrides(it) : undefined;     // undefined = 用原本;false = 不計(例如暫存刪除);數字 = 暫存的新數量
+    if(ov === false) return;
+    if(!(it.qty > 0)) return;
+    const v = spItemTotal(order, it, typeof ov === 'number' ? ov : undefined);
+    if(v === null) missing++; else sum += v;
+  });
+  return { sum: spRound2(sum), missing };
+}
+function spTotalRowHtml(sum, missing, withActions, label){
+  if(!spEnabled()) return '';
+  return `<div class="sp-total-row" style="display:flex;gap:10px;justify-content:flex-end;align-items:center;padding:6px 0 2px;border-bottom:none;font-weight:700;">
+    <span style="flex:1;text-align:right;">${label || t('spOrderTotal')}${missing ? ` <span style="font-weight:400;font-size:11px;color:var(--ink-soft);">(${tf('spTotalMissing', { n: missing })})</span>` : ''}</span>
+    <span style="${SP_TOTAL_W}">${spMoney(sum)}</span>${withActions ? `<span style="${SP_ACTIONS_W}"></span>` : ''}
+  </div>`;
+}
+function spOrderTotalRowHtml(order, withActions, overrides){
+  const r = spOrderTotal(order, overrides);
+  return spTotalRowHtml(r.sum, r.missing, withActions);
+}
+
+// 登記進出貨清單(還沒建立訂單的新品項):單項總價與整份清單的總金額
+function spTxItemTotalHtml(it, partyId){
+  if(!spEnabled() || !it || !(it.qty > 0) || !batchIsTracked(it.productId)) return '–';
+  const pr = spPriceCalc(it.productId, it.qty, null, spPartyDiscountById(partyId));
+  return pr.unit === null ? '–' : spMoney(spRound2(pr.unit * it.qty));
+}
+function spTxItemsTotal(partyId){
+  let sum = 0, missing = 0;
+  (txBatchItems || []).forEach(it => {
+    if(!(it.qty > 0)) return;
+    if(!batchIsTracked(it.productId)){ missing++; return; }
+    const pr = spPriceCalc(it.productId, it.qty, null, spPartyDiscountById(partyId));
+    if(pr.unit === null) missing++; else sum += pr.unit * it.qty;
+  });
+  return { sum: spRound2(sum), missing };
+}
