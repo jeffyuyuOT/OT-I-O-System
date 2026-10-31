@@ -708,12 +708,12 @@ async function batchFillTxTags(root){
       let html = '';
       if(el.dataset.batchType === 'in' && el.dataset.batchPurchase){
         html = batchData.items.filter(i => i.purchaseId === el.dataset.batchPurchase && i.productId === el.dataset.batchProduct)
-          .map(i => `<span class="batch-tag">${batchEsc(i.batchNo)}${i.expiry ? ' · ' + batchEsc(i.expiry) : ''}</span>`).join('');
+          .map(i => `<span class="batch-tag">${batchEsc(i.batchNo)}${i.expiry ? ' · EXP ' + batchEsc(i.expiry) : ''}</span>`).join('');
       } else {
         html = (batchTxMoveCache[el.dataset.batchTx] || []).map(m => {
           const i = batchData.items.find(x => x.id === m.batch_item_id);
           if(!i) return '';
-          return `<span class="batch-tag">${batchEsc(i.batchNo)} ×${batchFmtQty(Math.abs(Number(m.qty)))}${i.expiry ? ' · ' + batchEsc(i.expiry) : ''}</span>`;
+          return `<span class="batch-tag">${batchEsc(i.batchNo)} ×${batchFmtQty(Math.abs(Number(m.qty)))}${i.expiry ? ' · EXP ' + batchEsc(i.expiry) : ''}</span>`;
         }).join('');
       }
       el.innerHTML = html;
