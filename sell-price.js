@@ -391,3 +391,16 @@ function spExportSellPriceMap(orderList){
   Object.keys(acc).forEach(pid => { if(acc[pid].qty > 0) map[pid] = spRound2(acc[pid].sum / acc[pid].qty); });
   return map;
 }
+
+// Sell price 單價欄(批次追蹤頁用):顯示 Sell price,點擊看 Base / 其他支出 / Total / Margin / Sell 明細
+function spSellCellHtml(i){
+  const v = spSellUnit(i);
+  if(v === null) return '–';
+  return `<span class="batch-link" title="${batchEsc(t('spPriceClickHint'))}" onclick="spShowPricePopup('${i.id}')">${spMoney(v)}</span>`;
+}
+async function spSaveBatchMarginFromModal(batchId){
+  const el = document.getElementById('batchDetailMargin');
+  const v = el ? el.value : '';
+  const ov = document.getElementById('batchDetailOverlay'); if(ov) ov.remove();
+  await spSaveBatchMargin(batchId, v);
+}
