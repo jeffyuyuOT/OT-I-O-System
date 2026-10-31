@@ -438,8 +438,8 @@ function renderTxExistingItems(){
       return `
         <div style="display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--line);">
           <span style="flex:1;">${it.name}${it.sku ? ` (${it.sku})` : ''}</span>
-          ${priceOn ? spUnitCellHtml(order, it) : ''}
           <span style="${priceOn ? SP_QTY_W : ''}"><span style="text-decoration:line-through;color:var(--ink-soft);">${it.qty}</span> → <span style="color:var(--warn-dark);font-weight:600;">${pending.newQty}</span> ${it.unit}</span>
+          ${priceOn ? spUnitCellHtml(order, it) : ''}
           ${priceOn ? spTotalCellHtml(order, it, pending.newQty) : ''}
           ${registerOutFlowType === 'load-pending' ? `<span class="del-link" onclick="registerExistingItemEditKey='${it.productId}';renderTxExistingItems();">${t('btnEditQty')}</span>` : ''}
           ${(typeof batchExistingItemButtonHtml === 'function') ? batchExistingItemButtonHtml(it, pending) : ''}
@@ -458,8 +458,8 @@ function renderTxExistingItems(){
       return `
       <div style="display:flex;flex-wrap:wrap;align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid var(--line);">
         <span style="flex:1;min-width:140px;">${it.name}${it.sku ? ` (${it.sku})` : ''}</span>
-        ${spUnitCellHtml(order, it)}
         <span style="${SP_QTY_W}">${qtyHtml}</span>
+        ${spUnitCellHtml(order, it)}
         ${spTotalCellHtml(order, it)}
         <span style="${SP_ACTIONS_W}display:inline-flex;gap:8px;justify-content:flex-end;">${actionsHtml}</span>
         ${(typeof batchExistingItemLineHtml === 'function') ? batchExistingItemLineHtml(it) : ''}
@@ -753,12 +753,12 @@ function renderTxBatchList(){
     rowsHtml += `
       <tr>
         <td class="row-name">${it.name}${badge}${(typeof batchTxRowPreviewHtml === 'function') ? batchTxRowPreviewHtml(it) : ''}</td>
-        ${showSellCol ? `<td class="row-num">${spTxItemPriceHtml(it, sellPartyId)}</td>` : ''}
         <td class="row-num">
           <input type="number" class="order-qty-input" step="1" value="${it.qty}"
             onchange="updateTxBatchItemQty('${it.batchItemId}', this.value)" /><span class="row-unit">${it.unit}</span>
         </td>
-        ${showSellCol ? `<td class="row-num" style="font-weight:600;">${spTxItemTotalHtml(it, sellPartyId)}</td>` : ''}
+        ${showSellCol ? `<td class="row-num">${spTxItemPriceHtml(it, sellPartyId)}</td>` : ''}
+        ${showSellCol ? `<td class="row-num"><span style="${SP_TOTAL_PILL}">${spTxItemTotalHtml(it, sellPartyId)}</span></td>` : ''}
         ${showBatchCols ? `<td class="row-num"><input type="date" class="order-qty-input" style="width:140px;" value="${it.expiry || ''}" onchange="updateTxBatchItemExpiry('${it.batchItemId}', this.value)" /></td>
         <td class="row-num"><input type="text" class="order-qty-input" style="width:100px;" value="${(it.supplierLot || '').replace(/"/g, '&quot;')}" onchange="updateTxBatchItemLot('${it.batchItemId}', this.value)" /></td>` : ''}
         ${showAmountCol ? `<td class="row-num"><input type="number" class="order-qty-input" step="0.01" min="0" value="${(it.amount !== undefined && it.amount !== null) ? it.amount : ''}" placeholder="–" ${canEditPrice() ? '' : 'readonly'} onchange="updateTxBatchItemAmount('${it.batchItemId}', this.value)" /></td>` : ''}
@@ -783,9 +783,8 @@ function renderTxBatchList(){
       rowsHtml += `
         <tr style="background:var(--bg-soft,#f5f5f0);font-weight:700;">
           <td class="row-name">${tf('netQtyRowLabel', { name: it.name })}</td>
-          ${showSellCol ? '<td></td>' : ''}
           <td class="row-num">${netQty}<span class="row-unit">${it.unit}</span></td>
-          ${showSellCol ? '<td></td>' : ''}
+          ${showSellCol ? '<td></td><td></td>' : ''}
           ${showBatchCols ? '<td></td><td></td>' : ''}
           ${showAmountCol ? `<td class="row-num">${netAmount !== null ? Number(netAmount).toFixed(2) : '–'}</td>` : ''}
           <td class="row-action"></td>
@@ -795,9 +794,9 @@ function renderTxBatchList(){
   });
   container.innerHTML = `
     <table class="stock-table">
-      <thead><tr><th>${t('colProduct')}</th>${showSellCol ? `<th class="num">${t('spColUnitPrice')}</th>` : ''}<th class="num">${t('colQty')}</th>${showSellCol ? `<th class="num">${t('spColTotalPrice')}</th>` : ''}${showBatchCols ? `<th class="num">${t('batchColExpiry')}</th><th class="num">${t('batchFieldLot')}</th>` : ''}${showAmountCol ? `<th class="num">${t('colAmount')}${(typeof pcAmountColSuffix === 'function') ? pcAmountColSuffix() : ''}</th>` : ''}<th></th></tr></thead>
+      <thead><tr><th>${t('colProduct')}</th><th class="num">${t('colQty')}</th>${showSellCol ? `<th class="num">${t('spColUnitPrice')}</th><th class="num">${t('spColTotalPrice')}</th>` : ''}${showBatchCols ? `<th class="num">${t('batchColExpiry')}</th><th class="num">${t('batchFieldLot')}</th>` : ''}${showAmountCol ? `<th class="num">${t('colAmount')}${(typeof pcAmountColSuffix === 'function') ? pcAmountColSuffix() : ''}</th>` : ''}<th></th></tr></thead>
       <tbody>${rowsHtml}</tbody>
-      ${showSellCol ? (() => { const tt = spTxItemsTotal(sellPartyId); return `<tfoot><tr style="font-weight:700;"><td class="row-name" colspan="3" style="text-align:right;">${registerOutFlowType === 'load-pending' ? t('spAddedItemsTotal') : t('spOrderTotal')}${tt.missing ? ` <span style="font-weight:400;font-size:11px;color:var(--ink-soft);">(${tf('spTotalMissing', { n: tt.missing })})</span>` : ''}</td><td class="row-num">${spMoney(tt.sum)}</td><td colspan="${(showBatchCols ? 2 : 0) + (showAmountCol ? 1 : 0) + 1}"></td></tr></tfoot>`; })() : ''}
+      ${showSellCol ? (() => { const tt = spTxItemsTotal(sellPartyId); return `<tfoot><tr style="font-weight:700;"><td class="row-name" colspan="3" style="text-align:right;">${registerOutFlowType === 'load-pending' ? t('spAddedItemsTotal') : t('spOrderTotal')}${tt.missing ? ` <span style="font-weight:400;font-size:11px;color:var(--ink-soft);">(${tf('spTotalMissing', { n: tt.missing })})</span>` : ''}</td><td class="row-num"><span style="${SP_TOTAL_PILL}">${spMoney(tt.sum)}</span></td><td colspan="${(showBatchCols ? 2 : 0) + (showAmountCol ? 1 : 0) + 1}"></td></tr></tfoot>`; })() : ''}
     </table>
   `;
 }

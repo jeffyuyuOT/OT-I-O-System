@@ -171,7 +171,7 @@ function spOrderPriceHtml(order, it){
   const pr = spPriceOrderItem(order, it);
   const label = pr.unit === null ? '–' : spMoney(pr.unit);
   const mark = pr.manual ? ' ✎' : '';
-  return `<span class="batch-link sp-order-price" title="${batchEsc(t('spPriceClickHint'))}" style="margin-left:8px;font-weight:600;" onclick="event.stopPropagation();spOpenOrderPricePopup('${order.id}','${it.productId}')">${label}${mark}</span>`;
+  return `<span class="batch-link sp-order-price" title="${batchEsc(t('spPriceClickHint'))}" style="margin-left:8px;" onclick="event.stopPropagation();spOpenOrderPricePopup('${order.id}','${it.productId}')">${label}${mark}</span>`;
 }
 function spCloseOrderPopup(){ const o = document.getElementById('spOrderPriceOverlay'); if(o) o.remove(); }
 function spOpenOrderPricePopup(orderId, productId){
@@ -293,6 +293,8 @@ async function spExportTotalPriceMap(orderList){
 const SP_UNIT_W = 'width:84px;text-align:right;flex:none;';
 const SP_QTY_W = 'min-width:96px;text-align:right;flex:none;';
 const SP_TOTAL_W = 'width:96px;text-align:right;flex:none;';
+// 總價用粗體 + 淺灰底,跟單價(一般字重、可點擊的底線文字)一眼分得出來
+const SP_TOTAL_PILL = 'display:inline-block;padding:1px 8px;border-radius:3px;background:rgba(0,0,0,0.07);font-weight:700;';
 const SP_ACTIONS_W = 'width:150px;text-align:right;flex:none;white-space:nowrap;';
 
 // 這個品項目前的單價(null = 沒有價格);qty 可以覆蓋(登記進出貨頁暫存的新數量)
@@ -313,13 +315,13 @@ function spUnitCellHtml(order, it){
 }
 function spTotalCellHtml(order, it, qtyOverride){
   const v = spItemTotal(order, it, qtyOverride);
-  return `<span style="${SP_TOTAL_W}font-weight:600;">${v === null ? '–' : spMoney(v)}</span>`;
+  return `<span style="${SP_TOTAL_W}"><span style="${SP_TOTAL_PILL}">${v === null ? '–' : spMoney(v)}</span></span>`;
 }
 // 標題列:單價 / 數量 / 總價(withActions = 這個清單每列右邊有「改數量 / 批次 / 刪除」,要留同樣的寬度才對得齊)
 function spColsHeaderHtml(withActions){
   if(!spEnabled()) return '';
   return `<div class="sp-cols-head" style="display:flex;gap:10px;justify-content:flex-end;align-items:center;font-size:11px;color:var(--ink-soft);padding:2px 0;border-bottom:none;">
-    <span style="flex:1;"></span><span style="${SP_UNIT_W}">${t('spColUnitPrice')}</span><span style="${SP_QTY_W}">${t('colQty')}</span><span style="${SP_TOTAL_W}">${t('spColTotalPrice')}</span>${withActions ? `<span style="${SP_ACTIONS_W}"></span>` : ''}
+    <span style="flex:1;"></span><span style="${SP_QTY_W}">${t('colQty')}</span><span style="${SP_UNIT_W}">${t('spColUnitPrice')}</span><span style="${SP_TOTAL_W}">${t('spColTotalPrice')}</span>${withActions ? `<span style="${SP_ACTIONS_W}"></span>` : ''}
   </div>`;
 }
 // 一張訂單的總金額(沒有價格的品項不算進去,有的話旁邊註明)
@@ -339,7 +341,7 @@ function spTotalRowHtml(sum, missing, withActions, label){
   if(!spEnabled()) return '';
   return `<div class="sp-total-row" style="display:flex;gap:10px;justify-content:flex-end;align-items:center;padding:6px 0 2px;border-bottom:none;font-weight:700;">
     <span style="flex:1;text-align:right;">${label || t('spOrderTotal')}${missing ? ` <span style="font-weight:400;font-size:11px;color:var(--ink-soft);">(${tf('spTotalMissing', { n: missing })})</span>` : ''}</span>
-    <span style="${SP_TOTAL_W}">${spMoney(sum)}</span>${withActions ? `<span style="${SP_ACTIONS_W}"></span>` : ''}
+    <span style="${SP_TOTAL_W}"><span style="${SP_TOTAL_PILL}">${spMoney(sum)}</span></span>${withActions ? `<span style="${SP_ACTIONS_W}"></span>` : ''}
   </div>`;
 }
 function spOrderTotalRowHtml(order, withActions, overrides){

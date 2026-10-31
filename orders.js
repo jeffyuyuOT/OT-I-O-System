@@ -684,8 +684,8 @@ function orderItemRowHtml(o, it, isPending, readOnly, context){
     <div style="flex-wrap:wrap;">
       <span style="flex:1;min-width:0;">${nameHtml}</span>
       <span style="display:inline-flex;align-items:center;gap:10px;">
-        ${spUnitCellHtml(o, it)}
         <span style="${SP_QTY_W}">${qtyDisplay}</span>
+        ${spUnitCellHtml(o, it)}
         ${spTotalCellHtml(o, it)}
         ${canEdit ? `<span style="${SP_ACTIONS_W}">${actionLinks}</span>` : ''}
       </span>
