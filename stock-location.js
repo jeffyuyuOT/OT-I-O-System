@@ -48,9 +48,9 @@ function renderStockLocationProductSelect(){
   // 勾選「列出所有未指派商品」時,這個下拉選單也只列出真的還有未分布庫存的商品——不然選單裡
   // 明明列著一個已經全部指派完位置的商品,選了卻跟畫面上那份「未指派清單」對不起來,容易誤導。
   if(isBulkMode) filteredProducts = filteredProducts.filter(p => computeUnassignedQty(p.id) > 0);
-  // 勾選「列出所有多個位置的商品」時同理:只列出分布在兩個以上位置的商品
+  // 勾選「列出所有多個位置的商品」時同理:只列出分布在兩個以上位置(含未分布)的商品,條件要跟清單本身一致,不然按「查看」會找不到商品
   const multiCheckbox = document.getElementById('stockLocationShowAllMulti');
-  if(multiCheckbox && multiCheckbox.checked) filteredProducts = filteredProducts.filter(p => stockLocationCountFor(p.id) >= 2);
+  if(multiCheckbox && multiCheckbox.checked) filteredProducts = filteredProducts.filter(p => (stockLocationCountFor(p.id) + (computeUnassignedQty(p.id) > 0 ? 1 : 0)) >= 2);
   sel.innerHTML = '<option value=""></option>' + filteredProducts.slice().sort(compareProductsBySortMode).map(p => `<option value="${p.id}">${p.sku ? p.sku + ' — ' : ''}${p.parentId ? '⧉ ' : ''}${p.name}(${p.unit})</option>`).join('');
   if(filteredProducts.some(p => p.id === prevVal)) sel.value = prevVal;
 
