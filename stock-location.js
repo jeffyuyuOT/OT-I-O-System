@@ -779,6 +779,18 @@ async function confirmLocationTransfer(){
   }
   if(sourceLoc && newCode && sourceLoc.locationCode === newCode){ msgEl.className = 'msg error'; msgEl.textContent = t('errTransferSameLocation'); return; }
 
+  // 批次追蹤的商品:轉移的是倉庫裡實際放的貨,由使用者選這次搬的是哪些批次(來源位置只有一個批次的話自動帶入)。
+  // 在動任何資料之前先問,按取消就整個中止。
+  let batchTransferRows = null;
+  if(typeof batchTransferPick === 'function'){
+    try{
+      batchTransferRows = await batchTransferPick(productId, qty, sourceLoc ? sourceLoc.locationCode : '', (targetVal === 'unassigned') ? '' : newCode);
+    } catch(e){
+      msgEl.className = 'msg'; msgEl.textContent = '';
+      return;
+    }
+  }
+
   msgEl.className = 'msg'; msgEl.textContent = t('savingMsg');
   try{
     // 先處理目的地:同一個商品、同一個位置代碼已經有紀錄的話,直接加上去;沒有的話新增一筆;
@@ -816,6 +828,11 @@ async function confirmLocationTransfer(){
       }
     }
 
+    // 庫存分布轉移成功後,批次記的位置跟著搬(失敗只提示,不影響上面已經完成的轉移)
+    if(batchTransferRows && batchTransferRows.length && typeof batchApplyTransfer === 'function'){
+      try{ await batchApplyTransfer(batchTransferRows); }
+      catch(e){ console.error('批次位置轉移失敗', e); showInfoModal(t('batchTransferFailed')); }
+    }
     refreshStockLocationView();
     closeLocationEditModal();
   } catch(e){

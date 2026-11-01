@@ -2015,3 +2015,92 @@ async function batchTagOutLocations(txList, plans){
     if(rows.length) await batchRpc('batch_tag_locations', { p_tx_id: tx.id, p_rows: rows });
   }
 }
+
+
+// ============================================================
+// 庫存位置分批次 第四階段(d):庫存分布「轉移位置」時,由使用者選實際搬了哪些批次
+// 資料庫 RPC 見 sql/batch_location_phase_d.sql。轉移是倉庫內換位置,不是出貨,所以沒有先進先出,由人選。
+// srcCode / dstCode:位置代碼,'' = 未分布。
+// ============================================================
+// 回傳 null = 這個商品在來源位置沒有任何批次庫存(不需要動批次);否則回傳 [{ batch_item_id, from_code, to_code, qty }]
+// (只有一個候選批次時自動帶入,不問);使用者按取消 → 丟出 Error('cancelled')。
+async function batchTransferPick(productId, qty, srcCode, dstCode){
+  if(!batchActive()) return null;
+  try{ await ensureBatchDataLoaded(); }catch(e){}
+  if(!batchIsTracked(productId)) return null;
+  const cands = [];
+  batchItemsOfProduct(productId).forEach(i => {
+    const b = batchBuckets(i).find(x => x.code === srcCode);
+    if(b && b.rem > 1e-9) cands.push({ item: i, rem: b.rem });
+  });
+  if(cands.length === 0) return null;
+  if(cands.length === 1){
+    const q = Math.min(qty, cands[0].rem);
+    return [{ batch_item_id: cands[0].item.id, from_code: srcCode, to_code: dstCode, qty: q }];
+  }
+  const picks = await batchTransferPicker(productId, qty, srcCode, dstCode, cands);
+  return picks.map(p => ({ batch_item_id: p.id, from_code: srcCode, to_code: dstCode, qty: p.qty }));
+}
+function batchTransferPicker(productId, qty, srcCode, dstCode, cands){
+  return new Promise((resolve, reject) => {
+    const old = document.getElementById('batchTransferOverlay'); if(old) old.remove();
+    const p = products.find(x => x.id === productId);
+    const unit = p ? batchEsc(p.unit) : '';
+    const ov = document.createElement('div');
+    ov.id = 'batchTransferOverlay'; ov.className = 'modal-overlay'; ov.style.display = 'flex'; ov.style.zIndex = '1250';
+    const rows = cands.map(c => `<tr>
+      <td>${batchEsc(c.item.batchNo)}${c.item.isOpening ? ' <span style="color:var(--ink-soft);font-size:11px;">(' + t('batchOpening') + ')</span>' : ''}</td>
+      <td>${c.item.expiry ? batchEsc(c.item.expiry) : '–'}</td>
+      <td class="num">${batchFmtQty(c.rem)}</td>
+      <td class="num"><input type="number" class="batch-tr-input" data-id="${c.item.id}" data-max="${c.rem}" min="0" max="${c.rem}" step="1" style="width:80px;" oninput="batchTransferUpdateSum()" /></td>
+    </tr>`).join('');
+    ov.innerHTML = `<div class="modal-box modal-box-wide">
+      <div class="section-title" style="margin-top:0;">${t('batchTransferTitle')}</div>
+      <p style="margin-bottom:8px;">${batchEsc(p ? p.name : '')} · ${tf('batchTransferHint', { qty: batchFmtQty(qty), unit, from: batchEsc(srcCode || t('unassignedLocationLabel')), to: batchEsc(dstCode || t('unassignedLocationLabel')) })}</p>
+      <table class="stock-table">
+        <thead><tr><th>${t('batchColBatch')}</th><th>${t('batchColExpiry')}</th><th class="num">${t('batchTransferHere')}</th><th class="num">${t('batchTransferMove')}</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+      <div style="font-size:11.5px;color:var(--ink-soft);margin-top:6px;">${t('batchTransferRestNote')}</div>
+      <div id="batchTransferSum" style="font-size:12px;margin:8px 0;color:var(--ink-soft);"></div>
+      <div id="batchTransferMsg" class="msg"></div>
+      <div class="modal-actions">
+        <button class="btn ghost" id="batchTransferCancel">${t('btnCancel')}</button>
+        <button class="btn" id="batchTransferOk">${t('btnConfirmYes')}</button>
+      </div>
+    </div>`;
+    document.body.appendChild(ov);
+    batchTransferQty = qty;
+    batchTransferUpdateSum();
+    document.getElementById('batchTransferCancel').onclick = () => { ov.remove(); reject(new Error('cancelled')); };
+    document.getElementById('batchTransferOk').onclick = () => {
+      const picks = [];
+      let bad = false;
+      ov.querySelectorAll('.batch-tr-input').forEach(inp => {
+        const v = parseFloat(inp.value);
+        if(v > 0){ if(v > parseFloat(inp.dataset.max) + 1e-9) bad = true; picks.push({ id: inp.dataset.id, qty: v }); }
+      });
+      const sum = picks.reduce((a, x) => a + x.qty, 0);
+      const msg = document.getElementById('batchTransferMsg');
+      if(bad){ msg.className = 'msg error'; msg.textContent = t('batchPickerOverRemaining'); return; }
+      if(sum > qty + 1e-9){ msg.className = 'msg error'; msg.textContent = t('batchPickerOverQty'); return; }
+      ov.remove();
+      resolve(picks);
+    };
+  });
+}
+let batchTransferQty = 0;
+function batchTransferUpdateSum(){
+  const el = document.getElementById('batchTransferSum');
+  if(!el) return;
+  let sum = 0;
+  document.querySelectorAll('#batchTransferOverlay .batch-tr-input').forEach(inp => { const v = parseFloat(inp.value); if(v > 0) sum += v; });
+  el.textContent = tf('batchTransferSum', { sum: batchFmtQty(sum), qty: batchFmtQty(batchTransferQty) });
+}
+// 位置轉移完成後呼叫:把批次記的位置搬過去。失敗不影響庫存分布本身(已經轉移成功),提示後可再處理。
+async function batchApplyTransfer(rows){
+  if(!rows || rows.length === 0) return;
+  await batchRpc('batch_transfer_locations', { p_rows: rows });
+  batchMarkStale();
+  try{ await ensureBatchDataLoaded(true); }catch(e){}
+}
