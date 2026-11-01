@@ -266,7 +266,9 @@ let pendingLocationPhotoUrl = null;
 // 不會出現在選項裡——不能轉移到自己身上。
 function buildLocationTargetOptions(productId, excludeLocationId){
   const locs = getSortedLocationsForProduct(productId).filter(l => l.id !== excludeLocationId);
-  const options = locs.map(l => ({ value: 'loc:' + l.id, label: `${l.locationCode}${l === locs[0] ? ` (${t('primaryLocationBadge')})` : ''} — ${l.qty}` }));
+  // 「主要位置」標記要看整個商品(含正在編輯的來源位置)數量最多的那個,不是只在剩下的選項裡挑最多的
+  const truePrimary = getPrimaryLocation(productId);
+  const options = locs.map(l => ({ value: 'loc:' + l.id, label: `${l.locationCode}${(truePrimary && l.id === truePrimary.id) ? ` (${t('primaryLocationBadge')})` : ''} — ${l.qty}` }));
   options.push({ value: 'unassigned', label: t('unassignedLocationLabel') });
   options.push({ value: 'new', label: t('optAddNewLocation') });
   // 這個商品目前完全沒有真正的位置資料(全部未分布)的話,如果之前記錄過「最後一次的主要
