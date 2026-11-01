@@ -627,19 +627,12 @@ function batchRenderFormExtras(){
   if(!isIn){ trackWrap.style.display = 'none'; trackWrap.innerHTML = ''; extraWrap.style.display = 'none'; extraWrap.innerHTML = ''; return; }
   trackWrap.style.display = '';
   trackWrap.innerHTML = `
-    <label style="display:flex;align-items:center;gap:8px;font-size:12.5px;font-weight:600;color:var(--ink);cursor:pointer;">
+    <label style="display:flex;align-items:center;gap:8px;font-size:12.5px;font-weight:600;color:var(--ink);cursor:pointer;white-space:nowrap;" title="${batchEsc(t('batchTrackToggleHint'))}">
       <input type="checkbox" id="txBatchTrackChk" ${txBatchTrackChecked ? 'checked' : ''} onchange="txBatchTrackChecked=this.checked;renderTxBatchList();" style="width:16px;height:16px;cursor:pointer;" />
       ${t('batchTrackToggle')}
-    </label>
-    <div style="font-size:11.5px;color:var(--ink-soft);margin:2px 0 0 24px;">${t('batchTrackToggleHint')}</div>`;
-  if(txBatchTrackChecked){
-    extraWrap.style.display = '';
-    extraWrap.innerHTML = `
-      <div class="form-grid" style="grid-template-columns:1fr 1fr;margin-top:6px;">
-        <div class="field"><label>${t('batchFieldExpiry')}</label><input id="txExpiry" type="date" /></div>
-        <div class="field"><label>${t('batchFieldLot')}</label><input id="txSupplierLot" type="text" /></div>
-      </div>`;
-  } else { extraWrap.style.display = 'none'; extraWrap.innerHTML = ''; }
+    </label>`;
+  // 有效期/供應商批號改在清單每一行填寫(有效期欄、📝 詳細資料),新增商品那一排不再有這兩欄
+  extraWrap.style.display = 'none'; extraWrap.innerHTML = '';
 }
 function batchReadAddFields(){
   if(!batchRowsShowExpiry()) return { expiry: '', lot: '' };
