@@ -863,7 +863,7 @@ function batchRenderProductDetail(pid){
           </tr>`).join('')}
         ${untrackedRow}
       </tbody>
-      ${items.length === 0 ? '' : (() => { const live = items.filter(i => i.remaining > 0); const v = batchValueSum(live); const q = live.reduce((a, i) => a + i.remaining, 0); return `<tfoot><tr style="font-weight:700;"><td colspan="2" style="text-align:right;">${t('batchValueTotal')}</td><td class="num">${batchFmtQty(q)} ${batchEsc(batchProductUnit(pid))}</td><td colspan="2" style="font-weight:400;">${t('batchStockValue')}: <strong>${(typeof spMoney === 'function') ? spMoney(v.sum) : v.sum.toFixed(2)}</strong>${v.missing ? ` <span style="font-size:11px;color:var(--ink-soft);">(${tf('batchValueMissing', { n: v.missing })})</span>` : ''}</td></tr></tfoot>`; })()}
+      ${items.length === 0 ? '' : (() => { const live = items.filter(i => i.remaining > 0); const v = batchValueSum(live); const q = live.reduce((a, i) => a + i.remaining, 0); return `<tfoot><tr style="font-weight:700;"><td colspan="2" style="text-align:right;">${t('batchValueTotal')} · ${t('batchStockValue')} <span class="batch-link" style="font-weight:400;" title="${batchEsc(t('batchValueHelpTitle'))}" onclick="showInfoModal(t('batchValueHelp'))">ⓘ</span>${v.missing ? `<div style="font-weight:400;font-size:11px;color:var(--ink-soft);">(${tf('batchValueMissing', { n: v.missing })})</div>` : ''}</td><td class="num">${batchFmtQty(q)} ${batchEsc(batchProductUnit(pid))}</td><td class="num">${(typeof spMoney === 'function') ? spMoney(v.sum) : v.sum.toFixed(2)}</td><td></td></tr></tfoot>`; })()}
     </table>`;
 }
 
@@ -1017,6 +1017,7 @@ function batchRenderExpiryList(){
       ${chip(t('batchStockValue'), all.sum)}
       ${chip('🟠 ' + t('batchValueSoon'), soon.sum, '#B8860B')}
       ${chip('🔴 ' + t('batchValueExpired'), expired.sum, 'var(--crit)')}
+      <span class="batch-link" style="align-self:center;font-size:15px;" title="${batchEsc(t('batchValueHelpTitle'))}" onclick="showInfoModal(t('batchValueHelp'))">ⓘ</span>
       ${missingTotal ? `<span style="align-self:center;font-size:11px;color:var(--ink-soft);">${tf('batchValueMissing', { n: missingTotal })}</span>` : ''}
     </div>`;
   return `
