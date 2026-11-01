@@ -194,6 +194,9 @@ function batchShowShipCost(ev, ship, cur){
 
 // 有效期先到期先出;沒有有效期的排後面,依進貨日 FIFO(期初批次日期最舊)。資料庫端排序規則一樣。
 function batchFefoCompare(a, b){
+  // 期初批次(沒有有效期、視為最舊)優先;其餘先到期先出,沒有有效期的排後面,再依進貨日 FIFO
+  if(a.isOpening && !b.isOpening) return -1;
+  if(!a.isOpening && b.isOpening) return 1;
   const ae = a.expiry || '', be = b.expiry || '';
   if(ae && !be) return -1;
   if(!ae && be) return 1;
