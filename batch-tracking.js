@@ -1427,7 +1427,7 @@ function batchTrackerOpenHistory(itemId){
 async function batchLoadHistoryMoves(itemId){
   let moves = [];
   try{
-    const { data, error } = await batchSelectMovements('id,mv_date,qty,kind,party,order_no,note,created_at,order_id,tx_id',
+    const { data, error } = await batchSelectMovements('id,mv_date,qty,kind,party,order_no,note,created_at,order_id,tx_id,location_code',
       q => q.eq('batch_item_id', itemId).order('mv_date', { ascending: true }).order('id', { ascending: true }));
     if(error) throw error;
     moves = data || [];
@@ -1460,12 +1460,12 @@ function batchRenderHistoryPage(){
     <div style="font-size:12px;color:var(--ink-soft);margin-bottom:8px;">${t('batchHistClickHint')}</div>`;
   if(batchHist.loading) return back + head + `<div class="empty-note">${t('batchLoading')}</div>`;
   const rowStyle = 'cursor:pointer;';
-  const rows = [`<tr style="${rowStyle}" onclick="batchHistOpenRow(-1)"><td>${batchEsc(i.isOpening ? t('batchOpening') : i.batchDate)}</td><td>${t('batchKindIn')}</td><td class="num" style="padding-right:72px;">+${batchFmtQty(i.qtyIn)} ${unit}</td><td>${batchEsc(i.supplier) || '–'}</td><td>${batchEsc(i.invoiceNo) || '–'}</td><td class="num">${batchFmtMoney(batchUnitCost(i))}</td></tr>`]
-    .concat(batchHist.moves.map((m, idx) => `<tr style="${rowStyle}" onclick="batchHistOpenRow(${idx})"><td>${batchEsc(m.mv_date)}</td><td>${t(BATCH_KIND_LABEL_KEY[m.kind] || 'batchKindAdjust')}</td><td class="num" style="padding-right:72px;">${Number(m.qty) > 0 ? '+' : ''}${batchFmtQty(Number(m.qty))} ${unit}</td><td>${batchEsc(m.party) || '–'}</td><td>${batchEsc(m.order_no) || '–'}</td><td class="num">${batchCostWithFlag(m.unit_cost, i)}</td></tr>`));
+  const rows = [`<tr style="${rowStyle}" onclick="batchHistOpenRow(-1)"><td>${batchEsc(i.isOpening ? t('batchOpening') : i.batchDate)}</td><td>${t('batchKindIn')}</td><td class="num" style="padding-right:72px;">+${batchFmtQty(i.qtyIn)} ${unit}</td><td>–</td><td>${batchEsc(i.supplier) || '–'}</td><td>${batchEsc(i.invoiceNo) || '–'}</td><td class="num">${batchFmtMoney(batchUnitCost(i))}</td></tr>`]
+    .concat(batchHist.moves.map((m, idx) => `<tr style="${rowStyle}" onclick="batchHistOpenRow(${idx})"><td>${batchEsc(m.mv_date)}</td><td>${t(BATCH_KIND_LABEL_KEY[m.kind] || 'batchKindAdjust')}</td><td class="num" style="padding-right:72px;">${Number(m.qty) > 0 ? '+' : ''}${batchFmtQty(Number(m.qty))} ${unit}</td><td>${m.location_code ? '📍 ' + batchEsc(m.location_code) : '–'}</td><td>${batchEsc(m.party) || '–'}</td><td>${batchEsc(m.order_no) || '–'}</td><td class="num">${batchCostWithFlag(m.unit_cost, i)}</td></tr>`));
   return back + head + `<table class="stock-table">
     <thead>
-      <tr><th style="border-bottom:none;"></th><th style="border-bottom:none;"></th><th class="num" style="border-bottom:none;white-space:nowrap;padding-bottom:6px;padding-right:72px;"><span style="display:inline-block;padding:4px 10px;background:rgba(0,0,0,0.07);border-radius:3px;font-size:14px;font-weight:700;color:var(--ink);text-transform:none;letter-spacing:0;">${tf('batchHistRemaining', { qty: batchFmtQty(i.remaining) + ' ' + unit })}</span></th><th colspan="3" style="border-bottom:none;"></th></tr>
-      <tr><th>${t('colDate')}</th><th>${t('colType')}</th><th class="num" style="padding-right:72px;">${t('colQty')}</th><th>${t('batchColParty')}</th><th>${t('batchColOrderNo')}</th><th class="num">${t('batchColUnitCost')}</th></tr>
+      <tr><th style="border-bottom:none;"></th><th style="border-bottom:none;"></th><th class="num" style="border-bottom:none;white-space:nowrap;padding-bottom:6px;padding-right:72px;"><span style="display:inline-block;padding:4px 10px;background:rgba(0,0,0,0.07);border-radius:3px;font-size:14px;font-weight:700;color:var(--ink);text-transform:none;letter-spacing:0;">${tf('batchHistRemaining', { qty: batchFmtQty(i.remaining) + ' ' + unit })}</span></th><th colspan="4" style="border-bottom:none;"></th></tr>
+      <tr><th>${t('colDate')}</th><th>${t('colType')}</th><th class="num" style="padding-right:72px;">${t('colQty')}</th><th>${t('batchLocTitle')}</th><th>${t('batchColParty')}</th><th>${t('batchColOrderNo')}</th><th class="num">${t('batchColUnitCost')}</th></tr>
     </thead>
     <tbody>${rows.join('')}</tbody></table>`;
 }
@@ -2203,3 +2203,11 @@ async function batchApplyTransfer(rows){
   try{ await ensureBatchDataLoaded(true); }catch(e){}
 }
 
+
+// 轉移位置紀錄用:把 batchTransferPick 的結果轉成 [{ batchNo, expiry, qty }]
+function batchTransferRowsLabel(rows){
+  return (rows || []).map(r => {
+    const it = batchData.items.find(x => x.id === r.batch_item_id);
+    return { batchNo: it ? it.batchNo : '', expiry: it ? (it.expiry || '') : '', isOpening: it ? !!it.isOpening : false, qty: r.qty };
+  });
+}

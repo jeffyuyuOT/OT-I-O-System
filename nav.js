@@ -501,6 +501,7 @@ function switchLogSubTab(subtabId){
   if(subtabId === 'subtab-log-completed'){ populateCompletedOrderPartyFilter(); renderOrders(); }
   if(subtabId === 'subtab-log-forecast'){ loadForecastRecords().then(renderLogForecastRecords); }
   if(subtabId === 'subtab-log-convert'){ renderConvertHistoryTable(); }
+  if(subtabId === 'subtab-log-location'){ openLocationLogTab(); }
   if(subtabId === 'subtab-log-exports'){ loadExportEmailLogs().then(renderExportLog); }
   if(subtabId === 'subtab-log-inventory'){ loadInventoryLog().then(renderInventoryLog); }
 }

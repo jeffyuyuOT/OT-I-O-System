@@ -878,6 +878,17 @@ async function confirmLocationTransfer(){
       }
     }
 
+    // 轉移紀錄(歷史紀錄 → 庫存分布紀錄);寫入失敗(例如資料表還沒建立)不影響轉移本身
+    try{
+      const prod = products.find(x => x.id === productId);
+      await sb.from('location_transfer_log').insert({
+        product_id: productId, product_name: prod ? prod.name : '', unit: prod ? prod.unit : '',
+        from_code: sourceLoc ? sourceLoc.locationCode : '', to_code: (targetVal === 'unassigned') ? '' : newCode, qty,
+        actor: (currentUser && currentUser.username) || null,
+        batches: (batchTransferRows && batchTransferRows.length && typeof batchTransferRowsLabel === 'function') ? batchTransferRowsLabel(batchTransferRows) : null
+      });
+      locationTransferLogLoaded = false;
+    }catch(e){ console.warn('寫入庫存分布紀錄失敗', e); }
     // 庫存分布轉移成功後,批次記的位置跟著搬(失敗只提示,不影響上面已經完成的轉移)
     if(batchTransferRows && batchTransferRows.length && typeof batchApplyTransfer === 'function'){
       try{ await batchApplyTransfer(batchTransferRows); }
@@ -890,4 +901,93 @@ async function confirmLocationTransfer(){
     msgEl.className = 'msg error';
     msgEl.textContent = '⚠ 儲存失敗,請重新整理頁面再試一次。';
   }
+}
+
+
+// ============================================================
+// 歷史紀錄 → 庫存分布紀錄:列出每一次轉移位置(sql/location_transfer_log.sql)
+// ============================================================
+let locationTransferLog = [];
+let locationTransferLogLoaded = false;
+let locationTransferLogError = '';
+async function loadLocationTransferLog(){
+  try{
+    const { data, error } = await sb.from('location_transfer_log').select('*').order('created_at', { ascending: false }).limit(2000);
+    if(error) throw error;
+    locationTransferLog = data || [];
+    locationTransferLogError = '';
+  } catch(e){
+    console.warn('讀取庫存分布紀錄失敗', e);
+    locationTransferLog = [];
+    locationTransferLogError = (e && e.message) || String(e);
+  }
+  locationTransferLogLoaded = true;
+}
+function renderLocationLogFilters(){
+  const catSel = document.getElementById('locLogCategoryFilter');
+  const sel = document.getElementById('locLogProductSelect');
+  if(!catSel || !sel) return;
+  syncCategoryOrder();
+  const prevCat = catSel.value;
+  const usedCats = categoryOrder.filter(c => products.some(p => (p.category || '未分類') === c));
+  catSel.innerHTML = `<option value="">${t('catFilterAll')}</option>` + usedCats.map(c => `<option value="${c}">${catLabel(c)}</option>`).join('');
+  if(usedCats.includes(prevCat)) catSel.value = prevCat;
+  const prevVal = sel.value;
+  const list = (catSel.value ? products.filter(p => (p.category || '未分類') === catSel.value) : products).filter(p => !p.hidden);
+  sel.innerHTML = '<option value=""></option>' + list.slice().sort(compareProductsBySortMode).map(p => `<option value="${p.id}">${p.sku ? p.sku + ' — ' : ''}${p.parentId ? '⧉ ' : ''}${p.name}(${p.unit})</option>`).join('');
+  if(list.some(p => p.id === prevVal)) sel.value = prevVal;
+  makeSelectSearchable('locLogProductSelect');
+}
+function onLocationLogCategoryChange(){
+  resetSearchableSelect('locLogProductSelect');
+  renderLocationLogFilters();
+  renderLocationLog();
+}
+function clearLocationLogFilters(){
+  const c = document.getElementById('locLogCategoryFilter'); if(c) c.value = '';
+  resetSearchableSelect('locLogProductSelect');
+  renderLocationLogFilters();
+  renderLocationLog();
+}
+async function openLocationLogTab(){
+  renderLocationLogFilters();
+  const box = document.getElementById('locationLogTable');
+  if(box && !locationTransferLogLoaded) box.innerHTML = `<div class="empty-note">${t('batchLoading')}</div>`;
+  if(!locationTransferLogLoaded) await loadLocationTransferLog();
+  renderLocationLog();
+}
+function renderLocationLog(){
+  const box = document.getElementById('locationLogTable');
+  if(!box) return;
+  if(locationTransferLogError){
+    box.innerHTML = `<div class="empty-note">${t('locLogLoadError')}<br><span style="font-size:11px;">${escapeHtmlForPrint(locationTransferLogError)}</span></div>`;
+    return;
+  }
+  const cat = (document.getElementById('locLogCategoryFilter') || {}).value || '';
+  const pid = (document.getElementById('locLogProductSelect') || {}).value || '';
+  const catIds = cat ? new Set(products.filter(p => (p.category || '未分類') === cat).map(p => p.id)) : null;
+  const rows = locationTransferLog.filter(r => (!pid || r.product_id === pid) && (!catIds || catIds.has(r.product_id)));
+  if(rows.length === 0){ box.innerHTML = `<div class="empty-note">${t('locLogEmpty')}</div>`; return; }
+  const pad = n => String(n).padStart(2, '0');
+  const fmt = iso => { const d = new Date(iso); return isNaN(d) ? '' : `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`; };
+  const code = c => c ? escapeHtmlForPrint(c) : `<span style="color:var(--ink-soft);font-style:italic;">${t('unassignedLocationLabel')}</span>`;
+  box.innerHTML = `<table class="stock-table">
+    <thead><tr><th>${t('colDate')}</th><th>${t('lblProduct')}</th><th>${t('locLogFrom')}</th><th>${t('locLogTo')}</th><th class="num">${t('colQty')}</th><th>${t('locLogBatches')}</th><th>${t('locLogActor')}</th></tr></thead>
+    <tbody>${rows.map(r => {
+      const p = products.find(x => x.id === r.product_id);
+      const name = p ? p.name : (r.product_name || r.product_id);
+      const unit = p ? p.unit : (r.unit || '');
+      const batches = Array.isArray(r.batches) && r.batches.length
+        ? r.batches.map(b => `${escapeHtmlForPrint(b.isOpening ? t('batchOpening') : (b.batchNo || ''))}${b.expiry ? ' · ' + escapeHtmlForPrint(b.expiry) : ''} ×${b.qty}`).join('<br>')
+        : '–';
+      return `<tr>
+        <td style="white-space:nowrap;">${fmt(r.created_at)}</td>
+        <td>${escapeHtmlForPrint(name)}</td>
+        <td>${code(r.from_code)}</td>
+        <td>${code(r.to_code)}</td>
+        <td class="num">${r.qty} ${escapeHtmlForPrint(unit)}</td>
+        <td style="font-size:12px;">${batches}</td>
+        <td>${escapeHtmlForPrint(r.actor || '')}</td>
+      </tr>`;
+    }).join('')}</tbody></table>`;
 }
