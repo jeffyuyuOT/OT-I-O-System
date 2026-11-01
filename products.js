@@ -528,6 +528,16 @@ async function saveProductEditModal(){
 // 切換視窗的「批次」:預設依 期初批次 → 先到期先出 → 先進貨 自動選要切換哪一批;可以點 🏷 手動指定批次與位置。
 let conversionBatchPicks = [];
 function conversionSourceProductId(){ return conversionMode === 'toChild' ? conversionParentId : pendingConversionChildId; }
+// 批次追蹤的商品而且批次有記位置:切換出來的商品自動放在跟來源同一個位置,不需要(也不顯示)「指派位置」
+function conversionUsesBatchLocation(){
+  const pid = conversionSourceProductId();
+  if(typeof batchIsTracked !== 'function' || !pid || !batchIsTracked(pid)) return false;
+  return batchItemsOfProduct(pid).some(i => (batchItemLocRem[i.id] || []).length > 0);
+}
+function conversionLocPickerHtml(){
+  if(conversionUsesBatchLocation()) return `<div style="font-size:12px;color:var(--ink-soft);margin-top:4px;">📍 ${t('conversionSameLocationNote')}</div>`;
+  return buildLocationPickerHtml('conversionLoc', 'fieldAssignLocation');
+}
 function conversionBatchRowHtml(){
   const pid = conversionSourceProductId();
   if(typeof batchIsTracked !== 'function' || !pid || !batchIsTracked(pid)) return '';
@@ -579,7 +589,7 @@ function openConversionModal(childId){
       <label>${t('fieldConvertResultToParent')}(${parent.unit})</label>
       <div id="conversionPreview" style="font-family:'IBM Plex Mono',monospace;font-size:16px;font-weight:600;">0 ${parent.unit}</div>
     </div>
-    ${buildLocationPickerHtml('conversionLoc', 'fieldAssignLocation')}
+    ${conversionLocPickerHtml()}
   `;
   document.getElementById('conversionModalMsg').textContent = '';
   document.getElementById('conversionModalOverlay').style.display = 'flex';
@@ -632,7 +642,7 @@ function renderParentToChildConversionBody(){
       <label>${t('fieldConvertResultToChild')}(${selectedChild.unit})</label>
       <div id="conversionPreview" style="font-family:'IBM Plex Mono',monospace;font-size:16px;font-weight:600;">0 ${selectedChild.unit}</div>
     </div>
-    ${buildLocationPickerHtml('conversionLoc', 'fieldAssignLocation')}
+    ${conversionLocPickerHtml()}
   `;
   updateConversionPreview();
   populateLocationPicker('conversionLoc', selectedChild.id);
