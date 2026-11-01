@@ -34,7 +34,7 @@ function populatePartySelect(){
     } else {
       sel.disabled = false;
       sel.innerHTML = `<option value="">${t('optUnspecified')}</option>` +
-        shippingParties.map(sp => `<option value="${sp.id}">${sp.name.replace(/"/g,'&quot;')}</option>`).join('');
+        shippingParties.map(sp => `<option value="${sp.id}">${partyOptionLabel(sp).replace(/"/g,'&quot;')}</option>`).join('');
       if(shippingParties.some(sp => sp.id === prev)) sel.value = prev;
     }
     // 「幫既有訂單新增商品」模式中,不管上面跑哪個分支,出貨方一律鎖定成那張訂單本身的出貨方,
@@ -52,56 +52,133 @@ function populatePartySelect(){
   populatePendingOrderPartyFilter();
 }
 
-async function addParty(){
-  if(!hasCapability('cap-manage-parties')) return;
-  const nameEl = document.getElementById('newPartyName');
-  const contactEl = document.getElementById('newPartyContact');
-  const noteEl = document.getElementById('newPartyNote');
-  const msg = document.getElementById('partyMsg');
-  const name = nameEl.value.trim();
-  const contact = contactEl.value.trim();
-  const note = noteEl.value.trim();
+// ----- 編號(ID):出貨方 C001…、進貨方 S001…;建立後固定不變,名稱可以重複(用編號區分)-----
+function nextEntityCode(prefix, list){
+  let max = 0;
+  const re = new RegExp('^' + prefix + '(\\d+)$');
+  (list || []).forEach(x => { const m = re.exec(x.code || ''); if(m) max = Math.max(max, parseInt(m[1], 10)); });
+  return prefix + String(max + 1).padStart(3, '0');
+}
+// 給還沒有編號的出貨方補編號(依名稱排序);有補回傳 true(呼叫端要存檔)
+function ensurePartyCodes(){
+  const todo = shippingParties.filter(sp => !sp.code).sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+  todo.forEach(sp => { sp.code = nextEntityCode('C', shippingParties); });
+  return todo.length > 0;
+}
+// 給還沒有編號的進貨方補編號;回傳被補了編號的那幾筆(呼叫端要存檔)
+function ensureSupplierCodes(){
+  const todo = purchaseSuppliers.filter(s => !s.code).sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+  todo.forEach(s => { s.code = nextEntityCode('S', purchaseSuppliers); });
+  return todo;
+}
+// 下拉選單的選項文字:名稱重複的才加上編號,不重複的維持原本只有名稱
+function entityOptionLabel(entity, list){
+  const name = entity.name || '';
+  const dup = (list || []).some(x => x.id !== entity.id && (x.name || '').trim().toLowerCase() === name.trim().toLowerCase());
+  return dup && entity.code ? `${name} (${entity.code})` : name;
+}
+function partyOptionLabel(sp){ return entityOptionLabel(sp, shippingParties); }
+function supplierOptionLabel(s){ return entityOptionLabel(s, purchaseSuppliers); }
 
-  if(!name){ msg.className = 'msg error'; msg.textContent = '請輸入出貨方名稱'; return; }
-  if(shippingParties.some(sp => sp.name === name)){ msg.className = 'msg error'; msg.textContent = '這個出貨方名稱已經存在'; return; }
+// ----- 出貨方:搜尋 + 獨立編輯視窗 -----
+let partySearchQuery = '';
+function onPartySearchInput(v){ partySearchQuery = v || ''; renderPartiesTable(); }
 
-  shippingParties.push({ id: genId(), name, contact, note, hiddenProductIds: [] });
-  await saveShippingParties();
-  nameEl.value = ''; contactEl.value = ''; noteEl.value = '';
-  msg.className = 'msg ok'; msg.textContent = `✓ 已新增出貨方「${name}」`;
-  renderPartiesTable();
-  populatePartySelect();
+function partyDiscountOf(sp){
+  const n = sp ? Number(sp.discount) : 0;
+  return Number.isFinite(n) && n > 0 ? n : 0;
 }
 
-function startEditParty(id){
+function openPartyEditModal(id){
   if(!hasCapability('cap-manage-parties')) return;
-  editingPartyId = id;
-  renderPartiesTable();
+  const sp = id ? shippingParties.find(x => x.id === id) : null;
+  if(id && !sp) return;
+  editingPartyId = id || '__new__';
+  document.getElementById('partyEditModalTitle').textContent = sp ? t('modalEditPartyTitle') : t('modalAddPartyTitle');
+  document.getElementById('partyCodeText').textContent = sp ? (sp.code || '') : t('codeAutoAssigned');
+  document.getElementById('partyNameInput').value = sp ? sp.name : '';
+  document.getElementById('partyContactPersonInput').value = sp ? (sp.contactPerson || '') : '';
+  // 舊資料的「聯絡方式」是一格自由文字(電話 / Line / Email),第一次開啟編輯時帶進「聯繫電話」,存檔後就改用新欄位
+  document.getElementById('partyPhoneInput').value = sp ? (sp.phone !== undefined ? sp.phone : (sp.contact || '')) : '';
+  document.getElementById('partyAddressInput').value = sp ? (sp.address || '') : '';
+  document.getElementById('partyNoteInput').value = sp ? (sp.note || '') : '';
+  document.getElementById('partyFrequencySelect').value = (sp && sp.orderFrequency) ? sp.orderFrequency : 'weekly';
+  const d = partyDiscountOf(sp);
+  document.getElementById('partyDiscountInput').value = d ? String(d) : '';
+  document.getElementById('partyEditModalMsg').textContent = '';
+  document.getElementById('partyEditModalMsg').className = 'msg';
+  document.getElementById('partyEditModalOverlay').style.display = 'flex';
 }
-
-function cancelEditParty(){
+function closePartyEditModal(){
   editingPartyId = null;
-  renderPartiesTable();
+  document.getElementById('partyEditModalOverlay').style.display = 'none';
 }
-
-async function saveEditParty(id){
+async function savePartyEdit(){
   if(!hasCapability('cap-manage-parties')) return;
-  const sp = shippingParties.find(x => x.id === id);
+  const msg = document.getElementById('partyEditModalMsg');
+  const isNew = editingPartyId === '__new__';
+  const sp = isNew ? { id: genId(), hiddenProductIds: [] } : shippingParties.find(x => x.id === editingPartyId);
   if(!sp) return;
-  const name = document.getElementById('editPartyName').value.trim();
-  const contact = document.getElementById('editPartyContact').value.trim();
-  const note = document.getElementById('editPartyNote').value.trim();
-  const orderFrequencyEl = document.getElementById('editPartyOrderFrequency');
-  const orderFrequency = orderFrequencyEl ? orderFrequencyEl.value : (sp.orderFrequency || 'weekly');
-  if(!name){ showInfoModal('出貨方名稱不能空白'); return; }
-  if(shippingParties.some(x => x.id !== id && x.name === name)){ showInfoModal('已經有另一個出貨方叫這個名字了'); return; }
-
-  sp.name = name; sp.contact = contact; sp.note = note; sp.orderFrequency = orderFrequency;
+  const name = document.getElementById('partyNameInput').value.trim();
+  if(!name){ msg.className = 'msg error'; msg.textContent = t('errPartyNameEmpty'); return; }
+  const discRaw = document.getElementById('partyDiscountInput').value.trim();
+  let discount = 0;
+  if(discRaw !== ''){
+    discount = Number(discRaw);
+    if(!Number.isFinite(discount) || discount < 0 || discount > 100){ msg.className = 'msg error'; msg.textContent = t('errPartyDiscountInvalid'); return; }
+  }
+  const oldName = sp.name;
+  sp.name = name;
+  sp.contactPerson = document.getElementById('partyContactPersonInput').value.trim();
+  sp.phone = document.getElementById('partyPhoneInput').value.trim();
+  sp.address = document.getElementById('partyAddressInput').value.trim();
+  sp.note = document.getElementById('partyNoteInput').value.trim();
+  sp.orderFrequency = document.getElementById('partyFrequencySelect').value || 'weekly';
+  sp.discount = discount;
+  delete sp.contact;   // 舊的「聯絡方式」欄位已拆成 聯繫人 / 聯繫電話,內容在上面已帶進 phone
+  if(isNew){ sp.code = nextEntityCode('C', shippingParties); shippingParties.push(sp); }
   editingPartyId = null;
+  document.getElementById('partyEditModalOverlay').style.display = 'none';
   await saveShippingParties();
   renderPartiesTable();
   populatePartySelect();
   renderOrders(); // 已建立的訂單卡片上顯示的出貨方名稱也一併更新
+  try{ if(typeof renderPendingOrders === 'function') renderPendingOrders(); }catch(e){}
+  try{ if(typeof renderTxExistingItems === 'function') renderTxExistingItems(); if(typeof renderTxBatchList === 'function') renderTxBatchList(); }catch(e){}   // 折扣改了,登記進出貨頁的售價也立即更新
+  const pm = document.getElementById('partyMsg');
+  if(pm){ pm.className = 'msg ok'; pm.textContent = isNew ? tf('partyAddedMsg', { name }) : ''; }
+}
+
+// ----- 出貨方 → 其他畫面的捷徑 -----
+function partyTabAllowed(tabId){
+  const allowed = (typeof getCurrentUserTabPermissions === 'function') ? getCurrentUserTabPermissions() : [];
+  if(allowed.includes(tabId)) return true;
+  showInfoModal(t('errNoTabPermission'));
+  return false;
+}
+// 「新增訂單」:跳到 倉庫作業台 → 登記進出貨 → 出貨 → 新增訂單,出貨方自動選好
+function partyGoNewOrder(partyId){
+  if(!partyTabAllowed('tab-warehouse-ops')) return;
+  switchTab('tab-warehouse-ops');
+  switchWarehouseOpsSubTab('subtab-tx-register');
+  setTxType('out');
+  const ps = document.getElementById('txPartySelect');
+  if(ps) ps.value = partyId;
+  const ft = document.getElementById('txOutFlowType');
+  if(ft) ft.value = 'new-order';
+  setTxOutFlowType('new-order');
+  if(ps) ps.value = partyId;
+}
+// 「訂購紀錄」:跳到 歷史紀錄 → 已完成訂單,自動篩選這個出貨方
+function partyGoOrderHistory(partyId){
+  if(!partyTabAllowed('tab-log')) return;
+  switchTab('tab-log');
+  switchLogSubTab('subtab-log-completed');
+  const f = document.getElementById('completedOrderPartyFilter');
+  if(f) f.value = partyId;
+  const from = document.getElementById('completedOrderDateFrom'), to = document.getElementById('completedOrderDateTo');
+  if(from) from.value = ''; if(to) to.value = '';
+  renderOrders();
 }
 
 function deleteParty(id){
@@ -127,55 +204,35 @@ function renderPartiesTable(){
     container.innerHTML = `<div class="empty-note">${t('noPartiesYet')}</div>`;
     return;
   }
-  const rows = shippingParties.map(sp => {
-    if(editingPartyId === sp.id){
-      return `
-        <tr class="editing-row">
-          <td>
-            <span class="mini-label">${t('fieldPartyName')}</span>
-            <input type="text" id="editPartyName" value="${sp.name.replace(/"/g,'&quot;')}" style="width:100%;" />
-          </td>
-          <td>
-            <span class="mini-label">${t('colPartyContact')}</span>
-            <input type="text" id="editPartyContact" value="${sp.contact ? sp.contact.replace(/"/g,'&quot;') : ''}" style="width:100%;" />
-          </td>
-          <td>
-            <span class="mini-label">${t('colNote')}</span>
-            <input type="text" id="editPartyNote" value="${sp.note ? sp.note.replace(/"/g,'&quot;') : ''}" style="width:100%;" />
-          </td>
-          <td>
-            <span class="mini-label">${t('colOrderFrequency')}</span>
-            <select id="editPartyOrderFrequency" style="width:100%;">
-              <option value="weekly" ${(!sp.orderFrequency || sp.orderFrequency === 'weekly') ? 'selected' : ''}>${t('freqWeekly')}</option>
-              <option value="fortnight" ${sp.orderFrequency === 'fortnight' ? 'selected' : ''}>${t('freqFortnight')}</option>
-              <option value="monthly" ${sp.orderFrequency === 'monthly' ? 'selected' : ''}>${t('freqMonthly')}</option>
-            </select>
-          </td>
-          <td style="white-space:nowrap;">
-            <span class="del-link" onclick="saveEditParty('${sp.id}')" style="color:var(--safe);margin-right:8px;">${t('btnSave')}</span>
-            <span class="del-link" onclick="cancelEditParty()">${t('btnCancel')}</span>
-          </td>
-        </tr>
-      `;
-    }
+  const q = partySearchQuery.trim().toLowerCase();
+  const list = q ? shippingParties.filter(sp => (sp.name || '').toLowerCase().includes(q) || (sp.code || '').toLowerCase().includes(q)) : shippingParties;
+  if(list.length === 0){
+    container.innerHTML = `<div class="empty-note">${t('noPartiesMatchSearch')}</div>`;
+    return;
+  }
+  const esc = escapeHtmlForPrint;
+  const rows = list.map(sp => {
     return `
       <tr>
-        <td class="row-name">${sp.name}</td>
-        <td>${sp.contact || '—'}</td>
-        <td class="row-note">${sp.note || '—'}</td>
-        <td>${t(sp.orderFrequency === 'fortnight' ? 'freqFortnight' : (sp.orderFrequency === 'monthly' ? 'freqMonthly' : 'freqWeekly'))}</td>
-        <td class="row-action" style="white-space:nowrap;">
-          <span class="del-link" onclick="startEditParty('${sp.id}')" style="margin-right:6px;">${t('btnEdit')}</span>
+        <td class="row-code" style="white-space:nowrap;color:var(--ink-soft);font-family:'IBM Plex Mono',monospace;font-size:12px;">${esc(sp.code || '')}</td>
+        <td class="row-name">${esc(sp.name)}</td>
+        <td><span class="mini-label">${t('fieldPartyPhone')}</span>${esc(sp.phone !== undefined ? sp.phone : (sp.contact || '')) || '—'}</td>
+        <td class="row-note"><span class="mini-label">${t('colNote')}</span>${esc(sp.note || '') || '—'}</td>
+        <td><span class="mini-label">${t('colOrderFrequency')}</span>${t(sp.orderFrequency === 'fortnight' ? 'freqFortnight' : (sp.orderFrequency === 'monthly' ? 'freqMonthly' : 'freqWeekly'))}</td>
+        <td class="row-action" style="white-space:nowrap;text-align:right;">
+          <span class="del-link" onclick="partyGoNewOrder('${sp.id}')" style="margin-right:6px;">${t('btnPartyNewOrder')}</span>
+          <span class="del-link" onclick="partyGoOrderHistory('${sp.id}')" style="margin-right:6px;">${t('btnPartyOrderHistory')}</span>
+          <span class="del-link" onclick="openPartyEditModal('${sp.id}')" style="margin-right:6px;">${t('btnEdit')}</span>
           <span class="del-link" onclick="togglePartyProductPanel('${sp.id}')" style="margin-right:6px;">${openPartyProductPanelId === sp.id ? t('btnCollapseProductList') : t('btnSetOrderableProducts')}</span>
           <button onclick="deleteParty('${sp.id}')" title="${t('deletePartyTitle')}">✕</button>
         </td>
       </tr>
-      ${openPartyProductPanelId === sp.id ? `<tr><td colspan="5">${renderPartyProductPanelHtml(sp)}</td></tr>` : ''}
+      ${openPartyProductPanelId === sp.id ? `<tr><td colspan="6">${renderPartyProductPanelHtml(sp)}</td></tr>` : ''}
     `;
   }).join('');
   container.innerHTML = `
     <table class="stock-table">
-      <thead><tr><th>${t('fieldPartyName')}</th><th>${t('colPartyContact')}</th><th>${t('colNote')}</th><th>${t('colOrderFrequency')}</th><th></th></tr></thead>
+      <thead><tr><th>${t('colCode')}</th><th>${t('fieldPartyName')}</th><th>${t('fieldPartyPhone')}</th><th>${t('colNote')}</th><th>${t('colOrderFrequency')}</th><th></th></tr></thead>
       <tbody>${rows}</tbody>
     </table>
   `;
@@ -311,15 +368,19 @@ function renderSupplierManagementTable(){
   }
   const sorted = purchaseSuppliers.slice().sort((a, b) => a.name.localeCompare(b.name));
   container.innerHTML = `<table class="stock-table">
-    <thead><tr><th>${t('fieldSupplierName')}</th><th>${t('fieldSupplierPhone')}</th><th>${t('fieldSupplierAddress')}</th><th>${t('fieldSupplierNote')}</th><th></th></tr></thead>
+    <thead><tr><th>${t('colCode')}</th><th>${t('fieldSupplierName')}</th><th>${t('fieldSupplierContact')}</th><th>${t('fieldSupplierPhone')}</th><th>${t('fieldSupplierAddress')}</th><th>${t('fieldSupplierNote')}</th><th></th></tr></thead>
     <tbody>
       ${sorted.map(s => `
         <tr>
+          <td style="white-space:nowrap;color:var(--ink-soft);font-family:'IBM Plex Mono',monospace;font-size:12px;">${escapeHtmlForPrint(s.code || '')}</td>
           <td>${escapeHtmlForPrint(s.name)}</td>
+          <td>${escapeHtmlForPrint(s.contact || '')}</td>
           <td>${escapeHtmlForPrint(s.phone || '')}</td>
           <td>${escapeHtmlForPrint(s.address || '')}</td>
           <td>${escapeHtmlForPrint(s.note || '')}</td>
-          <td style="white-space:nowrap;">
+          <td style="white-space:nowrap;text-align:right;">
+            <span class="del-link" onclick="supplierGoPurchaseHistory('${s.id}')">${t('btnSupplierPurchaseHistory')}</span>
+            &nbsp;·&nbsp;
             <span class="del-link" onclick="openSupplierEditModal('${s.id}')">${t('btnEdit')}</span>
             &nbsp;·&nbsp;
             <span class="del-link" onclick="deleteSupplier('${s.id}')">${t('btnDelete')}</span>
@@ -330,12 +391,62 @@ function renderSupplierManagementTable(){
   </table>`;
 }
 
+// 「進貨紀錄」:跳到 歷史紀錄 → 進貨單,自動篩選這個進貨方
+function supplierGoPurchaseHistory(supplierId){
+  const sup = purchaseSuppliers.find(x => x.id === supplierId);
+  if(!sup) return;
+  if(!partyTabAllowed('tab-log')) return;
+  switchTab('tab-log');
+  switchLogSubTab('subtab-log-purchases');
+  const from = document.getElementById('purchaseLogDateFrom'), to = document.getElementById('purchaseLogDateTo');
+  if(from) from.value = ''; if(to) to.value = '';
+  const sel = document.getElementById('purchaseLogPartyFilter');
+  if(sel){
+    // 篩選值用編號對應的 id('id:<supplierId>');這個進貨方還沒有任何進貨單時,選項清單裡不會有它,先補一個
+    const key = 'id:' + sup.id;
+    if(![...sel.options].some(o => o.value === key)){
+      const opt = document.createElement('option'); opt.value = key; opt.textContent = supplierOptionLabel(sup); sel.appendChild(opt);
+    }
+    sel.value = key;
+  }
+  renderPurchaseLog();
+}
+
+// 登記進貨時用了「進貨方管理」清單裡還沒有的進貨方 → 問要不要加入;要的話開出跟進貨方管理一樣的編輯視窗(名稱已帶入)
+function askAddSupplierToManagement(name){
+  if(!name) return;
+  if(purchaseSuppliers.some(x => (x.name || '').toLowerCase() === name.toLowerCase())) return;
+  showConfirmModal(tf('confirmAddSupplierToMgmt', { name }), () => { openSupplierEditModal(null, name); });
+}
+// 把「進貨單紀錄裡出現過、但進貨方管理清單裡還沒有」的進貨方一次補進清單(只建名稱,電話/住址之後再編輯)
+async function importSuppliersFromPurchases(){
+  try{ if(typeof ensurePurchasesLoaded === 'function') await ensurePurchasesLoaded(); }catch(e){}
+  const known = new Set(purchaseSuppliers.map(x => (x.name || '').toLowerCase()));
+  const names = [...new Set((purchases || []).map(p => (p.partyName || '').trim()).filter(Boolean))]
+    .filter(n => !known.has(n.toLowerCase())).sort((a, b) => a.localeCompare(b));
+  if(names.length === 0){ showInfoModal(t('importSuppliersNone')); return; }
+  const shown = names.slice(0, 15).join('、') + (names.length > 15 ? '…' : '');
+  showConfirmModal(tf('importSuppliersConfirm', { n: names.length, names: shown }), async () => {
+    let failed = 0;
+    for(const n of names){
+      const sup = { id: genId(), name: n, contact: '', phone: '', address: '', note: '' };
+      try{ await upsertPurchaseSupplier(sup); purchaseSuppliers.push(sup); }
+      catch(e){ failed++; console.error('匯入進貨方失敗', n, e); }
+    }
+    renderSupplierManagementTable();
+    populateTxPartyHistorySelect();
+    showInfoModal(failed ? tf('importSuppliersPartial', { ok: names.length - failed, failed }) : tf('importSuppliersDone', { n: names.length }));
+  });
+}
+
 let editingSupplierId = null;
-function openSupplierEditModal(supplierId){
+function openSupplierEditModal(supplierId, prefillName){
   editingSupplierId = supplierId;
   const s = supplierId ? purchaseSuppliers.find(x => x.id === supplierId) : null;
   document.getElementById('supplierEditModalTitle').textContent = s ? t('modalEditSupplierTitle') : t('modalAddSupplierTitle');
-  document.getElementById('supplierNameInput').value = s ? s.name : '';
+  document.getElementById('supplierCodeText').textContent = s ? (s.code || '') : t('codeAutoAssigned');
+  document.getElementById('supplierNameInput').value = s ? s.name : (prefillName || '');
+  document.getElementById('supplierContactInput').value = s ? s.contact || '' : '';
   document.getElementById('supplierPhoneInput').value = s ? s.phone || '' : '';
   document.getElementById('supplierAddressInput').value = s ? s.address || '' : '';
   document.getElementById('supplierNoteInput').value = s ? s.note || '' : '';
@@ -349,19 +460,18 @@ function closeSupplierEditModal(){
 async function saveSupplierEdit(){
   const msgEl = document.getElementById('supplierEditModalMsg');
   const name = document.getElementById('supplierNameInput').value.trim();
+  const contact = document.getElementById('supplierContactInput').value.trim();
   const phone = document.getElementById('supplierPhoneInput').value.trim();
   const address = document.getElementById('supplierAddressInput').value.trim();
   const note = document.getElementById('supplierNoteInput').value.trim();
   if(!name){ msgEl.className = 'msg error'; msgEl.textContent = t('errEnterSupplierName'); return; }
   // 名稱不能跟其他供應商重複(資料庫本身也有唯一索引擋著,這裡先在前端擋一次,錯誤訊息比較
   // 好懂,不用等資料庫回傳一串技術性的錯誤)——編輯自己的話,名稱沒變不算重複。
-  const dup = purchaseSuppliers.find(s => s.id !== editingSupplierId && s.name.toLowerCase() === name.toLowerCase());
-  if(dup){ msgEl.className = 'msg error'; msgEl.textContent = t('errSupplierNameDuplicate'); return; }
 
   msgEl.className = 'msg'; msgEl.textContent = t('savingMsg');
-  const s = editingSupplierId ? purchaseSuppliers.find(x => x.id === editingSupplierId) : { id: genId() };
+  const s = editingSupplierId ? purchaseSuppliers.find(x => x.id === editingSupplierId) : { id: genId(), code: nextEntityCode('S', purchaseSuppliers) };
   const oldName = s.name;
-  s.name = name; s.phone = phone; s.address = address; s.note = note;
+  s.name = name; s.contact = contact; s.phone = phone; s.address = address; s.note = note;
   try{
     await upsertPurchaseSupplier(s);
     if(!editingSupplierId) purchaseSuppliers.push(s);

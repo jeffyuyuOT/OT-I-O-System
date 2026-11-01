@@ -596,7 +596,7 @@ function populateCompletedOrderPartyFilter(){
     if(!sel) return;
     const prev = sel.value;
     sel.innerHTML = `<option value="">${t('optAllParties')}</option>` +
-      shippingParties.map(sp => `<option value="${sp.id}">${sp.name.replace(/"/g,'&quot;')}</option>`).join('');
+      shippingParties.map(sp => `<option value="${sp.id}">${partyOptionLabel(sp).replace(/"/g,'&quot;')}</option>`).join('');
     if(shippingParties.some(sp => sp.id === prev)) sel.value = prev;
   });
 }
@@ -606,7 +606,7 @@ function populatePendingOrderPartyFilter(){
   if(!sel) return;
   const prev = sel.value;
   sel.innerHTML = `<option value="">${t('optAllParties')}</option>` +
-    shippingParties.map(sp => `<option value="${sp.id}">${sp.name.replace(/"/g,'&quot;')}</option>`).join('');
+    shippingParties.map(sp => `<option value="${sp.id}">${partyOptionLabel(sp).replace(/"/g,'&quot;')}</option>`).join('');
   if(shippingParties.some(sp => sp.id === prev)) sel.value = prev;
 }
 
@@ -671,16 +671,35 @@ function orderItemRowHtml(o, it, isPending, readOnly, context){
   const qtyDisplay = qtyHistoryStr
     ? `<span style="color:var(--crit);">${qtyHistoryStr}</span>${qtyLabel}`
     : qtyLabel;
+  // 顯示 Sell price 時:單價 | 數量 | 總價 三欄對齊,操作連結(改數量 / 批次 / 刪除)放在最右邊
+  const priceOn = (context === 'pending' || context === 'verify' || context === 'completed') && typeof spEnabled === 'function' && spEnabled();
+  const actionLinks = `${canEdit ? `<span class="del-link" style="margin-left:8px;" onclick="startEditOrderItemQty('${context}','${o.id}','${it.productId}')">${t('btnEditQty')}</span>` : ''}
+        ${(canEdit && context === 'verify' && typeof batchOrderItemButtonHtml === 'function') ? batchOrderItemButtonHtml(o, it) : ''}
+        ${canEdit ? `<span class="del-link" style="margin-left:8px;color:var(--crit);" onclick="${deleteFn}('${o.id}','${it.productId}')">${t('btnDelete')}</span>` : ''}`;
+  const nameHtml = it.sku ? `<span class="sku-tooltip-trigger" data-sku="${it.sku.replace(/"/g,'&quot;')}">${it.name}</span>` : it.name;
+  const tail = `${(context === 'verify' && typeof batchOrderItemPreviewHtml === 'function') ? batchOrderItemPreviewHtml(o, it) : ''}
+      ${it.note ? `<div style="font-size:11px;color:var(--ink-soft);font-style:italic;">${t('noteLabelPrefix')}${it.note.replace(/</g,'&lt;')}</div>` : ''}`;
+  if(priceOn){
+    return `
+    <div style="flex-wrap:wrap;">
+      <span style="flex:1;min-width:0;">${nameHtml}</span>
+      <span style="display:inline-flex;align-items:center;gap:10px;">
+        <span style="${SP_QTY_W}">${qtyDisplay}</span>
+        ${spUnitCellHtml(o, it)}
+        ${spTotalCellHtml(o, it)}
+        ${canEdit ? `<span style="${SP_ACTIONS_W}">${actionLinks}</span>` : ''}
+      </span>
+      ${tail}
+    </div>
+  `;
+  }
   return `
     <div style="flex-wrap:wrap;">
-      <span>${it.sku ? `<span class="sku-tooltip-trigger" data-sku="${it.sku.replace(/"/g,'&quot;')}">${it.name}</span>` : it.name}</span>
+      <span>${nameHtml}</span>
       <span>${qtyDisplay}
-        ${canEdit ? `<span class="del-link" style="margin-left:8px;" onclick="startEditOrderItemQty('${context}','${o.id}','${it.productId}')">${t('btnEditQty')}</span>` : ''}
-        ${(canEdit && context === 'verify' && typeof batchOrderItemButtonHtml === 'function') ? batchOrderItemButtonHtml(o, it) : ''}
-        ${canEdit ? `<span class="del-link" style="margin-left:8px;color:var(--crit);" onclick="${deleteFn}('${o.id}','${it.productId}')">${t('btnDelete')}</span>` : ''}
+        ${actionLinks}
       </span>
-      ${(context === 'verify' && typeof batchOrderItemPreviewHtml === 'function') ? batchOrderItemPreviewHtml(o, it) : ''}
-      ${it.note ? `<div style="font-size:11px;color:var(--ink-soft);font-style:italic;">${t('noteLabelPrefix')}${it.note.replace(/</g,'&lt;')}</div>` : ''}
+      ${tail}
     </div>
   `;
 }
@@ -759,7 +778,7 @@ function renderCompletedOrdersInto(container, recentOnly){
         <div class="order-card-head" style="cursor:pointer;" onclick="toggleOrderExpand('${o.id}')">
           <span class="order-card-date">
             <span style="display:inline-block;width:14px;">${isExpanded ? '▾' : '▸'}</span>
-            ${o.orderNo ? `<span style="color:var(--ink-soft);font-weight:400;">${o.orderNo}</span> · ` : ''}${o.date}${o.partyName ? ` <span style="font-weight:400;color:var(--ink-soft);">· ${tf('orderCardPartyLabel', {name: o.partyName})}</span>` : ''}
+            ${o.orderNo ? `<span style="color:var(--ink-soft);font-weight:400;">${o.orderNo}</span> · ` : ''}${o.date}${o.partyName ? ` <span style="font-weight:400;color:var(--ink-soft);">· ${(o.partyId && hasCapability('cap-manage-parties')) ? tf('orderCardPartyLabel', {name: `<span class="batch-link" title="${t('btnEdit')}" onclick="event.stopPropagation();openPartyEditModal('${o.partyId}')">${escapeHtmlForPrint(o.partyName)}</span>`}) : tf('orderCardPartyLabel', {name: o.partyName})}</span>` : ''}
             ${o.remark ? `<span title="${t('orderHasRemarkTitle')}" style="margin-left:6px;color:var(--yellow-dark);">📝</span>` : ''}
             ${wasModified ? `<span title="${t('orderWasModifiedTitle')}" style="margin-left:6px;color:var(--warn);">✎</span>` : ''}
           </span>
@@ -767,7 +786,7 @@ function renderCompletedOrdersInto(container, recentOnly){
             <span class="order-head-action" onclick="event.stopPropagation()"><button class="btn ghost" onclick="openOrderActionModal('${o.id}', 'completed')">${t('lblAction')} ▾</button></span></span>
         </div>
         ${isExpanded ? `
-          ${orderBlockHtml('items', 'orderBlockItems', `<div class="order-items">${itemsHtml}</div>`)}
+          ${orderBlockHtml('items', 'orderBlockItems', `${(typeof spColsHeaderHtml === 'function') ? spColsHeaderHtml(false) : ''}<div class="order-items">${itemsHtml}</div>${(typeof spOrderTotalRowHtml === 'function') ? spOrderTotalRowHtml(o, false) : ''}`)}
           ${orderBlockHtml('remark', 'orderBlockRemark', remarkHtml)}
           ${o.signedAt && o.signInfo ? orderBlockHtml('sign', 'secSignInfo', `
           <div style="font-size:12.5px;color:var(--ink);">
@@ -1143,7 +1162,7 @@ function renderPendingOrders(){
       <div style="margin:8px 0;">
         <select id="orderPartyInput_${o.id}" style="width:100%;max-width:320px;">
           <option value="">${t('optUnspecified')}</option>
-          ${shippingParties.map(sp => `<option value="${sp.id}" ${sp.id === o.partyId ? 'selected' : ''}>${sp.name.replace(/"/g,'&quot;')}</option>`).join('')}
+          ${shippingParties.map(sp => `<option value="${sp.id}" ${sp.id === o.partyId ? 'selected' : ''}>${partyOptionLabel(sp).replace(/"/g,'&quot;')}</option>`).join('')}
         </select>
         <div style="margin-top:4px;display:flex;gap:8px;">
           <button class="btn" onclick="saveOrderParty('${o.id}')">${t('btnSave')}</button>
@@ -1152,7 +1171,7 @@ function renderPendingOrders(){
       </div>
     ` : `
       <div style="margin:8px 0;font-size:12px;color:var(--ink-soft);">
-        ${o.partyId ? tf('orderCardPartyLabel', {name: o.partyName || ''}) : `<span style="color:var(--crit);">${t('orderNoPartyLinkedWarning')}</span>`}
+        ${o.partyId ? tf('orderCardPartyLabel', {name: hasCapability('cap-manage-parties') ? `<span class="batch-link" title="${t('btnEdit')}" onclick="openPartyEditModal('${o.partyId}')">${escapeHtmlForPrint(o.partyName || '')}</span>` : (o.partyName || '')}) : `<span style="color:var(--crit);">${t('orderNoPartyLinkedWarning')}</span>`}
         <span class="del-link" style="margin-left:8px;" onclick="startEditOrderParty('${o.id}')">${t('btnEditOrderParty')}</span>
       </div>
     `;
@@ -1173,7 +1192,7 @@ function renderPendingOrders(){
           </span>
         </div>
         ${isExpanded ? `
-          ${orderBlockHtml('items', 'orderBlockItems', `<div class="order-items">${itemsHtml}</div>`)}
+          ${orderBlockHtml('items', 'orderBlockItems', `${(typeof spColsHeaderHtml === 'function') ? spColsHeaderHtml(false) : ''}<div class="order-items">${itemsHtml}</div>${(typeof spOrderTotalRowHtml === 'function') ? spOrderTotalRowHtml(o, false) : ''}`)}
           ${orderBlockHtml('remark', 'orderBlockRemark', remarkHtml)}
           ${o.deleted ? '' : orderBlockHtml('party', 'orderBlockParty', partyEditHtml)}
           <div class="order-card-actions">
@@ -1664,6 +1683,8 @@ async function verifyOrder(orderId){
     const noteText = `${order.orderNo || ''}${order.note ? '、' + order.note : ''}`;
     const confirmedAt = new Date().toISOString();
     const updatedPayload = { ...order, status: 'confirmed', confirmedAt };
+    // 售價在核對當下固定下來(已完成訂單之後不能改售價):依預計批次分配的加權 Sell price 套出貨方 Discount;手動設定過的照用
+    if(typeof spFreezeItems === 'function') updatedPayload.items = spFreezeItems(order);
 
     const { error } = await sb.rpc('verify_order', {
       p_order_id: orderId,
@@ -1697,13 +1718,15 @@ async function verifyOrder(orderId){
     });
     order.status = 'confirmed';
     order.confirmedAt = confirmedAt;
+    if(updatedPayload.items) order.items = updatedPayload.items;
     expandedOrderIds.delete(orderId);
     // 批次追蹤:核對成功後把這張訂單的出貨分配到批次(核對頁手動指定的批次一併帶入)。失敗不影響核對結果。
     if(typeof batchAllocateAfter === 'function'){
       const outTxs = rpcItems.map(it => transactions.find(x => x.id === it.txId)).filter(Boolean);
       const picksByTx = {};
       outTxs.forEach(tx => {
-        const picks = batchPicks[batchPickKey(orderId, tx.productId)];
+        const savedItem = order.items.find(x => x.productId === tx.productId && !x.deleted);
+        const picks = batchPicks[batchPickKey(orderId, tx.productId)] || (savedItem && savedItem.batchPicks);
         if(picks && picks.length) picksByTx[tx.id] = picks.map(p => ({ batch_item_id: p.batchItemId, qty: p.qty }));
       });
       await batchAllocateAfter(outTxs, picksByTx);
@@ -1783,7 +1806,7 @@ function renderVerifyPage(){
     itemsEl.innerHTML = `<div class="empty-note">${t('noOrderLoadedForVerify')}</div>`;
   } else {
     infoEl.innerHTML = `${activeOrder.orderNo ? `<b>${activeOrder.orderNo}</b> · ` : ''}${activeOrder.date}${activeOrder.partyName ? ` · ${tf('orderCardPartyLabel', {name: activeOrder.partyName})}` : ''}${activeOrder.note ? `<br/>${t('noteLabelPrefix')}${activeOrder.note}` : ''}`;
-    itemsEl.innerHTML = activeOrder.items.map(it => orderItemRowHtml(activeOrder, it, true, false, 'verify')).join('') || `<div class="empty-note">${t('orderHistoryNoItemsLeft')}</div>`;
+    itemsEl.innerHTML = (typeof spColsHeaderHtml === 'function' ? spColsHeaderHtml(true) : '') + (activeOrder.items.map(it => orderItemRowHtml(activeOrder, it, true, false, 'verify')).join('') || `<div class="empty-note">${t('orderHistoryNoItemsLeft')}</div>`) + (typeof spOrderTotalRowHtml === 'function' ? spOrderTotalRowHtml(activeOrder, true) : '');
   }
 
   renderVerifyPageRightItems();
@@ -2255,7 +2278,7 @@ function buildOrderAggregation(list, exportMode){
 // (根本不會出現在訂貨頁面)、被全域隱藏的商品都算進來——這樣不同訂單匯出的檔案結構、商品順序
 // 都會一致。這張訂單沒有數量的商品那一列用 Excel 的隱藏列處理掉,資料還在,只是預設不顯示、
 // 也不會被印出來。
-function buildOrderSheetAoa(list, partyLabel, dateLabel, exportMode){
+function buildOrderSheetAoa(list, partyLabel, dateLabel, exportMode, priceMap, sellMap){
   const { aggregated, byCategory: orderByCategory } = buildOrderAggregation(list, exportMode);
   const qtyByProductId = {};
   aggregated.forEach(g => { qtyByProductId[g.productId] = g; });
@@ -2282,7 +2305,10 @@ function buildOrderSheetAoa(list, partyLabel, dateLabel, exportMode){
   aoa.push(['Customer:', partyLabel, 'Orders:', orderNos.join(', ')]);
   aoa.push(['Period:', dateLabel]);
   aoa.push([]);
-  aoa.push(['SKU','Product Name','Qty','Unit','Remarks']);
+  // 有傳入 priceMap(匯出下載時,批次追蹤開啟)才多一欄 Price = Total price(進貨底價 + 分攤的其他支出,不是 Sell price)
+  const withPrice = !!priceMap;
+  const withSell = !!sellMap;    // 系統設置的 Sell price 顯示方式為「僅匯出」或「訂單跟匯出都顯示」時才有
+  aoa.push(['SKU','Product Name','Qty','Unit'].concat(withPrice ? ['Price'] : [], withSell ? ['Sell price'] : [], ['Remarks']));
 
   let isFirstGroup = true;
   catList.forEach((cat) => {
@@ -2311,7 +2337,7 @@ function buildOrderSheetAoa(list, partyLabel, dateLabel, exportMode){
       .forEach(p => {
         const g = qtyByProductId[p.id];
         const rowIdx = aoa.length;
-        aoa.push([p.sku || '', p.name, g ? g.qty : '', p.unit, '']);
+        aoa.push([p.sku || '', p.name, g ? g.qty : '', p.unit].concat(withPrice ? [(g && priceMap[p.id] !== undefined) ? priceMap[p.id] : ''] : [], withSell ? [(g && sellMap[p.id] !== undefined) ? sellMap[p.id] : ''] : [], ['']));
         if(!g) hiddenRows.add(rowIdx);
       });
   });
@@ -2321,7 +2347,7 @@ function buildOrderSheetAoa(list, partyLabel, dateLabel, exportMode){
 
 function buildOrderSheetWorkbook(aoa, hiddenRows){
   const ws = XLSX.utils.aoa_to_sheet(aoa);
-  ws['!cols'] = [{wch:14},{wch:28},{wch:8},{wch:8},{wch:16}];
+  ws['!cols'] = [{wch:14},{wch:28},{wch:8},{wch:8},{wch:12},{wch:12},{wch:16}];
   if(hiddenRows && hiddenRows.size > 0){
     const rowMeta = [];
     aoa.forEach((_, i) => { rowMeta[i] = hiddenRows.has(i) ? { hidden: true } : {}; });
@@ -2362,7 +2388,8 @@ async function exportOrdersSheet(exportMode){
     ? (dateFrom === dateTo ? dateFrom : `${dateFrom} ~ ${dateTo}`)
     : (dateFrom ? `After ${dateFrom}` : (dateTo ? `Before ${dateTo}` : 'All dates'));
 
-  const { aoa, aggregated, hiddenRows } = buildOrderSheetAoa(list, partyLabel, dateLabel, exportMode);
+  const sellMap = (typeof spExportEnabled === 'function' && spExportEnabled()) ? spExportSellPriceMap(list) : null;
+  const { aoa, aggregated, hiddenRows } = buildOrderSheetAoa(list, partyLabel, dateLabel, exportMode, null, sellMap);
 
   const label = partyObj ? (partyObj.name.replace(/[^a-zA-Z0-9\u4e00-\u9fa5]/g, '') || 'Party') : 'AllParties';
   const rangeLabel = (dateFrom || dateTo) ? `_${dateFrom || 'start'}_${dateTo || 'end'}` : '';
@@ -2374,14 +2401,15 @@ async function exportOrdersSheet(exportMode){
 }
 
 // 匯出「單一一筆」訂單:Period 直接就是這張訂單自己的日期,不會混到其他訂單的日期範圍。
-function exportSingleOrderSheet(orderId, exportMode){
+async function exportSingleOrderSheet(orderId, exportMode){
   const order = orders.find(o => o.id === orderId);
   if(!order) return;
   if(typeof XLSX === 'undefined'){ showInfoModal('Excel 套件載入失敗,請重新整理頁面再試一次'); return; }
 
   const partyLabel = order.partyName || 'Unspecified';
   const dateLabel = order.date;
-  const { aoa, hiddenRows } = buildOrderSheetAoa([order], partyLabel, dateLabel, exportMode);
+  const sellMap = (typeof spExportEnabled === 'function' && spExportEnabled()) ? spExportSellPriceMap([order]) : null;
+  const { aoa, hiddenRows } = buildOrderSheetAoa([order], partyLabel, dateLabel, exportMode, null, sellMap);
 
   const safeParty = (order.partyName || 'Order').replace(/[^a-zA-Z0-9\u4e00-\u9fa5]/g, '') || 'Order';
   const noPart = order.orderNo ? `${order.orderNo.replace('#','')}_` : '';

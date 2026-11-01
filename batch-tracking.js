@@ -14,7 +14,8 @@
 // - 批次相關的任何失敗都不能讓原本的進出貨/核對失敗:錯誤只會跳提示,
 //   沒分配到的出貨會出現在批次追蹤頁的「未分配出貨」清單,可以補分配。
 // ============================================================
-const BATCH_EXPIRY_WARN_DAYS = 30;
+const BATCH_EXPIRY_WARN_DAYS = 30;               // 預設值;實際用 batchWarnDays()(系統設置可改)
+function batchWarnDays(){ return (typeof getBatchExpiryWarnDays === 'function') ? getBatchExpiryWarnDays() : BATCH_EXPIRY_WARN_DAYS; }
 
 let batchAvailable = true;                       // 資料表不存在時變 false → 功能整個停用
 let batchData = { items: [], loaded: false, stale: false, error: '' };
@@ -23,6 +24,7 @@ let batchTxMoveCache = {};                       // txId -> [{ batch_item_id, qt
 let batchPicks = {};                             // `${orderId}::${productId}` -> [{ batchItemId, qty }](核對頁手動指定)
 let txBatchTrackChecked = true;                  // 登記進貨「進入批次追蹤」勾選狀態(預設勾選)
 let batchFormExtrasSig = '';
+let batchOrderDetailCache = {};                  // orderId -> Promise<{ productId: [{ item, qty, shipCost }] }>(已完成訂單詳情用)
 let batchOrderCache = {};                        // orderId -> Promise<{ productId: { batchItemId: qty } }>
 let batchEditPicks = {};                         // productId -> [{ batchItemId, qty }](登記進出貨→載入已完成訂單,改數量時暫存的指定批次)
 
@@ -39,6 +41,7 @@ function batchActive(){ return batchFeatureOn() && batchAvailable; }
     .batch-tag-warn{ border-color:var(--crit); color:var(--crit); }
     .order-items div.batch-alloc-line, .batch-alloc-line{ display:block; flex:0 0 100%; width:100%; font-size:11px; margin-top:2px; padding:0; border-bottom:none; text-align:left; }
     .batch-link{ color:var(--ink); text-decoration:underline; cursor:pointer; }
+    .batch-info-icon{ color:var(--ink-soft); text-decoration:none; cursor:pointer; }
     .batch-seg{ display:inline-flex; gap:0; border:1px solid var(--line); border-radius:2px; overflow:hidden; }
     .batch-seg button{ border:0; background:#fff; padding:6px 14px; font-family:inherit; font-size:12.5px; cursor:pointer; }
     .batch-seg button.active{ background:var(--ink); color:#fff; }
@@ -58,10 +61,19 @@ async function batchRpc(name, args){
 
 async function loadBatchData(){
   try{
+    const itemSelect = cols => () => sb.from('batch_items')
+      .select('id,batch_id,product_id,expiry,qty_in,unit_cost_base,unit_cost_total,supplier_lot,batches(' + cols + ')')
+      .order('id', { ascending: true });
+    const fetchItems = async () => {
+      // margin_pct 欄位需要先執行 sql/batch_tracking_phase3c_margin.sql;還沒執行就先不帶這個欄位
+      try{ return await fetchAllPages(itemSelect('batch_no,batch_date,purchase_id,is_opening,invoice_no,supplier,margin_pct')); }
+      catch(e){
+        if(/margin_pct/i.test((e && e.message) || '')) return fetchAllPages(itemSelect('batch_no,batch_date,purchase_id,is_opening,invoice_no,supplier'));
+        throw e;
+      }
+    };
     const [itemRows, stockRows] = await Promise.all([
-      fetchAllPages(() => sb.from('batch_items')
-        .select('id,batch_id,product_id,expiry,qty_in,unit_cost_base,unit_cost_total,supplier_lot,batches(batch_no,batch_date,purchase_id,is_opening,invoice_no,supplier)')
-        .order('id', { ascending: true })),
+      fetchItems(),
       fetchAllPages(() => sb.from('batch_item_stock').select('batch_item_id,remaining').order('batch_item_id', { ascending: true }))
     ]);
     const remMap = {};
@@ -75,6 +87,7 @@ async function loadBatchData(){
         supplierLot: r.supplier_lot || '',
         batchNo: b.batch_no || '', batchDate: b.batch_date || '', purchaseId: b.purchase_id || '',
         isOpening: !!b.is_opening, invoiceNo: b.invoice_no || '', supplier: b.supplier || '',
+        marginPct: (b.margin_pct === null || b.margin_pct === undefined) ? null : Number(b.margin_pct),
         remaining: remMap[r.id] !== undefined ? remMap[r.id] : Number(r.qty_in)
       };
     });
@@ -86,6 +99,7 @@ async function loadBatchData(){
     if(e && (e.code === 'PGRST205' || e.code === '42P01' || /does not exist|schema cache/i.test(e.message || ''))) batchAvailable = false;
     batchData.items = []; batchData.loaded = true; batchData.stale = false; batchData.error = (e && e.message) || String(e);
   }
+  try{ if(typeof renderStockCards === 'function' && document.getElementById('stockCards')) renderStockCards(); }catch(e){}
   try{ if(typeof renderVerifyPage === 'function') renderVerifyPage(); }catch(e){}
   try{ if(typeof renderTxBatchList === 'function') renderTxBatchList(); }catch(e){}
   try{ if(typeof renderLog === 'function' && document.getElementById('logTable')) renderLog(); }catch(e){}
@@ -97,7 +111,7 @@ function ensureBatchDataLoaded(force){
   if(!batchDataPromise) batchDataPromise = loadBatchData().finally(() => { batchDataPromise = null; });
   return batchDataPromise;
 }
-function batchMarkStale(){ batchData.stale = true; batchTxMoveCache = {}; batchOrderCache = {}; }
+function batchMarkStale(){ batchData.stale = true; batchTxMoveCache = {}; batchOrderCache = {}; batchOrderDetailCache = {}; }
 
 // ------------------------------------------------------------
 // 小工具
@@ -188,11 +202,50 @@ function batchDaysUntil(dateStr){
   const today = new Date(); today.setHours(0, 0, 0, 0);
   return Math.round((new Date(parts[0], parts[1] - 1, parts[2]) - today) / 86400000);
 }
-function batchExpiryBadge(expiry){
+// 庫存總覽用:一組商品(一個商品家族)裡「還有庫存」的批次行的到期狀態。
+// 回傳 { status: 'expired'|'soon'|'', lines: [{ batchNo, expiry, days, remaining, productId }] }(lines 只含已過期/快到期的,依有效期由近到遠)。
+function batchExpirySummary(productIds){
+  if(!batchActive() || !batchData.loaded) return { status: '', lines: [] };
+  const ids = new Set(productIds), warn = batchWarnDays();
+  const lines = [];
+  batchData.items.forEach(i => {
+    if(!ids.has(i.productId) || !i.expiry || !(i.remaining > 0)) return;
+    const d = batchDaysUntil(i.expiry);
+    if(d <= warn) lines.push({ batchNo: i.batchNo, expiry: i.expiry, days: d, remaining: i.remaining, productId: i.productId });
+  });
+  lines.sort((a, b) => a.days - b.days);
+  const status = lines.length === 0 ? '' : (lines[0].days < 0 ? 'expired' : 'soon');
+  return { status, lines };
+}
+// 有效期旁的警示圖示(快到期 🟠 / 已過期 🔴),點擊才顯示「幾天後到期」
+function batchExpiryIconHtml(expiry){
   if(!expiry) return '';
   const d = batchDaysUntil(expiry);
-  if(d < 0) return ` <span style="color:var(--crit);font-weight:700;">🔴 ${t('batchExpired')}</span>`;
-  if(d <= BATCH_EXPIRY_WARN_DAYS) return ` <span style="color:#B8860B;font-weight:700;">🟠 ${tf('batchExpiresInDays', { n: d })}</span>`;
+  if(d >= 0 && d > batchWarnDays()) return '';
+  const icon = d < 0 ? '🔴' : '🟠';
+  return ` <span style="cursor:pointer;" title="${batchEsc(t('batchExpiryIconTitle'))}" onclick="event.stopPropagation();batchShowExpiryInfo('${batchEsc(expiry)}')">${icon}</span>`;
+}
+function batchShowExpiryInfo(expiry){
+  const d = batchDaysUntil(expiry);
+  showInfoModal((d < 0 ? t('batchExpired') : tf('batchExpiresInDays', { n: d })) + ' (EXP ' + expiry + ')');
+}
+// 這個批次商品行的庫存價值(成本)= 剩餘量 × Total price;沒有成本資料回傳 null
+function batchItemValue(i){
+  const c = (typeof spTotalUnit === 'function') ? spTotalUnit(i) : null;
+  return (c === null || !(i.remaining > 0)) ? null : c * i.remaining;
+}
+// 一組批次商品行的庫存價值加總:{ sum, missing(有庫存但沒成本的行數) }
+function batchValueSum(items){
+  let sum = 0, missing = 0;
+  items.forEach(i => { if(!(i.remaining > 0)) return; const v = batchItemValue(i); if(v === null) missing++; else sum += v; });
+  return { sum, missing };
+}
+function batchExpiryBadge(expiry, small){
+  if(!expiry) return '';
+  const d = batchDaysUntil(expiry);
+  const sz = small ? 'font-size:11px;' : '';   // small:商品頁 / 批次頁用,比預設再小一點
+  if(d < 0) return ` <span style="color:var(--crit);font-weight:700;${sz}">🔴 ${t('batchExpired')}</span>`;
+  if(d <= batchWarnDays()) return ` <span style="color:#B8860B;font-weight:700;${sz}">🟠 ${tf('batchExpiresInDays', { n: d })}</span>`;
   return '';
 }
 
@@ -506,6 +559,10 @@ async function batchSavePurchase(purchase){
     p_purchase_id: purchase.id, p_date: purchase.date, p_invoice_no: purchase.invoiceNo || null,
     p_supplier: purchase.partyName || null, p_items: payload
   });
+  // 第三期:新批次先帶入預設 margin(已經有 margin 的批次不動);margin 欄位沒建立(SQL 未執行)時略過
+  try{
+    if(data && data.batch_id && typeof spDefaultMargin === 'function') await batchRpc('batch_set_margin', { p_batch_id: data.batch_id, p_margin: spDefaultMargin(), p_only_if_null: true });
+  }catch(e){ console.warn('設定批次預設 margin 失敗', e); }
   batchMarkStale();
   try{ await ensureBatchDataLoaded(); }catch(e){}
   return data;
@@ -516,10 +573,18 @@ function batchValidatePurchaseEdit(purchase, newItems){
   if(!batchActive() || !purchase.batchTracked) return '';
   const mine = batchData.items.filter(i => i.purchaseId === purchase.id && i.qtyIn > 0);
   const lines = batchNetPurchaseLines(newItems);
+  const sameKey = (l, i) => l.productId === i.productId && l.expiry === (i.expiry || '');
   for(const i of mine){
     const used = i.qtyIn - i.remaining;
     if(used <= 0) continue;
-    const l = lines.find(x => x.productId === i.productId && x.expiry === (i.expiry || ''));
+    let l = lines.find(x => sameKey(x, i));
+    if(!l){
+      // 只是改了有效期:同商品舊的行裡沒對應的只有這一行、新的清單裡沒對應現有行的也只有一行 → 視為同一行改有效期
+      // (資料庫 batch_save_purchase 用同樣規則,出貨紀錄會跟著這一行走)
+      const oldUnmatched = mine.filter(m => m.productId === i.productId && !lines.some(x => sameKey(x, m)));
+      const newUnmatched = lines.filter(x => x.productId === i.productId && !mine.some(m => sameKey(x, m)));
+      if(oldUnmatched.length === 1 && newUnmatched.length === 1) l = newUnmatched[0];
+    }
     const newQty = l ? l.qty : 0;
     if(newQty < used - 1e-9) return tf('batchEditBelowUsed', { name: batchProductName(i.productId), batch: i.batchNo, used: batchFmtQty(used) });
   }
@@ -668,12 +733,12 @@ async function batchFillTxTags(root){
       let html = '';
       if(el.dataset.batchType === 'in' && el.dataset.batchPurchase){
         html = batchData.items.filter(i => i.purchaseId === el.dataset.batchPurchase && i.productId === el.dataset.batchProduct)
-          .map(i => `<span class="batch-tag">${batchEsc(i.batchNo)}${i.expiry ? ' · ' + batchEsc(i.expiry) : ''}</span>`).join('');
+          .map(i => `<span class="batch-tag">${batchEsc(i.batchNo)}${i.expiry ? ' · EXP ' + batchEsc(i.expiry) : ''}</span>`).join('');
       } else {
         html = (batchTxMoveCache[el.dataset.batchTx] || []).map(m => {
           const i = batchData.items.find(x => x.id === m.batch_item_id);
           if(!i) return '';
-          return `<span class="batch-tag">${batchEsc(i.batchNo)} ×${batchFmtQty(Math.abs(Number(m.qty)))}${i.expiry ? ' · ' + batchEsc(i.expiry) : ''}</span>`;
+          return `<span class="batch-tag">${batchEsc(i.batchNo)} ×${batchFmtQty(Math.abs(Number(m.qty)))}${i.expiry ? ' · EXP ' + batchEsc(i.expiry) : ''}</span>`;
         }).join('');
       }
       el.innerHTML = html;
@@ -710,12 +775,16 @@ function renderBatchTracker(){
     return;
   }
   let body = '';
+  let toolbarFilters = '';
   if(bt.view === 'batch') body = batchRenderBatchView();
   else if(bt.view === 'date') body = batchRenderDateView();
-  else body = batchRenderProductView();
+  else { toolbarFilters = batchProductFiltersHtml(); body = batchRenderProductView(); }
   root.innerHTML = `
     <div class="toolbar" style="margin-bottom:10px;">
-      <div class="section-title" style="margin:0;">${t('batchTrackerTitle')}</div>
+      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+        <div class="section-title" style="margin:0;">${t('batchTrackerTitle')}</div>
+        ${toolbarFilters}
+      </div>
       <div class="batch-seg">${seg('product', t('batchViewProduct'))}${seg('batch', t('batchViewBatch'))}${seg('date', t('batchViewDate'))}</div>
     </div>
     <div id="batchUnallocatedBanner"></div>
@@ -723,26 +792,21 @@ function renderBatchTracker(){
   batchLoadUnallocatedBanner();
 }
 
-function batchRenderProductView(){
+// 商品頁的「分類篩選 + 搜尋」放在標題列(跟「批次追蹤」標題同一行)
+function batchProductFiltersHtml(){
   const trackedIds = [...new Set(batchData.items.map(i => i.productId))];
   const usedCats = [...new Set(trackedIds.map(pid => { const p = products.find(x => x.id === pid); return p ? (p.category || '未分類') : null; }).filter(Boolean))];
   const catLabelFn = (c) => (typeof catLabel === 'function') ? catLabel(c) : c;
-  const filters = `
-    <div class="filter-row" style="margin-bottom:10px;">
-      <div class="field">
-        <label>${t('fieldFilterByCategory')}</label>
-        <select onchange="bt.category=this.value;bt.productId='';renderBatchTracker();">
-          <option value="">${t('catFilterAll')}</option>
-          ${usedCats.map(c => `<option value="${batchEsc(c)}" ${bt.category === c ? 'selected' : ''}>${batchEsc(catLabelFn(c))}</option>`).join('')}
-        </select>
-      </div>
-      <div class="field" style="min-width:220px;">
-        <label>${t('batchSearchProduct')}</label>
-        <input type="text" value="${batchEsc(bt.search)}" oninput="bt.search=this.value;batchTrackerRefreshList();" />
-      </div>
-    </div>`;
-  if(bt.productId) return filters + batchRenderProductDetail(bt.productId);
-  return filters + `<div id="batchProductList">${batchProductListHtml()}</div>`;
+  return `
+    <select title="${t('fieldFilterByCategory')}" onchange="bt.category=this.value;bt.productId='';renderBatchTracker();">
+      <option value="">${t('catFilterAll')}</option>
+      ${usedCats.map(c => `<option value="${batchEsc(c)}" ${bt.category === c ? 'selected' : ''}>${batchEsc(catLabelFn(c))}</option>`).join('')}
+    </select>
+    <input type="search" value="${batchEsc(bt.search)}" placeholder="${batchEsc(t('batchSearchProduct'))}" style="width:190px;" oninput="bt.search=this.value;batchTrackerRefreshList();" />`;
+}
+function batchRenderProductView(){
+  if(bt.productId) return batchRenderProductDetail(bt.productId);
+  return `<div id="batchProductList">${batchProductListHtml()}</div>`;
 }
 function batchTrackerRefreshList(){
   const el = document.getElementById('batchProductList');
@@ -765,7 +829,7 @@ function batchProductListHtml(){
         <td>${batchEsc(p.name)}</td>
         <td class="num">${batchFmtQty(total)} ${batchEsc(p.unit || '')}</td>
         <td class="num">${live.length}</td>
-        <td>${nearest ? batchEsc(nearest.expiry) + batchExpiryBadge(nearest.expiry) : '–'}</td>
+        <td>${nearest ? batchEsc(nearest.expiry) + batchExpiryBadge(nearest.expiry, true) : '–'}</td>
       </tr>`;
     }).join('')}</tbody></table>`;
 }
@@ -777,33 +841,89 @@ function batchRenderProductDetail(pid){
   try{
     const stock = computeStock(pid);
     const diff = stock - liveTotal;
-    if(Math.abs(diff) > 1e-9) untrackedRow = `<tr style="background:var(--bg-soft,#f5f5f0);"><td colspan="2">${diff > 0 ? t('batchUntracked') : t('batchOverTracked')}</td><td class="num">${batchFmtQty(Math.abs(diff))}</td><td colspan="5" style="font-size:11.5px;color:var(--ink-soft);">${t('batchUntrackedHint')}</td></tr>`;
+    if(Math.abs(diff) > 1e-9) untrackedRow = `<tr style="background:var(--bg-soft,#f5f5f0);"><td colspan="2">${diff > 0 ? t('batchUntracked') : t('batchOverTracked')}</td><td class="num">${batchFmtQty(Math.abs(diff))}</td><td colspan="2" style="font-size:11.5px;color:var(--ink-soft);">${t('batchUntrackedHint')}</td></tr>`;
   }catch(e){}
   return `
-    <div style="margin:6px 0 10px;display:flex;gap:12px;align-items:center;flex-wrap:wrap;">
+    <div style="margin:12px 0 8px;"><span style="display:inline-block;padding:5px 12px;background:rgba(0,0,0,0.07);border-radius:3px;font-weight:700;">${batchEsc(p ? p.name : pid)}</span></div>
+    <div style="margin:0 0 10px;display:flex;gap:14px;align-items:center;flex-wrap:wrap;">
       <span class="batch-link" onclick="bt.productId='';renderBatchTracker();">← ${t('batchBackToList')}</span>
-      <strong>${batchEsc(p ? p.name : pid)}</strong>
       <label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer;">
         <input type="checkbox" ${bt.includeDepleted ? 'checked' : ''} onchange="bt.includeDepleted=this.checked;renderBatchTracker();" /> ${t('batchIncludeDepleted')}
       </label>
     </div>
     <table class="stock-table">
-      <thead><tr><th>${t('batchColBatch')}</th><th>${t('batchColExpiry')}</th><th class="num">${t('batchColRemaining')}</th><th class="num">${t('batchColUnitCost')}</th><th>${t('batchFieldLot')}</th><th>Invoice</th><th>${t('batchColSupplier')}</th><th></th></tr></thead>
+      <thead><tr><th>${t('batchColBatch')}</th><th>${t('batchColExpiry')}</th><th class="num">${t('batchColRemaining')}</th><th class="num">Sell price</th><th></th></tr></thead>
       <tbody>
-        ${items.length === 0 ? `<tr><td colspan="8" class="empty-note">${t('batchNoBatches')}</td></tr>` : items.map(i => `
+        ${items.length === 0 ? `<tr><td colspan="5" class="empty-note">${t('batchNoBatches')}</td></tr>` : items.map(i => `
           <tr>
             <td><span class="batch-link" onclick="batchTrackerOpenBatch('${i.batchId}')">${batchEsc(i.batchNo)}</span>${i.isOpening ? ' <span style="color:var(--ink-soft);font-size:11px;">(' + t('batchOpening') + ')</span>' : ''}</td>
-            <td>${i.expiry ? batchEsc(i.expiry) + batchExpiryBadge(i.expiry) : '–'}</td>
-            <td class="num"><span class="batch-link" onclick="batchOpenInfoPopup('${i.id}','qty')">${batchFmtQty(i.remaining)} ${batchEsc(batchProductUnit(pid))}</span></td>
-            <td class="num">${batchFmtMoney(batchUnitCost(i))}</td>
-            <td>${batchEsc(i.supplierLot) || '–'}</td>
-            <td>${batchEsc(i.invoiceNo) || '–'}</td>
-            <td>${batchEsc(i.supplier) || '–'}</td>
-            <td><span class="del-link" onclick="batchTrackerOpenHistory('${i.id}')">${t('batchBtnHistory')}</span></td>
+            <td>${i.expiry ? batchEsc(i.expiry) + batchExpiryBadge(i.expiry, true) : '–'}</td>
+            <td class="num">${batchFmtQty(i.remaining)} ${batchEsc(batchProductUnit(pid))}</td>
+            <td class="num">${(typeof spSellCellHtml === 'function') ? spSellCellHtml(i) : batchFmtMoney(batchUnitCost(i))}</td>
+            <td style="white-space:nowrap;"><span class="del-link" onclick="batchTrackerOpenHistory('${i.id}')">${t('batchBtnHistory')}</span> <span class="batch-info-icon" style="margin-left:6px;" title="${batchEsc(t('batchDetailsTitle'))}" onclick="batchOpenItemDetail('${i.id}')">ⓘ</span></td>
           </tr>`).join('')}
         ${untrackedRow}
       </tbody>
+      ${items.length === 0 ? '' : (() => { const live = items.filter(i => i.remaining > 0); const v = batchValueSum(live); const q = live.reduce((a, i) => a + i.remaining, 0); return `<tfoot><tr style="font-weight:700;"><td colspan="2" style="text-align:right;">${t('batchValueTotal')} · ${t('batchStockValue')} <span class="batch-info-icon" style="font-weight:400;" title="${batchEsc(t('batchValueHelpTitle'))}" onclick="showInfoModal(t('batchValueHelp'))">ⓘ</span>${v.missing ? `<div style="font-weight:400;font-size:11px;color:var(--ink-soft);">(${tf('batchValueMissing', { n: v.missing })})</div>` : ''}</td><td class="num" style="text-align:right;">${batchFmtQty(q)} ${batchEsc(batchProductUnit(pid))}</td><td class="num" style="text-align:right;">${(typeof spMoney === 'function') ? spMoney(v.sum) : v.sum.toFixed(2)}</td><td></td></tr></tfoot>`; })()}
     </table>`;
+}
+
+// ---- 詳細資料視窗 ----
+function batchCloseDetail(){ const o = document.getElementById('batchDetailOverlay'); if(o) o.remove(); }
+function batchShowDetailModal(title, bodyHtml){
+  batchCloseDetail();
+  const ov = document.createElement('div');
+  ov.id = 'batchDetailOverlay'; ov.className = 'modal-overlay'; ov.style.display = 'flex'; ov.style.zIndex = '1100';
+  ov.onclick = e => { if(e.target === ov) batchCloseDetail(); };
+  ov.innerHTML = `<div class="modal-box" style="max-width:min(460px,92vw);">
+    <div class="section-title" style="margin-top:0;">${title}</div>
+    ${bodyHtml}
+    <div class="modal-actions"><button class="btn ghost" onclick="batchCloseDetail()">${t('btnClose')}</button></div>
+  </div>`;
+  document.body.appendChild(ov);
+}
+const batchDetailRow = (label, val) => `<tr><td style="color:var(--ink-soft);white-space:nowrap;">${label}</td><td>${val || '–'}</td></tr>`;
+// 商品頁:這個批次商品行的 供應商批號 / Invoice / 供應商
+function batchOpenItemDetail(itemId){
+  const i = batchData.items.find(x => x.id === itemId);
+  if(!i) return;
+  batchShowDetailModal(`${batchEsc(batchProductName(i.productId))}-${batchEsc(i.batchNo)}`, `<table class="stock-table"><tbody>
+    ${batchDetailRow(t('batchFieldLot'), batchEsc(i.supplierLot))}
+    ${batchDetailRow('Invoice', batchEsc(i.invoiceNo))}
+    ${batchDetailRow(t('batchColSupplier'), batchEsc(i.supplier))}
+  </tbody></table>`);
+}
+// 批次頁:這個批次的 進貨日期 / Invoice / 供應商 / 各商品的供應商批號 / Margin 設置
+function batchOpenBatchDetail(batchId){
+  const items = batchData.items.filter(i => i.batchId === batchId);
+  if(items.length === 0) return;
+  const h = items[0];
+  const lots = items.filter(i => i.supplierLot).map(i => `${batchEsc(batchProductName(i.productId))}: ${batchEsc(i.supplierLot)}`).join('<br>');
+  const marginBlock = (typeof spMarginOf === 'function' && !h.isOpening) ? `
+    <div style="margin-top:12px;padding-top:10px;border-top:1px solid var(--line);">
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+        <strong style="font-size:12.5px;">Margin</strong>
+        <input id="batchDetailMargin" type="number" min="0" step="any" value="${spMarginOf(h)}" style="width:90px;" /><span>%</span>
+        <button class="btn" onclick="spSaveBatchMarginFromModal('${batchId}')">${t('btnSave')}</button>
+      </div>
+      <div style="margin-top:6px;"><span class="batch-link" style="font-size:12px;" onclick="spOpenDefaultMarginModal()">${t('spManageDefault')}</span></div>
+      <div style="font-size:11.5px;color:var(--ink-soft);margin-top:4px;">Sell price = Total price × (1 + Margin%)</div>
+    </div>` : '';
+  batchShowDetailModal(batchEsc(h.batchNo), `<table class="stock-table"><tbody>
+    ${batchDetailRow(t('batchColDate'), batchEsc(h.isOpening ? t('batchOpening') : h.batchDate))}
+    ${batchDetailRow('Invoice', batchEsc(h.invoiceNo))}
+    ${batchDetailRow(t('batchColSupplier'), batchEsc(h.supplier))}
+    ${batchDetailRow(t('batchFieldLot'), lots)}
+  </tbody></table>${marginBlock}`);
+}
+// 「編輯」:跳到 歷史紀錄 → 進貨單,開啟這個批次對應進貨單的編輯視窗
+async function batchEditPurchase(purchaseId){
+  if(!purchaseId) return;
+  if(typeof partyTabAllowed === 'function' && !partyTabAllowed('tab-log')) return;
+  switchTab('tab-log');
+  switchLogSubTab('subtab-log-purchases');
+  try{ if(typeof ensurePurchasesLoaded === 'function') await ensurePurchasesLoaded(); }catch(e){}
+  if(typeof openEditPurchaseModal === 'function') openEditPurchaseModal(purchaseId);
 }
 
 function batchRenderBatchView(){
@@ -818,21 +938,23 @@ function batchRenderBatchView(){
   if(items.length === 0) return `<div class="empty-note">${t('batchNoBatches')}</div>`;
   const h = items[0];
   return `
-    <div style="margin:6px 0 10px;display:flex;gap:12px;align-items:center;flex-wrap:wrap;">
+    <div style="margin:12px 0 8px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+      <span style="display:inline-block;padding:5px 12px;background:rgba(0,0,0,0.07);border-radius:3px;font-weight:700;">${batchEsc(h.batchNo)}</span>
+      ${h.purchaseId ? `<button class="btn ghost" onclick="batchEditPurchase('${batchEsc(h.purchaseId)}')">${t('btnEdit')}</button>` : ''}
+      <span class="batch-info-icon" style="font-size:15px;" title="${batchEsc(t('batchDetailsTitle'))}" onclick="batchOpenBatchDetail('${h.batchId}')">ⓘ</span>
+    </div>
+    <div style="margin:0 0 10px;display:flex;gap:12px;align-items:center;flex-wrap:wrap;">
       <span class="batch-link" onclick="bt.batchId='';renderBatchTracker();">← ${t('batchBackToList')}</span>
-      <strong>${batchEsc(h.batchNo)}</strong>
-      <span style="font-size:12px;color:var(--ink-soft);">${batchEsc(h.isOpening ? t('batchOpening') : h.batchDate)} · Invoice ${batchEsc(h.invoiceNo) || '–'} · ${batchEsc(h.supplier) || '–'}</span>
+      <span style="font-size:12px;color:var(--ink-soft);">${batchEsc(h.isOpening ? t('batchOpening') : h.batchDate)}</span>
     </div>
     <table class="stock-table">
-      <thead><tr><th>${t('colProduct')}</th><th class="num">${t('batchColQtyIn')}</th><th class="num">${t('batchColRemaining')}</th><th>${t('batchColExpiry')}</th><th class="num">${t('batchColUnitCost')}</th><th>${t('batchFieldLot')}</th><th></th></tr></thead>
+      <thead><tr><th>${t('colProduct')}</th><th class="num">${t('batchColRemaining')}</th><th>${t('batchColExpiry')}</th><th class="num">Sell price</th><th></th></tr></thead>
       <tbody>${items.sort((a, b) => batchProductName(a.productId).localeCompare(batchProductName(b.productId))).map(i => `
         <tr>
           <td><span class="batch-link" onclick="batchTrackerOpenProduct('${i.productId}')">${batchEsc(batchProductName(i.productId))}</span></td>
-          <td class="num">${batchFmtQty(i.qtyIn)}</td>
-          <td class="num"><span class="batch-link" onclick="batchOpenInfoPopup('${i.id}','qty')">${batchFmtQty(i.remaining)} ${batchEsc(batchProductUnit(i.productId))}</span></td>
-          <td>${i.expiry ? batchEsc(i.expiry) + batchExpiryBadge(i.expiry) : '–'}</td>
-          <td class="num">${batchFmtMoney(batchUnitCost(i))}</td>
-          <td>${batchEsc(i.supplierLot) || '–'}</td>
+          <td class="num">${batchFmtQty(i.remaining)} ${batchEsc(batchProductUnit(i.productId))}</td>
+          <td>${i.expiry ? batchEsc(i.expiry) + batchExpiryBadge(i.expiry, true) : '–'}</td>
+          <td class="num">${(typeof spSellCellHtml === 'function') ? spSellCellHtml(i) : batchFmtMoney(batchUnitCost(i))}</td>
           <td><span class="del-link" onclick="batchTrackerOpenHistory('${i.id}')">${t('batchBtnHistory')}</span></td>
         </tr>`).join('')}</tbody>
     </table>`;
@@ -848,6 +970,12 @@ function batchBatchTableHtml(list){
     </tr>`).join('')}</tbody></table>`;
 }
 function batchRenderDateView(){
+  const mode = bt.dateMode === 'expiry' ? 'expiry' : 'received';
+  const seg = `<div style="margin:0 0 10px;"><div class="batch-seg">
+      <button class="${mode === 'received' ? 'active' : ''}" onclick="bt.dateMode='received';renderBatchTracker();">${t('batchDateModeReceived')}</button>
+      <button class="${mode === 'expiry' ? 'active' : ''}" onclick="bt.dateMode='expiry';renderBatchTracker();">${t('batchDateModeExpiry')}</button>
+    </div></div>`;
+  if(mode === 'expiry') return seg + batchRenderExpiryList();
   const batches = {};
   batchData.items.forEach(i => {
     if(bt.from && i.batchDate < bt.from) return;
@@ -856,12 +984,52 @@ function batchRenderDateView(){
     batches[i.batchId].n++;
   });
   const list = Object.values(batches).sort((a, b) => (b.date || '').localeCompare(a.date || '') || b.no.localeCompare(a.no));
-  return `
+  return seg + `
     <div class="filter-row" style="margin-bottom:10px;">
       <div class="field"><label>${t('batchDateFrom')}</label><input type="date" value="${bt.from}" onchange="bt.from=this.value;renderBatchTracker();" /></div>
       <div class="field"><label>${t('batchDateTo')}</label><input type="date" value="${bt.to}" onchange="bt.to=this.value;renderBatchTracker();" /></div>
     </div>
     ${batchBatchTableHtml(list)}`;
+}
+// 依有效期看:所有「還有庫存、有填有效期」的批次商品行,有效期最早的排最前面(已過期的在最上面)
+function batchRenderExpiryList(){
+  const warn = batchWarnDays();
+  const live = batchData.items.filter(i => i.remaining > 0);
+  const withExp = live.filter(i => i.expiry);
+  const noExpCount = live.length - withExp.length;
+  let rows = withExp.slice().sort((a, b) => a.expiry.localeCompare(b.expiry) || batchProductName(a.productId).localeCompare(batchProductName(b.productId)));
+  if(bt.expOnly) rows = rows.filter(i => batchDaysUntil(i.expiry) <= warn);
+  const table = rows.length === 0 ? `<div class="empty-note">${t('batchNoExpiryRows')}</div>` : `<table class="stock-table">
+    <thead><tr><th>${t('batchColExpiry')}</th><th>${t('colProduct')}</th><th>${t('batchColBatch')}</th><th class="num">${t('batchColRemaining')}</th><th class="num">${t('batchStockValue')}</th></tr></thead>
+    <tbody>${rows.map(i => `<tr>
+      <td>${batchEsc(i.expiry)}${batchExpiryBadge(i.expiry, true)}</td>
+      <td><span class="batch-link" onclick="batchTrackerOpenProduct('${i.productId}')">${batchEsc(batchProductName(i.productId))}</span></td>
+      <td><span class="batch-link" onclick="batchTrackerOpenBatch('${i.batchId}')">${batchEsc(i.batchNo)}</span></td>
+      <td class="num">${batchFmtQty(i.remaining)} ${batchEsc(batchProductUnit(i.productId))}</td>
+      <td class="num">${(() => { const v = batchItemValue(i); return v === null ? '–' : spMoney(v); })()}</td>
+    </tr>`).join('')}</tbody></table>`;
+  // 摘要(不受下面「只看快到期與已過期」勾選影響):有填有效期的庫存總價值、快到期、已過期的價值
+  const expired = batchValueSum(withExp.filter(i => batchDaysUntil(i.expiry) < 0));
+  const soon = batchValueSum(withExp.filter(i => { const d = batchDaysUntil(i.expiry); return d >= 0 && d <= warn; }));
+  const all = batchValueSum(withExp);
+  const missingTotal = all.missing;
+  const chip = (label, v, color) => `<span style="display:inline-block;padding:6px 12px;border:1px solid var(--line);border-radius:3px;background:#fff;"><span style="font-size:11px;color:var(--ink-soft);">${label}</span><br><strong style="font-size:14px;${color ? 'color:' + color + ';' : ''}">${spMoney(v)}</strong></span>`;
+  const summary = `<div style="margin:0 0 12px;display:flex;gap:10px;flex-wrap:wrap;align-items:stretch;">
+      ${chip(t('batchStockValue'), all.sum)}
+      ${chip('🟠 ' + t('batchValueSoon'), soon.sum, '#B8860B')}
+      ${chip('🔴 ' + t('batchValueExpired'), expired.sum, 'var(--crit)')}
+      <span class="batch-info-icon" style="align-self:center;font-size:15px;" title="${batchEsc(t('batchValueHelpTitle'))}" onclick="showInfoModal(t('batchValueHelp'))">ⓘ</span>
+      ${missingTotal ? `<span style="align-self:center;font-size:11px;color:var(--ink-soft);">${tf('batchValueMissing', { n: missingTotal })}</span>` : ''}
+    </div>`;
+  return `
+    ${summary}
+    <div style="margin:0 0 10px;">
+      <label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer;">
+        <input type="checkbox" ${bt.expOnly ? 'checked' : ''} onchange="bt.expOnly=this.checked;renderBatchTracker();" /> ${t('batchExpOnlyLabel')}
+      </label>
+    </div>
+    ${table}
+    ${noExpCount > 0 ? `<div style="font-size:11.5px;color:var(--ink-soft);margin-top:8px;">${tf('batchNoExpiryNote', { n: noExpCount })}</div>` : ''}`;
 }
 
 // 「未分配出貨」橫幅:已追蹤商品的出貨交易還沒(完整)分配到批次(例如分配那一步剛好斷線)
@@ -955,7 +1123,28 @@ function batchExistingItemLineHtml(it){
   if(!batchExistingItemTracked(it)) return '';
   return `<div class="batch-alloc-line batch-order-line" data-pid="${it.productId}"></div>`;
 }
+// 載入「待處理訂單」時:每個品項可以先指定要從哪些批次出(只存在這張訂單上,決定預計的 Sell price;核對時優先使用)
+function batchPendingItemPickable(it){
+  return typeof registerOutFlowType !== 'undefined' && registerOutFlowType === 'load-pending' && batchIsTracked(it.productId) && it.qty > 0;
+}
+function batchOpenPickerForPendingItem(productId){
+  const order = orders.find(o => o.id === registerLoadedOrderId);
+  const item = order ? order.items.find(x => x.productId === productId && !x.deleted) : null;
+  if(!order || !item) return;
+  batchOpenPicker({
+    productId, qty: item.qty, unit: item.unit, picks: item.batchPicks || [],
+    onSave: async picks => {
+      if(picks.length) item.batchPicks = picks; else delete item.batchPicks;
+      try{ await upsertOrders([order]); } catch(e){ console.error('儲存批次指定失敗', e); showInfoModal(t('spMarginSaveFailed')); }
+      if(typeof spRefreshOrderViews === 'function') spRefreshOrderViews(); else renderTxExistingItems();
+    }
+  });
+}
 function batchExistingItemButtonHtml(it, pending){
+  if(batchPendingItemPickable(it)){
+    const has = (it.batchPicks || []).length > 0;
+    return `<span class="del-link" onclick="batchOpenPickerForPendingItem('${it.productId}')">${t('btnBatchPick')}${has ? ' ✓' : ''}</span>`;
+  }
   if(!batchExistingItemTracked(it)) return '';
   return `<span class="del-link" onclick="batchOpenOrderBreakdownView('${it.productId}')">${t('btnBatchPick')}</span>`;
 }
@@ -1185,10 +1374,13 @@ function batchRenderHistoryPage(){
     <div style="font-size:12px;color:var(--ink-soft);margin-bottom:8px;">${t('batchHistClickHint')}</div>`;
   if(batchHist.loading) return back + head + `<div class="empty-note">${t('batchLoading')}</div>`;
   const rowStyle = 'cursor:pointer;';
-  const rows = [`<tr style="${rowStyle}" onclick="batchHistOpenRow(-1)"><td>${batchEsc(i.isOpening ? t('batchOpening') : i.batchDate)}</td><td>${t('batchKindIn')}</td><td class="num">+${batchFmtQty(i.qtyIn)} ${unit}</td><td>${batchEsc(i.supplier) || '–'}</td><td>${batchEsc(i.invoiceNo) || '–'}</td><td class="num">${batchFmtMoney(batchUnitCost(i))}</td></tr>`]
-    .concat(batchHist.moves.map((m, idx) => `<tr style="${rowStyle}" onclick="batchHistOpenRow(${idx})"><td>${batchEsc(m.mv_date)}</td><td>${t(BATCH_KIND_LABEL_KEY[m.kind] || 'batchKindAdjust')}</td><td class="num">${Number(m.qty) > 0 ? '+' : ''}${batchFmtQty(Number(m.qty))} ${unit}</td><td>${batchEsc(m.party) || '–'}</td><td>${batchEsc(m.order_no) || '–'}</td><td class="num">${batchCostWithFlag(m.unit_cost, i)}</td></tr>`));
+  const rows = [`<tr style="${rowStyle}" onclick="batchHistOpenRow(-1)"><td>${batchEsc(i.isOpening ? t('batchOpening') : i.batchDate)}</td><td>${t('batchKindIn')}</td><td class="num" style="padding-right:72px;">+${batchFmtQty(i.qtyIn)} ${unit}</td><td>${batchEsc(i.supplier) || '–'}</td><td>${batchEsc(i.invoiceNo) || '–'}</td><td class="num">${batchFmtMoney(batchUnitCost(i))}</td></tr>`]
+    .concat(batchHist.moves.map((m, idx) => `<tr style="${rowStyle}" onclick="batchHistOpenRow(${idx})"><td>${batchEsc(m.mv_date)}</td><td>${t(BATCH_KIND_LABEL_KEY[m.kind] || 'batchKindAdjust')}</td><td class="num" style="padding-right:72px;">${Number(m.qty) > 0 ? '+' : ''}${batchFmtQty(Number(m.qty))} ${unit}</td><td>${batchEsc(m.party) || '–'}</td><td>${batchEsc(m.order_no) || '–'}</td><td class="num">${batchCostWithFlag(m.unit_cost, i)}</td></tr>`));
   return back + head + `<table class="stock-table">
-    <thead><tr><th>${t('colDate')}</th><th>${t('colType')}</th><th class="num">${t('colQty')}</th><th>${t('batchColParty')}</th><th>${t('batchColOrderNo')}</th><th class="num">${t('batchColUnitCost')}</th></tr></thead>
+    <thead>
+      <tr><th style="border-bottom:none;"></th><th style="border-bottom:none;"></th><th class="num" style="border-bottom:none;white-space:nowrap;padding-bottom:6px;padding-right:72px;"><span style="display:inline-block;padding:4px 10px;background:rgba(0,0,0,0.07);border-radius:3px;font-size:14px;font-weight:700;color:var(--ink);text-transform:none;letter-spacing:0;">${tf('batchHistRemaining', { qty: batchFmtQty(i.remaining) + ' ' + unit })}</span></th><th colspan="3" style="border-bottom:none;"></th></tr>
+      <tr><th>${t('colDate')}</th><th>${t('colType')}</th><th class="num" style="padding-right:72px;">${t('colQty')}</th><th>${t('batchColParty')}</th><th>${t('batchColOrderNo')}</th><th class="num">${t('batchColUnitCost')}</th></tr>
+    </thead>
     <tbody>${rows.join('')}</tbody></table>`;
 }
 
@@ -1287,4 +1479,132 @@ async function batchShowOrderModal(orderId, m, item){
     <div style="font-size:12.5px;margin-bottom:8px;"><strong>${batchEsc(o.orderNo || m.order_no || '')}</strong> · ${batchEsc(o.date || '')}${o.partyName ? ' · ' + batchEsc(o.partyName) : ''}${o.deleted ? ` · <span style="color:var(--crit);">${t('batchDocOrderCancelled')}</span>` : ''}</div>
     <table class="stock-table"><thead><tr><th>${t('colProduct')}</th><th class="num">${t('colQty')}</th></tr></thead><tbody>${rows}</tbody></table>
     ${o.note ? `<div style="font-size:12px;color:var(--ink-soft);margin-top:6px;">${t('colNote')}: ${batchEsc(o.note)}</div>` : ''}`);
+}
+
+// ------------------------------------------------------------
+// 第三期:備份 / 還原 / 清除全部資料
+// 批次三張表只開放讀取,寫入走 RPC(sql/batch_tracking_phase3_backup.sql)。
+// ------------------------------------------------------------
+function batchIsMissingTableError(e){
+  return !!(e && (e.code === 'PGRST205' || e.code === '42P01' || /does not exist|schema cache/i.test(e.message || '')));
+}
+function batchIsMissingFunctionError(e){
+  return !!(e && (e.code === 'PGRST202' || e.code === '42883' || /could not find the function|does not exist/i.test(e.message || '')));
+}
+
+// 備份用:回傳 { version, batches, items, movements };功能關閉或資料表不存在時回傳 null(備份檔就不含這一段)。
+async function batchExportForBackup(){
+  if(!batchFeatureOn()) return null;
+  try{
+    const [batches, items, movements] = await Promise.all([
+      fetchAllPages(() => sb.from('batches').select('*').order('id', { ascending: true })),
+      fetchAllPages(() => sb.from('batch_items').select('*').order('id', { ascending: true })),
+      fetchAllPages(() => sb.from('batch_movements').select('*').order('id', { ascending: true }))
+    ]);
+    return { version: 1, batches, items, movements };
+  } catch(e){
+    if(batchIsMissingTableError(e)) return null;
+    // 其他錯誤(網路…)不能默默產生一份不含批次資料的備份,讓呼叫端知道
+    throw e;
+  }
+}
+
+// 還原用:必須在 replaceAllTransactions 之後呼叫。
+// 回傳 { ok, restored, cleared, skipped }:
+//   restored = 備份檔含批次資料並已寫回;cleared = 備份檔沒有批次資料(舊備份),批次表已清空以免和還原後的庫存對不上;
+//   skipped = 功能關閉/資料表不存在;ok=false = 失敗(通常是 SQL 還沒執行)。
+async function batchRestoreFromBackup(backup){
+  if(!batchFeatureOn() || !batchAvailable) return { ok: true, skipped: true };
+  try{
+    const bt3 = backup && backup.batchTracking;
+    if(bt3 && Array.isArray(bt3.batches) && Array.isArray(bt3.items) && Array.isArray(bt3.movements)){
+      await batchRpc('batch_restore_all', { p_batches: bt3.batches, p_items: bt3.items, p_movements: bt3.movements });
+      return { ok: true, restored: true };
+    }
+    await batchRpc('batch_clear_all', {});
+    return { ok: true, cleared: true };
+  } catch(e){
+    console.error('還原批次資料失敗', e);
+    if(batchIsMissingTableError(e)) return { ok: true, skipped: true };
+    return { ok: false, error: (e && e.message) || String(e), missingFn: batchIsMissingFunctionError(e) };
+  } finally {
+    batchMarkStale();
+    try{ await ensureBatchDataLoaded(true); }catch(e){}
+  }
+}
+
+// 清除全部資料用。失敗會丟出例外(讓 clearAllData 跟其他清除步驟一樣整個報錯)。
+async function batchClearAll(){
+  if(!batchFeatureOn() || !batchAvailable) return;
+  try{
+    await batchRpc('batch_clear_all', {});
+  } catch(e){
+    if(batchIsMissingTableError(e)) return;
+    throw e;
+  } finally {
+    batchData.items = []; batchMarkStale();
+  }
+}
+
+
+// ------------------------------------------------------------
+// 第三期:已完成訂單詳情顯示用了哪些批次(+ 出貨價和目前批次單價不同的 ⓘ)
+// ------------------------------------------------------------
+// 訂單商品列下方的佔位元素;batchFillOrderDetailLines 會依訂單 id / 商品 id 非同步填入標籤。
+function batchOrderDetailLineHtml(o, it){
+  if(!batchFeatureOn() || !batchAvailable || !o || o.deleted || it.deleted || !(it.qty > 0)) return '';
+  return `<div class="batch-alloc-line batch-order-detail-line" data-oid="${batchEsc(o.id)}" data-pid="${batchEsc(it.productId)}"></div>`;
+}
+// 某張訂單每個商品實際用的批次:{ productId: [{ item, qty(淨出貨量), shipCost(出貨當時批次單價,加權平均) }] }
+function batchGetOrderDetail(orderId){
+  if(batchOrderDetailCache[orderId]) return batchOrderDetailCache[orderId];
+  const p = (async () => {
+    const { data, error } = await batchSelectMovements('batch_item_id,qty,kind', q => q.eq('order_id', orderId).in('kind', ['out', 'return']));
+    if(error) throw error;
+    const acc = {};   // itemId -> { qty, costSum, costQty, anyCost }
+    (data || []).forEach(m => {
+      const a = acc[m.batch_item_id] = acc[m.batch_item_id] || { qty: 0, costSum: 0, costQty: 0, anyCost: false };
+      const q = -Number(m.qty);               // 出貨(負)→ 正的使用量;退回(正)→ 扣回
+      a.qty += q;
+      const c = batchNum(m.unit_cost);
+      if(c !== null){ a.anyCost = true; a.costSum += c * q; a.costQty += q; }
+    });
+    const out = {};
+    Object.keys(acc).forEach(id => {
+      const i = batchData.items.find(x => x.id === id);
+      const a = acc[id];
+      if(!i || !(a.qty > 1e-9)) return;
+      const shipCost = (a.anyCost && Math.abs(a.costQty) > 1e-9) ? a.costSum / a.costQty : null;
+      (out[i.productId] = out[i.productId] || []).push({ item: i, qty: a.qty, shipCost });
+    });
+    return out;
+  })();
+  batchOrderDetailCache[orderId] = p;
+  p.catch(() => { delete batchOrderDetailCache[orderId]; });
+  return p;
+}
+async function batchFillOrderDetailLines(root){
+  try{
+    if(!root || !batchFeatureOn()) return;
+    const els = Array.from(root.querySelectorAll('.batch-order-detail-line'));
+    if(els.length === 0) return;
+    await ensureBatchDataLoaded();
+    if(!batchActive()) return;
+    const orderIds = [...new Set(els.map(el => el.dataset.oid))];
+    const results = {};
+    await Promise.all(orderIds.map(async id => { try{ results[id] = await batchGetOrderDetail(id); }catch(e){ console.warn('訂單批次明細載入失敗', id, e); } }));
+    els.forEach(el => {
+      const map = results[el.dataset.oid];
+      const rows = map && map[el.dataset.pid];
+      if(!rows || rows.length === 0){ el.innerHTML = ''; return; }
+      el.innerHTML = rows.slice().sort((a, b) => batchFefoCompare(a.item, b.item)).map(r => {
+        const i = r.item, cur = batchUnitCost(i);
+        const flag = (batchShipCostSupported && batchCostDiffers(r.shipCost, cur))
+          ? ` <span class="batch-cost-flag" title="${batchEsc(t('batchCostFlagTitle'))}" style="cursor:pointer;color:var(--warn-dark,#b45309);font-weight:700;" onclick="batchShowShipCost(event, ${r.shipCost === null ? 'null' : r.shipCost}, ${cur === null || cur === undefined ? 'null' : cur})">ⓘ</span>`
+          : '';
+        const exp = i.expiry ? ' · ' + t('batchExpiryShort') + ' ' + batchEsc(i.expiry) : '';
+        return `<span class="batch-tag">${batchEsc(i.batchNo)}${i.isOpening ? ' (' + t('batchOpening') + ')' : ''} ×${batchFmtQty(r.qty)}${exp}${flag}</span>`;
+      }).join('');
+    });
+  } catch(e){ console.warn('訂單批次標籤載入失敗', e); }
 }

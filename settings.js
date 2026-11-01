@@ -39,6 +39,8 @@ async function runAutoBackup(){
     forecastPrefs: { unitChoice: forecastUnitChoice, boxBasis: forecastBoxBasis },
     exportEmailLogs
   };
+  try{ const bt = await batchExportForBackup(); if(bt) backup.batchTracking = bt; }
+  catch(e){ console.error('自動備份:讀取批次資料失敗,這份備份不含批次資料', e); }
   const content = JSON.stringify(backup, null, 2);
 
   if(backupDirHandle){
@@ -112,6 +114,35 @@ async function findLatestBackupInFolder(dirHandle){
   return { filename: latestName, text };
 }
 
+// 還原後台紀錄:用內容比對去重(見 importFullBackup 的說明),只寫入資料庫裡還沒有的紀錄。
+async function restoreInventoryLogsFromBackup(logs){
+  const keyOf = r => [
+    new Date(r.created_at).getTime(), r.action_type || '', r.actor || '', r.description || '', r.order_no || ''
+  ].join('\u0001');
+  const existing = await fetchAllPages(() => sb.from('inventory_log')
+    .select('id,created_at,action_type,actor,description,order_no').order('id', { ascending: true }));
+  const seen = new Set(existing.map(keyOf));
+  const toInsert = [];
+  logs.forEach(r => {
+    const k = keyOf(r);
+    if(seen.has(k)) return;
+    seen.add(k);   // 備份檔本身有完全相同的兩筆時,只寫一筆
+    toInsert.push({ created_at: r.created_at, action_type: r.action_type, actor: r.actor || null, description: r.description, order_no: r.order_no || null });
+  });
+  for(let i = 0; i < toInsert.length; i += 500){
+    const { error } = await sb.from('inventory_log').insert(toInsert.slice(i, i + 500));
+    if(error) throw error;
+  }
+}
+
+// 還原備份後,把批次資料的處理結果轉成提示文字(成功且正常就不顯示)。
+function batchRestoreMsg(res){
+  if(!res || res.skipped) return '';
+  if(!res.ok) return ' ' + t(res.missingFn ? 'warnBatchRestoreNeedSql' : 'warnBatchRestoreFailed');
+  if(res.cleared) return ' ' + t('noteBatchBackupHadNoBatches');
+  return '';
+}
+
 async function restoreFromBackupFolder(){
   const msg = document.getElementById('backupMsg');
   if(!window.showDirectoryPicker){
@@ -177,6 +208,7 @@ async function restoreFromBackupFolder(){
     await saveCategoryOrder();
     await restoreQuickListsFromBackup(backup);
     const forecastRestoreOk = await restoreForecastDataFromBackup(backup);
+    const batchRes = await batchRestoreFromBackup(backup);
     const seqSynced = await syncOrderNoSequenceAfterRestore(orders);
     // 這個資料夾既然能讀,順便記起來,之後自動備份也直接寫進同一個地方。
     backupDirHandle = dirHandle;
@@ -184,7 +216,7 @@ async function restoreFromBackupFolder(){
     updateAutoBackupStatus();
     msg.className = seqSynced ? 'msg ok' : 'msg error';
     msg.textContent = tf('restoredFromFileMsg', { filename: found.filename, products: products.length, transactions: transactions.length, orders: orders.length })
-      + (seqSynced ? '' : ' ' + t('warnOrderNoSeqSyncFailed')) + (forecastRestoreOk ? '' : ' ' + t('warnForecastRestoreFailed'));
+      + (seqSynced ? '' : ' ' + t('warnOrderNoSeqSyncFailed')) + (forecastRestoreOk ? '' : ' ' + t('warnForecastRestoreFailed')) + batchRestoreMsg(batchRes);
     renderTabBar();
     renderAll();
   });
@@ -207,6 +239,9 @@ function updateMultipackSettingsUI(){
   const hmiBox = document.getElementById('hideMultipackIconToggle');
   if(hmiBox) hmiBox.checked = hideMultipackIconOnOrderPage;
   if(typeof renderSystemCurrencySetting === 'function') renderSystemCurrencySetting();
+  renderBatchExpirySetting();
+  applySettingsGroup();
+  if(typeof renderSellPriceSetting === 'function') renderSellPriceSetting();
   renderAccountingEmailList();
   const slmSelect = document.getElementById('stockLocationModeSelect');
   if(slmSelect){
@@ -453,6 +488,7 @@ async function clearAllData(){
     // 避免「清到一半失敗」導致部分資料表已清空、部分還留著的不一致狀態。
     await clearInventoryLogTable();        // 透過 RPC 清空 inventory_log(繞過 RLS 限制)
 
+    await batchClearAll();                 // 清空批次追蹤三張表(batches / batch_items / batch_movements);放在動 transactions 之前,失敗時其他資料不會被清到一半
     await replaceAllTransactions([]);      // 清空 transactions 表 + 重建庫存快取為空
     await replaceAllOrders([]);            // 清空 orders 表
     await clearAllDeliveryNotes();         // 清空 delivery_notes 表(訂單都清空了,留著也是孤兒資料)
@@ -497,7 +533,7 @@ async function clearAllData(){
     showInfoModal(t('restoreDefaultSuccessAll'));
   } catch(e){
     console.error('Clear All Data 失敗', e);
-    showInfoModal(t('restoreDefaultError'));
+    showInfoModal(batchIsMissingFunctionError(e) ? t('warnBatchClearNeedSql') : t('restoreDefaultError'));
   }
 }
 
@@ -547,6 +583,13 @@ async function exportFullBackup(){
     deliveryNotes,
     purchases
   };
+  const msg0 = document.getElementById('backupMsg');
+  try{ const bt = await batchExportForBackup(); if(bt) backup.batchTracking = bt; }
+  catch(e){
+    console.error('匯出備份:讀取批次資料失敗', e);
+    if(msg0){ msg0.className = 'msg error'; msg0.textContent = t('warnBatchBackupReadFailed'); }
+    return;   // 寧可不產生備份,也不要產生一份缺批次資料、之後還原會清掉批次的備份
+  }
   const filename = `stock_ledger_backup_${todayISO()}.json`;
   const content = JSON.stringify(backup, null, 2);
   const msg = document.getElementById('backupMsg');
@@ -626,14 +669,14 @@ function importFullBackup(){
         await saveCategoryOrder();
         await restoreQuickListsFromBackup(backup);
         const forecastRestoreOk = await restoreForecastDataFromBackup(backup);
+        const batchRes = await batchRestoreFromBackup(backup);
         // inventory_log 是稽核用途的紀錄,故意不開放前端刪除(見 clearInventoryLogTable 旁邊的
-        // 說明)——還原備份的時候也一樣不整批覆蓋,只把備份裡的紀錄用 upsert 補進去,已經存在的
-        // (id 相同)就跳過不動,不會覆蓋掉還原當下資料庫裡已經有的紀錄。
+        // 說明)——還原備份的時候也一樣不整批覆蓋,只把「資料庫裡還沒有」的紀錄補進去。
+        // 這張表的 id 是由資料庫自己產生的(GENERATED ALWAYS),不能帶 id 寫入,所以改用內容
+        // (時間+動作+操作者+說明+訂單號)比對有沒有重複,重複的跳過,不會覆蓋或重複新增。
         if(Array.isArray(backup.inventoryLogs) && backup.inventoryLogs.length > 0){
-          try{
-            const { error: logErr } = await sb.from('inventory_log').upsert(backup.inventoryLogs, { onConflict: 'id', ignoreDuplicates: true });
-            if(logErr) throw logErr;
-          } catch(e){ console.error('還原後台紀錄失敗', e); }
+          try{ await restoreInventoryLogsFromBackup(backup.inventoryLogs); }
+          catch(e){ console.error('還原後台紀錄失敗', e); }
         }
         if(Array.isArray(backup.deliveryNotes) && backup.deliveryNotes.length > 0){
           try{ await upsertDeliveryNotes(backup.deliveryNotes); }
@@ -649,7 +692,7 @@ function importFullBackup(){
         const seqSynced = await syncOrderNoSequenceAfterRestore(orders);
         msg.className = seqSynced ? 'msg ok' : 'msg error';
         msg.textContent = tf('restoredBackupMsg', { products: products.length, transactions: transactions.length, orders: orders.length })
-          + (seqSynced ? '' : ' ' + t('warnOrderNoSeqSyncFailed')) + (forecastRestoreOk ? '' : ' ' + t('warnForecastRestoreFailed'));
+          + (seqSynced ? '' : ' ' + t('warnOrderNoSeqSyncFailed')) + (forecastRestoreOk ? '' : ' ' + t('warnForecastRestoreFailed')) + batchRestoreMsg(batchRes);
         fileInput.value = '';
         renderTabBar();
         renderAll();
@@ -1111,4 +1154,58 @@ function applySystemCurrencyFromInput(){
   const code = el.value.trim().toUpperCase();
   el.value = '';
   applySystemCurrency(code);
+}
+
+
+// ============================================================
+// 批次到期提醒天數(系統管理 → 系統設置)
+// 庫存總覽的到期燈號 🟠(快到期)與批次追蹤頁的到期標記,都用這個天數判斷。預設 30 天。
+// 存在 app_data 'batchExpiryWarnDays'。
+// ============================================================
+let batchExpiryWarnDays = 30;
+function getBatchExpiryWarnDays(){ return batchExpiryWarnDays; }
+async function loadBatchExpiryWarnDays(){
+  try{
+    const r = await dbGet('batchExpiryWarnDays');
+    const n = r && r.value !== undefined && r.value !== null ? parseInt(r.value, 10) : NaN;
+    if(Number.isFinite(n) && n >= 1 && n <= 365) batchExpiryWarnDays = n;
+  } catch(e){ /* 沒存過,維持預設 30 */ }
+}
+function renderBatchExpirySetting(){
+  const el = document.getElementById('batchExpiryWarnDaysInput');
+  if(el) el.value = String(batchExpiryWarnDays);
+  const card = document.getElementById('batchExpirySettingCard');
+  if(card) card.style.display = (typeof batchFeatureOn === 'function' && batchFeatureOn()) ? '' : 'none';
+}
+async function applyBatchExpiryWarnDays(v){
+  const msg = document.getElementById('batchExpirySettingMsg');
+  const n = parseInt(v, 10);
+  if(!Number.isFinite(n) || n < 1 || n > 365){
+    if(msg){ msg.className = 'msg error'; msg.textContent = t('batchExpiryDaysInvalid'); }
+    renderBatchExpirySetting();
+    return;
+  }
+  batchExpiryWarnDays = n;
+  try{ await dbSet('batchExpiryWarnDays', String(n)); if(msg){ msg.className = 'msg ok'; msg.textContent = t('batchExpiryDaysSaved'); } }
+  catch(e){ console.error('儲存到期提醒天數失敗', e); if(msg){ msg.className = 'msg error'; msg.textContent = t('batchExpiryDaysSaveFailed'); } }
+  try{ if(typeof renderStockCards === 'function' && document.getElementById('stockCards')) renderStockCards(); }catch(e){}
+  try{ if(typeof renderBatchTracker === 'function' && document.getElementById('batchTrackerRoot')) renderBatchTracker(); }catch(e){}
+}
+
+
+// ============================================================
+// 系統設置:卡片分組(一次只顯示一組)。警告橫幅(沒有資料時的提示)不屬於任何組,永遠顯示。
+// ============================================================
+let settingsGroupCurrent = 'ui';
+function applySettingsGroup(){
+  document.querySelectorAll('#subtab-sys-settings .settings-card[data-sgroup]').forEach(card => {
+    card.classList.toggle('sgroup-hidden', card.dataset.sgroup !== settingsGroupCurrent);
+  });
+  document.querySelectorAll('#settingsGroupNav button[data-sgroup-btn]').forEach(b => {
+    b.classList.toggle('active', b.dataset.sgroupBtn === settingsGroupCurrent);
+  });
+}
+function switchSettingsGroup(g){
+  settingsGroupCurrent = g;
+  applySettingsGroup();
 }
