@@ -59,8 +59,13 @@ function renderStockLocationProductSelect(){
 }
 
 // 掃碼槍在庫存分布頁面掃到商品時呼叫:直接跳去顯示這個商品的位置分布,不用手動搜尋。
+// 從清單(列出所有多個位置的商品)按「查看」進到單一商品後,記住原本的分類篩選,
+// 詳細畫面上方的「上一頁」按鈕用它回到清單
+let stockLocationBackState = null;
 function jumpToProductInStockLocation(p){
   const catSel = document.getElementById('stockLocationCategoryFilter');
+  const multiCb = document.getElementById('stockLocationShowAllMulti');
+  stockLocationBackState = (multiCb && multiCb.checked) ? { cat: catSel ? catSel.value : '' } : null;
   if(catSel) catSel.value = '';
   renderStockLocationProductSelect();
   const sel = document.getElementById('stockLocationProductSelect');
@@ -72,17 +77,26 @@ function jumpToProductInStockLocation(p){
 // 所有還有未分布庫存的商品),商品下拉選單這時候選哪個都沒意義,所以鎖住不能選,避免使用者
 // 誤以為要先選商品才看得到清單。取消勾選就切回原本「選一項商品看詳細」的畫面。
 // 這個商品目前有幾個真正的位置(不含未分布)
+function stockLocationBackToList(){
+  const st = stockLocationBackState; stockLocationBackState = null;
+  const catSel = document.getElementById('stockLocationCategoryFilter');
+  if(catSel && st) catSel.value = st.cat || '';
+  resetSearchableSelect('stockLocationProductSelect');
+  renderStockLocationProductSelect();
+}
 function stockLocationCountFor(productId){
   return productLocations.filter(l => l.productId === productId && l.qty > 0).length;
 }
 // 兩個清單勾選互斥:勾了「多個位置」就取消「未指派」,反過來也是
 function toggleStockLocationMultiView(checked){
+  stockLocationBackState = null;
   const other = document.getElementById('stockLocationShowAllUnassigned');
   if(checked && other) other.checked = false;
   resetSearchableSelect('stockLocationProductSelect');
   renderStockLocationProductSelect();
 }
 function toggleStockLocationBulkView(checked){
+  stockLocationBackState = null;
   const other = document.getElementById('stockLocationShowAllMulti');
   if(checked && other) other.checked = false;
   // 這裡不再整個鎖住商品選單不能選(disabled)——改成讓選單本身依照勾選狀態,只列出真的
@@ -151,7 +165,7 @@ function renderStockLocationMultiList(){
   if(!container) return;
   const catFilterVal = document.getElementById('stockLocationCategoryFilter').value;
   const rows = (catFilterVal ? products.filter(p => (p.category || '未分類') === catFilterVal) : products)
-    .filter(p => !p.hidden && stockLocationCountFor(p.id) >= 2)
+    .filter(p => !p.hidden && (stockLocationCountFor(p.id) + (computeUnassignedQty(p.id) > 0 ? 1 : 0)) >= 2)
     .sort((a, b) => a.name.localeCompare(b.name));
   if(rows.length === 0){
     container.innerHTML = `<div class="empty-note">${t('noMultiLocationProductsHint')}</div>`;
@@ -165,7 +179,7 @@ function renderStockLocationMultiList(){
           <tr>
             <td>${escapeHtmlForPrint(p.sku || '—')}</td>
             <td>${escapeHtmlForPrint(p.name)}</td>
-            <td>${getSortedLocationsForProduct(p.id).map(l => `${escapeHtmlForPrint(l.locationCode)} ×${l.qty} ${escapeHtmlForPrint(p.unit)}`).join('<br>')}</td>
+            <td>${getSortedLocationsForProduct(p.id).map(l => `${escapeHtmlForPrint(l.locationCode)} ×${l.qty} ${escapeHtmlForPrint(p.unit)}`).concat(computeUnassignedQty(p.id) > 0 ? [`<span style="color:var(--ink-soft);">${t('unassignedLocationLabel')} ×${computeUnassignedQty(p.id)} ${escapeHtmlForPrint(p.unit)}</span>`] : []).join('<br>')}</td>
             <td><span class="del-link" onclick="jumpToProductInStockLocation(products.find(x => x.id === '${p.id}'))">${t('btnViewDetail')}</span></td>
           </tr>
         `).join('')}
@@ -238,7 +252,8 @@ function renderStockLocationDetail(){
     </tr>
   `;
 
-  container.innerHTML = `
+  const backBtnHtml = stockLocationBackState ? `<div style="margin:14px 0 0;"><button class="btn ghost" onclick="stockLocationBackToList()">← ${t('batchBackPrev')}</button></div>` : '';
+  container.innerHTML = backBtnHtml + `
     <div class="section" style="margin-top:14px;padding:16px 20px;">
       <div style="display:flex;gap:24px;flex-wrap:wrap;margin-bottom:14px;">
         <div><span style="font-size:11px;color:var(--ink-soft);text-transform:uppercase;font-weight:700;">SKU</span><br>${escapeHtmlForPrint(p.sku || '—')}</div>
