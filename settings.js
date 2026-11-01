@@ -1201,9 +1201,8 @@ function applySettingsGroup(){
   document.querySelectorAll('#subtab-sys-settings .settings-card[data-sgroup]').forEach(card => {
     card.classList.toggle('sgroup-hidden', card.dataset.sgroup !== settingsGroupCurrent);
   });
-  document.querySelectorAll('#settingsGroupNav button[data-sgroup-btn]').forEach(b => {
-    b.classList.toggle('active', b.dataset.sgroupBtn === settingsGroupCurrent);
-  });
+  const gSel = document.getElementById('settingsGroupSelect');
+  if(gSel) gSel.value = settingsGroupCurrent;
 }
 function switchSettingsGroup(g){
   settingsGroupCurrent = g;

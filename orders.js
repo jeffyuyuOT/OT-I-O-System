@@ -105,6 +105,10 @@ function renderOrderItemsTable(){
     if(usedCats.includes(prevCat)) catSel.value = prevCat;
     if(catSel.value) orderable = orderable.filter(p => (p.category || '未分類') === catSel.value);
   }
+  // 商品搜尋:名稱或 SKU 包含關鍵字
+  const searchEl = document.getElementById('orderSearchInput');
+  const searchQ = searchEl ? searchEl.value.trim().toLowerCase() : '';
+  if(searchQ) orderable = orderable.filter(p => (p.name || '').toLowerCase().includes(searchQ) || (p.sku || '').toLowerCase().includes(searchQ));
 
   if(orderable.length === 0){
     container.innerHTML = `<div class="empty-note">${t('noFilteredOrderableProducts')}</div>`;
