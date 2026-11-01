@@ -336,9 +336,9 @@ function batchOpenPicker(opts){
     const exp = i.expiry ? batchEsc(i.expiry) + batchExpiryBadge(i.expiry) : '–';
     if(!multi){
       const b = buckets[0] || { code: '', rem: i.remaining };
-      const locTxt = b.code ? `<div style="font-size:11px;color:var(--ink-soft);">📍 ${batchEsc(b.code)}</div>` : '';
       return `<tr>
-        <td>${head}${locTxt}</td><td>${exp}</td>
+        <td>${head}</td><td>${exp}</td>
+        <td style="font-size:12px;">${b.code ? '📍 ' + batchEsc(b.code) : '<span style="color:var(--ink-soft);">–</span>'}</td>
         <td class="num">${batchFmtQty(i.remaining)}</td>
         <td class="num"><input type="number" class="batch-pick-input" data-id="${i.id}" data-code="${batchEsc(b.code)}" data-max="${i.remaining}" min="0" max="${i.remaining}" step="1" value="${cur[i.id] || ''}" oninput="batchPickerUpdateSum()" style="width:80px;" /></td>
       </tr>`;
@@ -352,7 +352,8 @@ function batchOpenPicker(opts){
       else if(left > 0){ const take = Math.min(left, b.rem); if(take > 0){ v = take; left -= take; } }
       return `<tr>
         <td>${k === 0 ? head : ''}</td><td>${k === 0 ? exp : ''}</td>
-        <td class="num"><span style="font-size:11.5px;color:var(--ink-soft);">📍 ${b.code ? batchEsc(b.code) : t('unassignedLocationLabel')}</span> ${batchFmtQty(b.rem)}</td>
+        <td style="font-size:12px;">${b.code ? '📍 ' + batchEsc(b.code) : '<span style="color:var(--ink-soft);">' + t('unassignedLocationLabel') + '</span>'}</td>
+        <td class="num">${batchFmtQty(b.rem)}</td>
         <td class="num"><input type="number" class="batch-pick-input" data-id="${i.id}" data-code="${batchEsc(b.code)}" data-max="${b.rem}" min="0" max="${b.rem}" step="1" value="${v}" oninput="batchPickerUpdateSum()" style="width:80px;" /></td>
       </tr>`;
     }).join('');
@@ -368,7 +369,7 @@ function batchOpenPicker(opts){
       <p style="margin-bottom:10px;">${batchEsc(batchProductName(opts.productId))} · ${tf('batchPickerHint', { qty: batchFmtQty(opts.qty), unit: batchEsc(opts.unit || '') })}</p>
       ${items.length === 0 ? `<div class="empty-note">${t('batchPickerNoBatches')}</div>` : `
       <table class="stock-table">
-        <thead><tr><th>${t('batchColBatch')}</th><th>${t('batchColExpiry')}</th><th class="num">${t('batchColRemaining')}</th><th class="num">${t('batchColAllocated')}</th></tr></thead>
+        <thead><tr><th>${t('batchColBatch')}</th><th>${t('batchColExpiry')}</th><th>${t('batchLocTitle')}</th><th class="num">${t('batchColRemaining')}</th><th class="num">${t('batchColAllocated')}</th></tr></thead>
         <tbody>${rows}</tbody>
       </table>`}
       <div style="font-size:11.5px;color:var(--ink-soft);">${t('batchPickerEditHint')}</div>
