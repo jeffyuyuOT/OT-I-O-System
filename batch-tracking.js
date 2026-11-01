@@ -1683,9 +1683,10 @@ function batchLocCellHtml(it){
   const locs = it.locs || [];
   const un = it.qty - batchLocAssigned(it);
   const summary = locs.length
-    ? locs.map(l => `${batchEsc(l.code)}×${batchFmtQty(l.qty)}`).join(', ') + (un > 1e-9 ? ` · ${t('unassignedLocationLabel')}×${batchFmtQty(un)}` : '')
+    ? locs.map(l => `${batchEsc(l.code)}×${batchFmtQty(l.qty)}`).join('<br>') + (un > 1e-9 ? `<br><span style="color:var(--ink-soft);">${t('unassignedLocationLabel')}×${batchFmtQty(un)}</span>` : '')
     : `<span style="color:var(--ink-soft);">${t('unassignedLocationLabel')}</span>`;
-  return `<td class="row-num" style="text-align:left;font-size:12px;"><span class="batch-link" onclick="batchLocOpenEditor('${it.batchItemId}')">📍 ${summary}</span></td>`;
+  const lot = it.supplierLot ? `<div style="font-size:11px;color:var(--ink-soft);">${t('batchFieldLotShort')}: ${batchEsc(it.supplierLot)}</div>` : '';
+  return `<td class="row-num" style="text-align:left;font-size:12px;min-width:220px;white-space:normal;line-height:1.4;"><span class="batch-link" onclick="batchLocOpenEditor('${it.batchItemId}')">📍 ${summary}</span>${lot}</td>`;
 }
 
 // ---- 位置編輯視窗 ----
@@ -1706,6 +1707,7 @@ function batchLocOpenEditor(itemId){
 function batchLocRenderEditor(){
   const it = txBatchItems.find(x => x.batchItemId === batchLocEd.itemId);
   if(!it){ batchLocCloseEditor(); return; }
+  const lotNow = document.getElementById('batchLocLot'); if(lotNow) it.supplierLot = lotNow.value.trim();
   const old = document.getElementById('batchLocOverlay'); if(old) old.remove();
   const listId = 'batchLocCodes';
   const assigned = batchLocEd.rows.reduce((s, r) => s + (Number(r.qty) || 0), 0);
@@ -1723,6 +1725,7 @@ function batchLocRenderEditor(){
     </div>`).join('')}
     <div style="margin:8px 0;"><button class="btn ghost" onclick="batchLocEd.rows.push({code:'',qty:Math.max(0,${un})});batchLocRenderEditor()">+ ${t('batchLocAddRow')}</button></div>
     <div style="font-size:12.5px;font-weight:600;${un < -1e-9 ? 'color:var(--crit);' : ''}">${un < -1e-9 ? tf('batchLocOver', { n: batchFmtQty(-un) }) : `${t('unassignedLocationLabel')}: ${batchFmtQty(Math.max(0, un))}`}</div>
+    <div class="field" style="margin-top:10px;"><label>${t('batchFieldLot')}</label><input id="batchLocLot" type="text" value="${batchEsc(it.supplierLot || '')}" style="width:100%;" /></div>
     <div class="modal-actions"><button class="btn ghost" onclick="batchLocCloseEditor()">${t('btnCancel')}</button><button class="btn" onclick="batchLocSaveEditor()">${t('btnSave')}</button></div>
   </div>`;
   document.body.appendChild(ov);
@@ -1732,6 +1735,8 @@ function batchLocSaveEditor(){
   if(!batchLocEd) return;
   const it = txBatchItems.find(x => x.batchItemId === batchLocEd.itemId);
   if(!it){ batchLocCloseEditor(); return; }
+  const lotEl = document.getElementById('batchLocLot');
+  if(lotEl) it.supplierLot = lotEl.value.trim();
   const rows = batchLocEd.rows.filter(r => r.code && r.qty > 0);
   const total = rows.reduce((s, r) => s + r.qty, 0);
   if(total > it.qty + 1e-9){ batchLocRenderEditor(); return; }
