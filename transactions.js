@@ -1817,7 +1817,7 @@ async function submitTxBatchSimple(date, msg){
   let outLocationChoices = null;
   if(currentTxType === 'out'){
     try{
-      outLocationChoices = await resolveLocationChoicesForItems(txBatchItems.map(it => ({ productId: it.productId, qty: it.qty })));
+      outLocationChoices = await resolveLocationChoicesForItems(txBatchItems.map(it => ({ productId: it.productId, qty: it.qty, batchPicks: it.batchPicks })));
     } catch(e){
       return; // 使用者取消了位置選擇,整個提交中止
     }
@@ -2507,7 +2507,7 @@ async function submitAdjustmentFlow(date, msg){
     let adjustmentLocationChoices = null;
     if(decreaseItems.length > 0){
       try{
-        adjustmentLocationChoices = await resolveLocationChoicesForItems(decreaseItems.map(it => ({ productId: it.productId, qty: it.qty })));
+        adjustmentLocationChoices = await resolveLocationChoicesForItems(decreaseItems.map(it => ({ productId: it.productId, qty: it.qty, batchPicks: it.batchPicks })));
       } catch(e){
         return; // 使用者取消了位置選擇,整個提交中止
       }

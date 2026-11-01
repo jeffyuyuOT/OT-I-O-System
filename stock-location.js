@@ -618,9 +618,30 @@ function cancelLocationChoiceSequence(){
 // ·目前只剩一個來源可以選 → 不用問,直接整批(或剩下的部分)用那個來源
 // ·有兩個以上來源 → 跳出視窗問,選了哪個來源不夠這次剩下要扣的量,就把它整個用完,
 //   剩下還缺的量自動繼續問(排除掉這個已經用完的來源),直到湊滿為止
-async function resolveLocationAllocationsForItem(productId, neededQty){
+// 批次追蹤的商品(而且批次有記位置)先依「批次 × 位置」決定從哪裡出(batch-tracking.js 的 batchResolveLocationAllocations);
+// 沒有批次可扣的部分、或不用批次位置的商品,走下面原本的流程(legacy)。
+async function resolveLocationAllocationsForItem(productId, neededQty, batchPicks){
+  let pre = null;
+  if(typeof batchResolveLocationAllocations === 'function') pre = await batchResolveLocationAllocations(productId, neededQty, batchPicks);
+  if(!pre) return resolveLocationAllocationsLegacy(productId, neededQty, {});
+  if(!(pre.rest > 1e-9)) return pre.allocations;
+  // 剩下沒有批次的量:先把批次那部分已經用掉的位置數量扣掉,再走原本的流程
+  const used = {};
+  pre.allocations.forEach(a => {
+    if(a.type === 'location'){ const l = productLocations.find(x => x.id === a.id); if(l) used[a.id] = Math.max(0, l.qty - a.qty); }
+    else used.unassigned = Math.max(0, computeUnassignedQty(productId) - a.qty);
+  });
+  const extra = await resolveLocationAllocationsLegacy(productId, pre.rest, used);
+  const out = pre.allocations.map(a => ({ ...a }));
+  extra.forEach(e => {
+    const same = out.find(a => (a.id || 'unassigned') === (e.id || 'unassigned'));
+    if(same) same.qty += e.qty; else out.push(e);
+  });
+  return out;
+}
+async function resolveLocationAllocationsLegacy(productId, neededQty, initialVirtualQty){
   const product = products.find(x => x.id === productId);
-  const virtualQty = {};
+  const virtualQty = Object.assign({}, initialVirtualQty || {});
   let remaining = neededQty;
   const allocations = [];
 
@@ -647,7 +668,7 @@ async function resolveLocationAllocationsForItem(productId, neededQty){
 async function resolveLocationChoicesForItems(items){
   const results = [];
   for(const it of items){
-    const allocations = await resolveLocationAllocationsForItem(it.productId, it.qty);
+    const allocations = await resolveLocationAllocationsForItem(it.productId, it.qty, it.batchPicks);
     results.push({ productId: it.productId, qty: it.qty, allocations });
   }
   return results;
@@ -675,7 +696,7 @@ async function resolveLocationChoicesForItemsWithPreset(items, presetMap){
         return false;
       });
     }
-    const allocations = presetStillValid ? preset : await resolveLocationAllocationsForItem(it.productId, it.qty);
+    const allocations = presetStillValid ? preset : await resolveLocationAllocationsForItem(it.productId, it.qty, it.batchPicks);
     results.push({ productId: it.productId, qty: it.qty, allocations });
   }
   return results;

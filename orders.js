@@ -1672,7 +1672,7 @@ async function verifyOrder(orderId){
     let locationChoices;
     try{
       locationChoices = await resolveLocationChoicesForItemsWithPreset(
-        activeItems.map(it => ({ productId: it.productId, qty: it.qty })),
+        activeItems.map(it => ({ productId: it.productId, qty: it.qty, batchPicks: (typeof batchPicks !== 'undefined' && batchPicks[batchPickKey(orderId, it.productId)]) || it.batchPicks })),
         order.pickedLocationAllocations
       );
     } catch(e){

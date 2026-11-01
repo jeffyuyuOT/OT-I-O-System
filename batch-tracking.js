@@ -21,6 +21,10 @@ let batchAvailable = true;                       // 資料表不存在時變 fal
 let batchData = { items: [], loaded: false, stale: false, error: '' };
 // 庫存位置分批次:batch_item_id -> [{ code, qty }](只含有指定位置的;沒指定的 = 進貨量 − 加總 = 未分配位置)
 let batchItemLocs = {};
+// 位置剩餘量(含出貨異動):batch_item_id -> [{ code, rem }](視圖 batch_item_loc_stock,需先執行 sql/batch_location_phase_b.sql)
+let batchItemLocRem = {};
+// 出貨前選好的「批次 × 位置」分配計畫:productId -> [{ batchItemId, code, qty }],出貨寫入後由 batchAllocateAfter 取用
+let batchLocPlans = {};
 let batchDataPromise = null;
 let batchTxMoveCache = {};                       // txId -> [{ batch_item_id, qty, kind }]
 let batchPicks = {};                             // `${orderId}::${productId}` -> [{ batchItemId, qty }](核對頁手動指定)
@@ -107,6 +111,14 @@ async function loadBatchData(){
       const locRows = await fetchAllPages(() => sb.from('batch_item_locations').select('batch_item_id,location_code,qty').order('id', { ascending: true }));
       locRows.forEach(r => { (batchItemLocs[r.batch_item_id] = batchItemLocs[r.batch_item_id] || []).push({ code: r.location_code, qty: Number(r.qty) }); });
     }catch(e){ if(!batchIsMissingTableError(e)) console.warn('批次位置資料讀取失敗', e); }
+    batchItemLocRem = {};
+    try{
+      const remRows = await fetchAllPages(() => sb.from('batch_item_loc_stock').select('batch_item_id,location_code,remaining').order('batch_item_id', { ascending: true }));
+      remRows.forEach(r => { (batchItemLocRem[r.batch_item_id] = batchItemLocRem[r.batch_item_id] || []).push({ code: r.location_code, rem: Number(r.remaining) }); });
+    }catch(e){
+      // 視圖還沒建立(phase b SQL 未執行):退回用進貨時記的位置數量(不含出貨異動)
+      Object.keys(batchItemLocs).forEach(id => { batchItemLocRem[id] = batchItemLocs[id].map(l => ({ code: l.code, rem: l.qty })); });
+    }
   } catch(e){
     console.warn('批次資料讀取失敗', e);
     // 資料表還沒建立(SQL 還沒執行)→ 整個功能停用;其他錯誤(網路…)只是這次沒載到
@@ -314,13 +326,37 @@ function batchOpenPicker(opts){
   // 預設顯示「目前實際會怎麼分配」(自動分配的結果,或已指定的批次加上自動補的部分),可以直接改數字
   const cur = {};
   batchPreviewAllocation(opts.productId, opts.qty, opts.picks).lines.forEach(l => { cur[l.item.id] = (cur[l.item.id] || 0) + l.qty; });
-  const rows = items.map(i => `
-    <tr>
-      <td>${batchEsc(i.batchNo)}${i.isOpening ? ' <span style="color:var(--ink-soft);font-size:11px;">(' + t('batchOpening') + ')</span>' : ''}</td>
-      <td>${i.expiry ? batchEsc(i.expiry) + batchExpiryBadge(i.expiry) : '–'}</td>
-      <td class="num">${batchFmtQty(i.remaining)}</td>
-      <td class="num"><input type="number" class="batch-pick-input" data-id="${i.id}" data-max="${i.remaining}" min="0" max="${i.remaining}" step="1" value="${cur[i.id] || ''}" oninput="batchPickerUpdateSum()" style="width:80px;" /></td>
-    </tr>`).join('');
+  // 有指定位置的 picks:每個(批次行, 位置)各自的數量
+  const curCode = {};
+  (opts.picks || []).forEach(p => { if(p.code !== undefined && p.code !== null) curCode[p.batchItemId + '|' + p.code] = (curCode[p.batchItemId + '|' + p.code] || 0) + p.qty; });
+  const rows = items.map(i => {
+    const buckets = batchBucketsOrdered(i);
+    const multi = buckets.length > 1;
+    const head = `${batchEsc(i.batchNo)}${i.isOpening ? ' <span style="color:var(--ink-soft);font-size:11px;">(' + t('batchOpening') + ')</span>' : ''}`;
+    const exp = i.expiry ? batchEsc(i.expiry) + batchExpiryBadge(i.expiry) : '–';
+    if(!multi){
+      const b = buckets[0] || { code: '', rem: i.remaining };
+      const locTxt = b.code ? `<div style="font-size:11px;color:var(--ink-soft);">📍 ${batchEsc(b.code)}</div>` : '';
+      return `<tr>
+        <td>${head}${locTxt}</td><td>${exp}</td>
+        <td class="num">${batchFmtQty(i.remaining)}</td>
+        <td class="num"><input type="number" class="batch-pick-input" data-id="${i.id}" data-code="${batchEsc(b.code)}" data-max="${i.remaining}" min="0" max="${i.remaining}" step="1" value="${cur[i.id] || ''}" oninput="batchPickerUpdateSum()" style="width:80px;" /></td>
+      </tr>`;
+    }
+    // 同一個批次行放在多個位置:每個位置一列;預設顯示自動分配的結果(未分布先出、再依位置數量由多到少)
+    let left = cur[i.id] || 0;
+    const hasCodePicks = buckets.some(b => curCode[i.id + '|' + b.code] !== undefined);
+    return buckets.map((b, k) => {
+      let v = '';
+      if(hasCodePicks){ v = curCode[i.id + '|' + b.code] || ''; }
+      else if(left > 0){ const take = Math.min(left, b.rem); if(take > 0){ v = take; left -= take; } }
+      return `<tr>
+        <td>${k === 0 ? head : ''}</td><td>${k === 0 ? exp : ''}</td>
+        <td class="num"><span style="font-size:11.5px;color:var(--ink-soft);">📍 ${b.code ? batchEsc(b.code) : t('unassignedLocationLabel')}</span> ${batchFmtQty(b.rem)}</td>
+        <td class="num"><input type="number" class="batch-pick-input" data-id="${i.id}" data-code="${batchEsc(b.code)}" data-max="${b.rem}" min="0" max="${b.rem}" step="1" value="${v}" oninput="batchPickerUpdateSum()" style="width:80px;" /></td>
+      </tr>`;
+    }).join('');
+  }).join('');
   const ov = document.createElement('div');
   ov.id = 'batchPickerOverlay';
   ov.className = 'modal-overlay';
@@ -352,7 +388,7 @@ function batchPickerCollect(){
   const picks = [];
   document.querySelectorAll('#batchPickerOverlay .batch-pick-input').forEach(inp => {
     const v = parseFloat(inp.value);
-    if(v > 0) picks.push({ batchItemId: inp.dataset.id, qty: v, max: parseFloat(inp.dataset.max) });
+    if(v > 0) picks.push({ batchItemId: inp.dataset.id, qty: v, code: inp.dataset.code || '', max: parseFloat(inp.dataset.max) });
   });
   return picks;
 }
@@ -378,9 +414,11 @@ function batchPickerSave(){
   // 如果改完的數字跟自動分配的結果一樣,就維持「自動」,不算手動指定
   const auto = {};
   batchPreviewAllocation(batchPickerOpts.productId, batchPickerOpts.qty, []).lines.forEach(l => { auto[l.item.id] = (auto[l.item.id] || 0) + l.qty; });
-  const same = picks.length === Object.keys(auto).length && picks.every(p => Math.abs((auto[p.batchItemId] || 0) - p.qty) < 1e-9);
+  const sums = {};
+  picks.forEach(p => { sums[p.batchItemId] = (sums[p.batchItemId] || 0) + p.qty; });
+  const same = Object.keys(sums).length === Object.keys(auto).length && Object.keys(sums).every(id => Math.abs((auto[id] || 0) - sums[id]) < 1e-9);
   batchClosePicker();
-  if(onSave) onSave(same ? [] : picks.map(p => ({ batchItemId: p.batchItemId, qty: p.qty })));
+  if(onSave) onSave(same ? [] : picks.map(p => ({ batchItemId: p.batchItemId, qty: p.qty, code: p.code || '' })));
 }
 
 // ------------------------------------------------------------
@@ -449,25 +487,47 @@ function batchProductsOfTxs(txList, res){
   });
   return lines;
 }
+// 同一個 tx 的指定批次可能含多個位置的重複批次行,送資料庫前合併
+function batchMergeManual(picks){
+  const m = {};
+  (picks || []).forEach(p => { m[p.batch_item_id] = (m[p.batch_item_id] || 0) + Number(p.qty); });
+  return Object.keys(m).map(id => ({ batch_item_id: id, qty: m[id] }));
+}
 async function batchAllocateAfter(txList, picksByTx){
   if(!batchActive() || !txList || txList.length === 0) return;
   try{ await ensureBatchDataLoaded(); }catch(e){}
   const list = txList.filter(tx => batchIsTracked(tx.productId));
   if(list.length === 0) return;
   const ids = list.map(tx => tx.id);
+  // 出貨前已經選好「批次 × 位置」的計畫(數量必須剛好等於這筆出貨)→ 直接用計畫的批次分配,資料庫就不會另外挑
+  const planByTx = {};
+  list.forEach(tx => {
+    const plan = batchLocPlans[tx.productId];
+    // 計畫只在剛選完位置的短時間內有效(避免之前被取消、沒用到的計畫被別的流程誤用)
+    if(plan && plan.length && Date.now() - (plan.at || 0) < 120000 && Math.abs(plan.reduce((a, x) => a + x.qty, 0) - tx.qty) < 1e-9) planByTx[tx.id] = plan;
+  });
   const manual = {};
-  list.forEach(tx => { if(picksByTx && picksByTx[tx.id] && picksByTx[tx.id].length) manual[tx.id] = picksByTx[tx.id]; });
+  list.forEach(tx => {
+    if(planByTx[tx.id]) manual[tx.id] = batchMergeManual(planByTx[tx.id].map(x => ({ batch_item_id: x.batchItemId, qty: x.qty })));
+    else if(picksByTx && picksByTx[tx.id] && picksByTx[tx.id].length) manual[tx.id] = batchMergeManual(picksByTx[tx.id]);
+  });
   let res;
+  let usedFallback = false;
   try{
     res = await batchRpc('batch_allocate', { p_tx_ids: ids, p_manual: manual });
   } catch(e){
     if(Object.keys(manual).length > 0 && batchIsPickError(e)){
       try{
         res = await batchRpc('batch_allocate', { p_tx_ids: ids, p_manual: {} });
+        usedFallback = true;
         showInfoModal(t('batchPickFallbackNotice'));
-      } catch(e2){ batchAllocFailed(e2); return; }
-    } else { batchAllocFailed(e); return; }
+      } catch(e2){ batchAllocFailed(e2); list.forEach(tx => { delete batchLocPlans[tx.productId]; }); return; }
+    } else { batchAllocFailed(e); list.forEach(tx => { delete batchLocPlans[tx.productId]; }); return; }
   }
+  // 位置:把這次出貨在每個批次商品行扣的量拆到各位置(有計畫照計畫,沒有計畫就依預設順序)
+  try{ await batchTagOutLocations(list, usedFallback ? {} : planByTx); }
+  catch(e){ console.error('出貨位置標記失敗', e); showInfoModal(t('batchLocTagFailed')); }
+  list.forEach(tx => { delete batchLocPlans[tx.productId]; });
   batchMarkStale();
   try{ await ensureBatchDataLoaded(); }catch(e){}
   const lines = batchProductsOfTxs(list, res);
@@ -1832,4 +1892,126 @@ function batchTxSaveDetails(itemId){
   }
   if(ov) ov.remove();
   renderTxBatchList();
+}
+
+
+// ============================================================
+// 庫存位置分批次 第二階段(b):出貨依「批次 × 位置」分配
+// 資料表/RPC 見 sql/batch_location_phase_b.sql。
+// 規則:自動依 FEFO/FIFO 決定批次(期初批次先);批次行只放在一個位置 → 直接從那裡出;
+// 放在多個位置而沒有指定 → 跳視窗問從哪個位置出;批次標籤視窗可以指定位置。
+// ============================================================
+// 一個批次商品行目前各位置的剩餘量。沒有位置資料 → 一個「未分布」桶(code='')。
+function batchBuckets(item){
+  const locs = (batchItemLocRem[item.id] || []).filter(l => l.rem > 1e-9);
+  const sumLoc = locs.reduce((a, l) => a + l.rem, 0);
+  const buckets = locs.map(l => ({ code: l.code, rem: l.rem }));
+  const un = item.remaining - sumLoc;
+  if(un > 1e-9 || buckets.length === 0) buckets.push({ code: '', rem: Math.max(0, un > 1e-9 ? un : item.remaining) });
+  return buckets;
+}
+// 預設出貨順序:未分布先出,再依位置剩餘量由多到少
+function batchBucketsOrdered(item){
+  return batchBuckets(item).slice().sort((a, b) => (a.code === '' ? -1 : 0) - (b.code === '' ? -1 : 0) || b.rem - a.rem);
+}
+function batchBucketLabel(item, b){
+  return `${item.batchNo}${item.expiry ? ' · ' + t('batchExpiryShort') + ' ' + item.expiry : ''} · 📍 ${b.code || t('unassignedLocationLabel')}`;
+}
+
+// 出貨前(扣庫存之前)解析:這次出貨會從哪些(批次, 位置)出。回傳 null = 這個商品不用批次位置邏輯(走原本流程);
+// 否則回傳 { allocations, tracked, rest }:allocations = 原本 product_locations 扣減格式,rest = 沒有批次可扣的數量(走原本流程)。
+// 取消(使用者在選位置視窗按取消)時丟出 Error('cancelled'),呼叫端照原本方式中止。
+async function batchResolveLocationAllocations(productId, neededQty, picks){
+  delete batchLocPlans[productId];
+  if(!batchActive() || !batchIsTracked(productId) || !(neededQty > 0)) return null;
+  const hasAnyLoc = batchItemsOfProduct(productId).some(i => (batchItemLocRem[i.id] || []).length > 0);
+  if(!hasAnyLoc) return null;
+  const product = products.find(x => x.id === productId);
+  const prev = batchPreviewAllocation(productId, neededQty, picks);
+  const plan = [];
+  for(const line of prev.lines){
+    const item = line.item;
+    const buckets = batchBuckets(item).map(b => ({ ...b }));
+    let need = line.qty;
+    // 1) 批次標籤視窗指定的位置
+    (picks || []).filter(p => p.batchItemId === item.id && p.code !== undefined && p.code !== null && (p.code !== '' || buckets.length > 1)).forEach(p => {
+      const b = buckets.find(x => x.code === p.code);
+      if(!b || need <= 0) return;
+      const take = Math.min(p.qty, b.rem, need);
+      if(take > 0){ plan.push({ batchItemId: item.id, code: b.code, qty: take }); b.rem -= take; need -= take; }
+    });
+    // 2) 其餘:只剩一個有庫存的位置 → 自動;兩個以上 → 問
+    while(need > 1e-9){
+      const cands = buckets.filter(b => b.rem > 1e-9);
+      if(cands.length === 0) break;
+      let b;
+      if(cands.length === 1) b = cands[0];
+      else {
+        const choices = cands.map(c => ({ type: 'batchloc', id: c.code, label: batchBucketLabel(item, c), qty: c.rem }));
+        const picked = await promptLocationChoice(product, need, choices);
+        b = cands.find(c => c.code === picked.id);
+      }
+      const take = Math.min(b.rem, need);
+      plan.push({ batchItemId: item.id, code: b.code, qty: take });
+      b.rem -= take; need -= take;
+    }
+  }
+  if(plan.length === 0) return null;
+  const tracked = plan.reduce((a, x) => a + x.qty, 0);
+  // 轉成 product_locations 扣減(位置代碼對得到這個商品的位置 → 扣那個位置;對不到 → 算未分布)
+  const allocations = [];
+  plan.forEach(x => {
+    const loc = x.code ? productLocations.find(l => l.productId === productId && l.locationCode === x.code) : null;
+    const key = loc ? loc.id : 'unassigned';
+    let a = allocations.find(y => (y.id || 'unassigned') === key);
+    if(!a){ a = loc ? { type: 'location', id: loc.id, label: loc.locationCode, qty: 0 } : { type: 'unassigned', id: null, label: t('unassignedLocationLabel'), qty: 0 }; allocations.push(a); }
+    a.qty += x.qty;
+  });
+  // 有庫存卻沒有批次可扣的部分(未追蹤出貨)走原本的位置選擇
+  const rest = Math.max(0, neededQty - tracked);
+  if(Math.abs(tracked - neededQty) < 1e-9){ plan.at = Date.now(); batchLocPlans[productId] = plan; }   // 只有整筆都有批次分配時才採用計畫
+  return { allocations, tracked, rest };
+}
+
+// 批次分配完成後:把這批出貨在每個批次商品行扣的量拆到位置。
+// plans: txId -> [{batchItemId, code, qty}];沒有計畫的交易依預設順序(未分布先、再位置由多到少)。
+async function batchTagOutLocations(txList, plans){
+  const ids = txList.map(tx => tx.id);
+  const { data, error } = await batchSelectMovements('id,tx_id,batch_item_id,qty,kind', q => q.in('tx_id', ids).eq('kind', 'out'));
+  if(error) throw error;
+  const byTx = {};
+  (data || []).forEach(m => { ((byTx[m.tx_id] = byTx[m.tx_id] || {})[m.batch_item_id] = (byTx[m.tx_id][m.batch_item_id] || 0) + (-Number(m.qty))); });
+  // 位置剩餘量的本機工作副本(同一批出貨有多筆動到同一個批次行時要累計扣減)
+  const work = {};
+  const bucketsOf = itemId => {
+    if(!work[itemId]){
+      const it = batchData.items.find(x => x.id === itemId);
+      // 這時資料庫已扣掉本次出貨,但本機資料還是扣之前的數字(尚未重新載入),所以用本機數字當「出貨前」
+      work[itemId] = it ? batchBucketsOrdered(it).map(b => ({ ...b })) : [];
+    }
+    return work[itemId];
+  };
+  for(const tx of txList){
+    const moved = byTx[tx.id];
+    if(!moved) continue;
+    const rows = [];
+    for(const itemId of Object.keys(moved)){
+      if(!(batchItemLocRem[itemId] || []).length) continue;     // 這個批次行沒有位置資料,不用拆
+      let need = moved[itemId];
+      const bks = bucketsOf(itemId);
+      const planned = ((plans && plans[tx.id]) || []).filter(x => x.batchItemId === itemId);
+      planned.forEach(x => {
+        const b = bks.find(y => y.code === x.code);
+        const take = Math.min(x.qty, need, b ? b.rem : 0);
+        if(take > 0){ rows.push({ batch_item_id: itemId, code: x.code, qty: take }); b.rem -= take; need -= take; }
+      });
+      for(const b of bks){
+        if(need <= 1e-9) break;
+        const take = Math.min(b.rem, need);
+        if(take > 0){ rows.push({ batch_item_id: itemId, code: b.code, qty: take }); b.rem -= take; need -= take; }
+      }
+      if(need > 1e-9) rows.push({ batch_item_id: itemId, code: '', qty: need });   // 位置剩餘量不夠(資料不一致)→ 放未分布
+    }
+    if(rows.length) await batchRpc('batch_tag_locations', { p_tx_id: tx.id, p_rows: rows });
+  }
 }
