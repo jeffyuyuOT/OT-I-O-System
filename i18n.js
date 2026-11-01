@@ -78,7 +78,7 @@ const I18N = {
     batchEditBelowUsed: '{name}(批次 {batch})已出貨 {used},數量不能低於已出貨量。',
     batchExpired: '已過期',
     batchExpiresInDays: '{n} 天後到期',
-    batchExpiryShort: '效期',
+    batchExpiryShort: '有效期',
     batchFieldExpiry: '有效期(選填)',
     batchFieldLot: '供應商批號(選填)',
     batchIncludeDepleted: '顯示已出完的批次',
