@@ -1582,6 +1582,7 @@
           <select id="txPartyHistorySelect" style="display:none;" onchange="onTxPartyHistorySelectChange(this.value)"></select>
           <input id="txParty" type="text" placeholder="例如:大盤商 A" data-i18n-placeholder="partyPlaceholderIn" />
           <select id="txPartySelect" style="display:none;" onchange="if(typeof renderTxBatchList === 'function') renderTxBatchList()"></select>
+          <span id="txPartyEditLink" class="del-link" style="display:none;font-size:12px;margin-top:4px;" onclick="partyEditFromOrder(this.dataset.pid)" data-i18n="linkEditParty">✎ 編輯出貨方</span>
         </div>
         <div class="field" id="txInvoiceFieldWrap" style="display:none;">
           <label data-i18n="fieldInvoiceNo">Invoice 號碼(選填)</label>

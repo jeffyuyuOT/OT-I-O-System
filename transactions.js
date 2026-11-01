@@ -222,6 +222,7 @@ function resetRegisterOutFlow(){
   if(noteLabel) noteLabel.textContent = t('txNoteSharedLabel');
   const partySelect = document.getElementById('txPartySelect');
   if(partySelect) partySelect.disabled = false;
+  { const _pel = document.getElementById('txPartyEditLink'); if(_pel) _pel.style.display = 'none'; }
   const partyFieldWrap = document.getElementById('txPartyFieldWrap');
   if(partyFieldWrap) partyFieldWrap.style.display = '';
   const mainGrid = document.getElementById('txMainFormGrid');
@@ -251,6 +252,7 @@ function setTxOutFlowType(flowType){
   if(existingSection) existingSection.style.display = 'none';
   if(postVerifySection) postVerifySection.style.display = 'none';
   if(partySelect) partySelect.disabled = false;
+  { const _pel = document.getElementById('txPartyEditLink'); if(_pel) _pel.style.display = 'none'; }
   if(dateInput) dateInput.disabled = false;
   if(noteLabel) noteLabel.textContent = t('txNoteSharedLabel');
   // 出貨的三種流程(新增訂單/載入待處理/載入已完成)都需要出貨方,固定顯示、固定三欄——庫存
@@ -297,6 +299,7 @@ function setTxDeliveryFlowType(flowType){
 
   if(existingSection) existingSection.style.display = 'none';
   if(partySelect) partySelect.disabled = false;
+  { const _pel = document.getElementById('txPartyEditLink'); if(_pel) _pel.style.display = 'none'; }
   if(dateInput) dateInput.disabled = false;
   if(noteLabel) noteLabel.textContent = t('txNoteRequiredDeliveryLabel');
 
@@ -585,6 +588,13 @@ function loadOrderIntoRegisterFlow(orderId){
     populateTxPartySelect();
     partySelect.value = order.partyId || '';
     partySelect.disabled = true;
+  }
+  // 待處理訂單的出貨方:欄位本身鎖住,旁邊給一個「編輯出貨方」連結(先確認再開編輯視窗)
+  const partyEditLink = document.getElementById('txPartyEditLink');
+  if(partyEditLink){
+    const canEdit = order.partyId && registerOutFlowType === 'load-pending' && hasCapability('cap-manage-parties');
+    partyEditLink.dataset.pid = order.partyId || '';
+    partyEditLink.style.display = canEdit ? 'inline-block' : 'none';
   }
   const noteInput = document.getElementById('txNote');
   if(noteInput) noteInput.value = order.note || '';
