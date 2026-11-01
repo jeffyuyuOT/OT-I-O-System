@@ -814,7 +814,7 @@ async function batchFillTxTags(root){
     });
     for(let i = 0; i < need.length; i += 150){
       const chunk = need.slice(i, i + 150);
-      const { data, error } = await batchSelectMovements('tx_id,batch_item_id,qty,kind', q => q.in('tx_id', chunk));
+      const { data, error } = await batchSelectMovements('tx_id,batch_item_id,qty,kind,location_code', q => q.in('tx_id', chunk));
       if(error) throw error;
       chunk.forEach(id => { batchTxMoveCache[id] = []; });
       (data || []).forEach(m => { batchTxMoveCache[m.tx_id].push(m); });
@@ -828,7 +828,7 @@ async function batchFillTxTags(root){
         html = (batchTxMoveCache[el.dataset.batchTx] || []).map(m => {
           const i = batchData.items.find(x => x.id === m.batch_item_id);
           if(!i) return '';
-          return `<span class="batch-tag">${batchEsc(i.batchNo)} ×${batchFmtQty(Math.abs(Number(m.qty)))}${i.expiry ? ' · EXP ' + batchEsc(i.expiry) : ''}</span>`;
+          return `<span class="batch-tag">${batchEsc(i.batchNo)} ×${batchFmtQty(Math.abs(Number(m.qty)))}${i.expiry ? ' · EXP ' + batchEsc(i.expiry) : ''}${m.location_code ? ' · 📍' + batchEsc(m.location_code) : ''}</span>`;
         }).join('');
       }
       el.innerHTML = html;
