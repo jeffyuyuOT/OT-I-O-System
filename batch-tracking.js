@@ -95,6 +95,12 @@ async function loadBatchData(){
     });
     batchData.loaded = true; batchData.stale = false; batchData.error = '';
     batchAvailable = true;
+    // 商品行備註(batch_items.note,需先執行 sql/batch_location_phase_a.sql);沒有這個欄位就略過
+    try{
+      const noteRows = await fetchAllPages(() => sb.from('batch_items').select('id,note').not('note', 'is', null).order('id', { ascending: true }));
+      const nm = {}; noteRows.forEach(r => { nm[r.id] = r.note || ''; });
+      batchData.items.forEach(i => { i.note = nm[i.id] || ''; });
+    }catch(e){ batchData.items.forEach(i => { i.note = ''; }); }
     // 位置資料(需先執行 sql/batch_location_phase_a.sql);表不存在或讀取失敗只是沒有位置顯示,不影響其他批次功能
     batchItemLocs = {};
     try{
@@ -667,6 +673,7 @@ function commitTxBatchItemExpiry(batchItemId){
     other.qty += it.qty;
     if(it.amount !== undefined && it.amount !== null) other.amount = (other.amount || 0) + it.amount;
     if(it.supplierLot && !other.supplierLot) other.supplierLot = it.supplierLot;
+    if(it.note) other.note = other.note ? other.note + '\n' + it.note : it.note;
     batchLocOnQtyChange(other);
     txBatchItems = txBatchItems.filter(x => x !== it);
   }
@@ -907,6 +914,7 @@ function batchOpenItemDetail(itemId){
     ${batchDetailRow('Invoice', batchEsc(i.invoiceNo))}
     ${batchDetailRow(t('batchColSupplier'), batchEsc(i.supplier))}
     ${batchDetailRow(t('batchLocTitle'), batchLocSummaryHtml(i))}
+    ${batchDetailRow(t('batchFieldNote'), batchEsc(i.note).replace(/\n/g, '<br>'))}
   </tbody></table>`);
 }
 // 批次頁:這個批次的 進貨日期 / Invoice / 供應商 / 各商品的供應商批號 / Margin 設置
@@ -1685,8 +1693,7 @@ function batchLocCellHtml(it){
   const summary = locs.length
     ? locs.map(l => `${batchEsc(l.code)}×${batchFmtQty(l.qty)}`).join('<br>') + (un > 1e-9 ? `<br><span style="color:var(--ink-soft);">${t('unassignedLocationLabel')}×${batchFmtQty(un)}</span>` : '')
     : `<span style="color:var(--ink-soft);">${t('unassignedLocationLabel')}</span>`;
-  const lot = it.supplierLot ? `<div style="font-size:11px;color:var(--ink-soft);">${t('batchFieldLotShort')}: ${batchEsc(it.supplierLot)}</div>` : '';
-  return `<td class="row-num" style="text-align:left;font-size:12px;min-width:220px;white-space:normal;line-height:1.4;"><span class="batch-link" onclick="batchLocOpenEditor('${it.batchItemId}')">📍 ${summary}</span>${lot}</td>`;
+  return `<td class="row-num" style="text-align:left;font-size:12px;min-width:220px;white-space:normal;line-height:1.4;"><span class="batch-link" onclick="batchLocOpenEditor('${it.batchItemId}')">📍 ${summary}</span></td>`;
 }
 
 // ---- 位置編輯視窗 ----
@@ -1707,7 +1714,6 @@ function batchLocOpenEditor(itemId){
 function batchLocRenderEditor(){
   const it = txBatchItems.find(x => x.batchItemId === batchLocEd.itemId);
   if(!it){ batchLocCloseEditor(); return; }
-  const lotNow = document.getElementById('batchLocLot'); if(lotNow) it.supplierLot = lotNow.value.trim();
   const old = document.getElementById('batchLocOverlay'); if(old) old.remove();
   const listId = 'batchLocCodes';
   const assigned = batchLocEd.rows.reduce((s, r) => s + (Number(r.qty) || 0), 0);
@@ -1725,7 +1731,6 @@ function batchLocRenderEditor(){
     </div>`).join('')}
     <div style="margin:8px 0;"><button class="btn ghost" onclick="batchLocEd.rows.push({code:'',qty:Math.max(0,${un})});batchLocRenderEditor()">+ ${t('batchLocAddRow')}</button></div>
     <div style="font-size:12.5px;font-weight:600;${un < -1e-9 ? 'color:var(--crit);' : ''}">${un < -1e-9 ? tf('batchLocOver', { n: batchFmtQty(-un) }) : `${t('unassignedLocationLabel')}: ${batchFmtQty(Math.max(0, un))}`}</div>
-    <div class="field" style="margin-top:10px;"><label>${t('batchFieldLot')}</label><input id="batchLocLot" type="text" value="${batchEsc(it.supplierLot || '')}" style="width:100%;" /></div>
     <div class="modal-actions"><button class="btn ghost" onclick="batchLocCloseEditor()">${t('btnCancel')}</button><button class="btn" onclick="batchLocSaveEditor()">${t('btnSave')}</button></div>
   </div>`;
   document.body.appendChild(ov);
@@ -1735,8 +1740,6 @@ function batchLocSaveEditor(){
   if(!batchLocEd) return;
   const it = txBatchItems.find(x => x.batchItemId === batchLocEd.itemId);
   if(!it){ batchLocCloseEditor(); return; }
-  const lotEl = document.getElementById('batchLocLot');
-  if(lotEl) it.supplierLot = lotEl.value.trim();
   const rows = batchLocEd.rows.filter(r => r.code && r.qty > 0);
   const total = rows.reduce((s, r) => s + r.qty, 0);
   if(total > it.qty + 1e-9){ batchLocRenderEditor(); return; }
@@ -1752,14 +1755,18 @@ function batchLocSaveEditor(){
 function batchLocBuildPayload(items){
   const lines = {};
   items.forEach(it => {
-    if(!it.locs || !it.locs.length || it.docType === 'credit_note' || it.qty <= 0) return;
+    if(it.docType === 'credit_note' || it.qty <= 0) return;
     const p = products.find(x => x.id === it.productId);
-    if(p && p.parentId && p.autoConvertOnStockIn) return;   // 自動切換成主商品的行:第一階段不記位置
+    if(p && p.parentId && p.autoConvertOnStockIn) return;   // 自動切換成主商品的行:不記位置/備註
+    const locs = (it.locs || []).filter(l => l.code && l.qty > 0);
+    const note = (it.note || '').trim();
+    if(!locs.length && !note) return;
     const key = it.productId + '|' + (it.expiry || '');
-    const ln = lines[key] = lines[key] || { product_id: it.productId, expiry: it.expiry || '', locs: [] };
-    it.locs.forEach(l => { if(l.code && l.qty > 0) ln.locs.push({ code: l.code, qty: l.qty }); });
+    const ln = lines[key] = lines[key] || { product_id: it.productId, expiry: it.expiry || '', locs: [], note: '' };
+    locs.forEach(l => ln.locs.push({ code: l.code, qty: l.qty }));
+    if(note) ln.note = ln.note ? ln.note + '\n' + note : note;
   });
-  return Object.values(lines).filter(l => l.locs.length);
+  return Object.values(lines);
 }
 async function batchApplyPurchaseLocations(purchase, items){
   const payload = batchLocBuildPayload(items);
@@ -1768,6 +1775,7 @@ async function batchApplyPurchaseLocations(purchase, items){
   // 同步庫存分布:每個位置把數量加上去(位置不存在就新增;欄位沿用同代碼的既有位置)
   const memo = await batchLoadLastLocMap();
   for(const ln of payload){
+    if(!ln.locs.length) continue;
     for(const l of ln.locs){
       try{
         let loc = productLocations.find(x => x.productId === ln.product_id && x.locationCode === l.code);
@@ -1794,4 +1802,34 @@ function batchLocSummaryHtml(i){
   const un = i.qtyIn - assigned;
   if(!locs.length) return '';
   return locs.map(l => `${batchEsc(l.code)} ×${batchFmtQty(l.qty)}`).join('<br>') + (un > 1e-9 ? `<br><span style="color:var(--ink-soft);">${t('unassignedLocationLabel')} ×${batchFmtQty(un)}</span>` : '');
+}
+
+// ---- 進貨清單每行的「填寫詳細資料」:供應商批號、備註(備註顯示在批次追蹤商品頁的詳細資料) ----
+function batchTxDetailButtonHtml(it){
+  const has = !!((it.supplierLot || '').trim() || (it.note || '').trim());
+  return `<button onclick="batchTxOpenDetails('${it.batchItemId}')" title="${batchEsc(t('batchTxDetailsTitle'))}">📝${has ? ' ✓' : ''}</button>`;
+}
+function batchTxOpenDetails(itemId){
+  const it = txBatchItems.find(x => x.batchItemId === itemId);
+  if(!it) return;
+  const old = document.getElementById('batchTxDetOverlay'); if(old) old.remove();
+  const ov = document.createElement('div');
+  ov.id = 'batchTxDetOverlay'; ov.className = 'modal-overlay'; ov.style.display = 'flex'; ov.style.zIndex = '1100';
+  ov.innerHTML = `<div class="modal-box" style="max-width:min(460px,94vw);">
+    <div class="section-title" style="margin-top:0;">${t('batchTxDetailsTitle')} · ${batchEsc(it.name)}</div>
+    <div class="field"><label>${t('batchFieldLot')}</label><input id="batchTxDetLot" type="text" value="${batchEsc(it.supplierLot || '')}" style="width:100%;" /></div>
+    <div class="field" style="margin-top:8px;"><label>${t('batchFieldNote')}</label><textarea id="batchTxDetNote" rows="3" style="width:100%;">${batchEsc(it.note || '')}</textarea></div>
+    <div class="modal-actions"><button class="btn ghost" onclick="document.getElementById('batchTxDetOverlay').remove()">${t('btnCancel')}</button><button class="btn" onclick="batchTxSaveDetails('${itemId}')">${t('btnSave')}</button></div>
+  </div>`;
+  document.body.appendChild(ov);
+}
+function batchTxSaveDetails(itemId){
+  const it = txBatchItems.find(x => x.batchItemId === itemId);
+  const ov = document.getElementById('batchTxDetOverlay');
+  if(it){
+    it.supplierLot = document.getElementById('batchTxDetLot').value.trim();
+    it.note = document.getElementById('batchTxDetNote').value.trim();
+  }
+  if(ov) ov.remove();
+  renderTxBatchList();
 }

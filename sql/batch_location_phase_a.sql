@@ -11,6 +11,9 @@
 -- 第一階段只「記錄與顯示」,出貨分配仍照原本的 FEFO/FIFO,尚未依位置扣。
 -- ============================================================
 
+-- 進貨清單「填寫詳細資料」的備註(顯示在批次追蹤商品頁的詳細資料)
+alter table public.batch_items add column if not exists note text;
+
 create table if not exists public.batch_item_locations (
   id            bigint generated always as identity primary key,
   batch_item_id text not null references public.batch_items(id) on delete cascade,
@@ -63,6 +66,9 @@ begin
       raise exception 'batch_loc_over:%', jsonb_build_object('product_id', v_item.product_id, 'qty_in', v_item.qty_in, 'assigned', v_sum)::text;
     end if;
 
+    if v_row ? 'note' then
+      update public.batch_items set note = nullif(trim(v_row->>'note'), '') where id = v_item.id;
+    end if;
     delete from public.batch_item_locations where batch_item_id = v_item.id;
     -- 同代碼的多筆先合併(唯一鍵是 批次行+位置)
     insert into public.batch_item_locations (batch_item_id, location_code, qty)

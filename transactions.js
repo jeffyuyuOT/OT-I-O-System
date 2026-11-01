@@ -767,7 +767,7 @@ function renderTxBatchList(){
         ${showAmountCol ? `<td class="row-num"><input type="number" class="order-qty-input" step="0.01" min="0" value="${(it.amount !== undefined && it.amount !== null) ? it.amount : ''}" placeholder="–" ${canEditPrice() ? '' : 'readonly'} onchange="updateTxBatchItemAmount('${it.batchItemId}', this.value)" /></td>` : ''}
         <td class="row-action">
           ${(typeof batchTxRowButtonHtml === 'function') ? batchTxRowButtonHtml(it) : ''}
-          <button onclick="openConversionFromTxBatch('${it.productId}')" title="${t('btnConvertBatchItem')}">🔄</button>
+          ${(showBatchCols && typeof batchTxDetailButtonHtml === 'function') ? batchTxDetailButtonHtml(it) : `<button onclick="openConversionFromTxBatch('${it.productId}')" title="${t('btnConvertBatchItem')}">🔄</button>`}
           <button onclick="removeTxBatchItem('${it.batchItemId}')" title="${t('btnDelete')}">✕</button>
         </td>
       </tr>
