@@ -383,12 +383,16 @@ function batchPickerSave(){
 // ------------------------------------------------------------
 // 訂單核對頁:每個商品「改數量」與「刪除」之間的「批次」按鈕、分配預覽
 // ------------------------------------------------------------
+// 批次圖示:黃色斜放的吊牌(inline SVG,不依賴字型,顏色在各種背景都清楚)
+function batchTagIcon(){
+  return '<svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true" style="vertical-align:-4px;"><g transform="rotate(35 12 12)"><path d="M7 6.5 L10 2.5 H14 L17 6.5 V20.5 a1.5 1.5 0 0 1 -1.5 1.5 H8.5 A1.5 1.5 0 0 1 7 20.5 Z" fill="#f6c21c" stroke="#a87a00" stroke-width="1.4" stroke-linejoin="round"/><circle cx="12" cy="7.2" r="1.7" fill="#fff" stroke="#a87a00" stroke-width="1.2"/><path d="M9.5 13 H14.5 M9.5 16.5 H14.5" stroke="#a87a00" stroke-width="1.2" stroke-linecap="round"/></g></svg>';
+}
 function batchPickKey(orderId, productId){ return orderId + '::' + productId; }
 
 function batchOrderItemButtonHtml(o, it){
   if(!batchIsTracked(it.productId) || !(it.qty > 0)) return '';
   const has = (batchPicks[batchPickKey(o.id, it.productId)] || []).length > 0;
-  return `<span class="del-link" style="margin-left:8px;" title="${batchEsc(t('btnBatchPick'))}" onclick="batchOpenPickerForOrderItem('${o.id}','${it.productId}')">🏷${has ? ' ✓' : ''}</span>`;
+  return `<span class="del-link" style="margin-left:8px;" title="${batchEsc(t('btnBatchPick'))}" onclick="batchOpenPickerForOrderItem('${o.id}','${it.productId}')">${batchTagIcon()}${has ? ' ✓' : ''}</span>`;
 }
 function batchOrderItemPreviewHtml(o, it){
   return ''; // 不主動顯示分配結果,點「批次」按鈕在視窗裡看/改
@@ -691,7 +695,7 @@ function batchTxRowPreviewHtml(it){
 function batchTxRowButtonHtml(it){
   if(!batchTxRowPickable(it)) return '';
   const has = it.batchPicks && it.batchPicks.length > 0;
-  return `<button onclick="batchOpenPickerForTxItem('${it.batchItemId}')" title="${t('btnBatchPick')}">🏷${has ? ' ✓' : ''}</button>`;
+  return `<button onclick="batchOpenPickerForTxItem('${it.batchItemId}')" title="${t('btnBatchPick')}">${batchTagIcon()}${has ? ' ✓' : ''}</button>`;
 }
 function batchOpenPickerForTxItem(batchItemId){
   const it = txBatchItems.find(x => x.batchItemId === batchItemId);
@@ -1160,10 +1164,10 @@ function batchOpenPickerForPendingItem(productId){
 function batchExistingItemButtonHtml(it, pending){
   if(batchPendingItemPickable(it)){
     const has = (it.batchPicks || []).length > 0;
-    return `<span class="del-link" title="${batchEsc(t('btnBatchPick'))}" onclick="batchOpenPickerForPendingItem('${it.productId}')">🏷${has ? ' ✓' : ''}</span>`;
+    return `<span class="del-link" title="${batchEsc(t('btnBatchPick'))}" onclick="batchOpenPickerForPendingItem('${it.productId}')">${batchTagIcon()}${has ? ' ✓' : ''}</span>`;
   }
   if(!batchExistingItemTracked(it)) return '';
-  return `<span class="del-link" title="${batchEsc(t('btnBatchPick'))}" onclick="batchOpenOrderBreakdownView('${it.productId}')">🏷</span>`;
+  return `<span class="del-link" title="${batchEsc(t('btnBatchPick'))}" onclick="batchOpenOrderBreakdownView('${it.productId}')">${batchTagIcon()}</span>`;
 }
 function batchOpenPickerForExistingItem(productId){
   const order = orders.find(o => o.id === registerLoadedOrderId);
@@ -1188,7 +1192,7 @@ function batchOpenPickerForExistingItem(productId){
         return;
       }
       const btn = document.getElementById('batchExistBtn_' + productId);
-      if(btn) btn.textContent = '🏷' + (picks.length ? ' ✓' : '');
+      if(btn) btn.innerHTML = batchTagIcon() + (picks.length ? ' ✓' : '');
     }
   });
 }
