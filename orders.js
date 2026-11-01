@@ -1449,6 +1449,10 @@ function openOrderActionModal(orderId, kind){
     ];
   } else {
     opts = [];
+    // 編輯放最上、觀看修改紀錄放第二(跟展開後卡片底下的按鈕同樣的條件:簽收或刪除後不能編輯;沒有任何異動就沒有修改紀錄)
+    if(!(o.deleted || o.signedAt)) opts.push(['edit', t('btnEdit'), false]);
+    const wasModified = !o.deleted && o.items.some(it => (it.qtyHistory && it.qtyHistory.length > 0) || it.deleted);
+    if(wasModified || (o.postVerifyChanges && o.postVerifyChanges.length > 0)) opts.push(['history', t('btnViewHistory'), false]);
     if(o.signedAt) opts.push(['email', t('actionEmail'), false]);
     opts.push(['export', t('actionExport'), false], ['print', t('actionPrint'), false]);
   }
@@ -1483,7 +1487,9 @@ function confirmOrderActionModal(){
   } else {
     const modeSel = document.getElementById('orderActionModeSelect');
     const exportMode = modeSel ? modeSel.value : 'general';
-    if(action === 'export') exportSingleOrderSheet(orderId, exportMode);
+    if(action === 'edit') editOrderViaRegister(orderId, 'completed');
+    else if(action === 'history') openOrderHistoryModal(orderId);
+    else if(action === 'export') exportSingleOrderSheet(orderId, exportMode);
     else if(action === 'print') printCompletedOrder(orderId);
     else if(action === 'email') openSendOrderEmailModal(orderId, exportMode);
   }
