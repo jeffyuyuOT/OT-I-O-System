@@ -143,6 +143,7 @@
   #tab-log .subtab-content > .section{ padding:0 0 20px; border-bottom:none; }
   #tab-log .section-title{ margin-bottom:10px; }
   .section{ padding:26px 36px; border-bottom:1px solid var(--line); }
+  .batch-hist-table tr.loc-row{ display:none; }
   .tab-content > .section:first-child, .subtab-content > .section:first-child{ padding-top:12px; }
   .subtab-bar{ margin-bottom:8px !important; }
   /* 分頁說明:標題旁的 ⓘ 按鈕,點擊顯示/隱藏說明 */
@@ -1037,6 +1038,11 @@
     /* 批次歷史紀錄頁:縮小欄位間距、允許換行,外層可左右捲動 */
     .batch-hist-wrap{ overflow-x:auto; -webkit-overflow-scrolling:touch; }
     .batch-hist-table th, .batch-hist-table td{ padding-right:6px !important; padding-left:4px !important; font-size:12px; white-space:normal; }
+    /* 歷史紀錄的位置較長:手機版改放在該筆紀錄的下一行,完整顯示 */
+    .batch-hist-table .loc-col{ display:none; }
+    .batch-hist-table tr.loc-row{ display:table-row; }
+    .batch-hist-table tr.loc-row td{ padding-top:0 !important; word-break:break-all; color:var(--ink-soft); }
+    .batch-hist-table tr.has-loc > td{ border-bottom:none !important; }
     /* 登記進出貨的清單(進貨新增商品、出貨新增清單):每一行改成直式卡片,欄位標題用 data-label 顯示 */
     #txBatchList .stock-table thead{ display:none; }
     #txBatchList .stock-table, #txBatchList .stock-table tbody, #txBatchList .stock-table tr, #txBatchList .stock-table td, #txBatchList .stock-table tfoot{ display:block; width:100%; box-sizing:border-box; }
