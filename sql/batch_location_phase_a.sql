@@ -62,20 +62,23 @@ begin
     select coalesce(sum((l->>'qty')::numeric), 0) into v_sum
       from jsonb_array_elements(coalesce(v_row->'locs', '[]'::jsonb)) l
      where coalesce(trim(l->>'code'), '') <> '' and (l->>'qty')::numeric > 0;
-    if v_sum > v_item.qty_in + 1e-9 then
+    if (v_row ? 'locs') and v_sum > v_item.qty_in + 1e-9 then
       raise exception 'batch_loc_over:%', jsonb_build_object('product_id', v_item.product_id, 'qty_in', v_item.qty_in, 'assigned', v_sum)::text;
     end if;
 
     if v_row ? 'note' then
       update public.batch_items set note = nullif(trim(v_row->>'note'), '') where id = v_item.id;
     end if;
-    delete from public.batch_item_locations where batch_item_id = v_item.id;
-    -- 同代碼的多筆先合併(唯一鍵是 批次行+位置)
-    insert into public.batch_item_locations (batch_item_id, location_code, qty)
-    select v_item.id, trim(l->>'code'), sum((l->>'qty')::numeric)
-      from jsonb_array_elements(coalesce(v_row->'locs', '[]'::jsonb)) l
-     where coalesce(trim(l->>'code'), '') <> '' and (l->>'qty')::numeric > 0
-     group by trim(l->>'code');
+    -- 只有這一行帶了 locs 才取代位置;只帶 note 的行(例如編輯進貨單只改備註)不動位置
+    if v_row ? 'locs' then
+      delete from public.batch_item_locations where batch_item_id = v_item.id;
+      -- 同代碼的多筆先合併(唯一鍵是 批次行+位置)
+      insert into public.batch_item_locations (batch_item_id, location_code, qty)
+      select v_item.id, trim(l->>'code'), sum((l->>'qty')::numeric)
+        from jsonb_array_elements(coalesce(v_row->'locs', '[]'::jsonb)) l
+       where coalesce(trim(l->>'code'), '') <> '' and (l->>'qty')::numeric > 0
+       group by trim(l->>'code');
+    end if;
     v_n := v_n + 1;
   end loop;
 

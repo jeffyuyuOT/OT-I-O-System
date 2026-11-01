@@ -1020,6 +1020,28 @@
     .overview-toolbar-right{ justify-content:space-between !important; }
     .overview-action-box{ flex:1 1 auto; }
   }
+
+  /* 手機版:批次追蹤/登記進出貨新增的表格與列,避免超出畫面 */
+  @media (max-width:768px){
+    /* 批次歷史紀錄頁:縮小欄位間距、允許換行,外層可左右捲動 */
+    .batch-hist-wrap{ overflow-x:auto; -webkit-overflow-scrolling:touch; }
+    .batch-hist-table th, .batch-hist-table td{ padding-right:6px !important; padding-left:4px !important; font-size:12px; white-space:normal; }
+    /* 登記進出貨的清單(進貨新增商品、出貨新增清單):每一行改成直式卡片,欄位標題用 data-label 顯示 */
+    #txBatchList .stock-table thead{ display:none; }
+    #txBatchList .stock-table, #txBatchList .stock-table tbody, #txBatchList .stock-table tr, #txBatchList .stock-table td, #txBatchList .stock-table tfoot{ display:block; width:100%; box-sizing:border-box; }
+    #txBatchList .stock-table tr{ border-bottom:1px solid var(--line); padding:8px 0; }
+    #txBatchList .stock-table td{ padding:3px 0 !important; text-align:left !important; min-width:0 !important; border:none !important; }
+    #txBatchList .stock-table td[data-label]::before{ content:attr(data-label); display:block; font-size:11px; color:var(--ink-soft); }
+    #txBatchList .stock-table td.row-action{ display:flex; gap:10px; justify-content:flex-start; }
+    #txBatchList .stock-table input.order-qty-input{ max-width:100%; box-sizing:border-box; }
+    #txBatchList .stock-table input[type=date].order-qty-input{ width:100% !important; }
+    /* 載入待處理/已完成訂單的原有商品列、訂單卡片的商品列:固定寬度的價格欄改成可換行 */
+    #txExistingItemsList .sp-cols-head, #txExistingItemsList .sp-total-row{ display:none !important; }
+    #txExistingItemsList span[style*="width"], .order-items span[style*="width"]{ width:auto !important; min-width:0 !important; }
+    #txExistingItemsList > div, .order-items > div{ flex-wrap:wrap !important; }
+    /* 批次選擇 / 轉移 / 位置視窗:表格太寬時可左右捲動 */
+    #batchPickerOverlay .modal-box, #batchTransferOverlay .modal-box, #batchSetLocOverlay .modal-box, #batchLocOverlay .modal-box{ max-width:96vw !important; overflow-x:auto; }
+  }
   @media (max-width:720px){
     .card-grid{ grid-template-columns:1fr 1fr; }
   }

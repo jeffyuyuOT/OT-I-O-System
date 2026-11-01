@@ -650,6 +650,7 @@ function renderEditPurchaseItemsList(){
           <span style="font-size:11.5px;color:var(--ink-soft);">${t('batchColExpiry')}</span>
           <input type="date" value="${it.expiry || ''}" title="${t('batchColExpiry')}" style="width:140px;" onchange="updateEditPurchaseItemExpiry(${i}, this.value)" />
           <input type="text" value="${escapeHtmlForPrint(it.supplierLot || '')}" placeholder="${t('batchFieldLot')}" style="flex:1 1 120px;min-width:100px;" oninput="updateEditPurchaseItemLot(${i}, this.value)" />
+          ${(it.docType === 'credit_note') ? '' : `<input type="text" value="${escapeHtmlForPrint(it.batchNote !== undefined ? it.batchNote : batchLineNote(editPurchaseTargetId, it.productId, it.expiry || ''))}" placeholder="${t('batchFieldNote')}" style="flex:1 1 120px;min-width:100px;" oninput="editPurchaseWorkingItems[${i}].batchNote=this.value" />`}
          </div>` : ''}
         </div>
       `).join('')}
@@ -940,7 +941,7 @@ async function confirmEditPurchase(){
   // 品項清單存檔前先去掉 _scanUpdated(只是編輯畫面上用來標記「這行剛被掃描結果蓋過」的暫時
   // UI 旗標,不是資料本身的一部分,不能真的存進 purchase.items 裡)。
   const cleanItems = editPurchaseWorkingItems.map(it => {
-    const { _scanUpdated, ...rest } = it;
+    const { _scanUpdated, batchNote, ...rest } = it;
     return rest;
   });
   // 比較品項有沒有真的改過:正規化成只留下影響庫存/金額的欄位、排序後再比較,不受「使用者
@@ -1019,12 +1020,28 @@ async function confirmEditPurchase(){
     }
     // 批次追蹤:同步批次(數量/有效期/批號/日期/Invoice/供應商有改才呼叫)
     if(p.batchTracked && typeof batchSavePurchase === 'function' && (itemsChanged || costsChanged || dateVal !== oldDate || partyVal !== oldParty || invoiceVal !== oldInvoice)){
-      try{ await batchSavePurchase(p); }
+      const locBefore = (typeof batchSnapshotPurchaseLocs === 'function') ? batchSnapshotPurchaseLocs(p.id) : null;
+      try{
+        await batchSavePurchase(p);
+        // 位置:數量改少或整行移除後,批次記的位置數量跟著減回去,庫存分布同步扣掉
+        if(locBefore && typeof batchSyncPurchaseLocAfterEdit === 'function') await batchSyncPurchaseLocAfterEdit(p.id, locBefore);
+      }
       catch(be){
         console.error('同步批次失敗', be);
         const inUse = (typeof batchParseInUseError === 'function') ? batchParseInUseError(be) : null;
         showInfoModal(inUse ? tf('batchEditBelowUsed', { name: batchProductName(inUse.product_id), batch: '', used: inUse.min_qty }) : t('batchCreateFailed'));
       }
+    }
+    // 每行的批次備註(只在有填/改過時才寫入;不動位置)
+    if(p.batchTracked && typeof batchSaveLineNotes === 'function'){
+      const noteRows = {};
+      editPurchaseWorkingItems.forEach(it => {
+        if(it.batchNote === undefined || it.docType === 'credit_note') return;
+        const key = it.productId + '|' + (it.expiry || '');
+        const prev = noteRows[key];
+        noteRows[key] = { product_id: it.productId, expiry: it.expiry || '', note: prev && prev.note ? prev.note + '\n' + it.batchNote.trim() : it.batchNote.trim() };
+      });
+      await batchSaveLineNotes(p.id, Object.values(noteRows));
     }
     renderPurchaseLog();
     if(itemsChanged) renderAll(); // 庫存數字真的變了,連動刷新庫存總覽等其他畫面
