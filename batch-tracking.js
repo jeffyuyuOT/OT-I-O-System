@@ -541,6 +541,11 @@ async function batchReturnAfter(txList, picksByTx){
   if(list.length === 0) return;
   try{
     await batchRpc('batch_return', { p_tx_ids: list.map(tx => tx.id), p_manual: picksByTx || {} });
+    // 庫存位置:退回的量依這張訂單當初出貨的位置放回去,庫存分布同步加回(需要先執行 sql/batch_location_phase_e.sql,沒有就略過)
+    try{
+      const back = await batchRpc('batch_return_locations', { p_tx_ids: list.map(tx => tx.id) });
+      await batchSyncReturnedLocations(back);
+    }catch(e){ if(!batchIsMissingFunctionError(e)) console.error('批次退回位置失敗', e); }
     batchMarkStale();
     await ensureBatchDataLoaded();
   } catch(e){ console.error('批次退回失敗', e); }
@@ -2200,4 +2205,22 @@ async function batchApplyTransfer(rows){
   await batchRpc('batch_transfer_locations', { p_rows: rows });
   batchMarkStale();
   try{ await ensureBatchDataLoaded(true); }catch(e){}
+}
+
+// 退貨依原位置退回後,把庫存分布的位置數量加回去(位置紀錄不存在就重建)
+async function batchSyncReturnedLocations(rows){
+  if(!Array.isArray(rows) || rows.length === 0) return;
+  for(const r of rows){
+    try{
+      let loc = productLocations.find(l => l.productId === r.product_id && l.locationCode === r.code);
+      if(loc){ loc.qty += Number(r.qty); await upsertProductLocation(loc); }
+      else {
+        const tpl = productLocations.find(l => l.locationCode === r.code);
+        loc = { id: genId(), productId: r.product_id, zone: tpl ? tpl.zone : '', aisle: tpl ? tpl.aisle : '', bay: tpl ? tpl.bay : '', level: tpl ? tpl.level : '', bin: tpl ? tpl.bin : '', locationCode: r.code, qty: Number(r.qty), photoUrl: null };
+        productLocations.push(loc);
+        await upsertProductLocation(loc);
+      }
+    }catch(e){ console.error('退回後同步庫存分布失敗', e); }
+  }
+  try{ if(typeof refreshStockLocationView === 'function') refreshStockLocationView(); }catch(e){}
 }
