@@ -336,7 +336,10 @@ async function sendOrderEmail(orderId, toEmail, ccEmail, msgEl, note, exportMode
 
   const partyLabel = order.partyName || 'Unspecified';
   const dateLabel = order.date;
-  const { aoa, hiddenRows } = buildOrderSheetAoa([order], partyLabel, dateLabel, exportMode);
+  // 系統設置的 Sell price 顯示方式為「僅匯出」或「訂單跟匯出都顯示」時,已完成訂單的 Excel 附件多一欄 Sell price
+  // (核對當下固定的售價);成本價(Price / Total price)不放進寄給客戶的附件。
+  const sellMap = (typeof spExportEnabled === 'function' && spExportEnabled() && !isPreVerificationStatus(order)) ? spExportSellPriceMap([order]) : null;
+  const { aoa, hiddenRows } = buildOrderSheetAoa([order], partyLabel, dateLabel, exportMode, null, sellMap);
   const wb = buildOrderSheetWorkbook(aoa, hiddenRows);
   const excelArrayBuffer = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
   const excelBlob = new Blob([excelArrayBuffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
