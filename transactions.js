@@ -761,7 +761,7 @@ function renderTxBatchList(){
         </td>
         ${showSellCol ? `<td class="row-num">${spTxItemPriceHtml(it, sellPartyId)}</td>` : ''}
         ${showSellCol ? `<td class="row-num"><span style="${SP_TOTAL_PILL}">${spTxItemTotalHtml(it, sellPartyId)}</span></td>` : ''}
-        ${showBatchCols ? `<td class="row-num"><input type="date" class="order-qty-input" style="width:140px;" value="${it.expiry || ''}" onchange="updateTxBatchItemExpiry('${it.batchItemId}', this.value)" /></td>
+        ${showBatchCols ? `<td class="row-num"><input type="date" class="order-qty-input" style="width:140px;" value="${it.expiry || ''}" onchange="updateTxBatchItemExpiry('${it.batchItemId}', this.value)" onblur="commitTxBatchItemExpiry('${it.batchItemId}')" /></td>
         <td class="row-num"><input type="text" class="order-qty-input" style="width:100px;" value="${(it.supplierLot || '').replace(/"/g, '&quot;')}" onchange="updateTxBatchItemLot('${it.batchItemId}', this.value)" /></td>
         ${(typeof batchLocCellHtml === 'function') ? batchLocCellHtml(it) : '<td></td>'}` : ''}
         ${showAmountCol ? `<td class="row-num"><input type="number" class="order-qty-input" step="0.01" min="0" value="${(it.amount !== undefined && it.amount !== null) ? it.amount : ''}" placeholder="–" ${canEditPrice() ? '' : 'readonly'} onchange="updateTxBatchItemAmount('${it.batchItemId}', this.value)" /></td>` : ''}

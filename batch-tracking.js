@@ -651,10 +651,16 @@ function batchResetFormAfterSubmit(){
   batchClearAddFields();
 }
 // 列表上改有效期/批號。同商品、同有效期、同文件來源的行自動合併數量。
+// 日期欄位輸入年份時,每按一個數字瀏覽器就會觸發一次 change;如果每次都重畫清單,輸入框會被換掉而跳出。
+// 所以 change 只暫存數值(不重畫),離開欄位(blur)才合併同商品同有效期的行並重畫。
 function updateTxBatchItemExpiry(batchItemId, value){
   const it = txBatchItems.find(x => x.batchItemId === batchItemId);
   if(!it) return;
   it.expiry = value || '';
+}
+function commitTxBatchItemExpiry(batchItemId){
+  const it = txBatchItems.find(x => x.batchItemId === batchItemId);
+  if(!it) return;
   const other = txBatchItems.find(x => x !== it && x.productId === it.productId && (x.expiry || '') === (it.expiry || '')
     && (x.docType || '') === (it.docType || '') && (x.sourceFilename || '') === (it.sourceFilename || ''));
   if(other){
