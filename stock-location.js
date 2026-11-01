@@ -151,7 +151,7 @@ function renderStockLocationMultiList(){
   if(!container) return;
   const catFilterVal = document.getElementById('stockLocationCategoryFilter').value;
   const rows = (catFilterVal ? products.filter(p => (p.category || '未分類') === catFilterVal) : products)
-    .filter(p => !p.hidden && stockLocationCountFor(p.id) >= 2)
+    .filter(p => !p.hidden && (stockLocationCountFor(p.id) + (computeUnassignedQty(p.id) > 0 ? 1 : 0)) >= 2)
     .sort((a, b) => a.name.localeCompare(b.name));
   if(rows.length === 0){
     container.innerHTML = `<div class="empty-note">${t('noMultiLocationProductsHint')}</div>`;
@@ -165,7 +165,7 @@ function renderStockLocationMultiList(){
           <tr>
             <td>${escapeHtmlForPrint(p.sku || '—')}</td>
             <td>${escapeHtmlForPrint(p.name)}</td>
-            <td>${getSortedLocationsForProduct(p.id).map(l => `${escapeHtmlForPrint(l.locationCode)} ×${l.qty} ${escapeHtmlForPrint(p.unit)}`).join('<br>')}</td>
+            <td>${getSortedLocationsForProduct(p.id).map(l => `${escapeHtmlForPrint(l.locationCode)} ×${l.qty} ${escapeHtmlForPrint(p.unit)}`).concat(computeUnassignedQty(p.id) > 0 ? [`<span style="color:var(--ink-soft);">${t('unassignedLocationLabel')} ×${computeUnassignedQty(p.id)} ${escapeHtmlForPrint(p.unit)}</span>`] : []).join('<br>')}</td>
             <td><span class="del-link" onclick="jumpToProductInStockLocation(products.find(x => x.id === '${p.id}'))">${t('btnViewDetail')}</span></td>
           </tr>
         `).join('')}
