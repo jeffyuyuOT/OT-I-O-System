@@ -1183,9 +1183,8 @@ function renderPendingOrders(){
         <div class="order-card-head" style="cursor:pointer;" onclick="toggleOrderExpand('${o.id}')">
           <span class="order-card-date">
             <span style="display:inline-block;width:14px;">${isExpanded ? '▾' : '▸'}</span>
-            ${o.orderNo ? `<span style="color:var(--ink-soft);font-weight:400;">${o.orderNo}</span> · ` : ''}${o.date}${(o.originalDate && o.originalDate !== o.date) ? ` <span title="${t('dateWasChangedTitle')}" style="font-weight:400;color:var(--warn-dark);">(${tf('originalDateLabel', {date: o.originalDate})})</span>` : ''}${o.partyName ? ` <span style="font-weight:400;color:var(--ink-soft);">· ${tf('orderCardPartyLabel', {name: (o.partyId && !o.deleted && hasCapability('cap-manage-parties')) ? `<span class="batch-link" title="${t('btnEdit')}" onclick="event.stopPropagation();partyEditFromOrder('${o.partyId}')">${escapeHtmlForPrint(o.partyName)}</span>` : o.partyName})}</span>` : ''}
+            ${o.orderNo ? `<span style="color:var(--ink-soft);font-weight:400;">${o.orderNo}</span> · ` : ''}${o.date}${(o.originalDate && o.originalDate !== o.date) ? ` <span title="${t('dateWasChangedTitle')}" style="font-weight:400;color:var(--warn-dark);">(${tf('originalDateLabel', {date: o.originalDate})})</span>` : ''}${o.partyName ? ` <span style="font-weight:400;color:var(--ink-soft);">· ${tf('orderCardPartyLabel', {name: (o.partyId && !o.deleted && hasCapability('cap-manage-parties')) ? `<span class="batch-link" title="${t('btnEdit')}" onclick="event.stopPropagation();partyEditFromOrder('${o.partyId}')">${escapeHtmlForPrint(o.partyName)}</span>` : o.partyName})}</span>` : ''}${(!o.deleted && hasCapability('cap-manage-parties')) ? ` <span title="${t('btnEditOrderParty')}" style="margin-left:2px;color:var(--warn);cursor:pointer;" onclick="event.stopPropagation();startEditOrderParty('${o.id}')">✎</span>` : ''}
             ${o.remark ? `<span title="${t('orderHasRemarkTitle')}" style="margin-left:6px;color:var(--yellow-dark);">📝</span>` : ''}
-            ${wasModified ? `<span title="${t('orderWasModifiedTitle')}" style="margin-left:6px;color:var(--warn);">✎</span>` : ''}
             ${!o.deleted && !o.partyId ? `<span title="${t('orderNoPartyLinkedWarning')}" style="margin-left:6px;color:var(--crit);">⚠</span>` : ''}
           </span>
           <span style="display:inline-flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:flex-end;">
@@ -1193,10 +1192,10 @@ function renderPendingOrders(){
             ${o.deleted ? '' : `<span class="order-head-action" onclick="event.stopPropagation()"><button class="btn ghost" onclick="openOrderActionModal('${o.id}', 'pending')">${t('lblAction')} ▾</button></span>`}
           </span>
         </div>
+        ${(isEditingParty && !o.deleted) ? `<div style="padding:4px 14px 8px;">${partyEditHtml}</div>` : ''}
         ${isExpanded ? `
           ${orderBlockHtml('items', 'orderBlockItems', `${(typeof spColsHeaderHtml === 'function') ? spColsHeaderHtml(false) : ''}<div class="order-items">${itemsHtml}</div>${(typeof spOrderTotalRowHtml === 'function') ? spOrderTotalRowHtml(o, false) : ''}`)}
           ${orderBlockHtml('remark', 'orderBlockRemark', remarkHtml)}
-          ${o.deleted ? '' : orderBlockHtml('party', 'orderBlockParty', partyEditHtml)}
           <div class="order-card-actions">
             ${hasHistory ? `<button class="btn ghost" onclick="openOrderHistoryModal('${o.id}')">${t('btnViewHistory')}</button>` : ''}
           </div>
