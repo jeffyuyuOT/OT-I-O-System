@@ -594,7 +594,7 @@ function loadOrderIntoRegisterFlow(orderId){
   if(partyEditLink){
     const canEdit = order.partyId && registerOutFlowType === 'load-pending' && hasCapability('cap-manage-parties');
     partyEditLink.dataset.pid = order.partyId || '';
-    partyEditLink.style.display = canEdit ? 'inline-block' : 'none';
+    partyEditLink.style.display = canEdit ? 'block' : 'none';
   }
   const noteInput = document.getElementById('txNote');
   if(noteInput) noteInput.value = order.note || '';
