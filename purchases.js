@@ -648,9 +648,9 @@ function renderEditPurchaseItemsList(){
          </div>
          ${editPurchaseIsBatchTracked() ? `<div style="display:flex;align-items:center;gap:8px;margin-top:4px;flex-wrap:wrap;">
           <span style="font-size:11.5px;color:var(--ink-soft);">${t('batchColExpiry')}</span>
-          <input type="date" value="${it.expiry || ''}" title="${t('batchColExpiry')}" style="width:140px;" onchange="updateEditPurchaseItemExpiry(${i}, this.value)" />
-          <input type="text" value="${escapeHtmlForPrint(it.supplierLot || '')}" placeholder="${t('batchFieldLot')}" style="flex:1 1 120px;min-width:100px;" oninput="updateEditPurchaseItemLot(${i}, this.value)" />
-          ${(it.docType === 'credit_note') ? '' : `<input type="text" value="${escapeHtmlForPrint(it.batchNote !== undefined ? it.batchNote : batchLineNote(editPurchaseTargetId, it.productId, it.expiry || ''))}" placeholder="${t('batchFieldNote')}" style="flex:1 1 120px;min-width:100px;" oninput="editPurchaseWorkingItems[${i}].batchNote=this.value" />`}
+          <input type="date" value="${it.expiry || ''}" title="${t('batchColExpiry')}" style="width:122px;" onchange="updateEditPurchaseItemExpiry(${i}, this.value)" />
+          <input type="text" value="${escapeHtmlForPrint(it.supplierLot || '')}" placeholder="${t('batchFieldLot')}" title="${t('batchFieldLot')}" style="width:96px;" oninput="updateEditPurchaseItemLot(${i}, this.value)" />
+          ${(it.docType === 'credit_note') ? '' : `<button type="button" class="btn ghost" style="padding:2px 8px;" title="${t('batchFieldNote')}" onclick="editPurchaseOpenLineNote(${i})">📝${(it.batchNote !== undefined ? it.batchNote : batchLineNote(editPurchaseTargetId, it.productId, it.expiry || '')) ? ' ✓' : ''}</button>`}
          </div>` : ''}
         </div>
       `).join('')}
@@ -684,6 +684,28 @@ function editPurchaseMergeDuplicateAt(index){
   if(!target.supplierLot && it.supplierLot) target.supplierLot = it.supplierLot;
   editPurchaseWorkingItems.splice(index, 1);
   return true;
+}
+// 商品行備註:點 📝 開小視窗編輯(存進批次,顯示在批次追蹤商品頁的詳細資料)
+function editPurchaseOpenLineNote(index){
+  const it = editPurchaseWorkingItems[index];
+  if(!it) return;
+  const cur = it.batchNote !== undefined ? it.batchNote : batchLineNote(editPurchaseTargetId, it.productId, it.expiry || '');
+  const old = document.getElementById('editPurchaseLineNoteOverlay'); if(old) old.remove();
+  const ov = document.createElement('div');
+  ov.id = 'editPurchaseLineNoteOverlay'; ov.className = 'modal-overlay'; ov.style.display = 'flex'; ov.style.zIndex = '1250';
+  ov.innerHTML = `<div class="modal-box" style="max-width:min(420px,94vw);">
+    <div class="section-title" style="margin-top:0;">${t('batchFieldNote')} · ${escapeHtmlForPrint(it.name || '')}</div>
+    <textarea id="editPurchaseLineNoteInput" rows="4" style="width:100%;box-sizing:border-box;">${escapeHtmlForPrint(cur)}</textarea>
+    <div class="modal-actions"><button class="btn ghost" onclick="document.getElementById('editPurchaseLineNoteOverlay').remove()">${t('btnCancel')}</button><button class="btn" onclick="editPurchaseSaveLineNote(${index})">${t('btnSave')}</button></div>
+  </div>`;
+  document.body.appendChild(ov);
+}
+function editPurchaseSaveLineNote(index){
+  const it = editPurchaseWorkingItems[index];
+  const el = document.getElementById('editPurchaseLineNoteInput');
+  if(it && el) it.batchNote = el.value.trim();
+  const ov = document.getElementById('editPurchaseLineNoteOverlay'); if(ov) ov.remove();
+  renderEditPurchaseItemsList();
 }
 function updateEditPurchaseItemLot(index, value){
   const it = editPurchaseWorkingItems[index];
