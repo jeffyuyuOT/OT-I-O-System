@@ -41,6 +41,7 @@ function batchActive(){ return batchFeatureOn() && batchAvailable; }
     .batch-tag-warn{ border-color:var(--crit); color:var(--crit); }
     .order-items div.batch-alloc-line, .batch-alloc-line{ display:block; flex:0 0 100%; width:100%; font-size:11px; margin-top:2px; padding:0; border-bottom:none; text-align:left; }
     .batch-link{ color:var(--ink); text-decoration:underline; cursor:pointer; }
+    .batch-info-icon{ color:var(--ink-soft); text-decoration:none; cursor:pointer; }
     .batch-seg{ display:inline-flex; gap:0; border:1px solid var(--line); border-radius:2px; overflow:hidden; }
     .batch-seg button{ border:0; background:#fff; padding:6px 14px; font-family:inherit; font-size:12.5px; cursor:pointer; }
     .batch-seg button.active{ background:var(--ink); color:#fff; }
@@ -859,11 +860,11 @@ function batchRenderProductDetail(pid){
             <td>${i.expiry ? batchEsc(i.expiry) + batchExpiryBadge(i.expiry, true) : '–'}</td>
             <td class="num">${batchFmtQty(i.remaining)} ${batchEsc(batchProductUnit(pid))}</td>
             <td class="num">${(typeof spSellCellHtml === 'function') ? spSellCellHtml(i) : batchFmtMoney(batchUnitCost(i))}</td>
-            <td style="white-space:nowrap;"><span class="del-link" onclick="batchTrackerOpenHistory('${i.id}')">${t('batchBtnHistory')}</span> <span class="batch-link" style="margin-left:6px;" title="${batchEsc(t('batchDetailsTitle'))}" onclick="batchOpenItemDetail('${i.id}')">ⓘ</span></td>
+            <td style="white-space:nowrap;"><span class="del-link" onclick="batchTrackerOpenHistory('${i.id}')">${t('batchBtnHistory')}</span> <span class="batch-info-icon" style="margin-left:6px;" title="${batchEsc(t('batchDetailsTitle'))}" onclick="batchOpenItemDetail('${i.id}')">ⓘ</span></td>
           </tr>`).join('')}
         ${untrackedRow}
       </tbody>
-      ${items.length === 0 ? '' : (() => { const live = items.filter(i => i.remaining > 0); const v = batchValueSum(live); const q = live.reduce((a, i) => a + i.remaining, 0); return `<tfoot><tr style="font-weight:700;"><td colspan="2" style="text-align:right;">${t('batchValueTotal')} · ${t('batchStockValue')} <span class="batch-link" style="font-weight:400;" title="${batchEsc(t('batchValueHelpTitle'))}" onclick="showInfoModal(t('batchValueHelp'))">ⓘ</span>${v.missing ? `<div style="font-weight:400;font-size:11px;color:var(--ink-soft);">(${tf('batchValueMissing', { n: v.missing })})</div>` : ''}</td><td class="num">${batchFmtQty(q)} ${batchEsc(batchProductUnit(pid))}</td><td class="num">${(typeof spMoney === 'function') ? spMoney(v.sum) : v.sum.toFixed(2)}</td><td></td></tr></tfoot>`; })()}
+      ${items.length === 0 ? '' : (() => { const live = items.filter(i => i.remaining > 0); const v = batchValueSum(live); const q = live.reduce((a, i) => a + i.remaining, 0); return `<tfoot><tr style="font-weight:700;"><td colspan="2" style="text-align:right;">${t('batchValueTotal')} · ${t('batchStockValue')} <span class="batch-info-icon" style="font-weight:400;" title="${batchEsc(t('batchValueHelpTitle'))}" onclick="showInfoModal(t('batchValueHelp'))">ⓘ</span>${v.missing ? `<div style="font-weight:400;font-size:11px;color:var(--ink-soft);">(${tf('batchValueMissing', { n: v.missing })})</div>` : ''}</td><td class="num" style="text-align:right;">${batchFmtQty(q)} ${batchEsc(batchProductUnit(pid))}</td><td class="num" style="text-align:right;">${(typeof spMoney === 'function') ? spMoney(v.sum) : v.sum.toFixed(2)}</td><td></td></tr></tfoot>`; })()}
     </table>`;
 }
 
@@ -940,7 +941,7 @@ function batchRenderBatchView(){
     <div style="margin:12px 0 8px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
       <span style="display:inline-block;padding:5px 12px;background:rgba(0,0,0,0.07);border-radius:3px;font-weight:700;">${batchEsc(h.batchNo)}</span>
       ${h.purchaseId ? `<button class="btn ghost" onclick="batchEditPurchase('${batchEsc(h.purchaseId)}')">${t('btnEdit')}</button>` : ''}
-      <span class="batch-link" style="font-size:15px;" title="${batchEsc(t('batchDetailsTitle'))}" onclick="batchOpenBatchDetail('${h.batchId}')">ⓘ</span>
+      <span class="batch-info-icon" style="font-size:15px;" title="${batchEsc(t('batchDetailsTitle'))}" onclick="batchOpenBatchDetail('${h.batchId}')">ⓘ</span>
     </div>
     <div style="margin:0 0 10px;display:flex;gap:12px;align-items:center;flex-wrap:wrap;">
       <span class="batch-link" onclick="bt.batchId='';renderBatchTracker();">← ${t('batchBackToList')}</span>
@@ -1017,7 +1018,7 @@ function batchRenderExpiryList(){
       ${chip(t('batchStockValue'), all.sum)}
       ${chip('🟠 ' + t('batchValueSoon'), soon.sum, '#B8860B')}
       ${chip('🔴 ' + t('batchValueExpired'), expired.sum, 'var(--crit)')}
-      <span class="batch-link" style="align-self:center;font-size:15px;" title="${batchEsc(t('batchValueHelpTitle'))}" onclick="showInfoModal(t('batchValueHelp'))">ⓘ</span>
+      <span class="batch-info-icon" style="align-self:center;font-size:15px;" title="${batchEsc(t('batchValueHelpTitle'))}" onclick="showInfoModal(t('batchValueHelp'))">ⓘ</span>
       ${missingTotal ? `<span style="align-self:center;font-size:11px;color:var(--ink-soft);">${tf('batchValueMissing', { n: missingTotal })}</span>` : ''}
     </div>`;
   return `
