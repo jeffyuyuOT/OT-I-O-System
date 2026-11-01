@@ -518,18 +518,18 @@ function pcRender(){
   wrap.innerHTML = `
     <div style="border:1px solid var(--line,#ddd);border-radius:8px;padding:10px 12px;margin-top:12px;">
       <div class="section-title" style="font-size:13px;margin:0 0 6px;">${t('pcSectionTitle')}</div>
-      <label style="display:flex;align-items:center;gap:8px;font-size:12.5px;font-weight:600;cursor:pointer;">
-        <input type="checkbox" ${pcState.overseas ? 'checked' : ''} onchange="pcSetOverseas(this.checked)" style="width:16px;height:16px;" />
-        ${t('pcOverseas')}
-      </label>
-      ${pcState.overseas ? `
-      <div style="display:flex;gap:8px;align-items:center;margin:6px 0 0 24px;flex-wrap:wrap;">
+      <div style="display:flex;gap:8px 12px;align-items:center;flex-wrap:wrap;">
+        <label style="display:flex;align-items:center;gap:8px;font-size:12.5px;font-weight:600;cursor:pointer;white-space:nowrap;">
+          <input type="checkbox" ${pcState.overseas ? 'checked' : ''} onchange="pcSetOverseas(this.checked)" style="width:16px;height:16px;" />
+          ${t('pcOverseas')}
+        </label>
+        ${pcState.overseas ? `
         <span style="font-size:12.5px;">${t('pcInvoiceCurrency')}</span>
         <select onchange="pcSetInvoiceCurrency(this.value)">${curOpts(pcState.currency)}</select>
         <span style="font-size:12.5px;color:var(--ink-soft);">${tf('pcConvertToFixed', { base })}</span>
-        ${invoiceForeign ? rateInline(invoiceForeign) : ''}
+        ${invoiceForeign ? rateInline(invoiceForeign) : ''}` : ''}
       </div>
-      <div style="font-size:11.5px;color:var(--ink-soft);margin:2px 0 0 24px;">${tf('pcInvoiceCurrencyHint', { base })}</div>` : ''}
+      ${pcState.overseas ? `<div style="font-size:11.5px;color:var(--ink-soft);margin:2px 0 0 24px;">${tf('pcInvoiceCurrencyHint', { base })}</div>` : ''}
 
       <div style="font-size:12.5px;font-weight:700;margin-top:10px;">${t('pcExpenses')} <span role="button" tabindex="0" title="${t('pcInfoIconTitle')}" aria-label="${t('pcInfoIconTitle')}" style="cursor:pointer;color:var(--ink-soft);font-size:14px;font-weight:400;margin-left:4px;user-select:none;" onclick="showInfoModal(t('pcAutoFillHint'))" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();showInfoModal(t('pcAutoFillHint'));}">ⓘ</span></div>
       ${dl}${expRows}

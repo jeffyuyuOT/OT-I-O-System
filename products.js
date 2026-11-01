@@ -525,6 +525,45 @@ async function saveProductEditModal(){
 // ===== 批量商品 ↔ 主商品 數量切換 =====
 // 切換是指:把批量商品的數量,依加權數換算成主商品的數量,批量商品扣、主商品加。
 // 這個變化不算是一般的出貨/進貨,不會影響平均出貨量的計算(computeAvgMonthlyOut / computePerOrderAvgForParty 都會排除 conversion 紀錄)。
+// 切換視窗的「批次」:預設依 期初批次 → 先到期先出 → 先進貨 自動選要切換哪一批;可以點 🏷 手動指定批次與位置。
+let conversionBatchPicks = [];
+function conversionSourceProductId(){ return conversionMode === 'toChild' ? conversionParentId : pendingConversionChildId; }
+// 批次追蹤的商品而且批次有記位置:切換出來的商品自動放在跟來源同一個位置,不需要(也不顯示)「指派位置」
+function conversionUsesBatchLocation(){
+  const pid = conversionSourceProductId();
+  if(typeof batchIsTracked !== 'function' || !pid || !batchIsTracked(pid)) return false;
+  return batchItemsOfProduct(pid).some(i => (batchItemLocRem[i.id] || []).length > 0);
+}
+function conversionLocPickerHtml(){
+  if(conversionUsesBatchLocation()) return `<div style="font-size:12px;color:var(--ink-soft);margin-top:4px;">📍 ${t('conversionSameLocationNote')}</div>`;
+  return buildLocationPickerHtml('conversionLoc', 'fieldAssignLocation');
+}
+function conversionBatchRowHtml(){
+  const pid = conversionSourceProductId();
+  if(typeof batchIsTracked !== 'function' || !pid || !batchIsTracked(pid)) return '';
+  return `<div class="field-block">
+    <label>${t('btnBatchPick')}</label>
+    <div style="display:flex;gap:8px;align-items:center;">
+      <button type="button" class="btn ghost" id="conversionBatchBtn" onclick="openConversionBatchPicker()">${batchTagIcon()}${conversionBatchPicks.length ? ' ✓' : ''}</button>
+      <span style="font-size:11.5px;color:var(--ink-soft);">${t('conversionBatchHint')}</span>
+    </div>
+  </div>`;
+}
+function openConversionBatchPicker(){
+  const pid = conversionSourceProductId();
+  const p = products.find(x => x.id === pid);
+  const qty = parseFloat(document.getElementById('conversionQty').value);
+  if(!p || !(qty > 0)){ showInfoModal(t('errEnterPositiveQty')); return; }
+  batchOpenPicker({
+    productId: pid, qty, unit: p.unit, picks: conversionBatchPicks,
+    onSave: picks => {
+      conversionBatchPicks = picks;
+      const btn = document.getElementById('conversionBatchBtn');
+      if(btn) btn.innerHTML = batchTagIcon() + (picks.length ? ' ✓' : '');
+    }
+  });
+}
+
 function openConversionModal(childId){
   const child = products.find(x => x.id === childId);
   if(!child || !child.parentId) return;
@@ -533,6 +572,7 @@ function openConversionModal(childId){
   conversionMode = 'toParent';
   pendingConversionChildId = childId;
   conversionParentId = null;
+  conversionBatchPicks = [];
   const childStock = computeStock(childId);
   const defaultQty = Math.min(conversionDefaultQty, childStock) || 1;
   document.getElementById('conversionModalTitle').textContent = `${t('btnConvertToParent')} —「${child.name}」→「${parent.name}」`;
@@ -544,11 +584,12 @@ function openConversionModal(childId){
       <label>${t('fieldConvertQtyToParent')}(${child.unit})</label>
       <input type="number" id="conversionQty" min="0" max="${childStock}" step="1" value="${defaultQty}" oninput="updateConversionPreview()" style="width:100%;" />
     </div>
+    ${conversionBatchRowHtml()}
     <div class="field-block">
       <label>${t('fieldConvertResultToParent')}(${parent.unit})</label>
       <div id="conversionPreview" style="font-family:'IBM Plex Mono',monospace;font-size:16px;font-weight:600;">0 ${parent.unit}</div>
     </div>
-    ${buildLocationPickerHtml('conversionLoc', 'fieldAssignLocation')}
+    ${conversionLocPickerHtml()}
   `;
   document.getElementById('conversionModalMsg').textContent = '';
   document.getElementById('conversionModalOverlay').style.display = 'flex';
@@ -565,6 +606,7 @@ function openParentToChildConversionModal(parentId){
   conversionMode = 'toChild';
   conversionParentId = parentId;
   pendingConversionChildId = children[0].id;
+  conversionBatchPicks = [];
   renderParentToChildConversionBody();
   document.getElementById('conversionModalMsg').textContent = '';
   document.getElementById('conversionModalOverlay').style.display = 'flex';
@@ -595,11 +637,12 @@ function renderParentToChildConversionBody(){
       <label>${t('fieldConvertQtyToChild')}(${parent.unit})</label>
       <input type="number" id="conversionQty" min="0" max="${parentStock}" step="1" value="${defaultQty}" oninput="updateConversionPreview()" style="width:100%;" />
     </div>
+    ${conversionBatchRowHtml()}
     <div class="field-block">
       <label>${t('fieldConvertResultToChild')}(${selectedChild.unit})</label>
       <div id="conversionPreview" style="font-family:'IBM Plex Mono',monospace;font-size:16px;font-weight:600;">0 ${selectedChild.unit}</div>
     </div>
-    ${buildLocationPickerHtml('conversionLoc', 'fieldAssignLocation')}
+    ${conversionLocPickerHtml()}
   `;
   updateConversionPreview();
   populateLocationPicker('conversionLoc', selectedChild.id);
@@ -643,6 +686,7 @@ function closeConversionModal(){
   conversionSourceBatchProductId = null;
   conversionSourceVerifyProductId = null;
   conversionDefaultQty = 1;
+  conversionBatchPicks = [];
   document.getElementById('conversionModalOverlay').style.display = 'none';
 }
 
@@ -683,7 +727,7 @@ async function confirmConversion(){
     // 導致庫存分布頁面的數字跟主商品實際庫存對不起來。
     let sourceLocationChoices;
     try{
-      sourceLocationChoices = await resolveLocationChoicesForItems([{ productId: parent.id, qty }]);
+      sourceLocationChoices = await resolveLocationChoicesForItems([{ productId: parent.id, qty, batchPicks: conversionBatchPicks.length ? conversionBatchPicks : undefined }]);
     } catch(e){ return; } // 使用者在選位置的過程中按了取消,整個轉換中止
 
     const dateVal = todayISO();
@@ -705,11 +749,13 @@ async function confirmConversion(){
       msg.textContent = '⚠ 轉換失敗,請重新整理頁面再試一次。';
       return;
     }
-    if(typeof batchConvertAfter === 'function') await batchConvertAfter(conversionId, txA.productId); // 批次追蹤:同批次一出一進
+    const batchConv = (typeof batchConvertAfter === 'function') ? await batchConvertAfter(conversionId, txA.productId, qty, convertedQty) : null; // 批次追蹤:同批次、同有效期、同位置一出一進
     // 交易確定成功之後才處理位置變動,避免庫存扣了/位置卻沒對應更新的不一致:先把主商品
     // 原本的位置庫存扣掉,再幫轉換出來的批量商品指派位置。
     await applyLocationDeductions(sourceLocationChoices);
-    await applyConversionLocationAssignment('conversionLoc', child.id, convertedQty);
+    // 批次追蹤的商品:切換出來的商品放在跟來源同樣的位置;沒有批次位置資料的才用視窗裡選的位置
+    if(batchConv && batchConv.dest) await batchAddToProductLocations(child.id, batchConv.dest);
+    else await applyConversionLocationAssignment('conversionLoc', child.id, convertedQty);
     const batchProductId = conversionSourceBatchProductId;
     const verifyProductId = conversionSourceVerifyProductId;
     closeConversionModal();
@@ -752,7 +798,7 @@ async function confirmConversion(){
   // 扣庫存之前,先問清楚批量商品要從哪個位置扣(同上,避免庫存分布跟實際庫存對不起來)。
   let sourceLocationChoices;
   try{
-    sourceLocationChoices = await resolveLocationChoicesForItems([{ productId: child.id, qty }]);
+    sourceLocationChoices = await resolveLocationChoicesForItems([{ productId: child.id, qty, batchPicks: conversionBatchPicks.length ? conversionBatchPicks : undefined }]);
   } catch(e){ return; } // 使用者在選位置的過程中按了取消,整個切換中止
 
   const dateVal = todayISO();
@@ -774,11 +820,12 @@ async function confirmConversion(){
     msg.textContent = '⚠ 切換失敗,請重新整理頁面再試一次。';
     return;
   }
-  if(typeof batchConvertAfter === 'function') await batchConvertAfter(conversionId, txA.productId); // 批次追蹤:同批次一出一進
+  const batchConv = (typeof batchConvertAfter === 'function') ? await batchConvertAfter(conversionId, txA.productId, qty, convertedQty) : null; // 批次追蹤:同批次、同有效期、同位置一出一進
   // 交易確定成功之後才處理位置變動:先扣掉批量商品原本的位置庫存,再幫轉換出來的主商品
   // 指派位置。
   await applyLocationDeductions(sourceLocationChoices);
-  await applyConversionLocationAssignment('conversionLoc', parent.id, convertedQty);
+  if(batchConv && batchConv.dest) await batchAddToProductLocations(parent.id, batchConv.dest);
+  else await applyConversionLocationAssignment('conversionLoc', parent.id, convertedQty);
   const batchProductId = conversionSourceBatchProductId;
   const verifyProductId = conversionSourceVerifyProductId;
   // 如果這次切換是從「訂單核對」開的(verifyProductId 有值),把這次切換記在這張訂單、這個主商品

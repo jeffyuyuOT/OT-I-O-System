@@ -29,6 +29,20 @@ function formatEmailedTimeShort(iso){
   } catch(e){ return ''; }
 }
 
+// 進貨單的「進貨方」篩選鍵 / 顯示文字(見 renderPurchaseLog)
+function purchasePartyKey(p){
+  if(p.supplierId && purchaseSuppliers.some(x => x.id === p.supplierId)) return 'id:' + p.supplierId;
+  const name = (p.partyName || p.partyId || '').trim();
+  if(!name) return 'name:';
+  const same = purchaseSuppliers.filter(x => (x.name || '').trim().toLowerCase() === name.toLowerCase());
+  return same.length === 1 ? 'id:' + same[0].id : 'name:' + name;
+}
+function purchasePartyLabel(p){
+  const key = purchasePartyKey(p);
+  if(key.startsWith('id:')){ const sup = purchaseSuppliers.find(x => 'id:' + x.id === key); if(sup) return supplierOptionLabel(sup); }
+  return p.partyName || p.partyId || '';
+}
+
 function renderPurchaseLog(){
   const container = document.getElementById('purchaseLogTable');
   if(!container) return;
@@ -38,9 +52,21 @@ function renderPurchaseLog(){
   // (如果篩選後那個進貨方已經不在清單裡,才會被重設成「全部對象」)。
   const partySel = document.getElementById('purchaseLogPartyFilter');
   const prevParty = partySel.value;
-  const distinctParties = [...new Set(purchases.map(p => p.partyName || p.partyId || '').filter(Boolean))].sort();
-  partySel.innerHTML = `<option value="">${t('logPartyAll')}</option>` + distinctParties.map(p => `<option value="${p.replace(/"/g,'&quot;')}">${p}</option>`).join('');
-  if(distinctParties.includes(prevParty)) partySel.value = prevParty;
+  // 篩選值:有進貨方 id 的用 'id:<id>';舊進貨單沒有 id 時,名稱剛好只對應一個進貨方就歸給它,否則用 'name:<名稱>'
+  const partyOpts = new Map();   // key -> label
+  purchases.forEach(p => {
+    const key = purchasePartyKey(p);
+    if(key === 'name:' || partyOpts.has(key)) return;
+    partyOpts.set(key, purchasePartyLabel(p));
+  });
+  // 從「進貨方管理 → 進貨紀錄」跳過來時,這個進貨方可能還沒有任何進貨單:仍保留它的選項,篩選結果就是空的
+  if(prevParty && prevParty.startsWith('id:') && !partyOpts.has(prevParty)){
+    const sup = purchaseSuppliers.find(x => 'id:' + x.id === prevParty);
+    if(sup) partyOpts.set(prevParty, supplierOptionLabel(sup));
+  }
+  const sortedOpts = [...partyOpts.entries()].sort((a, b) => a[1].localeCompare(b[1]));
+  partySel.innerHTML = `<option value="">${t('logPartyAll')}</option>` + sortedOpts.map(([k, label]) => `<option value="${k.replace(/"/g,'&quot;')}">${escapeHtmlForPrint(label)}</option>`).join('');
+  if(partyOpts.has(prevParty)) partySel.value = prevParty;
 
   const dateFrom = document.getElementById('purchaseLogDateFrom').value;
   const dateTo = document.getElementById('purchaseLogDateTo').value;
@@ -49,7 +75,7 @@ function renderPurchaseLog(){
   let filtered = purchases.slice();
   if(dateFrom) filtered = filtered.filter(p => (p.date || '') >= dateFrom);
   if(dateTo) filtered = filtered.filter(p => (p.date || '') <= dateTo);
-  if(partyFilter) filtered = filtered.filter(p => (p.partyName || p.partyId || '') === partyFilter);
+  if(partyFilter) filtered = filtered.filter(p => purchasePartyKey(p) === partyFilter);
 
   if(filtered.length === 0){
     container.innerHTML = `<div class="empty-note">${t('noPurchasesYet')}</div>`;
@@ -70,16 +96,14 @@ function renderPurchaseLog(){
         ${sorted.map(p => `
           <tr>
             <td class="pl-date" style="cursor:pointer;white-space:nowrap;" onclick="togglePurchaseDetail('${p.id}')"><span class="td-mobile-label">${t('colPurchaseDate')}</span><span style="display:inline-block;width:14px;">${expandedPurchaseId === p.id ? '▾' : '▸'}</span>${escapeHtmlForPrint(p.date || '')}</td>
-            <td class="pl-party" style="cursor:pointer;" onclick="togglePurchaseDetail('${p.id}')"><span class="td-mobile-label">${t('colPurchaseParty')}</span>${escapeHtmlForPrint(p.partyName || p.partyId || '')}${(typeof pcEstimateBadge === 'function') ? pcEstimateBadge(p) : ''}</td>
+            <td class="pl-party" style="cursor:pointer;" onclick="togglePurchaseDetail('${p.id}')"><span class="td-mobile-label">${t('colPurchaseParty')}</span>${escapeHtmlForPrint(purchasePartyLabel(p))}${(typeof pcEstimateBadge === 'function') ? pcEstimateBadge(p) : ''}</td>
             <td class="pl-invoice" style="cursor:pointer;" onclick="togglePurchaseDetail('${p.id}')"><span class="td-mobile-label">${t('colPurchaseInvoiceNo')}</span>${escapeHtmlForPrint(p.invoiceNo || '')}${getPurchaseReceiptFileList(p).length > 0 ? ` <span title="${t('hasReceiptAttachedTitle')}">📎</span>` : ''}</td>
             ${showBatchCol ? (() => { const bt = (typeof batchPurchaseTagHtml === 'function') ? batchPurchaseTagHtml(p).trim() : ''; return `<td class="pl-batch" style="cursor:pointer;" onclick="togglePurchaseDetail('${p.id}')">${bt ? `<span class="td-mobile-label">${t('batchColBatch')}</span>${bt}` : ''}</td>`; })() : ''}
             <td class="pl-actions" style="white-space:nowrap;">
-              <span class="del-link" onclick="openEditPurchaseModal('${p.id}')">${t('btnEdit')}</span>
-              &nbsp;·&nbsp;
-              <span class="del-link" onclick="exportSinglePurchase('${p.id}')">${t('btnExportPurchaseLog')}</span>
-              &nbsp;·&nbsp;
-              <span class="del-link" onclick="openSendPurchaseEmailModal('${p.id}')">${t('btnSendEmail')}</span>
-              ${p.emailedAt ? `<br class="pl-actions-br"><span style="color:var(--safe);font-size:12px;" title="${tf('emailedToTitle', { email: p.emailedTo || '', when: p.emailedAt })}">${t('alreadyEmailedBadge')}</span><span style="margin-left:4px;color:var(--ink-soft);font-size:10.5px;">${formatEmailedTimeShort(p.emailedAt)}</span>` : ''}
+              <div style="display:flex;align-items:center;justify-content:flex-end;gap:10px;">
+                ${p.emailedAt ? `<span style="text-align:right;"><span style="color:var(--safe);font-size:12px;" title="${tf('emailedToTitle', { email: p.emailedTo || '', when: p.emailedAt })}">${t('alreadyEmailedBadge')}</span><span style="margin-left:4px;color:var(--ink-soft);font-size:10.5px;">${formatEmailedTimeShort(p.emailedAt)}</span></span>` : ''}
+                <button class="btn ghost" onclick="openPurchaseActionModal('${p.id}')">${t('lblAction')} ▾</button>
+              </div>
             </td>
           </tr>
           ${expandedPurchaseId === p.id ? `
@@ -310,7 +334,10 @@ async function sendOrderEmail(orderId, toEmail, ccEmail, msgEl, note, exportMode
 
   const partyLabel = order.partyName || 'Unspecified';
   const dateLabel = order.date;
-  const { aoa, hiddenRows } = buildOrderSheetAoa([order], partyLabel, dateLabel, exportMode);
+  // 系統設置的 Sell price 顯示方式為「僅匯出」或「訂單跟匯出都顯示」時,已完成訂單的 Excel 附件多一欄 Sell price
+  // (核對當下固定的售價);成本價(Price / Total price)不放進寄給客戶的附件。
+  const sellMap = (typeof spExportEnabled === 'function' && spExportEnabled() && !isPreVerificationStatus(order)) ? spExportSellPriceMap([order]) : null;
+  const { aoa, hiddenRows } = buildOrderSheetAoa([order], partyLabel, dateLabel, exportMode, null, sellMap);
   const wb = buildOrderSheetWorkbook(aoa, hiddenRows);
   const excelArrayBuffer = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
   const excelBlob = new Blob([excelArrayBuffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
@@ -442,36 +469,44 @@ let editPurchaseWorkingItems = [];
 // currentName 是這張進貨單目前的進貨方名稱:如果剛好對得到清單裡的某個供應商,下拉選單直接選中
 // 那筆;對不到的話(例如供應商後來被刪掉了,或本來就是手打的名字),視為「新增供應商」模式,
 // 文字輸入框直接顯示、並帶入原本的名字,不會讓使用者看不到原本填的是什麼。
-function populateEditPurchasePartySelect(currentName){
+let editPurchaseSupplierId = '';   // 編輯進貨單:目前選的進貨方 id(手動輸入新名稱時是空字串)
+function populateEditPurchasePartySelect(currentName, currentSupplierId){
   const sel = document.getElementById('editPurchasePartySelect');
   const input = document.getElementById('editPurchasePartyInput');
   if(!sel || !input) return;
-  const sortedNames = purchaseSuppliers.map(s => s.name).sort((a,b) => a.localeCompare(b));
+  const sorted = purchaseSuppliers.slice().sort((a,b) => (a.name || '').localeCompare(b.name || '') || (a.code || '').localeCompare(b.code || ''));
   sel.innerHTML = `<option value="">${t('optSelectSupplier')}</option>` +
-    sortedNames.map(p => `<option value="${p.replace(/"/g,'&quot;')}">${escapeHtmlForPrint(p)}</option>`).join('') +
+    sorted.map(s => `<option value="${s.id}">${escapeHtmlForPrint(supplierOptionLabel(s))}</option>`).join('') +
     `<option value="__new__">${t('optAddNewSupplier')}</option>`;
-  if(currentName && sortedNames.includes(currentName)){
-    sel.value = currentName;
+  // 先用進貨單上記的 id 找;舊進貨單沒有 id 時,名稱剛好只對應一個進貨方才用它
+  let match = currentSupplierId ? sorted.find(x => x.id === currentSupplierId) : null;
+  if(!match && currentName){
+    const same = sorted.filter(x => x.name === currentName);
+    if(same.length === 1) match = same[0];
+  }
+  if(match){
+    sel.value = match.id; editPurchaseSupplierId = match.id;
     input.style.display = 'none';
-    input.value = currentName;
+    input.value = match.name;
   } else {
-    sel.value = '__new__';
+    sel.value = '__new__'; editPurchaseSupplierId = '';
     input.style.display = '';
     input.value = currentName || '';
   }
-}
-function onEditPurchasePartySelectChange(value){
+}function onEditPurchasePartySelectChange(value){
   const input = document.getElementById('editPurchasePartyInput');
   if(value === '__new__'){
+    editPurchaseSupplierId = '';
     input.style.display = '';
     input.value = '';
     input.focus();
   } else {
+    const sup = purchaseSuppliers.find(x => x.id === value);
+    editPurchaseSupplierId = sup ? sup.id : '';
     input.style.display = 'none';
-    input.value = value;
+    input.value = sup ? sup.name : '';
   }
-}
-function openEditPurchaseModal(purchaseId){
+}function openEditPurchaseModal(purchaseId){
   const p = purchases.find(x => x.id === purchaseId);
   if(!p) return;
   editPurchaseTargetId = purchaseId;
@@ -479,7 +514,7 @@ function openEditPurchaseModal(purchaseId){
   editPurchaseWorkingItems = (p.items || []).map(it => ({...it}));
   document.getElementById('editPurchaseDateInput').value = p.date || '';
   { const _amt = document.getElementById('editPurchaseAddItemAmount'); if(_amt){ _amt.disabled = !canEditPrice(); if(!canEditPrice()) _amt.value = ''; } }
-  populateEditPurchasePartySelect(p.partyName || p.partyId || '');
+  populateEditPurchasePartySelect(p.partyName || p.partyId || '', p.supplierId || '');
   document.getElementById('editPurchaseInvoiceInput').value = p.invoiceNo || '';
   document.getElementById('editPurchaseNoteInput').value = p.note || '';
   document.getElementById('editPurchaseReceiptUploadMsg').textContent = '';
@@ -584,8 +619,18 @@ function renderEditPurchaseItemsList(){
     wrap.innerHTML = `<div class="empty-note" style="padding:8px 0;">${lang === 'en' ? 'No items.' : '（沒有品項）'}</div>`;
     return;
   }
+  // 欄位標題列:跟每列的版面對齊(品名 / 數量 / 單位 / 金額 / 移除),金額標題帶系統預設幣種。
+  const hdrCss = 'font-size:11px;color:var(--ink-soft);';
+  const hdr = `<div style="display:flex;align-items:center;gap:8px;${hdrCss}">
+          <div style="flex:1 1 140px;min-width:0;"></div>
+          <span style="width:70px;">${t('colQty')}</span>
+          <span style="width:46px;flex:none;visibility:hidden;">${t('colQty')}</span>
+          <span style="width:90px;">${t('colAmount')} (${escapeHtmlForPrint(typeof getSystemCurrency === 'function' ? getSystemCurrency() : 'AUD')})</span>
+          <span style="visibility:hidden;">${t('btnRemoveItem')}</span>
+        </div>`;
   wrap.innerHTML = `
     <div style="display:flex;flex-direction:column;gap:6px;">
+      ${hdr}
       ${editPurchaseWorkingItems.map((it, i) => `
         <div style="padding:6px 0;border-bottom:1px solid var(--line);${it._scanUpdated ? 'background:var(--warn-bg);' : ''}">
          <div style="display:flex;align-items:center;gap:8px;">
@@ -595,14 +640,16 @@ function renderEditPurchaseItemsList(){
             ${it._scanUpdated ? `<span style="color:var(--warn-dark);font-size:11px;margin-left:4px;">🔍</span>` : ''}
           </div>
           <input type="number" value="${it.qty}" min="0" step="any" style="width:70px;" oninput="updateEditPurchaseItemQty(${i}, this.value)" />
-          <span style="font-size:11.5px;color:var(--ink-soft);">${escapeHtmlForPrint(it.unit || '')}</span>
+          <span style="font-size:11.5px;color:var(--ink-soft);width:46px;flex:none;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtmlForPrint(it.unit || '')}</span>
           <input type="number" value="${it.amount !== undefined && it.amount !== null ? it.amount : ''}" min="0" step="any" placeholder="$" style="width:90px;" ${canEditPrice() ? '' : 'readonly title="' + t('priceReadOnlyTitle') + '"'} oninput="updateEditPurchaseItemAmount(${i}, this.value)" />
           <span class="del-link" onclick="removeEditPurchaseItem(${i})">${t('btnRemoveItem')}</span>
          </div>
          ${editPurchaseIsBatchTracked() ? `<div style="display:flex;align-items:center;gap:8px;margin-top:4px;flex-wrap:wrap;">
           <span style="font-size:11.5px;color:var(--ink-soft);">${t('batchColExpiry')}</span>
-          <input type="date" value="${it.expiry || ''}" title="${t('batchColExpiry')}" style="width:140px;" onchange="updateEditPurchaseItemExpiry(${i}, this.value)" />
-          <input type="text" value="${escapeHtmlForPrint(it.supplierLot || '')}" placeholder="${t('batchFieldLot')}" style="flex:1 1 120px;min-width:100px;" oninput="updateEditPurchaseItemLot(${i}, this.value)" />
+          <input type="date" value="${it.expiry || ''}" title="${t('batchColExpiry')}" style="width:122px;" onchange="updateEditPurchaseItemExpiry(${i}, this.value)" />
+          <span style="font-size:11.5px;color:var(--ink-soft);">${t('batchLotLabel')}</span>
+          <input type="text" value="${escapeHtmlForPrint(it.supplierLot || '')}" title="${t('batchFieldLot')}" style="width:96px;" oninput="updateEditPurchaseItemLot(${i}, this.value)" />
+          ${(it.docType === 'credit_note') ? '' : `<button type="button" class="btn ghost" style="padding:2px 8px;" title="${t('batchFieldNote')}" onclick="editPurchaseOpenLineNote(${i})">📝${(it.batchNote !== undefined ? it.batchNote : batchLineNote(editPurchaseTargetId, it.productId, it.expiry || '')) ? ' ✓' : ''}</button>`}
          </div>` : ''}
         </div>
       `).join('')}
@@ -618,6 +665,46 @@ function updateEditPurchaseItemExpiry(index, value){
   const it = editPurchaseWorkingItems[index];
   if(!it) return;
   if(value) it.expiry = value; else delete it.expiry;
+  // 同商品、同有效期的品項合併成一列(有效期不同才分開列);合併後重畫清單
+  if(editPurchaseMergeDuplicateAt(index)) renderEditPurchaseItemsList();
+}
+// 兩列是不是「同一批」:同商品、同單據類型(發票 / Credit Note)、同有效期
+function editPurchaseSameLineKey(a, b){
+  return a.productId === b.productId && (a.docType || '') === (b.docType || '') && (a.expiry || '') === (b.expiry || '');
+}
+// 把第 index 列併進它前面「同一批」的那一列(數量、金額相加;供應商批號沿用第一個有填的)。有合併回傳 true。
+function editPurchaseMergeDuplicateAt(index){
+  const it = editPurchaseWorkingItems[index];
+  if(!it) return false;
+  const target = editPurchaseWorkingItems.find((x, i) => i !== index && editPurchaseSameLineKey(x, it));
+  if(!target) return false;
+  target.qty = (target.qty || 0) + (it.qty || 0);
+  if(it.amount !== undefined && it.amount !== null) target.amount = (target.amount || 0) + it.amount;
+  if(!target.supplierLot && it.supplierLot) target.supplierLot = it.supplierLot;
+  editPurchaseWorkingItems.splice(index, 1);
+  return true;
+}
+// 商品行備註:點 📝 開小視窗編輯(存進批次,顯示在批次追蹤商品頁的詳細資料)
+function editPurchaseOpenLineNote(index){
+  const it = editPurchaseWorkingItems[index];
+  if(!it) return;
+  const cur = it.batchNote !== undefined ? it.batchNote : batchLineNote(editPurchaseTargetId, it.productId, it.expiry || '');
+  const old = document.getElementById('editPurchaseLineNoteOverlay'); if(old) old.remove();
+  const ov = document.createElement('div');
+  ov.id = 'editPurchaseLineNoteOverlay'; ov.className = 'modal-overlay'; ov.style.display = 'flex'; ov.style.zIndex = '1250';
+  ov.innerHTML = `<div class="modal-box" style="max-width:min(420px,94vw);">
+    <div class="section-title" style="margin-top:0;">${t('batchFieldNote')} · ${escapeHtmlForPrint(it.name || '')}</div>
+    <textarea id="editPurchaseLineNoteInput" rows="4" style="width:100%;box-sizing:border-box;">${escapeHtmlForPrint(cur)}</textarea>
+    <div class="modal-actions"><button class="btn ghost" onclick="document.getElementById('editPurchaseLineNoteOverlay').remove()">${t('btnCancel')}</button><button class="btn" onclick="editPurchaseSaveLineNote(${index})">${t('btnSave')}</button></div>
+  </div>`;
+  document.body.appendChild(ov);
+}
+function editPurchaseSaveLineNote(index){
+  const it = editPurchaseWorkingItems[index];
+  const el = document.getElementById('editPurchaseLineNoteInput');
+  if(it && el) it.batchNote = el.value.trim();
+  const ov = document.getElementById('editPurchaseLineNoteOverlay'); if(ov) ov.remove();
+  renderEditPurchaseItemsList();
 }
 function updateEditPurchaseItemLot(index, value){
   const it = editPurchaseWorkingItems[index];
@@ -665,10 +752,10 @@ function addEditPurchaseItem(){
   const p = products.find(x => x.id === productId);
   if(!p) return;
   const amountVal = (!canEditPrice() || amountInput.value === '') ? undefined : parseFloat(amountInput.value);
-  // 手動新增的品項,如果剛好跟清單裡已經有的某一項是同一個商品、也同樣沒有 docType/來源檔案
-  // (代表都是一般手動輸入的,不是分屬不同收據來源),直接把數量/金額併進那一列,不要平白多出
-  // 重複的兩列看起來像同一個商品被記兩筆帳。
-  const existing = editPurchaseWorkingItems.find(it => it.productId === productId && !it.docType && !it.sourceFilename);
+  // 新增的品項,如果清單裡已經有「同商品、同單據類型、同樣沒有有效期」的一列,直接把數量/金額併進去,
+  // 不要平白多出重複的兩列看起來像同一個商品被記兩筆帳。(新增當下還沒填有效期,之後在那一列填的有效期
+  // 如果跟另一列相同,會在 updateEditPurchaseItemExpiry 自動合併;有效期不同才會分開列。)
+  const existing = editPurchaseWorkingItems.find(it => it.productId === productId && !it.docType && !it.expiry);
   if(existing){
     existing.qty = (existing.qty || 0) + qty;
     if(amountVal !== undefined) existing.amount = (existing.amount || 0) + amountVal;
@@ -875,7 +962,7 @@ async function confirmEditPurchase(){
   // 品項清單存檔前先去掉 _scanUpdated(只是編輯畫面上用來標記「這行剛被掃描結果蓋過」的暫時
   // UI 旗標,不是資料本身的一部分,不能真的存進 purchase.items 裡)。
   const cleanItems = editPurchaseWorkingItems.map(it => {
-    const { _scanUpdated, ...rest } = it;
+    const { _scanUpdated, batchNote, ...rest } = it;
     return rest;
   });
   // 比較品項有沒有真的改過:正規化成只留下影響庫存/金額的欄位、排序後再比較,不受「使用者
@@ -912,6 +999,7 @@ async function confirmEditPurchase(){
   p.date = dateVal;
   p.partyName = partyVal;
   p.partyId = partyVal;
+  if(editPurchaseSupplierId) p.supplierId = editPurchaseSupplierId; else delete p.supplierId;
   p.invoiceNo = invoiceVal;
   p.note = noteVal;
   p.items = cleanItems;
@@ -953,12 +1041,28 @@ async function confirmEditPurchase(){
     }
     // 批次追蹤:同步批次(數量/有效期/批號/日期/Invoice/供應商有改才呼叫)
     if(p.batchTracked && typeof batchSavePurchase === 'function' && (itemsChanged || costsChanged || dateVal !== oldDate || partyVal !== oldParty || invoiceVal !== oldInvoice)){
-      try{ await batchSavePurchase(p); }
+      const locBefore = (typeof batchSnapshotPurchaseLocs === 'function') ? batchSnapshotPurchaseLocs(p.id) : null;
+      try{
+        await batchSavePurchase(p);
+        // 位置:數量改少或整行移除後,批次記的位置數量跟著減回去,庫存分布同步扣掉
+        if(locBefore && typeof batchSyncPurchaseLocAfterEdit === 'function') await batchSyncPurchaseLocAfterEdit(p.id, locBefore);
+      }
       catch(be){
         console.error('同步批次失敗', be);
         const inUse = (typeof batchParseInUseError === 'function') ? batchParseInUseError(be) : null;
         showInfoModal(inUse ? tf('batchEditBelowUsed', { name: batchProductName(inUse.product_id), batch: '', used: inUse.min_qty }) : t('batchCreateFailed'));
       }
+    }
+    // 每行的批次備註(只在有填/改過時才寫入;不動位置)
+    if(p.batchTracked && typeof batchSaveLineNotes === 'function'){
+      const noteRows = {};
+      editPurchaseWorkingItems.forEach(it => {
+        if(it.batchNote === undefined || it.docType === 'credit_note') return;
+        const key = it.productId + '|' + (it.expiry || '');
+        const prev = noteRows[key];
+        noteRows[key] = { product_id: it.productId, expiry: it.expiry || '', note: prev && prev.note ? prev.note + '\n' + it.batchNote.trim() : it.batchNote.trim() };
+      });
+      await batchSaveLineNotes(p.id, Object.values(noteRows));
     }
     renderPurchaseLog();
     if(itemsChanged) renderAll(); // 庫存數字真的變了,連動刷新庫存總覽等其他畫面
@@ -968,6 +1072,41 @@ async function confirmEditPurchase(){
     msgEl.className = 'msg error';
     msgEl.textContent = '⚠ 儲存失敗,請重新整理頁面再試一次。';
   }
+}
+
+// 進貨單紀錄的 Action:編輯 / 匯出這張進貨單 / 寄 Email(跟訂單的 Action 同一種小視窗)
+function openPurchaseActionModal(purchaseId){
+  const p = purchases.find(x => x.id === purchaseId);
+  if(!p) return;
+  const old = document.getElementById('purchaseActionOverlay'); if(old) old.remove();
+  const ov = document.createElement('div');
+  ov.id = 'purchaseActionOverlay'; ov.className = 'modal-overlay'; ov.style.display = 'flex';
+  ov.onclick = e => { if(e.target === ov) ov.remove(); };
+  const exportLabel = t('btnExportPurchaseLog').replace(/^📤\s*/, '');
+  ov.innerHTML = `<div class="modal-box" style="max-width:340px;">
+    <div class="section-title" style="margin-bottom:12px;">${escapeHtmlForPrint(p.date || '')}${p.invoiceNo ? ' · ' + escapeHtmlForPrint(p.invoiceNo) : ''}</div>
+    <div class="field">
+      <label>${t('lblAction')}</label>
+      <select id="purchaseActionSelect">
+        <option value="edit">${t('btnEdit')}</option>
+        <option value="export">${escapeHtmlForPrint(exportLabel)}</option>
+        <option value="email">${t('btnSendEmail')}</option>
+      </select>
+    </div>
+    <div class="modal-actions">
+      <button class="btn ghost" onclick="document.getElementById('purchaseActionOverlay').remove()">${t('btnCancel')}</button>
+      <button class="btn" onclick="confirmPurchaseActionModal('${purchaseId}')">${t('btnRunAction')}</button>
+    </div>
+  </div>`;
+  document.body.appendChild(ov);
+}
+function confirmPurchaseActionModal(purchaseId){
+  const sel = document.getElementById('purchaseActionSelect');
+  const action = sel ? sel.value : '';
+  const ov = document.getElementById('purchaseActionOverlay'); if(ov) ov.remove();
+  if(action === 'edit') openEditPurchaseModal(purchaseId);
+  else if(action === 'export') exportSinglePurchase(purchaseId);
+  else if(action === 'email') openSendPurchaseEmailModal(purchaseId);
 }
 
 function exportSinglePurchase(purchaseId){

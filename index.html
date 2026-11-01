@@ -143,6 +143,18 @@
   #tab-log .subtab-content > .section{ padding:0 0 20px; border-bottom:none; }
   #tab-log .section-title{ margin-bottom:10px; }
   .section{ padding:26px 36px; border-bottom:1px solid var(--line); }
+  .batch-hist-table tr.loc-row{ display:none; }
+  .tab-content > .section:first-child, .subtab-content > .section:first-child{ padding-top:12px; }
+  .subtab-bar{ margin-bottom:8px !important; }
+  /* 分頁說明:標題旁的 ⓘ 按鈕,點擊顯示/隱藏說明 */
+  .title-hint-text{ display:none; }
+  .title-hint-text.open{ display:block; }
+  .title-hint-btn{
+    display:inline-flex; align-items:center; justify-content:center; flex:0 0 auto; width:18px; height:18px; padding:0;
+    border:1px solid var(--ink-soft); border-radius:50%; background:transparent; color:var(--ink-soft);
+    font:italic 700 11px/1 Georgia,serif; text-transform:none; cursor:pointer;
+  }
+  .title-hint-btn:hover{ background:var(--yellow); color:var(--ink); border-color:var(--ink); }
   .section:last-child{ border-bottom:none; }
   .section-title{
     font-family:'Archivo Black',sans-serif; font-size:13px; text-transform:uppercase; letter-spacing:0.6px;
@@ -1020,6 +1032,44 @@
     .overview-toolbar-right{ justify-content:space-between !important; }
     .overview-action-box{ flex:1 1 auto; }
   }
+
+  /* 手機版:批次追蹤/登記進出貨新增的表格與列,避免超出畫面 */
+  @media (max-width:768px){
+    /* 批次歷史紀錄頁:縮小欄位間距、允許換行,外層可左右捲動 */
+    .batch-hist-wrap{ overflow-x:auto; -webkit-overflow-scrolling:touch; }
+    .batch-hist-table th, .batch-hist-table td{ padding-right:6px !important; padding-left:4px !important; font-size:12px; white-space:normal; }
+    /* 歷史紀錄的位置較長:手機版改放在該筆紀錄的下一行,完整顯示 */
+    .batch-hist-table .loc-col{ display:none; }
+    .batch-hist-table tr.loc-row{ display:table-row; }
+    .batch-hist-table tr.loc-row td{ padding-top:0 !important; word-break:break-all; color:var(--ink-soft); }
+    .batch-hist-table tr.has-loc > td{ border-bottom:none !important; }
+    /* 登記進出貨的清單(進貨新增商品、出貨新增清單):每一行改成直式卡片,欄位標題用 data-label 顯示 */
+    #txBatchList .stock-table thead{ display:none; }
+    #txBatchList .stock-table, #txBatchList .stock-table tbody, #txBatchList .stock-table tr, #txBatchList .stock-table td, #txBatchList .stock-table tfoot{ display:block; width:100%; box-sizing:border-box; }
+    #txBatchList .stock-table tr{ border-bottom:1px solid var(--line); padding:8px 0; }
+    #txBatchList .stock-table td{ padding:3px 0 !important; text-align:left !important; min-width:0 !important; border:none !important; }
+    #txBatchList .stock-table td[data-label]::before{ content:attr(data-label); display:block; font-size:11px; color:var(--ink-soft); }
+    #txBatchList .stock-table td.row-action{ display:flex; gap:10px; justify-content:flex-start; }
+    #txBatchList .stock-table input.order-qty-input{ max-width:100%; box-sizing:border-box; }
+    #txBatchList .stock-table input[type=date].order-qty-input{ width:150px !important; }
+    /* 進貨清單卡片:第1行商品名;第2行 數量 + 金額;第3行 有效期 + 位置;最後是操作按鈕 */
+    #txBatchList .stock-table tr{ display:flex; flex-wrap:wrap; align-items:flex-end; column-gap:14px; }
+    #txBatchList .stock-table td{ order:3; }
+    #txBatchList .stock-table td:empty{ display:none; }
+    #txBatchList .stock-table td.row-name{ order:0; width:100%; }
+    #txBatchList .stock-table td:nth-child(2){ order:1; width:auto; flex:0 0 auto; }
+    #txBatchList .stock-table td.tx-sell, #txBatchList .stock-table td.tx-amt{ order:2; width:auto; flex:0 0 auto; }
+    #txBatchList .stock-table td.tx-amt input.order-qty-input{ width:110px; }
+    #txBatchList .stock-table td.tx-exp{ order:3; width:auto; flex:0 0 auto; }
+    #txBatchList .stock-table td.tx-loc{ order:4; width:auto; flex:1 1 120px; }
+    #txBatchList .stock-table td.row-action{ order:2; width:auto; flex:0 0 auto; }
+    /* 載入待處理/已完成訂單的原有商品列、訂單卡片的商品列:固定寬度的價格欄改成可換行 */
+    #txExistingItemsList .sp-cols-head, #txExistingItemsList .sp-total-row{ display:none !important; }
+    #txExistingItemsList span[style*="width"], .order-items span[style*="width"]{ width:auto !important; min-width:0 !important; }
+    #txExistingItemsList > div, .order-items > div{ flex-wrap:wrap !important; }
+    /* 批次選擇 / 轉移 / 位置視窗:表格太寬時可左右捲動 */
+    #batchPickerOverlay .modal-box, #batchTransferOverlay .modal-box, #batchSetLocOverlay .modal-box, #batchLocOverlay .modal-box{ max-width:96vw !important; overflow-x:auto; }
+  }
   @media (max-width:720px){
     .card-grid{ grid-template-columns:1fr 1fr; }
   }
@@ -1134,11 +1184,13 @@
       </div>
 
       <div id="subtab-sys-settings" class="subtab-content">
-                <div id="settingsGroupNav" class="settings-group-nav">
-          <button type="button" data-sgroup-btn="ui" onclick="switchSettingsGroup('ui')" data-i18n="sgroupUi">介面與排序</button>
-          <button type="button" data-sgroup-btn="orders" onclick="switchSettingsGroup('orders')" data-i18n="sgroupOrders">訂單與出貨</button>
-          <button type="button" data-sgroup-btn="price" onclick="switchSettingsGroup('price')" data-i18n="sgroupPrice">價格與批次</button>
-          <button type="button" data-sgroup-btn="data" onclick="switchSettingsGroup('data')" data-i18n="sgroupData">資料維護</button>
+                <div id="settingsGroupNav" class="log-select-bar" style="margin-bottom:14px;">
+          <select id="settingsGroupSelect" onchange="switchSettingsGroup(this.value)" style="font-size:16px;font-weight:700;padding:10px 14px;min-width:240px;border:2px solid var(--ink);border-radius:6px;background:#fff;color:var(--ink);cursor:pointer;">
+            <option value="ui" data-i18n="sgroupUi">介面與排序</option>
+            <option value="orders" data-i18n="sgroupOrders">訂單與出貨</option>
+            <option value="price" data-i18n="sgroupPrice">價格與批次</option>
+            <option value="data" data-i18n="sgroupData">資料維護</option>
+          </select>
         </div>
 <div class="settings-card" data-sgroup="ui">
           <div class="toolbar" style="margin:0 0 0;">
@@ -1446,7 +1498,8 @@
     <div class="section">
       <div class="section-title"><span data-i18n="secRegisterTx">登記進出貨</span></div>
       <p style="font-size:11.5px;color:var(--ink-soft);margin:0 0 12px;" data-i18n="txBatchDesc">先選好下面共用的類型/日期/對象/備註,再從清單依序把商品加進來;按「登記」時,清單裡的每一項商品都會各自登記成一筆獨立的紀錄,但共用同一個類型/日期/對象,備註也會套用到全部品項。</p>
-      <div class="field" style="max-width:200px;margin-bottom:10px;">
+      <div style="display:flex;gap:28px;align-items:flex-start;flex-wrap:wrap;margin-bottom:10px;">
+      <div class="field" style="min-width:160px;max-width:200px;margin:0;">
         <label data-i18n="lblType">類型</label>
         <select id="txTypeSelect" onchange="setTxType(this.value)">
           <option value="in" data-i18n="lblStockIn">進貨 +</option>
@@ -1456,8 +1509,8 @@
           <option value="adjustment" data-i18n="optFlowAdjustment">庫存調整</option>
         </select>
       </div>
-      <div id="txDeliveryFlowTypeRow" style="display:none;">
-        <div class="form-grid" style="grid-template-columns:1fr 1fr;max-width:520px;">
+      <div id="txDeliveryFlowTypeRow" style="display:none;margin:0;">
+        <div style="display:flex;gap:28px;align-items:flex-start;flex-wrap:wrap;">
           <div class="field">
             <label data-i18n="lblDeliveryFlowType">操作</label>
             <select id="txDeliveryFlowType" onchange="setTxDeliveryFlowType(this.value)">
@@ -1474,6 +1527,26 @@
             </select>
           </div>
         </div>
+      </div>
+      <div id="txOutFlowTypeRow" style="display:none;margin:0;">
+        <div style="display:flex;gap:28px;align-items:flex-start;flex-wrap:wrap;">
+          <div class="field">
+            <label data-i18n="lblOutFlowType">出貨類型</label>
+            <select id="txOutFlowType" onchange="setTxOutFlowType(this.value)">
+              <option value="" data-i18n="optSelectOutFlowType">— 請選擇 —</option>
+              <option value="new-order" data-i18n="optFlowNewOrder">新增訂單</option>
+              <option value="load-pending" data-i18n="optFlowLoadPending">載入現有待處理訂單</option>
+              <option value="load-completed" data-i18n="optFlowLoadCompleted">載入現有已完成訂單</option>
+            </select>
+          </div>
+          <div class="field" id="txOutFlowOrderSelectWrap" style="display:none;">
+            <label id="txOutFlowOrderSelectLabel" data-i18n="fieldSelectPendingOrder">選擇待處理訂單</label>
+            <select id="txOutFlowOrderSelect" onchange="loadOrderIntoRegisterFlow(this.value)">
+              <option value="" data-i18n="optSelectPendingOrder">— 請選擇 —</option>
+            </select>
+          </div>
+        </div>
+      </div>
       </div>
       <div id="txDeliveryViewSection" class="section" style="display:none;margin-top:16px;">
         <p style="font-size:12.5px;color:var(--ink-soft);margin:0 0 12px;" data-i18n="deliveryNoteLogDesc">
@@ -1498,36 +1571,18 @@
         </div>
         <div id="deliveryNoteLogTable"><div class="empty-note" data-i18n="noRecordsYet">尚無紀錄</div></div>
       </div>
-      <div id="txOutFlowTypeRow" style="display:none;">
-        <div class="form-grid" style="grid-template-columns:1fr 1fr;max-width:520px;">
-          <div class="field">
-            <label data-i18n="lblOutFlowType">出貨類型</label>
-            <select id="txOutFlowType" onchange="setTxOutFlowType(this.value)">
-              <option value="" data-i18n="optSelectOutFlowType">— 請選擇 —</option>
-              <option value="new-order" data-i18n="optFlowNewOrder">新增訂單</option>
-              <option value="load-pending" data-i18n="optFlowLoadPending">載入現有待處理訂單</option>
-              <option value="load-completed" data-i18n="optFlowLoadCompleted">載入現有已完成訂單</option>
-            </select>
-          </div>
-          <div class="field" id="txOutFlowOrderSelectWrap" style="display:none;">
-            <label id="txOutFlowOrderSelectLabel" data-i18n="fieldSelectPendingOrder">選擇待處理訂單</label>
-            <select id="txOutFlowOrderSelect" onchange="loadOrderIntoRegisterFlow(this.value)">
-              <option value="" data-i18n="optSelectPendingOrder">— 請選擇 —</option>
-            </select>
-          </div>
-        </div>
-      </div>
       <div id="txMainFormArea">
       <div class="form-grid" id="txMainFormGrid" style="grid-template-columns:1fr 1fr 1.4fr;">
         <div class="field">
           <label data-i18n="lblDate">日期</label>
           <input id="txDate" type="date" />
         </div>
-        <div class="field" id="txPartyFieldWrap">
+        <div class="field" id="txPartyFieldWrap" style="position:relative;">
           <label id="txPartyLabel" data-i18n="partyLabelIn">進貨方(供應商)</label>
           <select id="txPartyHistorySelect" style="display:none;" onchange="onTxPartyHistorySelectChange(this.value)"></select>
           <input id="txParty" type="text" placeholder="例如:大盤商 A" data-i18n-placeholder="partyPlaceholderIn" />
           <select id="txPartySelect" style="display:none;" onchange="if(typeof renderTxBatchList === 'function') renderTxBatchList()"></select>
+          <span id="txPartyEditLink" class="del-link" style="display:none;position:absolute;left:0;top:100%;margin-top:3px;font-size:12px;white-space:nowrap;" onclick="partyEditFromOrder(this.dataset.pid)" data-i18n="linkEditParty">✎ 編輯出貨方</span>
         </div>
         <div class="field" id="txInvoiceFieldWrap" style="display:none;">
           <label data-i18n="fieldInvoiceNo">Invoice 號碼(選填)</label>
@@ -1540,17 +1595,22 @@
       </div>
       <div id="purchaseReceiptWrap" style="display:none;margin-top:10px;">
         <label style="display:block;font-size:12.5px;font-weight:600;color:var(--ink);margin-bottom:4px;" data-i18n="fieldPurchaseReceipt">收據/發票附件(選填,圖片或 PDF,可選取多個檔案)</label>
+        <div style="display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px 16px;">
+          <div style="display:flex;flex-wrap:wrap;align-items:center;gap:8px 14px;">
         <input type="file" id="purchaseReceiptInput" accept="image/*,application/pdf,.xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel" multiple onchange="handlePurchaseReceiptUpload(this)" style="border:1px solid var(--line);background:#fff;border-radius:2px;padding:8px;font-family:'IBM Plex Mono',monospace;font-size:12px;" />
         <button type="button" id="btnOpenCameraCapture" class="btn ghost" onclick="openCameraCaptureModal(file => uploadPurchaseReceiptFiles([file]))" style="display:none;margin-left:6px;vertical-align:top;">📷 <span data-i18n="btnTakePhoto">拍照上傳</span></button>
+            <div id="txBatchTrackWrap" style="display:none;"></div>
+            <span style="display:inline-flex;align-items:center;gap:8px;">
+              <input type="checkbox" id="purchaseEmailToggle" onchange="togglePurchaseEmailFieldVisibility(this)" style="width:16px;height:16px;cursor:pointer;" />
+              <label for="purchaseEmailToggle" style="font-size:12.5px;color:var(--ink);font-weight:600;cursor:pointer;white-space:nowrap;" data-i18n="chkEmailToAccounting">寄送給會計</label>
+            </span>
+          </div>
+        </div>
         <div id="purchaseReceiptUploadMsg" style="font-size:11.5px;margin-top:4px;"></div>
         <div id="purchaseReceiptPreviewWrap" style="display:none;margin-top:8px;flex-direction:column;gap:4px;"></div>
         <div id="purchaseReceiptScanWrap" style="display:none;margin-top:8px;">
           <button type="button" class="btn ghost" onclick="scanReceiptForItems()" id="btnScanReceipt">🔍 <span data-i18n="btnScanReceipt">掃描收據自動帶入商品</span></button>
           <div id="purchaseReceiptScanMsg" style="font-size:11.5px;margin-top:4px;"></div>
-        </div>
-        <div style="display:flex;align-items:center;gap:8px;margin-top:12px;">
-          <input type="checkbox" id="purchaseEmailToggle" onchange="togglePurchaseEmailFieldVisibility(this)" style="width:16px;height:16px;cursor:pointer;" />
-          <label for="purchaseEmailToggle" style="font-size:12.5px;color:var(--ink);font-weight:600;cursor:pointer;" data-i18n="chkEmailToAccounting">寄送給會計</label>
         </div>
         <div id="purchaseEmailFieldWrap" style="display:none;margin:6px 0 0 24px;">
           <label style="display:block;font-size:11.5px;color:var(--ink-soft);margin:0 0 2px;" data-i18n="fieldRecipientEmail">收件人 Email</label>
@@ -1577,7 +1637,6 @@
           <span data-i18n="browseAllProductsLabel">瀏覽所有商品(不勾選:只顯示這個出貨方訂貨時看得到的商品;勾選:顯示庫存總覽裡所有商品,隱藏商品除外)</span>
         </label>
       </div>
-      <div id="txBatchTrackWrap" style="display:none;margin-top:8px;"></div>
       <div class="form-grid" style="grid-template-columns:1fr 1.3fr 1fr auto;margin-top:6px;">
         <div class="field">
           <label data-i18n="fieldFilterByCategory">依分類篩選商品</label>
@@ -1675,12 +1734,12 @@
         <div class="overview-toolbar-left" style="display:flex;flex-direction:column;gap:10px;align-items:flex-start;">
          <div class="overview-toolbar-row" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
           <div class="section-title" style="margin:0;"><span data-i18n="secStockOverview">庫存總覽</span></div>
+         </div>
+         <div class="overview-toolbar-row" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
           <select id="categoryFilter" onchange="renderStockCards()">
             <option value="" data-i18n="catFilterAll">全部分類</option>
           </select>
           <input type="search" id="stockSearchInput" oninput="renderStockCards()" data-i18n-placeholder="stockSearchPlaceholder" placeholder="搜尋商品名稱…" style="width:170px;" />
-         </div>
-         <div class="overview-toolbar-row" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
           <select id="statusFilter" onchange="renderStockCards()">
             <option value="" data-i18n="statusFilterAll">燈號:全部</option>
             <option value="crit" data-i18n="statusFilterCrit">🔴 紅燈(庫存吃緊)</option>
@@ -1746,6 +1805,12 @@
             <span data-i18n="chkShowAllUnassigned">列出所有未指派商品</span>
           </label>
         </div>
+        <div class="field" style="justify-content:flex-end;">
+          <label style="display:flex;align-items:center;gap:6px;font-weight:600;color:var(--ink);cursor:pointer;font-size:12.5px;text-transform:none;">
+            <input type="checkbox" id="stockLocationShowAllMulti" onchange="toggleStockLocationMultiView(this.checked)" style="width:15px;height:15px;cursor:pointer;" />
+            <span data-i18n="chkShowAllMultiLocation">列出所有多個位置的商品</span>
+          </label>
+        </div>
       </div>
       <div id="stockLocationDetail"></div>
     </div>
@@ -1771,9 +1836,6 @@
         <span class="del-link" style="margin-left:10px;font-weight:600;" onclick="cancelAddItemsToOrder()" data-i18n="btnCancelAddToOrder">取消,不新增了</span>
       </div>
       <div class="section-title" data-i18n="secCreateOrder">建立訂貨單</div>
-      <p style="font-size:12.5px;color:var(--ink-soft);margin:0 0 12px;" data-i18n-html="orderTabDesc">
-        只有標記為「可訂貨」的商品會出現在下面清單(在「庫存總覽」分頁的商品列點「加入訂貨」即可標記;也可以在「倉庫後台管理 → 出貨方管理」針對個別出貨方再調整能看到哪些商品)。庫存為 0 的商品會顯示「缺貨」且無法填數量,訂貨數量也不能超過目前庫存。<b>按下「購物車」不會扣除庫存,會先進入購物車確認,按下購物車裡的「送出訂貨」才會扣除庫存並記錄到「訂貨後台管理 → 已完成訂單」</b>,請確認數量無誤再送出;不小心送錯的話,可以到「已完成訂單」用刪除功能把庫存退回來。
-      </p>
       <div class="form-grid" style="grid-template-columns:200px 200px 1fr;">
         <div class="field">
           <label data-i18n="fieldOrderDate">訂貨日期</label>
@@ -1799,6 +1861,10 @@
           <select id="orderCategoryFilter" onchange="renderOrderItemsTable()">
             <option value="" data-i18n="catFilterAll">全部分類</option>
           </select>
+        </div>
+        <div class="field" style="max-width:240px;">
+          <label data-i18n="orderSearchLabel">商品搜尋</label>
+          <input type="search" id="orderSearchInput" oninput="renderOrderItemsTable()" data-i18n-placeholder="stockSearchPlaceholder" placeholder="搜尋商品名稱…" />
         </div>
         <button class="btn" onclick="openCart()" data-i18n="btnCart">🛒 購物車</button>
       </div>
@@ -2128,6 +2194,7 @@
         <option value="subtab-log-forecast" data-i18n="subtabLogForecast">進貨預估紀錄</option>
         <option value="subtab-log-tx" data-i18n="subtabLogTx" selected>進出貨紀錄</option>
         <option value="subtab-log-convert" data-i18n="subtabLogConvert">切換紀錄</option>
+        <option value="subtab-log-location" data-i18n="subtabLogLocation">庫存分布紀錄</option>
         <option value="subtab-log-exports" data-i18n="subtabLogExports">匯出紀錄</option>
         <option value="subtab-log-inventory" data-i18n="subtabLogInventory">後台紀錄</option>
       </select>
@@ -2267,6 +2334,29 @@
           保留最近一個月的切換紀錄。若切換錯誤,可以點右側「復原」按鈕撤銷。
         </p>
         <div id="convertHistoryTable"><div class="empty-note" data-i18n="noConvertHistory">最近一個月沒有切換紀錄。</div></div>
+      </div>
+    </div>
+
+    <div id="subtab-log-location" class="subtab-content">
+      <div class="section">
+        <div class="toolbar">
+          <div class="section-title" style="margin:0;"><span data-i18n="secLocationLog">庫存分布紀錄</span></div>
+        </div>
+        <p style="font-size:12.5px;color:var(--ink-soft);margin:0 0 12px;" data-i18n="locationLogDesc">
+          列出每一次在庫存分布裡「轉移位置」的紀錄:從哪個位置搬到哪個位置、搬了多少、搬的是哪些批次。
+        </p>
+        <div class="filter-row">
+          <div class="field">
+            <label data-i18n="fieldFilterByCategory">依分類篩選商品</label>
+            <select id="locLogCategoryFilter" onchange="onLocationLogCategoryChange()"></select>
+          </div>
+          <div class="field" style="min-width:260px;">
+            <label data-i18n="lblProduct">商品</label>
+            <select id="locLogProductSelect" onchange="renderLocationLog()"></select>
+          </div>
+          <button class="btn ghost" onclick="clearLocationLogFilters()" data-i18n="btnClearFilter">清除篩選</button>
+        </div>
+        <div id="locationLogTable"></div>
       </div>
     </div>
 
@@ -2753,6 +2843,7 @@
     </div>
     <div id="partyEditModalMsg" class="msg"></div>
     <div class="modal-actions">
+      <button class="btn ghost" id="partyDeleteBtn" style="margin-right:auto;color:var(--crit);border-color:var(--crit);" onclick="deleteParty(editingPartyId)" data-i18n="btnDelete">刪除</button>
       <button class="btn ghost" onclick="closePartyEditModal()" data-i18n="btnCancel">取消</button>
       <button class="btn" onclick="savePartyEdit()" data-i18n="btnSave">儲存</button>
     </div>
@@ -2788,6 +2879,7 @@
     </div>
     <div id="supplierEditModalMsg" class="msg"></div>
     <div class="modal-actions">
+      <button class="btn ghost" id="supplierDeleteBtn" style="margin-right:auto;color:var(--crit);border-color:var(--crit);" onclick="deleteSupplier(editingSupplierId)" data-i18n="btnDelete">刪除</button>
       <button class="btn ghost" onclick="closeSupplierEditModal()" data-i18n="btnCancel">取消</button>
       <button class="btn" onclick="saveSupplierEdit()" data-i18n="btnSave">儲存</button>
     </div>

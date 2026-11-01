@@ -19,6 +19,12 @@ function batchWarnDays(){ return (typeof getBatchExpiryWarnDays === 'function') 
 
 let batchAvailable = true;                       // 資料表不存在時變 false → 功能整個停用
 let batchData = { items: [], loaded: false, stale: false, error: '' };
+// 庫存位置分批次:batch_item_id -> [{ code, qty }](只含有指定位置的;沒指定的 = 進貨量 − 加總 = 未分配位置)
+let batchItemLocs = {};
+// 位置剩餘量(含出貨異動):batch_item_id -> [{ code, rem }](視圖 batch_item_loc_stock,需先執行 sql/batch_location_phase_b.sql)
+let batchItemLocRem = {};
+// 出貨前選好的「批次 × 位置」分配計畫:productId -> [{ batchItemId, code, qty }],出貨寫入後由 batchAllocateAfter 取用
+let batchLocPlans = {};
 let batchDataPromise = null;
 let batchTxMoveCache = {};                       // txId -> [{ batch_item_id, qty, kind }]
 let batchPicks = {};                             // `${orderId}::${productId}` -> [{ batchItemId, qty }](核對頁手動指定)
@@ -93,6 +99,26 @@ async function loadBatchData(){
     });
     batchData.loaded = true; batchData.stale = false; batchData.error = '';
     batchAvailable = true;
+    // 商品行備註(batch_items.note,需先執行 sql/batch_location_phase_a.sql);沒有這個欄位就略過
+    try{
+      const noteRows = await fetchAllPages(() => sb.from('batch_items').select('id,note').not('note', 'is', null).order('id', { ascending: true }));
+      const nm = {}; noteRows.forEach(r => { nm[r.id] = r.note || ''; });
+      batchData.items.forEach(i => { i.note = nm[i.id] || ''; });
+    }catch(e){ batchData.items.forEach(i => { i.note = ''; }); }
+    // 位置資料(需先執行 sql/batch_location_phase_a.sql);表不存在或讀取失敗只是沒有位置顯示,不影響其他批次功能
+    batchItemLocs = {};
+    try{
+      const locRows = await fetchAllPages(() => sb.from('batch_item_locations').select('batch_item_id,location_code,qty').order('id', { ascending: true }));
+      locRows.forEach(r => { (batchItemLocs[r.batch_item_id] = batchItemLocs[r.batch_item_id] || []).push({ code: r.location_code, qty: Number(r.qty) }); });
+    }catch(e){ if(!batchIsMissingTableError(e)) console.warn('批次位置資料讀取失敗', e); }
+    batchItemLocRem = {};
+    try{
+      const remRows = await fetchAllPages(() => sb.from('batch_item_loc_stock').select('batch_item_id,location_code,remaining').order('batch_item_id', { ascending: true }));
+      remRows.forEach(r => { (batchItemLocRem[r.batch_item_id] = batchItemLocRem[r.batch_item_id] || []).push({ code: r.location_code, rem: Number(r.remaining) }); });
+    }catch(e){
+      // 視圖還沒建立(phase b SQL 未執行):退回用進貨時記的位置數量(不含出貨異動)
+      Object.keys(batchItemLocs).forEach(id => { batchItemLocRem[id] = batchItemLocs[id].map(l => ({ code: l.code, rem: l.qty })); });
+    }
   } catch(e){
     console.warn('批次資料讀取失敗', e);
     // 資料表還沒建立(SQL 還沒執行)→ 整個功能停用;其他錯誤(網路…)只是這次沒載到
@@ -180,6 +206,9 @@ function batchShowShipCost(ev, ship, cur){
 
 // 有效期先到期先出;沒有有效期的排後面,依進貨日 FIFO(期初批次日期最舊)。資料庫端排序規則一樣。
 function batchFefoCompare(a, b){
+  // 期初批次(沒有有效期、視為最舊)優先;其餘先到期先出,沒有有效期的排後面,再依進貨日 FIFO
+  if(a.isOpening && !b.isOpening) return -1;
+  if(!a.isOpening && b.isOpening) return 1;
   const ae = a.expiry || '', be = b.expiry || '';
   if(ae && !be) return -1;
   if(!ae && be) return 1;
@@ -297,13 +326,38 @@ function batchOpenPicker(opts){
   // 預設顯示「目前實際會怎麼分配」(自動分配的結果,或已指定的批次加上自動補的部分),可以直接改數字
   const cur = {};
   batchPreviewAllocation(opts.productId, opts.qty, opts.picks).lines.forEach(l => { cur[l.item.id] = (cur[l.item.id] || 0) + l.qty; });
-  const rows = items.map(i => `
-    <tr>
-      <td>${batchEsc(i.batchNo)}${i.isOpening ? ' <span style="color:var(--ink-soft);font-size:11px;">(' + t('batchOpening') + ')</span>' : ''}</td>
-      <td>${i.expiry ? batchEsc(i.expiry) + batchExpiryBadge(i.expiry) : '–'}</td>
-      <td class="num">${batchFmtQty(i.remaining)}</td>
-      <td class="num"><input type="number" class="batch-pick-input" data-id="${i.id}" data-max="${i.remaining}" min="0" max="${i.remaining}" step="1" value="${cur[i.id] || ''}" oninput="batchPickerUpdateSum()" style="width:80px;" /></td>
-    </tr>`).join('');
+  // 有指定位置的 picks:每個(批次行, 位置)各自的數量
+  const curCode = {};
+  (opts.picks || []).forEach(p => { if(p.code !== undefined && p.code !== null) curCode[p.batchItemId + '|' + p.code] = (curCode[p.batchItemId + '|' + p.code] || 0) + p.qty; });
+  const rows = items.map(i => {
+    const buckets = batchBucketsOrdered(i);
+    const multi = buckets.length > 1;
+    const head = `${batchEsc(i.batchNo)}${i.isOpening ? ' <span style="color:var(--ink-soft);font-size:11px;">(' + t('batchOpening') + ')</span>' : ''}`;
+    const exp = i.expiry ? batchEsc(i.expiry) + batchExpiryBadge(i.expiry) : '–';
+    if(!multi){
+      const b = buckets[0] || { code: '', rem: i.remaining };
+      return `<tr>
+        <td>${head}</td><td>${exp}</td>
+        <td style="font-size:12px;">${b.code ? '📍 ' + batchEsc(b.code) : '<span style="color:var(--ink-soft);">–</span>'}</td>
+        <td class="num">${batchFmtQty(i.remaining)}</td>
+        <td class="num"><input type="number" class="batch-pick-input" data-id="${i.id}" data-code="${batchEsc(b.code)}" data-max="${i.remaining}" min="0" max="${i.remaining}" step="1" value="${cur[i.id] || ''}" oninput="batchPickerUpdateSum()" style="width:80px;" /></td>
+      </tr>`;
+    }
+    // 同一個批次行放在多個位置:每個位置一列;預設顯示自動分配的結果(未分布先出、再依位置數量由多到少)
+    let left = cur[i.id] || 0;
+    const hasCodePicks = buckets.some(b => curCode[i.id + '|' + b.code] !== undefined);
+    return buckets.map((b, k) => {
+      let v = '';
+      if(hasCodePicks){ v = curCode[i.id + '|' + b.code] || ''; }
+      else if(left > 0){ const take = Math.min(left, b.rem); if(take > 0){ v = take; left -= take; } }
+      return `<tr>
+        <td>${k === 0 ? head : ''}</td><td>${k === 0 ? exp : ''}</td>
+        <td style="font-size:12px;">${b.code ? '📍 ' + batchEsc(b.code) : '<span style="color:var(--ink-soft);">' + t('unassignedLocationLabel') + '</span>'}</td>
+        <td class="num">${batchFmtQty(b.rem)}</td>
+        <td class="num"><input type="number" class="batch-pick-input" data-id="${i.id}" data-code="${batchEsc(b.code)}" data-max="${b.rem}" min="0" max="${b.rem}" step="1" value="${v}" oninput="batchPickerUpdateSum()" style="width:80px;" /></td>
+      </tr>`;
+    }).join('');
+  }).join('');
   const ov = document.createElement('div');
   ov.id = 'batchPickerOverlay';
   ov.className = 'modal-overlay';
@@ -315,7 +369,7 @@ function batchOpenPicker(opts){
       <p style="margin-bottom:10px;">${batchEsc(batchProductName(opts.productId))} · ${tf('batchPickerHint', { qty: batchFmtQty(opts.qty), unit: batchEsc(opts.unit || '') })}</p>
       ${items.length === 0 ? `<div class="empty-note">${t('batchPickerNoBatches')}</div>` : `
       <table class="stock-table">
-        <thead><tr><th>${t('batchColBatch')}</th><th>${t('batchColExpiry')}</th><th class="num">${t('batchColRemaining')}</th><th class="num">${t('batchColAllocated')}</th></tr></thead>
+        <thead><tr><th>${t('batchColBatch')}</th><th>${t('batchColExpiry')}</th><th>${t('batchLocTitle')}</th><th class="num">${t('batchColRemaining')}</th><th class="num">${t('batchColAllocated')}</th></tr></thead>
         <tbody>${rows}</tbody>
       </table>`}
       <div style="font-size:11.5px;color:var(--ink-soft);">${t('batchPickerEditHint')}</div>
@@ -335,7 +389,7 @@ function batchPickerCollect(){
   const picks = [];
   document.querySelectorAll('#batchPickerOverlay .batch-pick-input').forEach(inp => {
     const v = parseFloat(inp.value);
-    if(v > 0) picks.push({ batchItemId: inp.dataset.id, qty: v, max: parseFloat(inp.dataset.max) });
+    if(v > 0) picks.push({ batchItemId: inp.dataset.id, qty: v, code: inp.dataset.code || '', max: parseFloat(inp.dataset.max) });
   });
   return picks;
 }
@@ -361,20 +415,26 @@ function batchPickerSave(){
   // 如果改完的數字跟自動分配的結果一樣,就維持「自動」,不算手動指定
   const auto = {};
   batchPreviewAllocation(batchPickerOpts.productId, batchPickerOpts.qty, []).lines.forEach(l => { auto[l.item.id] = (auto[l.item.id] || 0) + l.qty; });
-  const same = picks.length === Object.keys(auto).length && picks.every(p => Math.abs((auto[p.batchItemId] || 0) - p.qty) < 1e-9);
+  const sums = {};
+  picks.forEach(p => { sums[p.batchItemId] = (sums[p.batchItemId] || 0) + p.qty; });
+  const same = Object.keys(sums).length === Object.keys(auto).length && Object.keys(sums).every(id => Math.abs((auto[id] || 0) - sums[id]) < 1e-9);
   batchClosePicker();
-  if(onSave) onSave(same ? [] : picks.map(p => ({ batchItemId: p.batchItemId, qty: p.qty })));
+  if(onSave) onSave(same ? [] : picks.map(p => ({ batchItemId: p.batchItemId, qty: p.qty, code: p.code || '' })));
 }
 
 // ------------------------------------------------------------
 // 訂單核對頁:每個商品「改數量」與「刪除」之間的「批次」按鈕、分配預覽
 // ------------------------------------------------------------
+// 批次圖示:黃色斜放的吊牌(inline SVG,不依賴字型,顏色在各種背景都清楚)
+function batchTagIcon(){
+  return '<svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true" style="vertical-align:-4px;"><g transform="rotate(35 12 12)"><path d="M7 6.5 L10 2.5 H14 L17 6.5 V20.5 a1.5 1.5 0 0 1 -1.5 1.5 H8.5 A1.5 1.5 0 0 1 7 20.5 Z" fill="#f6c21c" stroke="#a87a00" stroke-width="1.4" stroke-linejoin="round"/><circle cx="12" cy="7.2" r="1.7" fill="#fff" stroke="#a87a00" stroke-width="1.2"/><path d="M9.5 13 H14.5 M9.5 16.5 H14.5" stroke="#a87a00" stroke-width="1.2" stroke-linecap="round"/></g></svg>';
+}
 function batchPickKey(orderId, productId){ return orderId + '::' + productId; }
 
 function batchOrderItemButtonHtml(o, it){
   if(!batchIsTracked(it.productId) || !(it.qty > 0)) return '';
   const has = (batchPicks[batchPickKey(o.id, it.productId)] || []).length > 0;
-  return `<span class="del-link" style="margin-left:8px;" onclick="batchOpenPickerForOrderItem('${o.id}','${it.productId}')">${t('btnBatchPick')}${has ? ' ✓' : ''}</span>`;
+  return `<span class="del-link" style="margin-left:8px;" title="${batchEsc(t('btnBatchPick'))}" onclick="batchOpenPickerForOrderItem('${o.id}','${it.productId}')">${batchTagIcon()}${has ? ' ✓' : ''}</span>`;
 }
 function batchOrderItemPreviewHtml(o, it){
   return ''; // 不主動顯示分配結果,點「批次」按鈕在視窗裡看/改
@@ -428,25 +488,53 @@ function batchProductsOfTxs(txList, res){
   });
   return lines;
 }
+// 同一個 tx 的指定批次可能含多個位置的重複批次行,送資料庫前合併
+function batchMergeManual(picks){
+  const m = {};
+  (picks || []).forEach(p => { m[p.batch_item_id] = (m[p.batch_item_id] || 0) + Number(p.qty); });
+  return Object.keys(m).map(id => ({ batch_item_id: id, qty: m[id] }));
+}
 async function batchAllocateAfter(txList, picksByTx){
   if(!batchActive() || !txList || txList.length === 0) return;
   try{ await ensureBatchDataLoaded(); }catch(e){}
   const list = txList.filter(tx => batchIsTracked(tx.productId));
   if(list.length === 0) return;
   const ids = list.map(tx => tx.id);
+  // 出貨前已經選好「批次 × 位置」的計畫(數量必須剛好等於這筆出貨)→ 直接用計畫的批次分配,資料庫就不會另外挑
+  const planByTx = {};
+  list.forEach(tx => {
+    const plan = batchLocPlans[tx.productId];
+    // 計畫只在剛選完位置的短時間內有效(避免之前被取消、沒用到的計畫被別的流程誤用)
+    if(plan && plan.length && Date.now() - (plan.at || 0) < 120000 && Math.abs(plan.reduce((a, x) => a + x.qty, 0) - tx.qty) < 1e-9) planByTx[tx.id] = plan;
+  });
   const manual = {};
-  list.forEach(tx => { if(picksByTx && picksByTx[tx.id] && picksByTx[tx.id].length) manual[tx.id] = picksByTx[tx.id]; });
+  for(const tx of list){
+    if(planByTx[tx.id]){ manual[tx.id] = batchMergeManual(planByTx[tx.id].map(x => ({ batch_item_id: x.batchItemId, qty: x.qty }))); continue; }
+    let mp = (picksByTx && picksByTx[tx.id] && picksByTx[tx.id].length) ? picksByTx[tx.id].slice() : [];
+    // 已完成訂單增加數量(補出貨):預設先拿這張訂單原本用的批次,那批沒了才依先到期先出往下拿
+    if(tx.orderId){
+      const pref = await batchOrderPreferredPicks(tx.orderId, tx.productId);
+      mp = mp.concat(pref.map(x => ({ batch_item_id: x.batchItemId, qty: x.qty })));
+    }
+    if(mp.length) manual[tx.id] = batchMergeManual(mp);
+  }
   let res;
+  let usedFallback = false;
   try{
     res = await batchRpc('batch_allocate', { p_tx_ids: ids, p_manual: manual });
   } catch(e){
     if(Object.keys(manual).length > 0 && batchIsPickError(e)){
       try{
         res = await batchRpc('batch_allocate', { p_tx_ids: ids, p_manual: {} });
+        usedFallback = true;
         showInfoModal(t('batchPickFallbackNotice'));
-      } catch(e2){ batchAllocFailed(e2); return; }
-    } else { batchAllocFailed(e); return; }
+      } catch(e2){ batchAllocFailed(e2); list.forEach(tx => { delete batchLocPlans[tx.productId]; }); return; }
+    } else { batchAllocFailed(e); list.forEach(tx => { delete batchLocPlans[tx.productId]; }); return; }
   }
+  // 位置:把這次出貨在每個批次商品行扣的量拆到各位置(有計畫照計畫,沒有計畫就依預設順序)
+  try{ await batchTagOutLocations(list, usedFallback ? {} : planByTx); }
+  catch(e){ console.error('出貨位置標記失敗', e); showInfoModal(t('batchLocTagFailed')); }
+  list.forEach(tx => { delete batchLocPlans[tx.productId]; });
   batchMarkStale();
   try{ await ensureBatchDataLoaded(); }catch(e){}
   const lines = batchProductsOfTxs(list, res);
@@ -459,6 +547,7 @@ async function batchReturnAfter(txList, picksByTx){
   if(list.length === 0) return;
   try{
     await batchRpc('batch_return', { p_tx_ids: list.map(tx => tx.id), p_manual: picksByTx || {} });
+    // 退貨只退回原批次;位置一律回到「未分布」(貨回倉庫時不知道原本放哪,之後再用庫存分布轉移、或批次追蹤的「設定位置」指派)
     batchMarkStale();
     await ensureBatchDataLoaded();
   } catch(e){ console.error('批次退回失敗', e); }
@@ -485,18 +574,67 @@ async function batchAfterInsert(txList){
     await batchReturnAfter(restocks, {});
   } catch(e){ console.error('批次掛鉤失敗', e); }
 }
-async function batchConvertAfter(conversionId, fromProductId){
+// 切換(multipack ⇄ 主商品)寫入後:同批次、同有效期一出一進;位置也一樣(從哪個位置切換,切出來的商品就放在同一個位置)。
+// 回傳 null,或 { dest: [{ code, qty }] } = 切換出來的商品(目標商品)各位置的數量,給呼叫端同步庫存分布。
+async function batchConvertAfter(conversionId, fromProductId, outQty, convertedQty){
   try{
-    if(!batchActive()) return;
+    if(!batchActive()) return null;
     await ensureBatchDataLoaded();
-    if(!batchIsTracked(fromProductId)) return;
-    const res = await batchRpc('batch_convert', { p_conversion_id: conversionId, p_manual: [] });
+    if(!batchIsTracked(fromProductId)) return null;
+    // 切換前選好的「批次 × 位置」計畫(2 分鐘內有效、數量剛好等於這次切換量才採用)
+    let plan = batchLocPlans[fromProductId];
+    delete batchLocPlans[fromProductId];
+    if(!(plan && plan.length && Date.now() - (plan.at || 0) < 120000 && Math.abs(plan.reduce((a, x) => a + x.qty, 0) - outQty) < 1e-9)) plan = null;
+    const manual = plan ? batchMergeManual(plan.map(x => ({ batch_item_id: x.batchItemId, qty: x.qty }))) : [];
+    let res;
+    try{
+      res = await batchRpc('batch_convert', { p_conversion_id: conversionId, p_manual: manual });
+    } catch(e){
+      // 指定的批次不能照原樣切換(例如換成大單位時數量不是換算比例的整數倍)→ 改回自動分配,不套用位置計畫
+      if(plan && /batch_convert_step|batch_bad_pick|batch_insufficient/.test((e && e.message) || '')){
+        plan = null;
+        res = await batchRpc('batch_convert', { p_conversion_id: conversionId, p_manual: [] });
+      } else throw e;
+    }
+    let dest = null;
+    if(plan && res && res.tracked && !(res.untracked > 0)){
+      const ratio = outQty > 0 ? convertedQty / outQty : 1;
+      const okInt = plan.every(x => Math.abs(x.qty * ratio - Math.round(x.qty * ratio)) < 1e-9);
+      if(okInt){
+        try{
+          await batchRpc('batch_tag_convert_locations', { p_conversion_id: conversionId, p_rows: plan.map(x => ({ batch_item_id: x.batchItemId, code: x.code, qty: x.qty })) });
+          const m = {};
+          plan.forEach(x => { if(x.code) m[x.code] = (m[x.code] || 0) + x.qty * ratio; });
+          dest = { dest: Object.keys(m).map(c => ({ code: c, qty: Math.round(m[c]) })) };
+        }catch(e){
+          console.error('切換位置標記失敗', e);
+          if(!batchIsMissingFunctionError(e)) showInfoModal(t('batchLocTagFailed'));
+        }
+      }
+    }
     batchMarkStale();
     await ensureBatchDataLoaded();
     if(res && res.tracked && res.untracked > 0) showInfoModal(tf('batchConvertUntrackedNotice', { n: batchFmtQty(res.untracked) }));
+    return dest;
   } catch(e){
     console.error('批次切換失敗', e);
     showInfoModal(t('batchConvertFailed'));
+    return null;
+  }
+}
+// 切換出來的商品放到跟來源一樣的位置(庫存分布):位置紀錄已存在就加上去,不存在就建立
+async function batchAddToProductLocations(productId, dest){
+  for(const d of (dest || [])){
+    try{
+      let loc = productLocations.find(l => l.productId === productId && l.locationCode === d.code);
+      if(loc){ loc.qty += d.qty; await upsertProductLocation(loc); }
+      else {
+        const tpl = productLocations.find(l => l.locationCode === d.code);
+        loc = { id: genId(), productId, zone: tpl ? tpl.zone : '', aisle: tpl ? tpl.aisle : '', bay: tpl ? tpl.bay : '', level: tpl ? tpl.level : '', bin: tpl ? tpl.bin : '', locationCode: d.code, qty: d.qty, photoUrl: null };
+        productLocations.push(loc);
+        await upsertProductLocation(loc);
+      }
+    }catch(e){ console.error('切換後同步庫存分布失敗', e); }
   }
 }
 
@@ -613,19 +751,12 @@ function batchRenderFormExtras(){
   if(!isIn){ trackWrap.style.display = 'none'; trackWrap.innerHTML = ''; extraWrap.style.display = 'none'; extraWrap.innerHTML = ''; return; }
   trackWrap.style.display = '';
   trackWrap.innerHTML = `
-    <label style="display:flex;align-items:center;gap:8px;font-size:12.5px;font-weight:600;color:var(--ink);cursor:pointer;">
+    <label style="display:flex;align-items:center;gap:8px;font-size:12.5px;font-weight:600;color:var(--ink);cursor:pointer;white-space:nowrap;" title="${batchEsc(t('batchTrackToggleHint'))}">
       <input type="checkbox" id="txBatchTrackChk" ${txBatchTrackChecked ? 'checked' : ''} onchange="txBatchTrackChecked=this.checked;renderTxBatchList();" style="width:16px;height:16px;cursor:pointer;" />
       ${t('batchTrackToggle')}
-    </label>
-    <div style="font-size:11.5px;color:var(--ink-soft);margin:2px 0 0 24px;">${t('batchTrackToggleHint')}</div>`;
-  if(txBatchTrackChecked){
-    extraWrap.style.display = '';
-    extraWrap.innerHTML = `
-      <div class="form-grid" style="grid-template-columns:1fr 1fr;margin-top:6px;">
-        <div class="field"><label>${t('batchFieldExpiry')}</label><input id="txExpiry" type="date" /></div>
-        <div class="field"><label>${t('batchFieldLot')}</label><input id="txSupplierLot" type="text" /></div>
-      </div>`;
-  } else { extraWrap.style.display = 'none'; extraWrap.innerHTML = ''; }
+    </label>`;
+  // 有效期/供應商批號改在清單每一行填寫(有效期欄、📝 詳細資料),新增商品那一排不再有這兩欄
+  extraWrap.style.display = 'none'; extraWrap.innerHTML = '';
 }
 function batchReadAddFields(){
   if(!batchRowsShowExpiry()) return { expiry: '', lot: '' };
@@ -643,16 +774,24 @@ function batchResetFormAfterSubmit(){
   batchClearAddFields();
 }
 // 列表上改有效期/批號。同商品、同有效期、同文件來源的行自動合併數量。
+// 日期欄位輸入年份時,每按一個數字瀏覽器就會觸發一次 change;如果每次都重畫清單,輸入框會被換掉而跳出。
+// 所以 change 只暫存數值(不重畫),離開欄位(blur)才合併同商品同有效期的行並重畫。
 function updateTxBatchItemExpiry(batchItemId, value){
   const it = txBatchItems.find(x => x.batchItemId === batchItemId);
   if(!it) return;
   it.expiry = value || '';
+}
+function commitTxBatchItemExpiry(batchItemId){
+  const it = txBatchItems.find(x => x.batchItemId === batchItemId);
+  if(!it) return;
   const other = txBatchItems.find(x => x !== it && x.productId === it.productId && (x.expiry || '') === (it.expiry || '')
     && (x.docType || '') === (it.docType || '') && (x.sourceFilename || '') === (it.sourceFilename || ''));
   if(other){
     other.qty += it.qty;
     if(it.amount !== undefined && it.amount !== null) other.amount = (other.amount || 0) + it.amount;
     if(it.supplierLot && !other.supplierLot) other.supplierLot = it.supplierLot;
+    if(it.note) other.note = other.note ? other.note + '\n' + it.note : it.note;
+    batchLocOnQtyChange(other);
     txBatchItems = txBatchItems.filter(x => x !== it);
   }
   renderTxBatchList();
@@ -676,7 +815,7 @@ function batchTxRowPreviewHtml(it){
 function batchTxRowButtonHtml(it){
   if(!batchTxRowPickable(it)) return '';
   const has = it.batchPicks && it.batchPicks.length > 0;
-  return `<button onclick="batchOpenPickerForTxItem('${it.batchItemId}')" title="${t('btnBatchPick')}">${t('btnBatchPick')}${has ? ' ✓' : ''}</button>`;
+  return `<button onclick="batchOpenPickerForTxItem('${it.batchItemId}')" title="${t('btnBatchPick')}">${batchTagIcon()}${has ? ' ✓' : ''}</button>`;
 }
 function batchOpenPickerForTxItem(batchItemId){
   const it = txBatchItems.find(x => x.batchItemId === batchItemId);
@@ -724,7 +863,7 @@ async function batchFillTxTags(root){
     });
     for(let i = 0; i < need.length; i += 150){
       const chunk = need.slice(i, i + 150);
-      const { data, error } = await batchSelectMovements('tx_id,batch_item_id,qty,kind', q => q.in('tx_id', chunk));
+      const { data, error } = await batchSelectMovements('tx_id,batch_item_id,qty,kind,location_code', q => q.in('tx_id', chunk));
       if(error) throw error;
       chunk.forEach(id => { batchTxMoveCache[id] = []; });
       (data || []).forEach(m => { batchTxMoveCache[m.tx_id].push(m); });
@@ -738,7 +877,7 @@ async function batchFillTxTags(root){
         html = (batchTxMoveCache[el.dataset.batchTx] || []).map(m => {
           const i = batchData.items.find(x => x.id === m.batch_item_id);
           if(!i) return '';
-          return `<span class="batch-tag">${batchEsc(i.batchNo)} ×${batchFmtQty(Math.abs(Number(m.qty)))}${i.expiry ? ' · EXP ' + batchEsc(i.expiry) : ''}</span>`;
+          return `<span class="batch-tag">${batchEsc(i.batchNo)} ×${batchFmtQty(Math.abs(Number(m.qty)))}${i.expiry ? ' · EXP ' + batchEsc(i.expiry) : ''}${m.location_code ? ' · 📍' + batchEsc(m.location_code) : ''}</span>`;
         }).join('');
       }
       el.innerHTML = html;
@@ -891,6 +1030,8 @@ function batchOpenItemDetail(itemId){
     ${batchDetailRow(t('batchFieldLot'), batchEsc(i.supplierLot))}
     ${batchDetailRow('Invoice', batchEsc(i.invoiceNo))}
     ${batchDetailRow(t('batchColSupplier'), batchEsc(i.supplier))}
+    ${batchDetailRow(t('batchLocTitle'), batchLocSummaryHtml(i))}
+    ${batchDetailRow(t('batchFieldNote'), batchEsc(i.note).replace(/\n/g, '<br>'))}
   </tbody></table>`);
 }
 // 批次頁:這個批次的 進貨日期 / Invoice / 供應商 / 各商品的供應商批號 / Margin 設置
@@ -1143,10 +1284,10 @@ function batchOpenPickerForPendingItem(productId){
 function batchExistingItemButtonHtml(it, pending){
   if(batchPendingItemPickable(it)){
     const has = (it.batchPicks || []).length > 0;
-    return `<span class="del-link" onclick="batchOpenPickerForPendingItem('${it.productId}')">${t('btnBatchPick')}${has ? ' ✓' : ''}</span>`;
+    return `<span class="del-link" title="${batchEsc(t('btnBatchPick'))}" onclick="batchOpenPickerForPendingItem('${it.productId}')">${batchTagIcon()}${has ? ' ✓' : ''}</span>`;
   }
   if(!batchExistingItemTracked(it)) return '';
-  return `<span class="del-link" onclick="batchOpenOrderBreakdownView('${it.productId}')">${t('btnBatchPick')}</span>`;
+  return `<span class="del-link" title="${batchEsc(t('btnBatchPick'))}" onclick="batchOpenOrderBreakdownView('${it.productId}')">${batchTagIcon()}</span>`;
 }
 function batchOpenPickerForExistingItem(productId){
   const order = orders.find(o => o.id === registerLoadedOrderId);
@@ -1171,7 +1312,7 @@ function batchOpenPickerForExistingItem(productId){
         return;
       }
       const btn = document.getElementById('batchExistBtn_' + productId);
-      if(btn) btn.textContent = t('btnBatchPick') + (picks.length ? ' ✓' : '');
+      if(btn) btn.innerHTML = batchTagIcon() + (picks.length ? ' ✓' : '');
     }
   });
 }
@@ -1341,7 +1482,7 @@ function batchTrackerOpenHistory(itemId){
 async function batchLoadHistoryMoves(itemId){
   let moves = [];
   try{
-    const { data, error } = await batchSelectMovements('id,mv_date,qty,kind,party,order_no,note,created_at,order_id,tx_id',
+    const { data, error } = await batchSelectMovements('id,mv_date,qty,kind,party,order_no,note,created_at,order_id,tx_id,location_code',
       q => q.eq('batch_item_id', itemId).order('mv_date', { ascending: true }).order('id', { ascending: true }));
     if(error) throw error;
     moves = data || [];
@@ -1374,14 +1515,14 @@ function batchRenderHistoryPage(){
     <div style="font-size:12px;color:var(--ink-soft);margin-bottom:8px;">${t('batchHistClickHint')}</div>`;
   if(batchHist.loading) return back + head + `<div class="empty-note">${t('batchLoading')}</div>`;
   const rowStyle = 'cursor:pointer;';
-  const rows = [`<tr style="${rowStyle}" onclick="batchHistOpenRow(-1)"><td>${batchEsc(i.isOpening ? t('batchOpening') : i.batchDate)}</td><td>${t('batchKindIn')}</td><td class="num" style="padding-right:72px;">+${batchFmtQty(i.qtyIn)} ${unit}</td><td>${batchEsc(i.supplier) || '–'}</td><td>${batchEsc(i.invoiceNo) || '–'}</td><td class="num">${batchFmtMoney(batchUnitCost(i))}</td></tr>`]
-    .concat(batchHist.moves.map((m, idx) => `<tr style="${rowStyle}" onclick="batchHistOpenRow(${idx})"><td>${batchEsc(m.mv_date)}</td><td>${t(BATCH_KIND_LABEL_KEY[m.kind] || 'batchKindAdjust')}</td><td class="num" style="padding-right:72px;">${Number(m.qty) > 0 ? '+' : ''}${batchFmtQty(Number(m.qty))} ${unit}</td><td>${batchEsc(m.party) || '–'}</td><td>${batchEsc(m.order_no) || '–'}</td><td class="num">${batchCostWithFlag(m.unit_cost, i)}</td></tr>`));
-  return back + head + `<table class="stock-table">
+  const rows = [`<tr style="${rowStyle}" onclick="batchHistOpenRow(-1)"><td>${batchEsc(i.isOpening ? t('batchOpening') : i.batchDate)}</td><td>${t('batchKindIn')}</td><td class="num" style="padding-right:72px;">+${batchFmtQty(i.qtyIn)} ${unit}</td><td class="loc-col">–</td><td>${batchEsc(i.supplier) || '–'}</td><td>${batchEsc(i.invoiceNo) || '–'}</td><td class="num">${batchFmtMoney(batchUnitCost(i))}</td></tr>`]
+    .concat(batchHist.moves.map((m, idx) => `<tr class="${m.location_code ? 'has-loc' : ''}" style="${rowStyle}" onclick="batchHistOpenRow(${idx})"><td>${batchEsc(m.mv_date)}</td><td>${t(BATCH_KIND_LABEL_KEY[m.kind] || 'batchKindAdjust')}</td><td class="num" style="padding-right:72px;">${Number(m.qty) > 0 ? '+' : ''}${batchFmtQty(Number(m.qty))} ${unit}</td><td class="loc-col">${m.location_code ? '📍 ' + batchEsc(m.location_code) : '–'}</td><td>${batchEsc(m.party) || '–'}</td><td>${batchEsc(m.order_no) || '–'}</td><td class="num">${batchCostWithFlag(m.unit_cost, i)}</td></tr>` + (m.location_code ? `<tr class="loc-row" style="${rowStyle}" onclick="batchHistOpenRow(${idx})"><td colspan="6">${t('batchLocTitle')}:📍 ${batchEsc(m.location_code)}</td></tr>` : '')));
+  return back + head + `<div class="batch-hist-wrap"><table class="stock-table batch-hist-table">
     <thead>
-      <tr><th style="border-bottom:none;"></th><th style="border-bottom:none;"></th><th class="num" style="border-bottom:none;white-space:nowrap;padding-bottom:6px;padding-right:72px;"><span style="display:inline-block;padding:4px 10px;background:rgba(0,0,0,0.07);border-radius:3px;font-size:14px;font-weight:700;color:var(--ink);text-transform:none;letter-spacing:0;">${tf('batchHistRemaining', { qty: batchFmtQty(i.remaining) + ' ' + unit })}</span></th><th colspan="3" style="border-bottom:none;"></th></tr>
-      <tr><th>${t('colDate')}</th><th>${t('colType')}</th><th class="num" style="padding-right:72px;">${t('colQty')}</th><th>${t('batchColParty')}</th><th>${t('batchColOrderNo')}</th><th class="num">${t('batchColUnitCost')}</th></tr>
+      <tr><th style="border-bottom:none;"></th><th style="border-bottom:none;"></th><th class="num" style="border-bottom:none;white-space:nowrap;padding-bottom:6px;padding-right:72px;"><span style="display:inline-block;padding:4px 10px;background:rgba(0,0,0,0.07);border-radius:3px;font-size:14px;font-weight:700;color:var(--ink);text-transform:none;letter-spacing:0;">${tf('batchHistRemaining', { qty: batchFmtQty(i.remaining) + ' ' + unit })}</span></th><th colspan="4" style="border-bottom:none;"></th></tr>
+      <tr><th>${t('colDate')}</th><th>${t('colType')}</th><th class="num" style="padding-right:72px;">${t('colQty')}</th><th class="loc-col">${t('batchLocTitle')}</th><th>${t('batchColParty')}</th><th>${t('batchColOrderNo')}</th><th class="num">${t('batchColUnitCost')}</th></tr>
     </thead>
-    <tbody>${rows.join('')}</tbody></table>`;
+    <tbody>${rows.join('')}</tbody></table></div>`;
 }
 
 // 單一視窗:顯示進貨單 / 訂單 / 異動內容
@@ -1501,7 +1642,15 @@ async function batchExportForBackup(){
       fetchAllPages(() => sb.from('batch_items').select('*').order('id', { ascending: true })),
       fetchAllPages(() => sb.from('batch_movements').select('*').order('id', { ascending: true }))
     ]);
-    return { version: 1, batches, items, movements };
+    // 位置表(sql/batch_location_phase_a.sql);還沒建立就當作沒有
+    let locations = [];
+    try{ locations = await fetchAllPages(() => sb.from('batch_item_locations').select('*').order('id', { ascending: true })); }
+    catch(e){ if(!batchIsMissingTableError(e)) throw e; }
+    // 庫存分布紀錄(轉移位置的紀錄);資料表還沒建立就當作沒有
+    let locationTransferLog = [];
+    try{ locationTransferLog = await fetchAllPages(() => sb.from('location_transfer_log').select('*').order('created_at', { ascending: true })); }
+    catch(e){ if(!batchIsMissingTableError(e)) throw e; }
+    return { version: 1, batches, items, movements, locations, locationTransferLog };
   } catch(e){
     if(batchIsMissingTableError(e)) return null;
     // 其他錯誤(網路…)不能默默產生一份不含批次資料的備份,讓呼叫端知道
@@ -1518,10 +1667,15 @@ async function batchRestoreFromBackup(backup){
   try{
     const bt3 = backup && backup.batchTracking;
     if(bt3 && Array.isArray(bt3.batches) && Array.isArray(bt3.items) && Array.isArray(bt3.movements)){
-      await batchRpc('batch_restore_all', { p_batches: bt3.batches, p_items: bt3.items, p_movements: bt3.movements });
+      const restoreArgs = { p_batches: bt3.batches, p_items: bt3.items, p_movements: bt3.movements };
+      if(Array.isArray(bt3.locations)) restoreArgs.p_locations = bt3.locations;   // 舊備份沒有這一段
+      await batchRpc('batch_restore_all', restoreArgs);
+      try{ await batchRpc('location_log_restore', { p_rows: Array.isArray(bt3.locationTransferLog) ? bt3.locationTransferLog : [] }); }
+      catch(e){ if(!batchIsMissingFunctionError(e) && !batchIsMissingTableError(e)) console.error('還原庫存分布紀錄失敗', e); }
       return { ok: true, restored: true };
     }
     await batchRpc('batch_clear_all', {});
+    try{ await batchRpc('location_log_restore', { p_rows: [] }); }catch(e){}
     return { ok: true, cleared: true };
   } catch(e){
     console.error('還原批次資料失敗', e);
@@ -1538,6 +1692,7 @@ async function batchClearAll(){
   if(!batchFeatureOn() || !batchAvailable) return;
   try{
     await batchRpc('batch_clear_all', {});
+    try{ await batchRpc('location_log_restore', { p_rows: [] }); }catch(e){}
   } catch(e){
     if(batchIsMissingTableError(e)) return;
     throw e;
@@ -1607,4 +1762,595 @@ async function batchFillOrderDetailLines(root){
       }).join('');
     });
   } catch(e){ console.warn('訂單批次標籤載入失敗', e); }
+}
+
+
+// ============================================================
+// 庫存位置分批次 第一階段(a):進貨時記錄每個批次商品行放在哪些位置
+// 資料表/RPC 見 sql/batch_location_phase_a.sql。
+// 進貨清單每一行 it.locs = [{ code, qty }];沒指定位置的數量 = 行數量 − 加總 = 「未分配位置」。
+// 第一階段只記錄與顯示;出貨分配仍照 FEFO/FIFO,不依位置扣(之後階段再做)。
+// ============================================================
+let batchLastLocMap = null;   // productId -> 上次進貨放的位置代碼(app_data 'batchLastPurchaseLocation')
+async function batchLoadLastLocMap(){
+  if(batchLastLocMap) return batchLastLocMap;
+  try{ batchLastLocMap = (await dbGet('batchLastPurchaseLocation')) || {}; }catch(e){ batchLastLocMap = {}; }
+  return batchLastLocMap;
+}
+function batchLocDefaultCode(productId){
+  const m = batchLastLocMap || {};
+  if(m[productId]) return m[productId];
+  const primary = typeof getPrimaryLocation === 'function' ? getPrimaryLocation(productId) : null;
+  if(primary) return primary.locationCode;
+  const p = products.find(x => x.id === productId);
+  return (p && p.lastPrimaryLocation && p.lastPrimaryLocation.locationCode) || '';
+}
+function batchLocRowsShown(){ return batchRowsShowExpiry() && typeof productLocations !== 'undefined'; }
+function batchLocAssigned(it){ return (it.locs || []).reduce((s, l) => s + (Number(l.qty) || 0), 0); }
+
+// 新增到清單時帶入預設位置(整行數量放預設位置);之後可在「位置」視窗改
+function batchLocInitForNewItem(it){
+  if(it.locs !== undefined) return;
+  if(!batchLocRowsShown() || it.docType === 'credit_note' || it.qty <= 0) return;
+  const code = batchLocDefaultCode(it.productId);
+  it.locs = code ? [{ code, qty: it.qty, auto: true }] : [];
+}
+// 渲染清單前呼叫:第一次載入記憶的位置,再替還沒有位置設定的行帶入預設(收據掃描載入的行也一樣)
+function batchLocPrepareList(){
+  if(!batchLocRowsShown()) return;
+  if(!batchLastLocMap){ batchLoadLastLocMap().then(() => { if(typeof renderTxBatchList === 'function') renderTxBatchList(); }); return; }
+  txBatchItems.forEach(batchLocInitForNewItem);
+}
+// 改數量:只有一個位置、而且是自動帶入的,數量跟著行數量走;其他情況超過行數量就依序縮減
+function batchLocOnQtyChange(it){
+  if(!it.locs || !it.locs.length) return;
+  if(it.locs.length === 1 && it.locs[0].auto){ it.locs[0].qty = Math.max(0, it.qty); return; }
+  let over = batchLocAssigned(it) - it.qty;
+  for(let k = it.locs.length - 1; k >= 0 && over > 1e-9; k--){
+    const cut = Math.min(over, it.locs[k].qty); it.locs[k].qty -= cut; over -= cut;
+  }
+  it.locs = it.locs.filter(l => l.qty > 1e-9);
+}
+function batchLocCellHtml(it){
+  if(it.docType === 'credit_note' || it.qty <= 0) return '<td></td>';
+  const locs = it.locs || [];
+  const un = it.qty - batchLocAssigned(it);
+  const summary = locs.length
+    ? locs.map(l => `${batchEsc(l.code)}×${batchFmtQty(l.qty)}`).join('<br>') + (un > 1e-9 ? `<br><span style="color:var(--ink-soft);">${t('unassignedLocationLabel')}×${batchFmtQty(un)}</span>` : '')
+    : `<span style="color:var(--ink-soft);">${t('unassignedLocationLabel')}</span>`;
+  return `<td class="row-num tx-loc" data-label="${t('batchLocTitle')}" style="text-align:left;font-size:12px;min-width:220px;white-space:normal;line-height:1.4;"><span class="batch-link" onclick="batchLocOpenEditor('${it.batchItemId}')">📍 ${summary}</span></td>`;
+}
+
+// ---- 位置編輯視窗 ----
+let batchLocEd = null;   // { itemId, rows: [{code, qty}] }
+function batchLocCodesFor(productId){
+  const codes = [];
+  (productLocations || []).filter(l => l.productId === productId).forEach(l => { if(!codes.includes(l.locationCode)) codes.push(l.locationCode); });
+  const d = batchLocDefaultCode(productId);
+  if(d && !codes.includes(d)) codes.push(d);
+  return codes;
+}
+function batchLocOpenEditor(itemId){
+  const it = txBatchItems.find(x => x.batchItemId === itemId);
+  if(!it) return;
+  batchLocEd = { itemId, rows: (it.locs && it.locs.length ? it.locs : [{ code: '', qty: it.qty }]).map(l => ({ code: l.code, qty: l.qty })) };
+  batchLocRenderEditor();
+}
+function batchLocRenderEditor(){
+  const it = txBatchItems.find(x => x.batchItemId === batchLocEd.itemId);
+  if(!it){ batchLocCloseEditor(); return; }
+  const old = document.getElementById('batchLocOverlay'); if(old) old.remove();
+  const listId = 'batchLocCodes';
+  const assigned = batchLocEd.rows.reduce((s, r) => s + (Number(r.qty) || 0), 0);
+  const un = it.qty - assigned;
+  const ov = document.createElement('div');
+  ov.id = 'batchLocOverlay'; ov.className = 'modal-overlay'; ov.style.display = 'flex'; ov.style.zIndex = '1100';
+  ov.innerHTML = `<div class="modal-box" style="max-width:min(520px,94vw);">
+    <div class="section-title" style="margin-top:0;">${t('batchLocEditTitle')} · ${batchEsc(it.name)} (${batchFmtQty(it.qty)} ${batchEsc(it.unit)})</div>
+    <datalist id="${listId}">${batchLocCodesFor(it.productId).map(c => `<option value="${batchEsc(c)}"></option>`).join('')}</datalist>
+    <div style="font-size:12px;color:var(--ink-soft);margin-bottom:8px;">${t('batchLocEditHint')}</div>
+    ${batchLocEd.rows.map((r, k) => `<div style="display:flex;gap:6px;align-items:center;margin-bottom:6px;">
+      <input type="text" list="${listId}" value="${batchEsc(r.code)}" placeholder="${batchEsc(t('batchLocCodePh'))}" style="flex:1;min-width:0;" onchange="batchLocEd.rows[${k}].code=this.value.trim()" />
+      <input type="number" min="0" step="1" value="${r.qty}" style="width:90px;" onchange="batchLocEd.rows[${k}].qty=Math.max(0,parseFloat(this.value)||0);batchLocRenderEditor()" />
+      <button class="btn ghost" onclick="batchLocEd.rows.splice(${k},1);batchLocRenderEditor()" title="${t('btnDelete')}">✕</button>
+    </div>`).join('')}
+    <div style="margin:8px 0;"><button class="btn ghost" onclick="batchLocEd.rows.push({code:'',qty:Math.max(0,${un})});batchLocRenderEditor()">+ ${t('batchLocAddRow')}</button></div>
+    <div style="font-size:12.5px;font-weight:600;${un < -1e-9 ? 'color:var(--crit);' : ''}">${un < -1e-9 ? tf('batchLocOver', { n: batchFmtQty(-un) }) : `${t('unassignedLocationLabel')}: ${batchFmtQty(Math.max(0, un))}`}</div>
+    <div class="modal-actions"><button class="btn ghost" onclick="batchLocCloseEditor()">${t('btnCancel')}</button><button class="btn" onclick="batchLocSaveEditor()">${t('btnSave')}</button></div>
+  </div>`;
+  document.body.appendChild(ov);
+}
+function batchLocCloseEditor(){ const o = document.getElementById('batchLocOverlay'); if(o) o.remove(); batchLocEd = null; }
+function batchLocSaveEditor(){
+  if(!batchLocEd) return;
+  const it = txBatchItems.find(x => x.batchItemId === batchLocEd.itemId);
+  if(!it){ batchLocCloseEditor(); return; }
+  const rows = batchLocEd.rows.filter(r => r.code && r.qty > 0);
+  const total = rows.reduce((s, r) => s + r.qty, 0);
+  if(total > it.qty + 1e-9){ batchLocRenderEditor(); return; }
+  // 同代碼合併
+  const merged = [];
+  rows.forEach(r => { const m = merged.find(x => x.code === r.code); if(m) m.qty += r.qty; else merged.push({ code: r.code, qty: r.qty }); });
+  it.locs = merged;
+  batchLocCloseEditor();
+  renderTxBatchList();
+}
+
+// ---- 進貨單送出後:寫入位置、同步「庫存分布」(product_locations) ----
+function batchLocBuildPayload(items){
+  const lines = {};
+  items.forEach(it => {
+    if(it.docType === 'credit_note' || it.qty <= 0) return;
+    const p = products.find(x => x.id === it.productId);
+    // 自動切換成主商品的行:批次行是主商品,數量 × 換算比例,批次、有效期、位置都跟著放在同樣的位置(跟庫存總覽切換同一套規則)
+    const conv = !!(p && p.parentId && p.autoConvertOnStockIn);
+    const pid = conv ? p.parentId : it.productId;
+    const mult = conv ? (p.childWeight || 1) : 1;
+    const locs = (it.locs || []).filter(l => l.code && l.qty > 0);
+    const note = (it.note || '').trim();
+    if(!locs.length && !note) return;
+    const key = pid + '|' + (it.expiry || '');
+    const ln = lines[key] = lines[key] || { product_id: pid, expiry: it.expiry || '', locs: [], note: '' };
+    locs.forEach(l => ln.locs.push({ code: l.code, qty: l.qty * mult }));
+    if(note) ln.note = ln.note ? ln.note + '\n' + note : note;
+  });
+  return Object.values(lines);
+}
+async function batchApplyPurchaseLocations(purchase, items){
+  const payload = batchLocBuildPayload(items);
+  if(!payload.length) return;
+  await batchRpc('batch_set_purchase_locations', { p_purchase_id: purchase.id, p_rows: payload });
+  // 同步庫存分布:每個位置把數量加上去(位置不存在就新增;欄位沿用同代碼的既有位置)
+  const memo = await batchLoadLastLocMap();
+  for(const ln of payload){
+    if(!ln.locs.length) continue;
+    for(const l of ln.locs){
+      try{
+        let loc = productLocations.find(x => x.productId === ln.product_id && x.locationCode === l.code);
+        if(loc){ loc.qty += l.qty; await upsertProductLocation(loc); }
+        else {
+          const tpl = productLocations.find(x => x.locationCode === l.code);
+          loc = { id: genId(), productId: ln.product_id, zone: tpl ? tpl.zone : '', aisle: tpl ? tpl.aisle : '', bay: tpl ? tpl.bay : '', level: tpl ? tpl.level : '', bin: tpl ? tpl.bin : '', locationCode: l.code, qty: l.qty, photoUrl: null };
+          productLocations.push(loc);
+          await upsertProductLocation(loc);
+        }
+      }catch(e){ console.error('進貨後同步庫存分布失敗', e); }
+    }
+    memo[ln.product_id] = ln.locs[0].code;
+  }
+  try{ await dbSet('batchLastPurchaseLocation', memo); }catch(e){}
+  batchMarkStale();
+  try{ await ensureBatchDataLoaded(); }catch(e){}
+}
+
+// ---- 顯示:批次商品行的位置 ----
+function batchLocSummaryHtml(i){
+  // 顯示「目前」各位置的剩餘量(含出貨、轉移),沒有位置資料的部分是未分布
+  const buckets = batchBuckets(i).filter(b => b.rem > 1e-9);
+  const located = buckets.filter(b => b.code);
+  const unBucket = buckets.find(b => !b.code);
+  let html = located.map(b => `${batchEsc(b.code)} ×${batchFmtQty(b.rem)}`).join('<br>');
+  if(located.length && unBucket) html += `<br><span style="color:var(--ink-soft);">${t('unassignedLocationLabel')} ×${batchFmtQty(unBucket.rem)}</span>`;
+  return html + `${html ? '<br>' : ''}<span class="batch-link" style="font-size:12px;" onclick="batchOpenSetLocations('${i.id}')">${t(located.length ? 'batchSetLocEdit' : 'batchSetLocAdd')}</span>`;
+}
+
+// ---- 設定批次位置:補登記既有批次(期初批次、進貨時沒記位置的批次)現在放在哪 ----
+let batchSetLocEd = null;   // { itemId, rows: [{code, qty}] }
+function batchOpenSetLocations(itemId){
+  const i = batchData.items.find(x => x.id === itemId);
+  if(!i) return;
+  const cur = batchBuckets(i).filter(b => b.code && b.rem > 1e-9).map(b => ({ code: b.code, qty: b.rem }));
+  batchSetLocEd = { itemId, rows: cur.length ? cur : [{ code: '', qty: i.remaining }] };
+  batchRenderSetLocations();
+}
+function batchRenderSetLocations(){
+  const i = batchData.items.find(x => x.id === batchSetLocEd.itemId);
+  if(!i){ batchCloseSetLocations(); return; }
+  const old = document.getElementById('batchSetLocOverlay'); if(old) old.remove();
+  const assigned = batchSetLocEd.rows.reduce((s, r) => s + (Number(r.qty) || 0), 0);
+  const un = i.remaining - assigned;
+  const codes = [];
+  (productLocations || []).filter(l => l.productId === i.productId).forEach(l => { if(!codes.includes(l.locationCode)) codes.push(l.locationCode); });
+  const ov = document.createElement('div');
+  ov.id = 'batchSetLocOverlay'; ov.className = 'modal-overlay'; ov.style.display = 'flex'; ov.style.zIndex = '1250';
+  ov.innerHTML = `<div class="modal-box" style="max-width:min(520px,94vw);">
+    <div class="section-title" style="margin-top:0;">${t('batchSetLocTitle')} · ${batchEsc(batchProductName(i.productId))}-${batchEsc(i.batchNo)}</div>
+    <datalist id="batchSetLocCodes">${codes.map(c => `<option value="${batchEsc(c)}"></option>`).join('')}</datalist>
+    <div style="font-size:12px;color:var(--ink-soft);margin-bottom:8px;">${tf('batchSetLocHint', { qty: batchFmtQty(i.remaining), unit: batchEsc(batchProductUnit(i.productId)) })}</div>
+    ${batchSetLocEd.rows.map((r, k) => `<div style="display:flex;gap:6px;align-items:center;margin-bottom:6px;">
+      <input type="text" list="batchSetLocCodes" value="${batchEsc(r.code)}" placeholder="${batchEsc(t('batchLocCodePh'))}" style="flex:1;min-width:0;" onchange="batchSetLocEd.rows[${k}].code=this.value.trim()" />
+      <input type="number" min="0" step="1" value="${r.qty}" style="width:90px;" onchange="batchSetLocEd.rows[${k}].qty=Math.max(0,parseFloat(this.value)||0);batchRenderSetLocations()" />
+      <button class="btn ghost" onclick="batchSetLocEd.rows.splice(${k},1);batchRenderSetLocations()" title="${t('btnDelete')}">✕</button>
+    </div>`).join('')}
+    <div style="margin:8px 0;"><button class="btn ghost" onclick="batchSetLocEd.rows.push({code:'',qty:Math.max(0,${un})});batchRenderSetLocations()">+ ${t('batchLocAddRow')}</button></div>
+    <div style="font-size:12.5px;font-weight:600;${un < -1e-9 ? 'color:var(--crit);' : ''}">${un < -1e-9 ? tf('batchLocOver', { n: batchFmtQty(-un) }) : `${t('unassignedLocationLabel')}: ${batchFmtQty(Math.max(0, un))}`}</div>
+    <div id="batchSetLocMsg" class="msg"></div>
+    <div class="modal-actions"><button class="btn ghost" onclick="batchCloseSetLocations()">${t('btnCancel')}</button><button class="btn" onclick="batchSaveSetLocations()">${t('btnSave')}</button></div>
+  </div>`;
+  document.body.appendChild(ov);
+}
+function batchCloseSetLocations(){ const o = document.getElementById('batchSetLocOverlay'); if(o) o.remove(); batchSetLocEd = null; }
+async function batchSaveSetLocations(){
+  if(!batchSetLocEd) return;
+  const i = batchData.items.find(x => x.id === batchSetLocEd.itemId);
+  const msg = document.getElementById('batchSetLocMsg');
+  const rows = batchSetLocEd.rows.filter(r => r.code && r.qty > 0);
+  const sum = rows.reduce((s, r) => s + r.qty, 0);
+  if(!i || sum > i.remaining + 1e-9){ if(msg){ msg.className = 'msg error'; msg.textContent = t('batchPickerOverQty'); } return; }
+  // 庫存分布同步:這個批次在各位置的數量變多/變少多少,庫存分布(product_locations)同一個位置就跟著增減;
+  // 變多的部分是從「未分布」指派過去,所以庫存分布各位置加總不能超過商品總庫存。
+  const oldMap = {};
+  batchBuckets(i).forEach(b => { if(b.code) oldMap[b.code] = b.rem; });
+  const newMap = {};
+  rows.forEach(r => { newMap[r.code] = (newMap[r.code] || 0) + r.qty; });
+  const deltas = {};
+  Object.keys(Object.assign({}, oldMap, newMap)).forEach(c => { const d = (newMap[c] || 0) - (oldMap[c] || 0); if(Math.abs(d) > 1e-9) deltas[c] = d; });
+  const currentSum = productLocations.filter(l => l.productId === i.productId).reduce((a, l) => a + l.qty, 0);
+  let projected = currentSum;
+  Object.keys(deltas).forEach(c => {
+    const loc = productLocations.find(l => l.productId === i.productId && l.locationCode === c);
+    const before = loc ? loc.qty : 0;
+    projected += Math.max(0, before + deltas[c]) - before;
+  });
+  if(projected > computeStock(i.productId) + 1e-9){
+    if(msg){ msg.className = 'msg error'; msg.textContent = t('batchSetLocExceedsStock'); }
+    return;
+  }
+  if(msg){ msg.className = 'msg'; msg.textContent = t('savingMsg'); }
+  try{
+    await batchRpc('batch_set_item_locations', { p_item: i.id, p_rows: rows.map(r => ({ code: r.code, qty: r.qty })) });
+    for(const c of Object.keys(deltas)){
+      try{
+        let loc = productLocations.find(l => l.productId === i.productId && l.locationCode === c);
+        if(loc){
+          loc.qty = Math.max(0, loc.qty + deltas[c]);
+          if(loc.qty <= 1e-9){
+            await deleteProductLocationRow(loc.id);
+            productLocations = productLocations.filter(l => l.id !== loc.id);
+          } else await upsertProductLocation(loc);
+        } else if(deltas[c] > 0){
+          const tpl = productLocations.find(l => l.locationCode === c);
+          loc = { id: genId(), productId: i.productId, zone: tpl ? tpl.zone : '', aisle: tpl ? tpl.aisle : '', bay: tpl ? tpl.bay : '', level: tpl ? tpl.level : '', bin: tpl ? tpl.bin : '', locationCode: c, qty: deltas[c], photoUrl: null };
+          productLocations.push(loc);
+          await upsertProductLocation(loc);
+        }
+      }catch(e){ console.error('同步庫存分布失敗', e); }
+    }
+    try{ if(typeof refreshStockLocationView === 'function') refreshStockLocationView(); }catch(e){}
+    batchCloseSetLocations();
+    batchCloseDetail();
+    batchMarkStale();
+    try{ await ensureBatchDataLoaded(true); }catch(e){}
+    try{ if(typeof renderBatchTracker === 'function') renderBatchTracker(); }catch(e){}
+  } catch(e){
+    console.error('設定批次位置失敗', e);
+    if(msg){ msg.className = 'msg error'; msg.textContent = t('batchSetLocFailed'); }
+  }
+}
+
+// ---- 進貨清單每行的「填寫詳細資料」:供應商批號、備註(備註顯示在批次追蹤商品頁的詳細資料) ----
+function batchTxDetailButtonHtml(it){
+  const has = !!((it.supplierLot || '').trim() || (it.note || '').trim());
+  return `<button onclick="batchTxOpenDetails('${it.batchItemId}')" title="${batchEsc(t('batchTxDetailsTitle'))}">📝${has ? ' ✓' : ''}</button>`;
+}
+function batchTxOpenDetails(itemId){
+  const it = txBatchItems.find(x => x.batchItemId === itemId);
+  if(!it) return;
+  const old = document.getElementById('batchTxDetOverlay'); if(old) old.remove();
+  const ov = document.createElement('div');
+  ov.id = 'batchTxDetOverlay'; ov.className = 'modal-overlay'; ov.style.display = 'flex'; ov.style.zIndex = '1100';
+  ov.innerHTML = `<div class="modal-box" style="max-width:min(460px,94vw);">
+    <div class="section-title" style="margin-top:0;">${t('batchTxDetailsTitle')} · ${batchEsc(it.name)}</div>
+    <div class="field"><label>${t('batchFieldLot')}</label><input id="batchTxDetLot" type="text" value="${batchEsc(it.supplierLot || '')}" style="width:100%;" /></div>
+    <div class="field" style="margin-top:8px;"><label>${t('batchFieldNote')}</label><textarea id="batchTxDetNote" rows="3" style="width:100%;">${batchEsc(it.note || '')}</textarea></div>
+    <div class="modal-actions"><button class="btn ghost" onclick="document.getElementById('batchTxDetOverlay').remove()">${t('btnCancel')}</button><button class="btn" onclick="batchTxSaveDetails('${itemId}')">${t('btnSave')}</button></div>
+  </div>`;
+  document.body.appendChild(ov);
+}
+function batchTxSaveDetails(itemId){
+  const it = txBatchItems.find(x => x.batchItemId === itemId);
+  const ov = document.getElementById('batchTxDetOverlay');
+  if(it){
+    it.supplierLot = document.getElementById('batchTxDetLot').value.trim();
+    it.note = document.getElementById('batchTxDetNote').value.trim();
+  }
+  if(ov) ov.remove();
+  renderTxBatchList();
+}
+
+
+// ============================================================
+// 庫存位置分批次 第二階段(b):出貨依「批次 × 位置」分配
+// 資料表/RPC 見 sql/batch_location_phase_b.sql。
+// 規則:自動依 FEFO/FIFO 決定批次(期初批次先);批次行只放在一個位置 → 直接從那裡出;
+// 放在多個位置而沒有指定 → 跳視窗問從哪個位置出;批次標籤視窗可以指定位置。
+// ============================================================
+// 一個批次商品行目前各位置的剩餘量。沒有位置資料 → 一個「未分布」桶(code='')。
+function batchBuckets(item){
+  const locs = (batchItemLocRem[item.id] || []).filter(l => l.rem > 1e-9);
+  const sumLoc = locs.reduce((a, l) => a + l.rem, 0);
+  const buckets = locs.map(l => ({ code: l.code, rem: l.rem }));
+  const un = item.remaining - sumLoc;
+  if(un > 1e-9 || buckets.length === 0) buckets.push({ code: '', rem: Math.max(0, un > 1e-9 ? un : item.remaining) });
+  return buckets;
+}
+// 預設出貨順序:未分布先出,再依位置剩餘量由多到少
+function batchBucketsOrdered(item){
+  return batchBuckets(item).slice().sort((a, b) => (a.code === '' ? -1 : 0) - (b.code === '' ? -1 : 0) || b.rem - a.rem);
+}
+function batchBucketLabel(item, b){
+  return `${item.batchNo}${item.expiry ? ' · ' + t('batchExpiryShort') + ' ' + item.expiry : ''} · 📍 ${b.code || t('unassignedLocationLabel')}`;
+}
+
+// 出貨前(扣庫存之前)解析:這次出貨會從哪些(批次, 位置)出。回傳 null = 這個商品不用批次位置邏輯(走原本流程);
+// 否則回傳 { allocations, tracked, rest }:allocations = 原本 product_locations 扣減格式,rest = 沒有批次可扣的數量(走原本流程)。
+// 取消(使用者在選位置視窗按取消)時丟出 Error('cancelled'),呼叫端照原本方式中止。
+// 已完成訂單增加數量時的預設來源:這張訂單當初出貨用過的「批次 × 位置」(用得多的先),各自最多拿到該位置目前剩餘的量;
+// 那個批次/位置的貨沒了,剩下的量就依一般順序(期初 → 先到期 → 先進貨)往下一批拿(同批次同有效期多個位置才會問)。
+async function batchOrderPreferredPicks(orderId, productId){
+  try{
+    const { data, error } = await sb.from('batch_movements').select('batch_item_id,qty,location_code,kind').eq('order_id', orderId).in('kind', ['out', 'return']);
+    if(error) throw error;
+    const net = {};
+    (data || []).forEach(m => {
+      const it = batchData.items.find(x => x.id === m.batch_item_id);
+      if(!it || it.productId !== productId) return;
+      const k = m.batch_item_id + '|' + (m.location_code || '');
+      net[k] = (net[k] || 0) - Number(m.qty);
+    });
+    const out = [];
+    Object.keys(net).filter(k => net[k] > 1e-9).sort((a, b) => net[b] - net[a]).forEach(k => {
+      const [id, code] = k.split('|');
+      const it = batchData.items.find(x => x.id === id);
+      const b = it ? batchBuckets(it).find(x => x.code === code) : null;
+      if(b && b.rem > 1e-9) out.push({ batchItemId: id, code, qty: b.rem });
+    });
+    return out;
+  }catch(e){ console.warn('讀取訂單原本出貨批次失敗', e); return []; }
+}
+async function batchResolveLocationAllocations(productId, neededQty, picks, orderId){
+  delete batchLocPlans[productId];
+  if(orderId && batchActive() && batchIsTracked(productId)){
+    // 使用者在批次按鈕指定的先照指定;其餘預設拿這張訂單原本用的批次與位置
+    picks = (picks || []).concat(await batchOrderPreferredPicks(orderId, productId));
+  }
+  if(!batchActive() || !batchIsTracked(productId) || !(neededQty > 0)) return null;
+  const hasAnyLoc = batchItemsOfProduct(productId).some(i => (batchItemLocRem[i.id] || []).length > 0);
+  if(!hasAnyLoc) return null;
+  const product = products.find(x => x.id === productId);
+  const prev = batchPreviewAllocation(productId, neededQty, picks);
+  const plan = [];
+  for(const line of prev.lines){
+    const item = line.item;
+    const buckets = batchBuckets(item).map(b => ({ ...b }));
+    let need = line.qty;
+    // 1) 批次標籤視窗指定的位置
+    (picks || []).filter(p => p.batchItemId === item.id && p.code !== undefined && p.code !== null && (p.code !== '' || buckets.length > 1)).forEach(p => {
+      const b = buckets.find(x => x.code === p.code);
+      if(!b || need <= 0) return;
+      const take = Math.min(p.qty, b.rem, need);
+      if(take > 0){ plan.push({ batchItemId: item.id, code: b.code, qty: take }); b.rem -= take; need -= take; }
+    });
+    // 2) 其餘:只剩一個有庫存的位置 → 自動;兩個以上 → 問
+    while(need > 1e-9){
+      const cands = buckets.filter(b => b.rem > 1e-9);
+      if(cands.length === 0) break;
+      let b;
+      if(cands.length === 1) b = cands[0];
+      else {
+        const choices = cands.map(c => ({ type: 'batchloc', id: c.code, label: batchBucketLabel(item, c), qty: c.rem }));
+        const picked = await promptLocationChoice(product, need, choices);
+        b = cands.find(c => c.code === picked.id);
+      }
+      const take = Math.min(b.rem, need);
+      plan.push({ batchItemId: item.id, code: b.code, qty: take });
+      b.rem -= take; need -= take;
+    }
+  }
+  if(plan.length === 0) return null;
+  const tracked = plan.reduce((a, x) => a + x.qty, 0);
+  // 轉成 product_locations 扣減(位置代碼對得到這個商品的位置 → 扣那個位置;對不到 → 算未分布)
+  const allocations = [];
+  plan.forEach(x => {
+    const loc = x.code ? productLocations.find(l => l.productId === productId && l.locationCode === x.code) : null;
+    const key = loc ? loc.id : 'unassigned';
+    let a = allocations.find(y => (y.id || 'unassigned') === key);
+    if(!a){ a = loc ? { type: 'location', id: loc.id, label: loc.locationCode, qty: 0 } : { type: 'unassigned', id: null, label: t('unassignedLocationLabel'), qty: 0 }; allocations.push(a); }
+    a.qty += x.qty;
+  });
+  // 有庫存卻沒有批次可扣的部分(未追蹤出貨)走原本的位置選擇
+  const rest = Math.max(0, neededQty - tracked);
+  if(Math.abs(tracked - neededQty) < 1e-9){ plan.at = Date.now(); batchLocPlans[productId] = plan; }   // 只有整筆都有批次分配時才採用計畫
+  return { allocations, tracked, rest };
+}
+
+// 批次分配完成後:把這批出貨在每個批次商品行扣的量拆到位置。
+// plans: txId -> [{batchItemId, code, qty}];沒有計畫的交易依預設順序(未分布先、再位置由多到少)。
+async function batchTagOutLocations(txList, plans){
+  const ids = txList.map(tx => tx.id);
+  const { data, error } = await batchSelectMovements('id,tx_id,batch_item_id,qty,kind', q => q.in('tx_id', ids).eq('kind', 'out'));
+  if(error) throw error;
+  const byTx = {};
+  (data || []).forEach(m => { ((byTx[m.tx_id] = byTx[m.tx_id] || {})[m.batch_item_id] = (byTx[m.tx_id][m.batch_item_id] || 0) + (-Number(m.qty))); });
+  // 位置剩餘量的本機工作副本(同一批出貨有多筆動到同一個批次行時要累計扣減)
+  const work = {};
+  const bucketsOf = itemId => {
+    if(!work[itemId]){
+      const it = batchData.items.find(x => x.id === itemId);
+      // 這時資料庫已扣掉本次出貨,但本機資料還是扣之前的數字(尚未重新載入),所以用本機數字當「出貨前」
+      work[itemId] = it ? batchBucketsOrdered(it).map(b => ({ ...b })) : [];
+    }
+    return work[itemId];
+  };
+  for(const tx of txList){
+    const moved = byTx[tx.id];
+    if(!moved) continue;
+    const rows = [];
+    for(const itemId of Object.keys(moved)){
+      if(!(batchItemLocRem[itemId] || []).length) continue;     // 這個批次行沒有位置資料,不用拆
+      let need = moved[itemId];
+      const bks = bucketsOf(itemId);
+      const planned = ((plans && plans[tx.id]) || []).filter(x => x.batchItemId === itemId);
+      planned.forEach(x => {
+        const b = bks.find(y => y.code === x.code);
+        const take = Math.min(x.qty, need, b ? b.rem : 0);
+        if(take > 0){ rows.push({ batch_item_id: itemId, code: x.code, qty: take }); b.rem -= take; need -= take; }
+      });
+      for(const b of bks){
+        if(need <= 1e-9) break;
+        const take = Math.min(b.rem, need);
+        if(take > 0){ rows.push({ batch_item_id: itemId, code: b.code, qty: take }); b.rem -= take; need -= take; }
+      }
+      if(need > 1e-9) rows.push({ batch_item_id: itemId, code: '', qty: need });   // 位置剩餘量不夠(資料不一致)→ 放未分布
+    }
+    if(rows.length) await batchRpc('batch_tag_locations', { p_tx_id: tx.id, p_rows: rows });
+  }
+}
+
+
+// ============================================================
+// 庫存位置分批次 第四階段(d):庫存分布「轉移位置」時,由使用者選實際搬了哪些批次
+// 資料庫 RPC 見 sql/batch_location_phase_d.sql。轉移是倉庫內換位置,不是出貨,所以沒有先進先出,由人選。
+// srcCode / dstCode:位置代碼,'' = 未分布。
+// ============================================================
+// 回傳 null = 這個商品在來源位置沒有任何批次庫存(不需要動批次);否則回傳 [{ batch_item_id, from_code, to_code, qty }]
+// (只有一個候選批次時自動帶入,不問);使用者按取消 → 丟出 Error('cancelled')。
+async function batchTransferPick(productId, qty, srcCode, dstCode){
+  if(!batchActive()) return null;
+  try{ await ensureBatchDataLoaded(); }catch(e){}
+  if(!batchIsTracked(productId)) return null;
+  const cands = [];
+  batchItemsOfProduct(productId).forEach(i => {
+    const b = batchBuckets(i).find(x => x.code === srcCode);
+    if(b && b.rem > 1e-9) cands.push({ item: i, rem: b.rem });
+  });
+  if(cands.length === 0) return null;
+  if(cands.length === 1){
+    const q = Math.min(qty, cands[0].rem);
+    return [{ batch_item_id: cands[0].item.id, from_code: srcCode, to_code: dstCode, qty: q }];
+  }
+  const picks = await batchTransferPicker(productId, qty, srcCode, dstCode, cands);
+  return picks.map(p => ({ batch_item_id: p.id, from_code: srcCode, to_code: dstCode, qty: p.qty }));
+}
+function batchTransferPicker(productId, qty, srcCode, dstCode, cands){
+  return new Promise((resolve, reject) => {
+    const old = document.getElementById('batchTransferOverlay'); if(old) old.remove();
+    const p = products.find(x => x.id === productId);
+    const unit = p ? batchEsc(p.unit) : '';
+    const ov = document.createElement('div');
+    ov.id = 'batchTransferOverlay'; ov.className = 'modal-overlay'; ov.style.display = 'flex'; ov.style.zIndex = '1250';
+    const rows = cands.map(c => `<tr>
+      <td>${batchEsc(c.item.batchNo)}${c.item.isOpening ? ' <span style="color:var(--ink-soft);font-size:11px;">(' + t('batchOpening') + ')</span>' : ''}</td>
+      <td>${c.item.expiry ? batchEsc(c.item.expiry) : '–'}</td>
+      <td class="num">${batchFmtQty(c.rem)}</td>
+      <td class="num"><input type="number" class="batch-tr-input" data-id="${c.item.id}" data-max="${c.rem}" min="0" max="${c.rem}" step="1" style="width:80px;" oninput="batchTransferUpdateSum()" /></td>
+    </tr>`).join('');
+    ov.innerHTML = `<div class="modal-box modal-box-wide">
+      <div class="section-title" style="margin-top:0;">${t('batchTransferTitle')}</div>
+      <p style="margin-bottom:8px;">${batchEsc(p ? p.name : '')} · ${tf('batchTransferHint', { qty: batchFmtQty(qty), unit, from: batchEsc(srcCode || t('unassignedLocationLabel')), to: batchEsc(dstCode || t('unassignedLocationLabel')) })}</p>
+      <table class="stock-table">
+        <thead><tr><th>${t('batchColBatch')}</th><th>${t('batchColExpiry')}</th><th class="num">${t('batchTransferHere')}</th><th class="num">${t('batchTransferMove')}</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+      <div style="font-size:11.5px;color:var(--ink-soft);margin-top:6px;">${t('batchTransferRestNote')}</div>
+      <div id="batchTransferSum" style="font-size:12px;margin:8px 0;color:var(--ink-soft);"></div>
+      <div id="batchTransferMsg" class="msg"></div>
+      <div class="modal-actions">
+        <button class="btn ghost" id="batchTransferCancel">${t('btnCancel')}</button>
+        <button class="btn" id="batchTransferOk">${t('btnConfirmYes')}</button>
+      </div>
+    </div>`;
+    document.body.appendChild(ov);
+    batchTransferQty = qty;
+    batchTransferUpdateSum();
+    document.getElementById('batchTransferCancel').onclick = () => { ov.remove(); reject(new Error('cancelled')); };
+    document.getElementById('batchTransferOk').onclick = () => {
+      const picks = [];
+      let bad = false;
+      ov.querySelectorAll('.batch-tr-input').forEach(inp => {
+        const v = parseFloat(inp.value);
+        if(v > 0){ if(v > parseFloat(inp.dataset.max) + 1e-9) bad = true; picks.push({ id: inp.dataset.id, qty: v }); }
+      });
+      const sum = picks.reduce((a, x) => a + x.qty, 0);
+      const msg = document.getElementById('batchTransferMsg');
+      if(bad){ msg.className = 'msg error'; msg.textContent = t('batchPickerOverRemaining'); return; }
+      if(sum > qty + 1e-9){ msg.className = 'msg error'; msg.textContent = t('batchPickerOverQty'); return; }
+      ov.remove();
+      resolve(picks);
+    };
+  });
+}
+let batchTransferQty = 0;
+function batchTransferUpdateSum(){
+  const el = document.getElementById('batchTransferSum');
+  if(!el) return;
+  let sum = 0;
+  document.querySelectorAll('#batchTransferOverlay .batch-tr-input').forEach(inp => { const v = parseFloat(inp.value); if(v > 0) sum += v; });
+  el.textContent = tf('batchTransferSum', { sum: batchFmtQty(sum), qty: batchFmtQty(batchTransferQty) });
+}
+// 位置轉移完成後呼叫:把批次記的位置搬過去。失敗不影響庫存分布本身(已經轉移成功),提示後可再處理。
+async function batchApplyTransfer(rows){
+  if(!rows || rows.length === 0) return;
+  await batchRpc('batch_transfer_locations', { p_rows: rows });
+  batchMarkStale();
+  try{ await ensureBatchDataLoaded(true); }catch(e){}
+}
+
+
+// 轉移位置紀錄用:把 batchTransferPick 的結果轉成 [{ batchNo, expiry, qty }]
+function batchTransferRowsLabel(rows){
+  return (rows || []).map(r => {
+    const it = batchData.items.find(x => x.id === r.batch_item_id);
+    return { batchNo: it ? it.batchNo : '', expiry: it ? (it.expiry || '') : '', isOpening: it ? !!it.isOpening : false, qty: r.qty };
+  });
+}
+
+
+// ---- 編輯進貨單:批次位置跟著數量變動、每行備註 ----
+// 編輯前先記下這張進貨單各(商品, 位置)的「進貨位置數量」
+function batchSnapshotPurchaseLocs(purchaseId){
+  const snap = {};
+  batchData.items.filter(i => i.purchaseId === purchaseId).forEach(i => {
+    (batchItemLocs[i.id] || []).forEach(l => { const k = i.productId + '|' + l.code; snap[k] = (snap[k] || 0) + l.qty; });
+  });
+  return snap;
+}
+// 編輯後:位置數量超過新的進貨量就減回去(資料庫 batch_clamp_purchase_locations);行被移除的位置數量也一起算,
+// 把減少的量同步從庫存分布(product_locations)扣掉,避免「未分布」憑空變成負數。
+async function batchSyncPurchaseLocAfterEdit(purchaseId, before){
+  try{
+    await batchRpc('batch_clamp_purchase_locations', { p_purchase_id: purchaseId });
+  }catch(e){ if(!batchIsMissingFunctionError(e)) console.error('調整批次位置失敗', e); }
+  batchMarkStale();
+  try{ await ensureBatchDataLoaded(true); }catch(e){}
+  const after = batchSnapshotPurchaseLocs(purchaseId);
+  let changed = false;
+  for(const k of Object.keys(before || {})){
+    const cut = (before[k] || 0) - (after[k] || 0);
+    if(cut <= 1e-9) continue;
+    const [pid, code] = k.split('|');
+    const loc = productLocations.find(l => l.productId === pid && l.locationCode === code);
+    if(!loc) continue;
+    try{
+      loc.qty = Math.max(0, loc.qty - cut);
+      if(loc.qty <= 1e-9){ await deleteProductLocationRow(loc.id); productLocations = productLocations.filter(l => l.id !== loc.id); }
+      else await upsertProductLocation(loc);
+      changed = true;
+    }catch(e){ console.error('編輯進貨單後同步庫存分布失敗', e); }
+  }
+  if(changed){ try{ if(typeof refreshStockLocationView === 'function') refreshStockLocationView(); }catch(e){} }
+}
+// 編輯進貨單視窗:這個商品行(商品+有效期)目前的批次備註
+function batchLineNote(purchaseId, productId, expiry){
+  const it = batchData.items.find(i => i.purchaseId === purchaseId && i.productId === productId && (i.expiry || '') === (expiry || ''));
+  return it ? (it.note || '') : '';
+}
+// 只更新備註(不動位置)
+async function batchSaveLineNotes(purchaseId, rows){
+  if(!rows || rows.length === 0) return;
+  try{
+    await batchRpc('batch_set_purchase_locations', { p_purchase_id: purchaseId, p_rows: rows });
+    batchMarkStale();
+    try{ await ensureBatchDataLoaded(true); }catch(e){}
+  }catch(e){ console.error('儲存批次備註失敗', e); }
 }

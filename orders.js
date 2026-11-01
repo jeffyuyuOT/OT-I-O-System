@@ -105,6 +105,10 @@ function renderOrderItemsTable(){
     if(usedCats.includes(prevCat)) catSel.value = prevCat;
     if(catSel.value) orderable = orderable.filter(p => (p.category || '未分類') === catSel.value);
   }
+  // 商品搜尋:名稱或 SKU 包含關鍵字
+  const searchEl = document.getElementById('orderSearchInput');
+  const searchQ = searchEl ? searchEl.value.trim().toLowerCase() : '';
+  if(searchQ) orderable = orderable.filter(p => (p.name || '').toLowerCase().includes(searchQ) || (p.sku || '').toLowerCase().includes(searchQ));
 
   if(orderable.length === 0){
     container.innerHTML = `<div class="empty-note">${t('noFilteredOrderableProducts')}</div>`;
@@ -672,7 +676,7 @@ function orderItemRowHtml(o, it, isPending, readOnly, context){
     ? `<span style="color:var(--crit);">${qtyHistoryStr}</span>${qtyLabel}`
     : qtyLabel;
   // 顯示 Sell price 時:單價 | 數量 | 總價 三欄對齊,操作連結(改數量 / 批次 / 刪除)放在最右邊
-  const priceOn = (context === 'pending' || context === 'verify' || context === 'completed') && typeof spEnabled === 'function' && spEnabled();
+  const priceOn = (context === 'pending' || context === 'completed') && typeof spEnabled === 'function' && spEnabled();
   const actionLinks = `${canEdit ? `<span class="del-link" style="margin-left:8px;" onclick="startEditOrderItemQty('${context}','${o.id}','${it.productId}')">${t('btnEditQty')}</span>` : ''}
         ${(canEdit && context === 'verify' && typeof batchOrderItemButtonHtml === 'function') ? batchOrderItemButtonHtml(o, it) : ''}
         ${canEdit ? `<span class="del-link" style="margin-left:8px;color:var(--crit);" onclick="${deleteFn}('${o.id}','${it.productId}')">${t('btnDelete')}</span>` : ''}`;
@@ -778,7 +782,7 @@ function renderCompletedOrdersInto(container, recentOnly){
         <div class="order-card-head" style="cursor:pointer;" onclick="toggleOrderExpand('${o.id}')">
           <span class="order-card-date">
             <span style="display:inline-block;width:14px;">${isExpanded ? '▾' : '▸'}</span>
-            ${o.orderNo ? `<span style="color:var(--ink-soft);font-weight:400;">${o.orderNo}</span> · ` : ''}${o.date}${o.partyName ? ` <span style="font-weight:400;color:var(--ink-soft);">· ${(o.partyId && hasCapability('cap-manage-parties')) ? tf('orderCardPartyLabel', {name: `<span class="batch-link" title="${t('btnEdit')}" onclick="event.stopPropagation();openPartyEditModal('${o.partyId}')">${escapeHtmlForPrint(o.partyName)}</span>`}) : tf('orderCardPartyLabel', {name: o.partyName})}</span>` : ''}
+            ${o.orderNo ? `<span style="color:var(--ink-soft);font-weight:400;">${o.orderNo}</span> · ` : ''}${o.date}${o.partyName ? ` <span style="font-weight:400;color:var(--ink-soft);">· ${tf('orderCardPartyLabel', {name: o.partyName})}</span>` : ''}
             ${o.remark ? `<span title="${t('orderHasRemarkTitle')}" style="margin-left:6px;color:var(--yellow-dark);">📝</span>` : ''}
             ${wasModified ? `<span title="${t('orderWasModifiedTitle')}" style="margin-left:6px;color:var(--warn);">✎</span>` : ''}
           </span>
@@ -796,9 +800,7 @@ function renderCompletedOrdersInto(container, recentOnly){
               : tf('signedByUsernameLabel', { name: o.signInfo.username || '' })}
           </div>`) : ''}
           <div class="order-card-actions">
-            ${(o.deleted || o.signedAt) ? '' : `<button class="btn ghost" onclick="editOrderViaRegister('${o.id}', 'completed')">${t('btnEdit')}</button>`}
             ${(o.deleted || o.signedAt) ? '' : `<button class="btn ghost" onclick="openWarehouseSignModal('${o.id}')">${t('btnWarehouseSign')}</button>`}
-            ${hasHistory ? `<button class="btn ghost" onclick="openOrderHistoryModal('${o.id}')">${t('btnViewHistory')}</button>` : ''}
           </div>
         ` : ''}
       </div>
@@ -1171,7 +1173,7 @@ function renderPendingOrders(){
       </div>
     ` : `
       <div style="margin:8px 0;font-size:12px;color:var(--ink-soft);">
-        ${o.partyId ? tf('orderCardPartyLabel', {name: hasCapability('cap-manage-parties') ? `<span class="batch-link" title="${t('btnEdit')}" onclick="openPartyEditModal('${o.partyId}')">${escapeHtmlForPrint(o.partyName || '')}</span>` : (o.partyName || '')}) : `<span style="color:var(--crit);">${t('orderNoPartyLinkedWarning')}</span>`}
+        ${o.partyId ? tf('orderCardPartyLabel', {name: hasCapability('cap-manage-parties') ? `<span class="batch-link" title="${t('btnEdit')}" onclick="partyEditFromOrder('${o.partyId}')">${escapeHtmlForPrint(o.partyName || '')}</span>` : (o.partyName || '')}) : `<span style="color:var(--crit);">${t('orderNoPartyLinkedWarning')}</span>`}
         <span class="del-link" style="margin-left:8px;" onclick="startEditOrderParty('${o.id}')">${t('btnEditOrderParty')}</span>
       </div>
     `;
@@ -1181,20 +1183,19 @@ function renderPendingOrders(){
         <div class="order-card-head" style="cursor:pointer;" onclick="toggleOrderExpand('${o.id}')">
           <span class="order-card-date">
             <span style="display:inline-block;width:14px;">${isExpanded ? '▾' : '▸'}</span>
-            ${o.orderNo ? `<span style="color:var(--ink-soft);font-weight:400;">${o.orderNo}</span> · ` : ''}${o.date}${(o.originalDate && o.originalDate !== o.date) ? ` <span title="${t('dateWasChangedTitle')}" style="font-weight:400;color:var(--warn-dark);">(${tf('originalDateLabel', {date: o.originalDate})})</span>` : ''}${o.partyName ? ` <span style="font-weight:400;color:var(--ink-soft);">· ${tf('orderCardPartyLabel', {name: o.partyName})}</span>` : ''}
+            ${o.orderNo ? `<span style="color:var(--ink-soft);font-weight:400;">${o.orderNo}</span> · ` : ''}${o.date}${(o.originalDate && o.originalDate !== o.date) ? ` <span title="${t('dateWasChangedTitle')}" style="font-weight:400;color:var(--warn-dark);">(${tf('originalDateLabel', {date: o.originalDate})})</span>` : ''}${o.partyName ? ` <span style="font-weight:400;color:var(--ink-soft);">· ${tf('orderCardPartyLabel', {name: (o.partyId && !o.deleted && hasCapability('cap-manage-parties')) ? `<span class="batch-link" title="${t('btnEdit')}" onclick="event.stopPropagation();partyEditFromOrder('${o.partyId}')">${escapeHtmlForPrint(o.partyName)}</span>` : o.partyName})}</span>` : ''}${(!o.deleted && hasCapability('cap-manage-parties')) ? ` <span title="${t('btnEditOrderParty')}" style="margin-left:2px;color:var(--warn);cursor:pointer;" onclick="event.stopPropagation();startEditOrderParty('${o.id}')">✎</span>` : ''}
             ${o.remark ? `<span title="${t('orderHasRemarkTitle')}" style="margin-left:6px;color:var(--yellow-dark);">📝</span>` : ''}
-            ${wasModified ? `<span title="${t('orderWasModifiedTitle')}" style="margin-left:6px;color:var(--warn);">✎</span>` : ''}
-            ${!o.deleted && !o.partyId ? `<span title="${t('orderNoPartyLinkedWarning')}" style="margin-left:6px;color:var(--crit);">⚠</span>` : ''}
+            ${!o.deleted && !o.partyId ? `<span title="${t('orderNoPartyLinkedWarning')}" style="margin-left:6px;color:var(--crit);">⚠</span>${hasCapability('cap-manage-parties') ? ` <span title="${t('btnEditOrderParty')}" style="margin-left:2px;color:var(--warn);cursor:pointer;" onclick="event.stopPropagation();startEditOrderParty('${o.id}')">✎</span>` : ''}` : ''}
           </span>
           <span style="display:inline-flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:flex-end;">
             <span class="order-status-pill ${o.deleted ? 'deleted' : (o.status === 'processing' ? 'processing' : 'pending')}">${o.deleted ? t('statusOrderCancelled') : (o.status === 'processing' ? t('statusProcessing') : t('statusPending'))}</span>
             ${o.deleted ? '' : `<span class="order-head-action" onclick="event.stopPropagation()"><button class="btn ghost" onclick="openOrderActionModal('${o.id}', 'pending')">${t('lblAction')} ▾</button></span>`}
           </span>
         </div>
+        ${(isEditingParty && !o.deleted) ? `<div style="padding:4px 14px 8px;">${partyEditHtml}</div>` : ''}
         ${isExpanded ? `
           ${orderBlockHtml('items', 'orderBlockItems', `${(typeof spColsHeaderHtml === 'function') ? spColsHeaderHtml(false) : ''}<div class="order-items">${itemsHtml}</div>${(typeof spOrderTotalRowHtml === 'function') ? spOrderTotalRowHtml(o, false) : ''}`)}
           ${orderBlockHtml('remark', 'orderBlockRemark', remarkHtml)}
-          ${o.deleted ? '' : orderBlockHtml('party', 'orderBlockParty', partyEditHtml)}
           <div class="order-card-actions">
             ${hasHistory ? `<button class="btn ghost" onclick="openOrderHistoryModal('${o.id}')">${t('btnViewHistory')}</button>` : ''}
           </div>
@@ -1449,6 +1450,10 @@ function openOrderActionModal(orderId, kind){
     ];
   } else {
     opts = [];
+    // 編輯放最上、觀看修改紀錄放第二(跟展開後卡片底下的按鈕同樣的條件:簽收或刪除後不能編輯;沒有任何異動就沒有修改紀錄)
+    if(!(o.deleted || o.signedAt)) opts.push(['edit', t('btnEdit'), false]);
+    const wasModified = !o.deleted && o.items.some(it => (it.qtyHistory && it.qtyHistory.length > 0) || it.deleted);
+    if(wasModified || (o.postVerifyChanges && o.postVerifyChanges.length > 0)) opts.push(['history', t('btnViewHistory'), false]);
     if(o.signedAt) opts.push(['email', t('actionEmail'), false]);
     opts.push(['export', t('actionExport'), false], ['print', t('actionPrint'), false]);
   }
@@ -1483,7 +1488,9 @@ function confirmOrderActionModal(){
   } else {
     const modeSel = document.getElementById('orderActionModeSelect');
     const exportMode = modeSel ? modeSel.value : 'general';
-    if(action === 'export') exportSingleOrderSheet(orderId, exportMode);
+    if(action === 'edit') editOrderViaRegister(orderId, 'completed');
+    else if(action === 'history') openOrderHistoryModal(orderId);
+    else if(action === 'export') exportSingleOrderSheet(orderId, exportMode);
     else if(action === 'print') printCompletedOrder(orderId);
     else if(action === 'email') openSendOrderEmailModal(orderId, exportMode);
   }
@@ -1672,7 +1679,7 @@ async function verifyOrder(orderId){
     let locationChoices;
     try{
       locationChoices = await resolveLocationChoicesForItemsWithPreset(
-        activeItems.map(it => ({ productId: it.productId, qty: it.qty })),
+        activeItems.map(it => ({ productId: it.productId, qty: it.qty, batchPicks: (typeof batchPicks !== 'undefined' && batchPicks[batchPickKey(orderId, it.productId)]) || it.batchPicks })),
         order.pickedLocationAllocations
       );
     } catch(e){
@@ -1805,8 +1812,8 @@ function renderVerifyPage(){
     infoEl.innerHTML = '';
     itemsEl.innerHTML = `<div class="empty-note">${t('noOrderLoadedForVerify')}</div>`;
   } else {
-    infoEl.innerHTML = `${activeOrder.orderNo ? `<b>${activeOrder.orderNo}</b> · ` : ''}${activeOrder.date}${activeOrder.partyName ? ` · ${tf('orderCardPartyLabel', {name: activeOrder.partyName})}` : ''}${activeOrder.note ? `<br/>${t('noteLabelPrefix')}${activeOrder.note}` : ''}`;
-    itemsEl.innerHTML = (typeof spColsHeaderHtml === 'function' ? spColsHeaderHtml(true) : '') + (activeOrder.items.map(it => orderItemRowHtml(activeOrder, it, true, false, 'verify')).join('') || `<div class="empty-note">${t('orderHistoryNoItemsLeft')}</div>`) + (typeof spOrderTotalRowHtml === 'function' ? spOrderTotalRowHtml(activeOrder, true) : '');
+    infoEl.innerHTML = `${activeOrder.orderNo ? `<b>${activeOrder.orderNo}</b> · ` : ''}${activeOrder.date}${activeOrder.partyName ? ` · ${tf('orderCardPartyLabel', {name: (activeOrder.partyId && hasCapability('cap-manage-parties')) ? `<span class="batch-link" title="${t('btnEdit')}" onclick="partyEditFromOrder('${activeOrder.partyId}')">${escapeHtmlForPrint(activeOrder.partyName)}</span>` : activeOrder.partyName})}` : ''}${activeOrder.note ? `<br/>${t('noteLabelPrefix')}${activeOrder.note}` : ''}`;
+    itemsEl.innerHTML = (activeOrder.items.map(it => orderItemRowHtml(activeOrder, it, true, false, 'verify')).join('') || `<div class="empty-note">${t('orderHistoryNoItemsLeft')}</div>`);
   }
 
   renderVerifyPageRightItems();

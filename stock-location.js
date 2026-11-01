@@ -48,6 +48,9 @@ function renderStockLocationProductSelect(){
   // 勾選「列出所有未指派商品」時,這個下拉選單也只列出真的還有未分布庫存的商品——不然選單裡
   // 明明列著一個已經全部指派完位置的商品,選了卻跟畫面上那份「未指派清單」對不起來,容易誤導。
   if(isBulkMode) filteredProducts = filteredProducts.filter(p => computeUnassignedQty(p.id) > 0);
+  // 勾選「列出所有多個位置的商品」時同理:只列出分布在兩個以上位置的商品
+  const multiCheckbox = document.getElementById('stockLocationShowAllMulti');
+  if(multiCheckbox && multiCheckbox.checked) filteredProducts = filteredProducts.filter(p => stockLocationCountFor(p.id) >= 2);
   sel.innerHTML = '<option value=""></option>' + filteredProducts.slice().sort(compareProductsBySortMode).map(p => `<option value="${p.id}">${p.sku ? p.sku + ' — ' : ''}${p.parentId ? '⧉ ' : ''}${p.name}(${p.unit})</option>`).join('');
   if(filteredProducts.some(p => p.id === prevVal)) sel.value = prevVal;
 
@@ -68,7 +71,20 @@ function jumpToProductInStockLocation(p){
 // 「列出所有未指派商品」:勾選後把單一商品的詳細畫面換成一份清單(依目前的分類篩選,列出
 // 所有還有未分布庫存的商品),商品下拉選單這時候選哪個都沒意義,所以鎖住不能選,避免使用者
 // 誤以為要先選商品才看得到清單。取消勾選就切回原本「選一項商品看詳細」的畫面。
+// 這個商品目前有幾個真正的位置(不含未分布)
+function stockLocationCountFor(productId){
+  return productLocations.filter(l => l.productId === productId && l.qty > 0).length;
+}
+// 兩個清單勾選互斥:勾了「多個位置」就取消「未指派」,反過來也是
+function toggleStockLocationMultiView(checked){
+  const other = document.getElementById('stockLocationShowAllUnassigned');
+  if(checked && other) other.checked = false;
+  resetSearchableSelect('stockLocationProductSelect');
+  renderStockLocationProductSelect();
+}
 function toggleStockLocationBulkView(checked){
+  const other = document.getElementById('stockLocationShowAllMulti');
+  if(checked && other) other.checked = false;
   // 這裡不再整個鎖住商品選單不能選(disabled)——改成讓選單本身依照勾選狀態,只列出真的
   // 有未分布庫存的商品(見 renderStockLocationProductSelect),選單裡看得到的每一項都真的
   // 對應目前這份未指派清單,不會出現「選了卻跟清單對不起來」的商品。
@@ -86,7 +102,9 @@ function refreshStockLocationView(){
   // (畫面上會過濾成只列出真的有未分布庫存的商品),選了就是要看那個商品的詳細分布,這時候
   // 應該顯示那個商品的詳細畫面,不是硬顯示整份清單。只有「勾選了、而且沒有選任何特定商品」
   // 才顯示整份未指派清單。
-  if(bulkCheckbox && bulkCheckbox.checked && (!sel || !sel.value)) renderStockLocationBulkUnassignedList();
+  const multiCheckbox = document.getElementById('stockLocationShowAllMulti');
+  if(multiCheckbox && multiCheckbox.checked && (!sel || !sel.value)) renderStockLocationMultiList();
+  else if(bulkCheckbox && bulkCheckbox.checked && (!sel || !sel.value)) renderStockLocationBulkUnassignedList();
   else renderStockLocationDetail();
 }
 
@@ -98,6 +116,8 @@ function refreshStockLocationView(){
 function showProductsAtLocation(code){
   const bulkCheckbox = document.getElementById('stockLocationShowAllUnassigned');
   if(bulkCheckbox) bulkCheckbox.checked = false;
+  const multiCb = document.getElementById('stockLocationShowAllMulti');
+  if(multiCb) multiCb.checked = false;
   const sel = document.getElementById('stockLocationProductSelect');
   if(sel) sel.value = '';
   const container = document.getElementById('stockLocationDetail');
@@ -121,6 +141,36 @@ function showProductsAtLocation(code){
       </table>
       `}
     </div>
+  `;
+}
+
+// 「列出所有多個位置的商品」:依目前的分類篩選,列出分布在兩個以上位置的商品,每個位置各一行,
+// 按「查看」跳到那個商品的詳細分布(可以在那裡轉移合併位置)。
+function renderStockLocationMultiList(){
+  const container = document.getElementById('stockLocationDetail');
+  if(!container) return;
+  const catFilterVal = document.getElementById('stockLocationCategoryFilter').value;
+  const rows = (catFilterVal ? products.filter(p => (p.category || '未分類') === catFilterVal) : products)
+    .filter(p => !p.hidden && stockLocationCountFor(p.id) >= 2)
+    .sort((a, b) => a.name.localeCompare(b.name));
+  if(rows.length === 0){
+    container.innerHTML = `<div class="empty-note">${t('noMultiLocationProductsHint')}</div>`;
+    return;
+  }
+  container.innerHTML = `
+    <table class="stock-table" style="margin-top:14px;">
+      <thead><tr><th>SKU</th><th>${t('lblProduct')}</th><th>${t('colLocation')}</th><th></th></tr></thead>
+      <tbody>
+        ${rows.map(p => `
+          <tr>
+            <td>${escapeHtmlForPrint(p.sku || '—')}</td>
+            <td>${escapeHtmlForPrint(p.name)}</td>
+            <td>${getSortedLocationsForProduct(p.id).map(l => `${escapeHtmlForPrint(l.locationCode)} ×${l.qty} ${escapeHtmlForPrint(p.unit)}`).join('<br>')}</td>
+            <td><span class="del-link" onclick="jumpToProductInStockLocation(products.find(x => x.id === '${p.id}'))">${t('btnViewDetail')}</span></td>
+          </tr>
+        `).join('')}
+      </tbody>
+    </table>
   `;
 }
 
@@ -216,7 +266,9 @@ let pendingLocationPhotoUrl = null;
 // 不會出現在選項裡——不能轉移到自己身上。
 function buildLocationTargetOptions(productId, excludeLocationId){
   const locs = getSortedLocationsForProduct(productId).filter(l => l.id !== excludeLocationId);
-  const options = locs.map(l => ({ value: 'loc:' + l.id, label: `${l.locationCode}${l === locs[0] ? ` (${t('primaryLocationBadge')})` : ''} — ${l.qty}` }));
+  // 「主要位置」標記要看整個商品(含正在編輯的來源位置)數量最多的那個,不是只在剩下的選項裡挑最多的
+  const truePrimary = getPrimaryLocation(productId);
+  const options = locs.map(l => ({ value: 'loc:' + l.id, label: `${l.locationCode}${(truePrimary && l.id === truePrimary.id) ? ` (${t('primaryLocationBadge')})` : ''} — ${l.qty}` }));
   options.push({ value: 'unassigned', label: t('unassignedLocationLabel') });
   options.push({ value: 'new', label: t('optAddNewLocation') });
   // 這個商品目前完全沒有真正的位置資料(全部未分布)的話,如果之前記錄過「最後一次的主要
@@ -618,9 +670,30 @@ function cancelLocationChoiceSequence(){
 // ·目前只剩一個來源可以選 → 不用問,直接整批(或剩下的部分)用那個來源
 // ·有兩個以上來源 → 跳出視窗問,選了哪個來源不夠這次剩下要扣的量,就把它整個用完,
 //   剩下還缺的量自動繼續問(排除掉這個已經用完的來源),直到湊滿為止
-async function resolveLocationAllocationsForItem(productId, neededQty){
+// 批次追蹤的商品(而且批次有記位置)先依「批次 × 位置」決定從哪裡出(batch-tracking.js 的 batchResolveLocationAllocations);
+// 沒有批次可扣的部分、或不用批次位置的商品,走下面原本的流程(legacy)。
+async function resolveLocationAllocationsForItem(productId, neededQty, batchPicks, orderId){
+  let pre = null;
+  if(typeof batchResolveLocationAllocations === 'function') pre = await batchResolveLocationAllocations(productId, neededQty, batchPicks, orderId);
+  if(!pre) return resolveLocationAllocationsLegacy(productId, neededQty, {});
+  if(!(pre.rest > 1e-9)) return pre.allocations;
+  // 剩下沒有批次的量:先把批次那部分已經用掉的位置數量扣掉,再走原本的流程
+  const used = {};
+  pre.allocations.forEach(a => {
+    if(a.type === 'location'){ const l = productLocations.find(x => x.id === a.id); if(l) used[a.id] = Math.max(0, l.qty - a.qty); }
+    else used.unassigned = Math.max(0, computeUnassignedQty(productId) - a.qty);
+  });
+  const extra = await resolveLocationAllocationsLegacy(productId, pre.rest, used);
+  const out = pre.allocations.map(a => ({ ...a }));
+  extra.forEach(e => {
+    const same = out.find(a => (a.id || 'unassigned') === (e.id || 'unassigned'));
+    if(same) same.qty += e.qty; else out.push(e);
+  });
+  return out;
+}
+async function resolveLocationAllocationsLegacy(productId, neededQty, initialVirtualQty){
   const product = products.find(x => x.id === productId);
-  const virtualQty = {};
+  const virtualQty = Object.assign({}, initialVirtualQty || {});
   let remaining = neededQty;
   const allocations = [];
 
@@ -647,7 +720,7 @@ async function resolveLocationAllocationsForItem(productId, neededQty){
 async function resolveLocationChoicesForItems(items){
   const results = [];
   for(const it of items){
-    const allocations = await resolveLocationAllocationsForItem(it.productId, it.qty);
+    const allocations = await resolveLocationAllocationsForItem(it.productId, it.qty, it.batchPicks, it.orderId);
     results.push({ productId: it.productId, qty: it.qty, allocations });
   }
   return results;
@@ -675,7 +748,7 @@ async function resolveLocationChoicesForItemsWithPreset(items, presetMap){
         return false;
       });
     }
-    const allocations = presetStillValid ? preset : await resolveLocationAllocationsForItem(it.productId, it.qty);
+    const allocations = presetStillValid ? preset : await resolveLocationAllocationsForItem(it.productId, it.qty, it.batchPicks, it.orderId);
     results.push({ productId: it.productId, qty: it.qty, allocations });
   }
   return results;
@@ -758,6 +831,18 @@ async function confirmLocationTransfer(){
   }
   if(sourceLoc && newCode && sourceLoc.locationCode === newCode){ msgEl.className = 'msg error'; msgEl.textContent = t('errTransferSameLocation'); return; }
 
+  // 批次追蹤的商品:轉移的是倉庫裡實際放的貨,由使用者選這次搬的是哪些批次(來源位置只有一個批次的話自動帶入)。
+  // 在動任何資料之前先問,按取消就整個中止。
+  let batchTransferRows = null;
+  if(typeof batchTransferPick === 'function'){
+    try{
+      batchTransferRows = await batchTransferPick(productId, qty, sourceLoc ? sourceLoc.locationCode : '', (targetVal === 'unassigned') ? '' : newCode);
+    } catch(e){
+      msgEl.className = 'msg'; msgEl.textContent = '';
+      return;
+    }
+  }
+
   msgEl.className = 'msg'; msgEl.textContent = t('savingMsg');
   try{
     // 先處理目的地:同一個商品、同一個位置代碼已經有紀錄的話,直接加上去;沒有的話新增一筆;
@@ -795,6 +880,22 @@ async function confirmLocationTransfer(){
       }
     }
 
+    // 轉移紀錄(歷史紀錄 → 庫存分布紀錄);寫入失敗(例如資料表還沒建立)不影響轉移本身
+    try{
+      const prod = products.find(x => x.id === productId);
+      await sb.from('location_transfer_log').insert({
+        product_id: productId, product_name: prod ? prod.name : '', unit: prod ? prod.unit : '',
+        from_code: sourceLoc ? sourceLoc.locationCode : '', to_code: (targetVal === 'unassigned') ? '' : newCode, qty,
+        actor: (currentUser && currentUser.username) || null,
+        batches: (batchTransferRows && batchTransferRows.length && typeof batchTransferRowsLabel === 'function') ? batchTransferRowsLabel(batchTransferRows) : null
+      });
+      locationTransferLogLoaded = false;
+    }catch(e){ console.warn('寫入庫存分布紀錄失敗', e); }
+    // 庫存分布轉移成功後,批次記的位置跟著搬(失敗只提示,不影響上面已經完成的轉移)
+    if(batchTransferRows && batchTransferRows.length && typeof batchApplyTransfer === 'function'){
+      try{ await batchApplyTransfer(batchTransferRows); }
+      catch(e){ console.error('批次位置轉移失敗', e); showInfoModal(t('batchTransferFailed')); }
+    }
     refreshStockLocationView();
     closeLocationEditModal();
   } catch(e){
@@ -802,4 +903,93 @@ async function confirmLocationTransfer(){
     msgEl.className = 'msg error';
     msgEl.textContent = '⚠ 儲存失敗,請重新整理頁面再試一次。';
   }
+}
+
+
+// ============================================================
+// 歷史紀錄 → 庫存分布紀錄:列出每一次轉移位置(sql/location_transfer_log.sql)
+// ============================================================
+let locationTransferLog = [];
+let locationTransferLogLoaded = false;
+let locationTransferLogError = '';
+async function loadLocationTransferLog(){
+  try{
+    const { data, error } = await sb.from('location_transfer_log').select('*').order('created_at', { ascending: false }).limit(2000);
+    if(error) throw error;
+    locationTransferLog = data || [];
+    locationTransferLogError = '';
+  } catch(e){
+    console.warn('讀取庫存分布紀錄失敗', e);
+    locationTransferLog = [];
+    locationTransferLogError = (e && e.message) || String(e);
+  }
+  locationTransferLogLoaded = true;
+}
+function renderLocationLogFilters(){
+  const catSel = document.getElementById('locLogCategoryFilter');
+  const sel = document.getElementById('locLogProductSelect');
+  if(!catSel || !sel) return;
+  syncCategoryOrder();
+  const prevCat = catSel.value;
+  const usedCats = categoryOrder.filter(c => products.some(p => (p.category || '未分類') === c));
+  catSel.innerHTML = `<option value="">${t('catFilterAll')}</option>` + usedCats.map(c => `<option value="${c}">${catLabel(c)}</option>`).join('');
+  if(usedCats.includes(prevCat)) catSel.value = prevCat;
+  const prevVal = sel.value;
+  const list = (catSel.value ? products.filter(p => (p.category || '未分類') === catSel.value) : products).filter(p => !p.hidden);
+  sel.innerHTML = '<option value=""></option>' + list.slice().sort(compareProductsBySortMode).map(p => `<option value="${p.id}">${p.sku ? p.sku + ' — ' : ''}${p.parentId ? '⧉ ' : ''}${p.name}(${p.unit})</option>`).join('');
+  if(list.some(p => p.id === prevVal)) sel.value = prevVal;
+  makeSelectSearchable('locLogProductSelect');
+}
+function onLocationLogCategoryChange(){
+  resetSearchableSelect('locLogProductSelect');
+  renderLocationLogFilters();
+  renderLocationLog();
+}
+function clearLocationLogFilters(){
+  const c = document.getElementById('locLogCategoryFilter'); if(c) c.value = '';
+  resetSearchableSelect('locLogProductSelect');
+  renderLocationLogFilters();
+  renderLocationLog();
+}
+async function openLocationLogTab(){
+  renderLocationLogFilters();
+  const box = document.getElementById('locationLogTable');
+  if(box && !locationTransferLogLoaded) box.innerHTML = `<div class="empty-note">${t('batchLoading')}</div>`;
+  if(!locationTransferLogLoaded) await loadLocationTransferLog();
+  renderLocationLog();
+}
+function renderLocationLog(){
+  const box = document.getElementById('locationLogTable');
+  if(!box) return;
+  if(locationTransferLogError){
+    box.innerHTML = `<div class="empty-note">${t('locLogLoadError')}<br><span style="font-size:11px;">${escapeHtmlForPrint(locationTransferLogError)}</span></div>`;
+    return;
+  }
+  const cat = (document.getElementById('locLogCategoryFilter') || {}).value || '';
+  const pid = (document.getElementById('locLogProductSelect') || {}).value || '';
+  const catIds = cat ? new Set(products.filter(p => (p.category || '未分類') === cat).map(p => p.id)) : null;
+  const rows = locationTransferLog.filter(r => (!pid || r.product_id === pid) && (!catIds || catIds.has(r.product_id)));
+  if(rows.length === 0){ box.innerHTML = `<div class="empty-note">${t('locLogEmpty')}</div>`; return; }
+  const pad = n => String(n).padStart(2, '0');
+  const fmt = iso => { const d = new Date(iso); return isNaN(d) ? '' : `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`; };
+  const code = c => c ? escapeHtmlForPrint(c) : `<span style="color:var(--ink-soft);font-style:italic;">${t('unassignedLocationLabel')}</span>`;
+  box.innerHTML = `<table class="stock-table">
+    <thead><tr><th>${t('colDate')}</th><th>${t('lblProduct')}</th><th>${t('locLogFrom')}</th><th>${t('locLogTo')}</th><th class="num">${t('colQty')}</th><th>${t('locLogBatches')}</th><th>${t('locLogActor')}</th></tr></thead>
+    <tbody>${rows.map(r => {
+      const p = products.find(x => x.id === r.product_id);
+      const name = p ? p.name : (r.product_name || r.product_id);
+      const unit = p ? p.unit : (r.unit || '');
+      const batches = Array.isArray(r.batches) && r.batches.length
+        ? r.batches.map(b => `${escapeHtmlForPrint(b.isOpening ? t('batchOpening') : (b.batchNo || ''))}${b.expiry ? ' · ' + escapeHtmlForPrint(b.expiry) : ''} ×${b.qty}`).join('<br>')
+        : '–';
+      return `<tr>
+        <td style="white-space:nowrap;">${fmt(r.created_at)}</td>
+        <td>${escapeHtmlForPrint(name)}</td>
+        <td>${code(r.from_code)}</td>
+        <td>${code(r.to_code)}</td>
+        <td class="num">${r.qty} ${escapeHtmlForPrint(unit)}</td>
+        <td style="font-size:12px;">${batches}</td>
+        <td>${escapeHtmlForPrint(r.actor || '')}</td>
+      </tr>`;
+    }).join('')}</tbody></table>`;
 }

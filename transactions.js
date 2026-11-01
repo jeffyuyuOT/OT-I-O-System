@@ -222,6 +222,7 @@ function resetRegisterOutFlow(){
   if(noteLabel) noteLabel.textContent = t('txNoteSharedLabel');
   const partySelect = document.getElementById('txPartySelect');
   if(partySelect) partySelect.disabled = false;
+  { const _pel = document.getElementById('txPartyEditLink'); if(_pel) _pel.style.display = 'none'; }
   const partyFieldWrap = document.getElementById('txPartyFieldWrap');
   if(partyFieldWrap) partyFieldWrap.style.display = '';
   const mainGrid = document.getElementById('txMainFormGrid');
@@ -251,6 +252,7 @@ function setTxOutFlowType(flowType){
   if(existingSection) existingSection.style.display = 'none';
   if(postVerifySection) postVerifySection.style.display = 'none';
   if(partySelect) partySelect.disabled = false;
+  { const _pel = document.getElementById('txPartyEditLink'); if(_pel) _pel.style.display = 'none'; }
   if(dateInput) dateInput.disabled = false;
   if(noteLabel) noteLabel.textContent = t('txNoteSharedLabel');
   // 出貨的三種流程(新增訂單/載入待處理/載入已完成)都需要出貨方,固定顯示、固定三欄——庫存
@@ -297,6 +299,7 @@ function setTxDeliveryFlowType(flowType){
 
   if(existingSection) existingSection.style.display = 'none';
   if(partySelect) partySelect.disabled = false;
+  { const _pel = document.getElementById('txPartyEditLink'); if(_pel) _pel.style.display = 'none'; }
   if(dateInput) dateInput.disabled = false;
   if(noteLabel) noteLabel.textContent = t('txNoteRequiredDeliveryLabel');
 
@@ -441,7 +444,7 @@ function renderTxExistingItems(){
           <span style="${priceOn ? SP_QTY_W : ''}"><span style="text-decoration:line-through;color:var(--ink-soft);">${it.qty}</span> → <span style="color:var(--warn-dark);font-weight:600;">${pending.newQty}</span> ${it.unit}</span>
           ${priceOn ? spUnitCellHtml(order, it) : ''}
           ${priceOn ? spTotalCellHtml(order, it, pending.newQty) : ''}
-          ${registerOutFlowType === 'load-pending' ? `<span class="del-link" onclick="registerExistingItemEditKey='${it.productId}';renderTxExistingItems();">${t('btnEditQty')}</span>` : ''}
+          <span class="del-link" onclick="registerExistingItemEditKey='${it.productId}';renderTxExistingItems();">${t('btnEditQty')}</span>
           ${(typeof batchExistingItemButtonHtml === 'function') ? batchExistingItemButtonHtml(it, pending) : ''}
           <span class="del-link" onclick="undoPendingItemChange('${it.productId}')">${t('btnUndo')}</span>
           ${(typeof batchExistingItemLineHtml === 'function') ? batchExistingItemLineHtml(it) : ''}
@@ -450,7 +453,7 @@ function renderTxExistingItems(){
     }
 
     const qtyHtml = `${it.qty} ${it.unit}${it.qty < 0 ? ` <span style="color:var(--safe);font-weight:600;font-size:11px;">(${t('stockedInLabel')})</span>` : ''}`;
-    const actionsHtml = `${registerOutFlowType === 'load-pending' ? `<span class="del-link" onclick="registerExistingItemEditKey='${it.productId}';renderTxExistingItems();">${t('btnEditQty')}</span>` : ''}
+    const actionsHtml = `<span class="del-link" onclick="registerExistingItemEditKey='${it.productId}';renderTxExistingItems();">${t('btnEditQty')}</span>
         ${(typeof batchExistingItemButtonHtml === 'function') ? batchExistingItemButtonHtml(it, pending) : ''}
         <span class="del-link" style="color:var(--crit);" onclick="deleteTxExistingItem('${it.productId}')">${t('btnDelete')}</span>`;
     if(priceOn){
@@ -477,7 +480,7 @@ function renderTxExistingItems(){
   });
   // 標題列(單價 / 數量 / 總價)+ 品項 + 訂單總金額(暫存改的數量算新數量、暫存刪除的不算)
   const totalOverrides = it => { const pc = registerPendingItemChanges[it.productId]; if(!pc) return undefined; return pc.type === 'delete' ? false : (pc.type === 'qty' ? pc.newQty : undefined); };
-  list.innerHTML = (priceOn ? spColsHeaderHtml(canActOnRows || false) : '') + rowsHtml.join('') + (priceOn ? spOrderTotalRowHtml(order, canActOnRows || false, totalOverrides) : '');
+  list.innerHTML = (priceOn ? spColsHeaderHtml(true) : '') + rowsHtml.join('') + (priceOn ? spOrderTotalRowHtml(order, true, totalOverrides) : '');
   if(typeof batchFillOrderBreakdown === 'function') batchFillOrderBreakdown(list, order); // 批次追蹤:顯示每個商品目前用了哪些批次
 }
 
@@ -586,6 +589,13 @@ function loadOrderIntoRegisterFlow(orderId){
     partySelect.value = order.partyId || '';
     partySelect.disabled = true;
   }
+  // 待處理訂單的出貨方:欄位本身鎖住,旁邊給一個「編輯出貨方」連結(先確認再開編輯視窗)
+  const partyEditLink = document.getElementById('txPartyEditLink');
+  if(partyEditLink){
+    const canEdit = order.partyId && registerOutFlowType === 'load-pending' && hasCapability('cap-manage-parties');
+    partyEditLink.dataset.pid = order.partyId || '';
+    partyEditLink.style.display = canEdit ? 'block' : 'none';
+  }
   const noteInput = document.getElementById('txNote');
   if(noteInput) noteInput.value = order.note || '';
   const browseAllEl = document.getElementById('txBrowseAllProducts');
@@ -680,7 +690,7 @@ function addToTxBatch(){
   // 批次追蹤:進貨時「同商品同有效期」才合併,不同有效期分行列出
   const bx = (typeof batchReadAddFields === 'function') ? batchReadAddFields() : { expiry: '', lot: '' };
   const existing = txBatchItems.find(it => it.productId === productId && (it.expiry || '') === bx.expiry);
-  if(existing){ existing.qty += qty; if(bx.lot && !existing.supplierLot) existing.supplierLot = bx.lot; }
+  if(existing){ existing.qty += qty; if(typeof batchLocOnQtyChange === 'function') batchLocOnQtyChange(existing); if(bx.lot && !existing.supplierLot) existing.supplierLot = bx.lot; }
   else txBatchItems.push({ batchItemId: genId(), productId, sku: p.sku || '', name: p.name, unit: p.unit, qty, expiry: bx.expiry, supplierLot: bx.lot });
   if(typeof batchClearAddFields === 'function') batchClearAddFields();
   qtyInput.value = '';
@@ -699,6 +709,7 @@ function updateTxBatchItemQty(batchItemId, value){
   if(!it) return;
   const qty = parseFloat(value);
   it.qty = (!isNaN(qty) && qty !== 0 && Number.isInteger(qty)) ? qty : it.qty;
+  if(typeof batchLocOnQtyChange === 'function') batchLocOnQtyChange(it);
   renderTxBatchList();
 }
 
@@ -724,6 +735,7 @@ function renderTxBatchList(){
   if(typeof batchRenderFormExtras === 'function') batchRenderFormExtras();
   if(typeof pcRender === 'function') pcRender();
   const showBatchCols = typeof batchRowsShowExpiry === 'function' && batchRowsShowExpiry();
+  if(showBatchCols && typeof batchLocPrepareList === 'function') batchLocPrepareList();
   if(txBatchItems.length === 0){
     container.innerHTML = `<div class="empty-note" style="padding:8px 0;" data-i18n="txBatchEmpty">${t('txBatchEmpty')}</div>`;
     return;
@@ -757,14 +769,15 @@ function renderTxBatchList(){
           <input type="number" class="order-qty-input" step="1" value="${it.qty}"
             onchange="updateTxBatchItemQty('${it.batchItemId}', this.value)" /><span class="row-unit">${it.unit}</span>
         </td>
-        ${showSellCol ? `<td class="row-num">${spTxItemPriceHtml(it, sellPartyId)}</td>` : ''}
-        ${showSellCol ? `<td class="row-num"><span style="${SP_TOTAL_PILL}">${spTxItemTotalHtml(it, sellPartyId)}</span></td>` : ''}
-        ${showBatchCols ? `<td class="row-num"><input type="date" class="order-qty-input" style="width:140px;" value="${it.expiry || ''}" onchange="updateTxBatchItemExpiry('${it.batchItemId}', this.value)" /></td>
-        <td class="row-num"><input type="text" class="order-qty-input" style="width:100px;" value="${(it.supplierLot || '').replace(/"/g, '&quot;')}" onchange="updateTxBatchItemLot('${it.batchItemId}', this.value)" /></td>` : ''}
-        ${showAmountCol ? `<td class="row-num"><input type="number" class="order-qty-input" step="0.01" min="0" value="${(it.amount !== undefined && it.amount !== null) ? it.amount : ''}" placeholder="–" ${canEditPrice() ? '' : 'readonly'} onchange="updateTxBatchItemAmount('${it.batchItemId}', this.value)" /></td>` : ''}
+        ${showSellCol ? `<td class="row-num tx-sell">${spTxItemPriceHtml(it, sellPartyId)}</td>` : ''}
+        ${showSellCol ? `<td class="row-num tx-sell"><span style="${SP_TOTAL_PILL}">${spTxItemTotalHtml(it, sellPartyId)}</span></td>` : ''}
+        ${showBatchCols ? `<td class="row-num tx-exp" data-label="${t('batchColExpiry')}"><input type="date" class="order-qty-input" style="width:140px;" value="${it.expiry || ''}" onchange="updateTxBatchItemExpiry('${it.batchItemId}', this.value)" onblur="commitTxBatchItemExpiry('${it.batchItemId}')" /></td>
+        
+        ${(typeof batchLocCellHtml === 'function') ? batchLocCellHtml(it) : '<td></td>'}` : ''}
+        ${showAmountCol ? `<td class="row-num tx-amt" data-label="${t('colAmount')}"><input type="number" class="order-qty-input" step="0.01" min="0" value="${(it.amount !== undefined && it.amount !== null) ? it.amount : ''}" placeholder="–" ${canEditPrice() ? '' : 'readonly'} onchange="updateTxBatchItemAmount('${it.batchItemId}', this.value)" /></td>` : ''}
         <td class="row-action">
           ${(typeof batchTxRowButtonHtml === 'function') ? batchTxRowButtonHtml(it) : ''}
-          <button onclick="openConversionFromTxBatch('${it.productId}')" title="${t('btnConvertBatchItem')}">🔄</button>
+          ${(showBatchCols && typeof batchTxDetailButtonHtml === 'function') ? batchTxDetailButtonHtml(it) : `<button onclick="openConversionFromTxBatch('${it.productId}')" title="${t('btnConvertBatchItem')}">🔄</button>`}
           <button onclick="removeTxBatchItem('${it.batchItemId}')" title="${t('btnDelete')}">✕</button>
         </td>
       </tr>
@@ -786,7 +799,7 @@ function renderTxBatchList(){
           <td class="row-num">${netQty}<span class="row-unit">${it.unit}</span></td>
           ${showSellCol ? '<td></td><td></td>' : ''}
           ${showBatchCols ? '<td></td><td></td>' : ''}
-          ${showAmountCol ? `<td class="row-num">${netAmount !== null ? Number(netAmount).toFixed(2) : '–'}</td>` : ''}
+          ${showAmountCol ? `<td class="row-num tx-amt">${netAmount !== null ? Number(netAmount).toFixed(2) : '–'}</td>` : ''}
           <td class="row-action"></td>
         </tr>
       `;
@@ -794,7 +807,7 @@ function renderTxBatchList(){
   });
   container.innerHTML = `
     <table class="stock-table">
-      <thead><tr><th>${t('colProduct')}</th><th class="num">${t('colQty')}</th>${showSellCol ? `<th class="num">${t('spColUnitPrice')}</th><th class="num">${t('spColTotalPrice')}</th>` : ''}${showBatchCols ? `<th class="num">${t('batchColExpiry')}</th><th class="num">${t('batchFieldLot')}</th>` : ''}${showAmountCol ? `<th class="num">${t('colAmount')}${(typeof pcAmountColSuffix === 'function') ? pcAmountColSuffix() : ''}</th>` : ''}<th></th></tr></thead>
+      <thead><tr><th>${t('colProduct')}</th><th class="num">${t('colQty')}</th>${showSellCol ? `<th class="num">${t('spColUnitPrice')}</th><th class="num">${t('spColTotalPrice')}</th>` : ''}${showBatchCols ? `<th class="num">${t('batchColExpiry')}</th><th style="min-width:220px;">${t('batchLocTitle')}</th>` : ''}${showAmountCol ? `<th class="num">${t('colAmount')}${(typeof pcAmountColSuffix === 'function') ? pcAmountColSuffix() : ''}</th>` : ''}<th></th></tr></thead>
       <tbody>${rowsHtml}</tbody>
       ${showSellCol ? (() => { const tt = spTxItemsTotal(sellPartyId); return `<tfoot><tr style="font-weight:700;"><td class="row-name" colspan="3" style="text-align:right;">${registerOutFlowType === 'load-pending' ? t('spAddedItemsTotal') : t('spOrderTotal')}${tt.missing ? ` <span style="font-weight:400;font-size:11px;color:var(--ink-soft);">(${tf('spTotalMissing', { n: tt.missing })})</span>` : ''}</td><td class="row-num"><span style="${SP_TOTAL_PILL}">${spMoney(tt.sum)}</span></td><td colspan="${(showBatchCols ? 2 : 0) + (showAmountCol ? 1 : 0) + 1}"></td></tr></tfoot>`; })() : ''}
     </table>
@@ -1814,7 +1827,7 @@ async function submitTxBatchSimple(date, msg){
   let outLocationChoices = null;
   if(currentTxType === 'out'){
     try{
-      outLocationChoices = await resolveLocationChoicesForItems(txBatchItems.map(it => ({ productId: it.productId, qty: it.qty })));
+      outLocationChoices = await resolveLocationChoicesForItems(txBatchItems.map(it => ({ productId: it.productId, qty: it.qty, batchPicks: it.batchPicks })));
     } catch(e){
       return; // 使用者取消了位置選擇,整個提交中止
     }
@@ -1938,8 +1951,14 @@ async function submitTxBatchSimple(date, msg){
     catch(e){ console.error('儲存進貨單失敗', e); }
     // 批次追蹤:建立批次(必要時一併建立期初批次)。失敗不影響進貨本身,提示後可到編輯進貨單重新儲存補建。
     if(batchTrackThis && purchaseSaved){
-      try{ await batchSavePurchase(purchase); }
+      let batchCreated = false;
+      try{ await batchSavePurchase(purchase); batchCreated = true; }
       catch(e){ console.error('建立批次失敗', e); showInfoModal(t('batchCreateFailed')); }
+      // 庫存位置:批次建好後記錄各商品行放在哪些位置(失敗不影響進貨與批次本身)
+      if(batchCreated && typeof batchApplyPurchaseLocations === 'function'){
+        try{ await batchApplyPurchaseLocations(purchase, txBatchItems); }
+        catch(e){ console.error('記錄批次位置失敗', e); showInfoModal(t('batchLocSaveFailed')); }
+      }
     }
     if(typeof pcRememberExpenseNames === 'function' && purchase.costs) pcRememberExpenseNames(purchase.costs.expenses.map(e => e.name));
     if(typeof pcReset === 'function') pcReset();
@@ -2350,7 +2369,7 @@ async function submitLoadCompletedFlow(date, msg){
     let qtyChangeAllocationsByProductId = {};
     if(increaseChanges.length > 0){
       try{
-        const resolved = await resolveLocationChoicesForItems(increaseChanges.map(({ item, newQty }) => ({ productId: item.productId, qty: newQty - item.qty })));
+        const resolved = await resolveLocationChoicesForItems(increaseChanges.map(({ item, newQty, picks }) => ({ productId: item.productId, qty: newQty - item.qty, batchPicks: picks, orderId: order.id })));
         resolved.forEach(r => { qtyChangeAllocationsByProductId[r.productId] = r.allocations; });
       } catch(e){
         return; // 使用者取消了位置選擇,整個儲存動作中止
@@ -2498,7 +2517,7 @@ async function submitAdjustmentFlow(date, msg){
     let adjustmentLocationChoices = null;
     if(decreaseItems.length > 0){
       try{
-        adjustmentLocationChoices = await resolveLocationChoicesForItems(decreaseItems.map(it => ({ productId: it.productId, qty: it.qty })));
+        adjustmentLocationChoices = await resolveLocationChoicesForItems(decreaseItems.map(it => ({ productId: it.productId, qty: it.qty, batchPicks: it.batchPicks })));
       } catch(e){
         return; // 使用者取消了位置選擇,整個提交中止
       }

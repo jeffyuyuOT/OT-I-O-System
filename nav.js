@@ -501,6 +501,7 @@ function switchLogSubTab(subtabId){
   if(subtabId === 'subtab-log-completed'){ populateCompletedOrderPartyFilter(); renderOrders(); }
   if(subtabId === 'subtab-log-forecast'){ loadForecastRecords().then(renderLogForecastRecords); }
   if(subtabId === 'subtab-log-convert'){ renderConvertHistoryTable(); }
+  if(subtabId === 'subtab-log-location'){ openLocationLogTab(); }
   if(subtabId === 'subtab-log-exports'){ loadExportEmailLogs().then(renderExportLog); }
   if(subtabId === 'subtab-log-inventory'){ loadInventoryLog().then(renderInventoryLog); }
 }
@@ -551,3 +552,24 @@ function switchOrderSubTab(subtabId){
   document.getElementById(subtabId).classList.add('active-subtab');
   document.getElementById('btn-' + subtabId).classList.add('active');
 }
+
+// ---- 分頁說明:標題旁的 ⓘ,點擊才顯示說明文字(標題下面緊接著的灰色說明段落) ----
+function initTitleHints(){
+  document.querySelectorAll('.tab-content p[style*="--ink-soft"]').forEach(p => {
+    if(p.dataset.hintInit || p.id || p.closest('.modal-box')) return;
+    const prev = p.previousElementSibling;
+    if(!prev) return;
+    const title = prev.classList.contains('section-title') ? prev : prev.querySelector(':scope > .section-title');
+    if(!title) return;
+    p.dataset.hintInit = '1';
+    p.classList.add('title-hint-text');
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'title-hint-btn';
+    btn.textContent = 'i';
+    btn.setAttribute('aria-label', 'info');
+    btn.onclick = () => p.classList.toggle('open');
+    title.appendChild(btn);
+  });
+}
+initTitleHints();
