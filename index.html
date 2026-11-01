@@ -1498,8 +1498,8 @@
     <div class="section">
       <div class="section-title"><span data-i18n="secRegisterTx">登記進出貨</span></div>
       <p style="font-size:11.5px;color:var(--ink-soft);margin:0 0 12px;" data-i18n="txBatchDesc">先選好下面共用的類型/日期/對象/備註,再從清單依序把商品加進來;按「登記」時,清單裡的每一項商品都會各自登記成一筆獨立的紀錄,但共用同一個類型/日期/對象,備註也會套用到全部品項。</p>
-      <div style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap;margin-bottom:10px;">
-      <div class="field" style="min-width:160px;max-width:200px;">
+      <div style="display:flex;gap:28px;align-items:flex-start;flex-wrap:wrap;margin-bottom:10px;">
+      <div class="field" style="min-width:160px;max-width:200px;margin:0;">
         <label data-i18n="lblType">類型</label>
         <select id="txTypeSelect" onchange="setTxType(this.value)">
           <option value="in" data-i18n="lblStockIn">進貨 +</option>
@@ -1509,8 +1509,8 @@
           <option value="adjustment" data-i18n="optFlowAdjustment">庫存調整</option>
         </select>
       </div>
-      <div id="txDeliveryFlowTypeRow" style="display:none;margin-bottom:10px;">
-        <div style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap;">
+      <div id="txDeliveryFlowTypeRow" style="display:none;margin:0;">
+        <div style="display:flex;gap:28px;align-items:flex-start;flex-wrap:wrap;">
           <div class="field">
             <label data-i18n="lblDeliveryFlowType">操作</label>
             <select id="txDeliveryFlowType" onchange="setTxDeliveryFlowType(this.value)">
@@ -1528,8 +1528,8 @@
           </div>
         </div>
       </div>
-      <div id="txOutFlowTypeRow" style="display:none;margin-bottom:10px;">
-        <div style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap;">
+      <div id="txOutFlowTypeRow" style="display:none;margin:0;">
+        <div style="display:flex;gap:28px;align-items:flex-start;flex-wrap:wrap;">
           <div class="field">
             <label data-i18n="lblOutFlowType">出貨類型</label>
             <select id="txOutFlowType" onchange="setTxOutFlowType(this.value)">
