@@ -1909,9 +1909,46 @@ async function batchSaveSetLocations(){
   const rows = batchSetLocEd.rows.filter(r => r.code && r.qty > 0);
   const sum = rows.reduce((s, r) => s + r.qty, 0);
   if(!i || sum > i.remaining + 1e-9){ if(msg){ msg.className = 'msg error'; msg.textContent = t('batchPickerOverQty'); } return; }
+  // 庫存分布同步:這個批次在各位置的數量變多/變少多少,庫存分布(product_locations)同一個位置就跟著增減;
+  // 變多的部分是從「未分布」指派過去,所以庫存分布各位置加總不能超過商品總庫存。
+  const oldMap = {};
+  batchBuckets(i).forEach(b => { if(b.code) oldMap[b.code] = b.rem; });
+  const newMap = {};
+  rows.forEach(r => { newMap[r.code] = (newMap[r.code] || 0) + r.qty; });
+  const deltas = {};
+  Object.keys(Object.assign({}, oldMap, newMap)).forEach(c => { const d = (newMap[c] || 0) - (oldMap[c] || 0); if(Math.abs(d) > 1e-9) deltas[c] = d; });
+  const currentSum = productLocations.filter(l => l.productId === i.productId).reduce((a, l) => a + l.qty, 0);
+  let projected = currentSum;
+  Object.keys(deltas).forEach(c => {
+    const loc = productLocations.find(l => l.productId === i.productId && l.locationCode === c);
+    const before = loc ? loc.qty : 0;
+    projected += Math.max(0, before + deltas[c]) - before;
+  });
+  if(projected > computeStock(i.productId) + 1e-9){
+    if(msg){ msg.className = 'msg error'; msg.textContent = t('batchSetLocExceedsStock'); }
+    return;
+  }
   if(msg){ msg.className = 'msg'; msg.textContent = t('savingMsg'); }
   try{
     await batchRpc('batch_set_item_locations', { p_item: i.id, p_rows: rows.map(r => ({ code: r.code, qty: r.qty })) });
+    for(const c of Object.keys(deltas)){
+      try{
+        let loc = productLocations.find(l => l.productId === i.productId && l.locationCode === c);
+        if(loc){
+          loc.qty = Math.max(0, loc.qty + deltas[c]);
+          if(loc.qty <= 1e-9){
+            await deleteProductLocationRow(loc.id);
+            productLocations = productLocations.filter(l => l.id !== loc.id);
+          } else await upsertProductLocation(loc);
+        } else if(deltas[c] > 0){
+          const tpl = productLocations.find(l => l.locationCode === c);
+          loc = { id: genId(), productId: i.productId, zone: tpl ? tpl.zone : '', aisle: tpl ? tpl.aisle : '', bay: tpl ? tpl.bay : '', level: tpl ? tpl.level : '', bin: tpl ? tpl.bin : '', locationCode: c, qty: deltas[c], photoUrl: null };
+          productLocations.push(loc);
+          await upsertProductLocation(loc);
+        }
+      }catch(e){ console.error('同步庫存分布失敗', e); }
+    }
+    try{ if(typeof refreshStockLocationView === 'function') refreshStockLocationView(); }catch(e){}
     batchCloseSetLocations();
     batchCloseDetail();
     batchMarkStale();
