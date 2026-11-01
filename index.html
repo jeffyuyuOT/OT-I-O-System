@@ -1750,6 +1750,12 @@
             <span data-i18n="chkShowAllUnassigned">列出所有未指派商品</span>
           </label>
         </div>
+        <div class="field" style="justify-content:flex-end;">
+          <label style="display:flex;align-items:center;gap:6px;font-weight:600;color:var(--ink);cursor:pointer;font-size:12.5px;text-transform:none;">
+            <input type="checkbox" id="stockLocationShowAllMulti" onchange="toggleStockLocationMultiView(this.checked)" style="width:15px;height:15px;cursor:pointer;" />
+            <span data-i18n="chkShowAllMultiLocation">列出所有多個位置的商品</span>
+          </label>
+        </div>
       </div>
       <div id="stockLocationDetail"></div>
     </div>

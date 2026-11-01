@@ -48,6 +48,9 @@ function renderStockLocationProductSelect(){
   // 勾選「列出所有未指派商品」時,這個下拉選單也只列出真的還有未分布庫存的商品——不然選單裡
   // 明明列著一個已經全部指派完位置的商品,選了卻跟畫面上那份「未指派清單」對不起來,容易誤導。
   if(isBulkMode) filteredProducts = filteredProducts.filter(p => computeUnassignedQty(p.id) > 0);
+  // 勾選「列出所有多個位置的商品」時同理:只列出分布在兩個以上位置的商品
+  const multiCheckbox = document.getElementById('stockLocationShowAllMulti');
+  if(multiCheckbox && multiCheckbox.checked) filteredProducts = filteredProducts.filter(p => stockLocationCountFor(p.id) >= 2);
   sel.innerHTML = '<option value=""></option>' + filteredProducts.slice().sort(compareProductsBySortMode).map(p => `<option value="${p.id}">${p.sku ? p.sku + ' — ' : ''}${p.parentId ? '⧉ ' : ''}${p.name}(${p.unit})</option>`).join('');
   if(filteredProducts.some(p => p.id === prevVal)) sel.value = prevVal;
 
@@ -68,7 +71,20 @@ function jumpToProductInStockLocation(p){
 // 「列出所有未指派商品」:勾選後把單一商品的詳細畫面換成一份清單(依目前的分類篩選,列出
 // 所有還有未分布庫存的商品),商品下拉選單這時候選哪個都沒意義,所以鎖住不能選,避免使用者
 // 誤以為要先選商品才看得到清單。取消勾選就切回原本「選一項商品看詳細」的畫面。
+// 這個商品目前有幾個真正的位置(不含未分布)
+function stockLocationCountFor(productId){
+  return productLocations.filter(l => l.productId === productId && l.qty > 0).length;
+}
+// 兩個清單勾選互斥:勾了「多個位置」就取消「未指派」,反過來也是
+function toggleStockLocationMultiView(checked){
+  const other = document.getElementById('stockLocationShowAllUnassigned');
+  if(checked && other) other.checked = false;
+  resetSearchableSelect('stockLocationProductSelect');
+  renderStockLocationProductSelect();
+}
 function toggleStockLocationBulkView(checked){
+  const other = document.getElementById('stockLocationShowAllMulti');
+  if(checked && other) other.checked = false;
   // 這裡不再整個鎖住商品選單不能選(disabled)——改成讓選單本身依照勾選狀態,只列出真的
   // 有未分布庫存的商品(見 renderStockLocationProductSelect),選單裡看得到的每一項都真的
   // 對應目前這份未指派清單,不會出現「選了卻跟清單對不起來」的商品。
@@ -86,7 +102,9 @@ function refreshStockLocationView(){
   // (畫面上會過濾成只列出真的有未分布庫存的商品),選了就是要看那個商品的詳細分布,這時候
   // 應該顯示那個商品的詳細畫面,不是硬顯示整份清單。只有「勾選了、而且沒有選任何特定商品」
   // 才顯示整份未指派清單。
-  if(bulkCheckbox && bulkCheckbox.checked && (!sel || !sel.value)) renderStockLocationBulkUnassignedList();
+  const multiCheckbox = document.getElementById('stockLocationShowAllMulti');
+  if(multiCheckbox && multiCheckbox.checked && (!sel || !sel.value)) renderStockLocationMultiList();
+  else if(bulkCheckbox && bulkCheckbox.checked && (!sel || !sel.value)) renderStockLocationBulkUnassignedList();
   else renderStockLocationDetail();
 }
 
@@ -98,6 +116,8 @@ function refreshStockLocationView(){
 function showProductsAtLocation(code){
   const bulkCheckbox = document.getElementById('stockLocationShowAllUnassigned');
   if(bulkCheckbox) bulkCheckbox.checked = false;
+  const multiCb = document.getElementById('stockLocationShowAllMulti');
+  if(multiCb) multiCb.checked = false;
   const sel = document.getElementById('stockLocationProductSelect');
   if(sel) sel.value = '';
   const container = document.getElementById('stockLocationDetail');
@@ -121,6 +141,36 @@ function showProductsAtLocation(code){
       </table>
       `}
     </div>
+  `;
+}
+
+// 「列出所有多個位置的商品」:依目前的分類篩選,列出分布在兩個以上位置的商品,每個位置各一行,
+// 按「查看」跳到那個商品的詳細分布(可以在那裡轉移合併位置)。
+function renderStockLocationMultiList(){
+  const container = document.getElementById('stockLocationDetail');
+  if(!container) return;
+  const catFilterVal = document.getElementById('stockLocationCategoryFilter').value;
+  const rows = (catFilterVal ? products.filter(p => (p.category || '未分類') === catFilterVal) : products)
+    .filter(p => !p.hidden && stockLocationCountFor(p.id) >= 2)
+    .sort((a, b) => a.name.localeCompare(b.name));
+  if(rows.length === 0){
+    container.innerHTML = `<div class="empty-note">${t('noMultiLocationProductsHint')}</div>`;
+    return;
+  }
+  container.innerHTML = `
+    <table class="stock-table" style="margin-top:14px;">
+      <thead><tr><th>SKU</th><th>${t('lblProduct')}</th><th>${t('colLocation')}</th><th></th></tr></thead>
+      <tbody>
+        ${rows.map(p => `
+          <tr>
+            <td>${escapeHtmlForPrint(p.sku || '—')}</td>
+            <td>${escapeHtmlForPrint(p.name)}</td>
+            <td>${getSortedLocationsForProduct(p.id).map(l => `${escapeHtmlForPrint(l.locationCode)} ×${l.qty} ${escapeHtmlForPrint(p.unit)}`).join('<br>')}</td>
+            <td><span class="del-link" onclick="jumpToProductInStockLocation(products.find(x => x.id === '${p.id}'))">${t('btnViewDetail')}</span></td>
+          </tr>
+        `).join('')}
+      </tbody>
+    </table>
   `;
 }
 
