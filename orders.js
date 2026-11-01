@@ -796,9 +796,7 @@ function renderCompletedOrdersInto(container, recentOnly){
               : tf('signedByUsernameLabel', { name: o.signInfo.username || '' })}
           </div>`) : ''}
           <div class="order-card-actions">
-            ${(o.deleted || o.signedAt) ? '' : `<button class="btn ghost" onclick="editOrderViaRegister('${o.id}', 'completed')">${t('btnEdit')}</button>`}
             ${(o.deleted || o.signedAt) ? '' : `<button class="btn ghost" onclick="openWarehouseSignModal('${o.id}')">${t('btnWarehouseSign')}</button>`}
-            ${hasHistory ? `<button class="btn ghost" onclick="openOrderHistoryModal('${o.id}')">${t('btnViewHistory')}</button>` : ''}
           </div>
         ` : ''}
       </div>
