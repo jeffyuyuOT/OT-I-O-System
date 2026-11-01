@@ -388,7 +388,7 @@ function batchPickKey(orderId, productId){ return orderId + '::' + productId; }
 function batchOrderItemButtonHtml(o, it){
   if(!batchIsTracked(it.productId) || !(it.qty > 0)) return '';
   const has = (batchPicks[batchPickKey(o.id, it.productId)] || []).length > 0;
-  return `<span class="del-link" style="margin-left:8px;" onclick="batchOpenPickerForOrderItem('${o.id}','${it.productId}')">${t('btnBatchPick')}${has ? ' ✓' : ''}</span>`;
+  return `<span class="del-link" style="margin-left:8px;" title="${batchEsc(t('btnBatchPick'))}" onclick="batchOpenPickerForOrderItem('${o.id}','${it.productId}')">🏷${has ? ' ✓' : ''}</span>`;
 }
 function batchOrderItemPreviewHtml(o, it){
   return ''; // 不主動顯示分配結果,點「批次」按鈕在視窗裡看/改
@@ -1167,10 +1167,10 @@ function batchOpenPickerForPendingItem(productId){
 function batchExistingItemButtonHtml(it, pending){
   if(batchPendingItemPickable(it)){
     const has = (it.batchPicks || []).length > 0;
-    return `<span class="del-link" onclick="batchOpenPickerForPendingItem('${it.productId}')">${t('btnBatchPick')}${has ? ' ✓' : ''}</span>`;
+    return `<span class="del-link" title="${batchEsc(t('btnBatchPick'))}" onclick="batchOpenPickerForPendingItem('${it.productId}')">🏷${has ? ' ✓' : ''}</span>`;
   }
   if(!batchExistingItemTracked(it)) return '';
-  return `<span class="del-link" onclick="batchOpenOrderBreakdownView('${it.productId}')">${t('btnBatchPick')}</span>`;
+  return `<span class="del-link" title="${batchEsc(t('btnBatchPick'))}" onclick="batchOpenOrderBreakdownView('${it.productId}')">🏷</span>`;
 }
 function batchOpenPickerForExistingItem(productId){
   const order = orders.find(o => o.id === registerLoadedOrderId);
@@ -1195,7 +1195,7 @@ function batchOpenPickerForExistingItem(productId){
         return;
       }
       const btn = document.getElementById('batchExistBtn_' + productId);
-      if(btn) btn.textContent = t('btnBatchPick') + (picks.length ? ' ✓' : '');
+      if(btn) btn.textContent = '🏷' + (picks.length ? ' ✓' : '');
     }
   });
 }

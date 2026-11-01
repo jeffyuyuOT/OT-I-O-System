@@ -672,7 +672,7 @@ function orderItemRowHtml(o, it, isPending, readOnly, context){
     ? `<span style="color:var(--crit);">${qtyHistoryStr}</span>${qtyLabel}`
     : qtyLabel;
   // 顯示 Sell price 時:單價 | 數量 | 總價 三欄對齊,操作連結(改數量 / 批次 / 刪除)放在最右邊
-  const priceOn = (context === 'pending' || context === 'verify' || context === 'completed') && typeof spEnabled === 'function' && spEnabled();
+  const priceOn = (context === 'pending' || context === 'completed') && typeof spEnabled === 'function' && spEnabled();
   const actionLinks = `${canEdit ? `<span class="del-link" style="margin-left:8px;" onclick="startEditOrderItemQty('${context}','${o.id}','${it.productId}')">${t('btnEditQty')}</span>` : ''}
         ${(canEdit && context === 'verify' && typeof batchOrderItemButtonHtml === 'function') ? batchOrderItemButtonHtml(o, it) : ''}
         ${canEdit ? `<span class="del-link" style="margin-left:8px;color:var(--crit);" onclick="${deleteFn}('${o.id}','${it.productId}')">${t('btnDelete')}</span>` : ''}`;
@@ -1806,7 +1806,7 @@ function renderVerifyPage(){
     itemsEl.innerHTML = `<div class="empty-note">${t('noOrderLoadedForVerify')}</div>`;
   } else {
     infoEl.innerHTML = `${activeOrder.orderNo ? `<b>${activeOrder.orderNo}</b> · ` : ''}${activeOrder.date}${activeOrder.partyName ? ` · ${tf('orderCardPartyLabel', {name: activeOrder.partyName})}` : ''}${activeOrder.note ? `<br/>${t('noteLabelPrefix')}${activeOrder.note}` : ''}`;
-    itemsEl.innerHTML = (typeof spColsHeaderHtml === 'function' ? spColsHeaderHtml(true) : '') + (activeOrder.items.map(it => orderItemRowHtml(activeOrder, it, true, false, 'verify')).join('') || `<div class="empty-note">${t('orderHistoryNoItemsLeft')}</div>`) + (typeof spOrderTotalRowHtml === 'function' ? spOrderTotalRowHtml(activeOrder, true) : '');
+    itemsEl.innerHTML = (activeOrder.items.map(it => orderItemRowHtml(activeOrder, it, true, false, 'verify')).join('') || `<div class="empty-note">${t('orderHistoryNoItemsLeft')}</div>`);
   }
 
   renderVerifyPageRightItems();
