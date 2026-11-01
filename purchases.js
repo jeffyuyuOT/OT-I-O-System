@@ -100,12 +100,10 @@ function renderPurchaseLog(){
             <td class="pl-invoice" style="cursor:pointer;" onclick="togglePurchaseDetail('${p.id}')"><span class="td-mobile-label">${t('colPurchaseInvoiceNo')}</span>${escapeHtmlForPrint(p.invoiceNo || '')}${getPurchaseReceiptFileList(p).length > 0 ? ` <span title="${t('hasReceiptAttachedTitle')}">📎</span>` : ''}</td>
             ${showBatchCol ? (() => { const bt = (typeof batchPurchaseTagHtml === 'function') ? batchPurchaseTagHtml(p).trim() : ''; return `<td class="pl-batch" style="cursor:pointer;" onclick="togglePurchaseDetail('${p.id}')">${bt ? `<span class="td-mobile-label">${t('batchColBatch')}</span>${bt}` : ''}</td>`; })() : ''}
             <td class="pl-actions" style="white-space:nowrap;">
-              <span class="del-link" onclick="openEditPurchaseModal('${p.id}')">${t('btnEdit')}</span>
-              &nbsp;·&nbsp;
-              <span class="del-link" title="${escapeHtmlForPrint(t('btnExportPurchaseLog').replace(/^📤\s*/, ''))}" aria-label="${escapeHtmlForPrint(t('btnExportPurchaseLog').replace(/^📤\s*/, ''))}" onclick="exportSinglePurchase('${p.id}')">📤</span>
-              &nbsp;·&nbsp;
-              <span class="del-link" onclick="openSendPurchaseEmailModal('${p.id}')">${t('btnSendEmail')}</span>
-              ${p.emailedAt ? `<br class="pl-actions-br"><span style="color:var(--safe);font-size:12px;" title="${tf('emailedToTitle', { email: p.emailedTo || '', when: p.emailedAt })}">${t('alreadyEmailedBadge')}</span><span style="margin-left:4px;color:var(--ink-soft);font-size:10.5px;">${formatEmailedTimeShort(p.emailedAt)}</span>` : ''}
+              <div style="display:flex;align-items:center;justify-content:flex-end;gap:10px;">
+                ${p.emailedAt ? `<span style="text-align:right;"><span style="color:var(--safe);font-size:12px;" title="${tf('emailedToTitle', { email: p.emailedTo || '', when: p.emailedAt })}">${t('alreadyEmailedBadge')}</span><span style="margin-left:4px;color:var(--ink-soft);font-size:10.5px;">${formatEmailedTimeShort(p.emailedAt)}</span></span>` : ''}
+                <button class="btn ghost" onclick="openPurchaseActionModal('${p.id}')">${t('lblAction')} ▾</button>
+              </div>
             </td>
           </tr>
           ${expandedPurchaseId === p.id ? `
@@ -1074,6 +1072,41 @@ async function confirmEditPurchase(){
     msgEl.className = 'msg error';
     msgEl.textContent = '⚠ 儲存失敗,請重新整理頁面再試一次。';
   }
+}
+
+// 進貨單紀錄的 Action:編輯 / 匯出這張進貨單 / 寄 Email(跟訂單的 Action 同一種小視窗)
+function openPurchaseActionModal(purchaseId){
+  const p = purchases.find(x => x.id === purchaseId);
+  if(!p) return;
+  const old = document.getElementById('purchaseActionOverlay'); if(old) old.remove();
+  const ov = document.createElement('div');
+  ov.id = 'purchaseActionOverlay'; ov.className = 'modal-overlay'; ov.style.display = 'flex';
+  ov.onclick = e => { if(e.target === ov) ov.remove(); };
+  const exportLabel = t('btnExportPurchaseLog').replace(/^📤\s*/, '');
+  ov.innerHTML = `<div class="modal-box" style="max-width:340px;">
+    <div class="section-title" style="margin-bottom:12px;">${escapeHtmlForPrint(p.date || '')}${p.invoiceNo ? ' · ' + escapeHtmlForPrint(p.invoiceNo) : ''}</div>
+    <div class="field">
+      <label>${t('lblAction')}</label>
+      <select id="purchaseActionSelect">
+        <option value="edit">${t('btnEdit')}</option>
+        <option value="export">${escapeHtmlForPrint(exportLabel)}</option>
+        <option value="email">${t('btnSendEmail')}</option>
+      </select>
+    </div>
+    <div class="modal-actions">
+      <button class="btn ghost" onclick="document.getElementById('purchaseActionOverlay').remove()">${t('btnCancel')}</button>
+      <button class="btn" onclick="confirmPurchaseActionModal('${purchaseId}')">${t('btnRunAction')}</button>
+    </div>
+  </div>`;
+  document.body.appendChild(ov);
+}
+function confirmPurchaseActionModal(purchaseId){
+  const sel = document.getElementById('purchaseActionSelect');
+  const action = sel ? sel.value : '';
+  const ov = document.getElementById('purchaseActionOverlay'); if(ov) ov.remove();
+  if(action === 'edit') openEditPurchaseModal(purchaseId);
+  else if(action === 'export') exportSinglePurchase(purchaseId);
+  else if(action === 'email') openSendPurchaseEmailModal(purchaseId);
 }
 
 function exportSinglePurchase(purchaseId){
