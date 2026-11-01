@@ -2388,9 +2388,8 @@ async function exportOrdersSheet(exportMode){
     ? (dateFrom === dateTo ? dateFrom : `${dateFrom} ~ ${dateTo}`)
     : (dateFrom ? `After ${dateFrom}` : (dateTo ? `Before ${dateTo}` : 'All dates'));
 
-  const priceMap = (typeof spExportTotalPriceMap === 'function' && typeof batchActive === 'function' && batchActive()) ? await spExportTotalPriceMap(list) : null;
   const sellMap = (typeof spExportEnabled === 'function' && spExportEnabled()) ? spExportSellPriceMap(list) : null;
-  const { aoa, aggregated, hiddenRows } = buildOrderSheetAoa(list, partyLabel, dateLabel, exportMode, priceMap, sellMap);
+  const { aoa, aggregated, hiddenRows } = buildOrderSheetAoa(list, partyLabel, dateLabel, exportMode, null, sellMap);
 
   const label = partyObj ? (partyObj.name.replace(/[^a-zA-Z0-9\u4e00-\u9fa5]/g, '') || 'Party') : 'AllParties';
   const rangeLabel = (dateFrom || dateTo) ? `_${dateFrom || 'start'}_${dateTo || 'end'}` : '';
@@ -2409,9 +2408,8 @@ async function exportSingleOrderSheet(orderId, exportMode){
 
   const partyLabel = order.partyName || 'Unspecified';
   const dateLabel = order.date;
-  const priceMap = (typeof spExportTotalPriceMap === 'function' && typeof batchActive === 'function' && batchActive()) ? await spExportTotalPriceMap([order]) : null;
   const sellMap = (typeof spExportEnabled === 'function' && spExportEnabled()) ? spExportSellPriceMap([order]) : null;
-  const { aoa, hiddenRows } = buildOrderSheetAoa([order], partyLabel, dateLabel, exportMode, priceMap, sellMap);
+  const { aoa, hiddenRows } = buildOrderSheetAoa([order], partyLabel, dateLabel, exportMode, null, sellMap);
 
   const safeParty = (order.partyName || 'Order').replace(/[^a-zA-Z0-9\u4e00-\u9fa5]/g, '') || 'Order';
   const noPart = order.orderNo ? `${order.orderNo.replace('#','')}_` : '';
