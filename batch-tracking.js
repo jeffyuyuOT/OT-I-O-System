@@ -19,6 +19,8 @@ function batchWarnDays(){ return (typeof getBatchExpiryWarnDays === 'function') 
 
 let batchAvailable = true;                       // 資料表不存在時變 false → 功能整個停用
 let batchData = { items: [], loaded: false, stale: false, error: '' };
+// 庫存位置分批次:batch_item_id -> [{ code, qty }](只含有指定位置的;沒指定的 = 進貨量 − 加總 = 未分配位置)
+let batchItemLocs = {};
 let batchDataPromise = null;
 let batchTxMoveCache = {};                       // txId -> [{ batch_item_id, qty, kind }]
 let batchPicks = {};                             // `${orderId}::${productId}` -> [{ batchItemId, qty }](核對頁手動指定)
@@ -93,6 +95,12 @@ async function loadBatchData(){
     });
     batchData.loaded = true; batchData.stale = false; batchData.error = '';
     batchAvailable = true;
+    // 位置資料(需先執行 sql/batch_location_phase_a.sql);表不存在或讀取失敗只是沒有位置顯示,不影響其他批次功能
+    batchItemLocs = {};
+    try{
+      const locRows = await fetchAllPages(() => sb.from('batch_item_locations').select('batch_item_id,location_code,qty').order('id', { ascending: true }));
+      locRows.forEach(r => { (batchItemLocs[r.batch_item_id] = batchItemLocs[r.batch_item_id] || []).push({ code: r.location_code, qty: Number(r.qty) }); });
+    }catch(e){ if(!batchIsMissingTableError(e)) console.warn('批次位置資料讀取失敗', e); }
   } catch(e){
     console.warn('批次資料讀取失敗', e);
     // 資料表還沒建立(SQL 還沒執行)→ 整個功能停用;其他錯誤(網路…)只是這次沒載到
@@ -653,6 +661,7 @@ function updateTxBatchItemExpiry(batchItemId, value){
     other.qty += it.qty;
     if(it.amount !== undefined && it.amount !== null) other.amount = (other.amount || 0) + it.amount;
     if(it.supplierLot && !other.supplierLot) other.supplierLot = it.supplierLot;
+    batchLocOnQtyChange(other);
     txBatchItems = txBatchItems.filter(x => x !== it);
   }
   renderTxBatchList();
@@ -891,6 +900,7 @@ function batchOpenItemDetail(itemId){
     ${batchDetailRow(t('batchFieldLot'), batchEsc(i.supplierLot))}
     ${batchDetailRow('Invoice', batchEsc(i.invoiceNo))}
     ${batchDetailRow(t('batchColSupplier'), batchEsc(i.supplier))}
+    ${batchDetailRow(t('batchLocTitle'), batchLocSummaryHtml(i))}
   </tbody></table>`);
 }
 // 批次頁:這個批次的 進貨日期 / Invoice / 供應商 / 各商品的供應商批號 / Margin 設置
@@ -1501,7 +1511,11 @@ async function batchExportForBackup(){
       fetchAllPages(() => sb.from('batch_items').select('*').order('id', { ascending: true })),
       fetchAllPages(() => sb.from('batch_movements').select('*').order('id', { ascending: true }))
     ]);
-    return { version: 1, batches, items, movements };
+    // 位置表(sql/batch_location_phase_a.sql);還沒建立就當作沒有
+    let locations = [];
+    try{ locations = await fetchAllPages(() => sb.from('batch_item_locations').select('*').order('id', { ascending: true })); }
+    catch(e){ if(!batchIsMissingTableError(e)) throw e; }
+    return { version: 1, batches, items, movements, locations };
   } catch(e){
     if(batchIsMissingTableError(e)) return null;
     // 其他錯誤(網路…)不能默默產生一份不含批次資料的備份,讓呼叫端知道
@@ -1518,7 +1532,9 @@ async function batchRestoreFromBackup(backup){
   try{
     const bt3 = backup && backup.batchTracking;
     if(bt3 && Array.isArray(bt3.batches) && Array.isArray(bt3.items) && Array.isArray(bt3.movements)){
-      await batchRpc('batch_restore_all', { p_batches: bt3.batches, p_items: bt3.items, p_movements: bt3.movements });
+      const restoreArgs = { p_batches: bt3.batches, p_items: bt3.items, p_movements: bt3.movements };
+      if(Array.isArray(bt3.locations)) restoreArgs.p_locations = bt3.locations;   // 舊備份沒有這一段
+      await batchRpc('batch_restore_all', restoreArgs);
       return { ok: true, restored: true };
     }
     await batchRpc('batch_clear_all', {});
@@ -1607,4 +1623,164 @@ async function batchFillOrderDetailLines(root){
       }).join('');
     });
   } catch(e){ console.warn('訂單批次標籤載入失敗', e); }
+}
+
+
+// ============================================================
+// 庫存位置分批次 第一階段(a):進貨時記錄每個批次商品行放在哪些位置
+// 資料表/RPC 見 sql/batch_location_phase_a.sql。
+// 進貨清單每一行 it.locs = [{ code, qty }];沒指定位置的數量 = 行數量 − 加總 = 「未分配位置」。
+// 第一階段只記錄與顯示;出貨分配仍照 FEFO/FIFO,不依位置扣(之後階段再做)。
+// ============================================================
+let batchLastLocMap = null;   // productId -> 上次進貨放的位置代碼(app_data 'batchLastPurchaseLocation')
+async function batchLoadLastLocMap(){
+  if(batchLastLocMap) return batchLastLocMap;
+  try{ batchLastLocMap = (await dbGet('batchLastPurchaseLocation')) || {}; }catch(e){ batchLastLocMap = {}; }
+  return batchLastLocMap;
+}
+function batchLocDefaultCode(productId){
+  const m = batchLastLocMap || {};
+  if(m[productId]) return m[productId];
+  const primary = typeof getPrimaryLocation === 'function' ? getPrimaryLocation(productId) : null;
+  if(primary) return primary.locationCode;
+  const p = products.find(x => x.id === productId);
+  return (p && p.lastPrimaryLocation && p.lastPrimaryLocation.locationCode) || '';
+}
+function batchLocRowsShown(){ return batchRowsShowExpiry() && typeof productLocations !== 'undefined'; }
+function batchLocAssigned(it){ return (it.locs || []).reduce((s, l) => s + (Number(l.qty) || 0), 0); }
+
+// 新增到清單時帶入預設位置(整行數量放預設位置);之後可在「位置」視窗改
+function batchLocInitForNewItem(it){
+  if(it.locs !== undefined) return;
+  if(!batchLocRowsShown() || it.docType === 'credit_note' || it.qty <= 0) return;
+  const code = batchLocDefaultCode(it.productId);
+  it.locs = code ? [{ code, qty: it.qty, auto: true }] : [];
+}
+// 渲染清單前呼叫:第一次載入記憶的位置,再替還沒有位置設定的行帶入預設(收據掃描載入的行也一樣)
+function batchLocPrepareList(){
+  if(!batchLocRowsShown()) return;
+  if(!batchLastLocMap){ batchLoadLastLocMap().then(() => { if(typeof renderTxBatchList === 'function') renderTxBatchList(); }); return; }
+  txBatchItems.forEach(batchLocInitForNewItem);
+}
+// 改數量:只有一個位置、而且是自動帶入的,數量跟著行數量走;其他情況超過行數量就依序縮減
+function batchLocOnQtyChange(it){
+  if(!it.locs || !it.locs.length) return;
+  if(it.locs.length === 1 && it.locs[0].auto){ it.locs[0].qty = Math.max(0, it.qty); return; }
+  let over = batchLocAssigned(it) - it.qty;
+  for(let k = it.locs.length - 1; k >= 0 && over > 1e-9; k--){
+    const cut = Math.min(over, it.locs[k].qty); it.locs[k].qty -= cut; over -= cut;
+  }
+  it.locs = it.locs.filter(l => l.qty > 1e-9);
+}
+function batchLocCellHtml(it){
+  if(it.docType === 'credit_note' || it.qty <= 0) return '<td></td>';
+  const locs = it.locs || [];
+  const un = it.qty - batchLocAssigned(it);
+  const summary = locs.length
+    ? locs.map(l => `${batchEsc(l.code)}×${batchFmtQty(l.qty)}`).join(', ') + (un > 1e-9 ? ` · ${t('unassignedLocationLabel')}×${batchFmtQty(un)}` : '')
+    : `<span style="color:var(--ink-soft);">${t('unassignedLocationLabel')}</span>`;
+  return `<td class="row-num" style="text-align:left;font-size:12px;"><span class="batch-link" onclick="batchLocOpenEditor('${it.batchItemId}')">📍 ${summary}</span></td>`;
+}
+
+// ---- 位置編輯視窗 ----
+let batchLocEd = null;   // { itemId, rows: [{code, qty}] }
+function batchLocCodesFor(productId){
+  const codes = [];
+  (productLocations || []).filter(l => l.productId === productId).forEach(l => { if(!codes.includes(l.locationCode)) codes.push(l.locationCode); });
+  const d = batchLocDefaultCode(productId);
+  if(d && !codes.includes(d)) codes.push(d);
+  return codes;
+}
+function batchLocOpenEditor(itemId){
+  const it = txBatchItems.find(x => x.batchItemId === itemId);
+  if(!it) return;
+  batchLocEd = { itemId, rows: (it.locs && it.locs.length ? it.locs : [{ code: '', qty: it.qty }]).map(l => ({ code: l.code, qty: l.qty })) };
+  batchLocRenderEditor();
+}
+function batchLocRenderEditor(){
+  const it = txBatchItems.find(x => x.batchItemId === batchLocEd.itemId);
+  if(!it){ batchLocCloseEditor(); return; }
+  const old = document.getElementById('batchLocOverlay'); if(old) old.remove();
+  const listId = 'batchLocCodes';
+  const assigned = batchLocEd.rows.reduce((s, r) => s + (Number(r.qty) || 0), 0);
+  const un = it.qty - assigned;
+  const ov = document.createElement('div');
+  ov.id = 'batchLocOverlay'; ov.className = 'modal-overlay'; ov.style.display = 'flex'; ov.style.zIndex = '1100';
+  ov.innerHTML = `<div class="modal-box" style="max-width:min(520px,94vw);">
+    <div class="section-title" style="margin-top:0;">${t('batchLocEditTitle')} · ${batchEsc(it.name)} (${batchFmtQty(it.qty)} ${batchEsc(it.unit)})</div>
+    <datalist id="${listId}">${batchLocCodesFor(it.productId).map(c => `<option value="${batchEsc(c)}"></option>`).join('')}</datalist>
+    <div style="font-size:12px;color:var(--ink-soft);margin-bottom:8px;">${t('batchLocEditHint')}</div>
+    ${batchLocEd.rows.map((r, k) => `<div style="display:flex;gap:6px;align-items:center;margin-bottom:6px;">
+      <input type="text" list="${listId}" value="${batchEsc(r.code)}" placeholder="${batchEsc(t('batchLocCodePh'))}" style="flex:1;min-width:0;" onchange="batchLocEd.rows[${k}].code=this.value.trim()" />
+      <input type="number" min="0" step="1" value="${r.qty}" style="width:90px;" onchange="batchLocEd.rows[${k}].qty=Math.max(0,parseFloat(this.value)||0);batchLocRenderEditor()" />
+      <button class="btn ghost" onclick="batchLocEd.rows.splice(${k},1);batchLocRenderEditor()" title="${t('btnDelete')}">✕</button>
+    </div>`).join('')}
+    <div style="margin:8px 0;"><button class="btn ghost" onclick="batchLocEd.rows.push({code:'',qty:Math.max(0,${un})});batchLocRenderEditor()">+ ${t('batchLocAddRow')}</button></div>
+    <div style="font-size:12.5px;font-weight:600;${un < -1e-9 ? 'color:var(--crit);' : ''}">${un < -1e-9 ? tf('batchLocOver', { n: batchFmtQty(-un) }) : `${t('unassignedLocationLabel')}: ${batchFmtQty(Math.max(0, un))}`}</div>
+    <div class="modal-actions"><button class="btn ghost" onclick="batchLocCloseEditor()">${t('btnCancel')}</button><button class="btn" onclick="batchLocSaveEditor()">${t('btnSave')}</button></div>
+  </div>`;
+  document.body.appendChild(ov);
+}
+function batchLocCloseEditor(){ const o = document.getElementById('batchLocOverlay'); if(o) o.remove(); batchLocEd = null; }
+function batchLocSaveEditor(){
+  if(!batchLocEd) return;
+  const it = txBatchItems.find(x => x.batchItemId === batchLocEd.itemId);
+  if(!it){ batchLocCloseEditor(); return; }
+  const rows = batchLocEd.rows.filter(r => r.code && r.qty > 0);
+  const total = rows.reduce((s, r) => s + r.qty, 0);
+  if(total > it.qty + 1e-9){ batchLocRenderEditor(); return; }
+  // 同代碼合併
+  const merged = [];
+  rows.forEach(r => { const m = merged.find(x => x.code === r.code); if(m) m.qty += r.qty; else merged.push({ code: r.code, qty: r.qty }); });
+  it.locs = merged;
+  batchLocCloseEditor();
+  renderTxBatchList();
+}
+
+// ---- 進貨單送出後:寫入位置、同步「庫存分布」(product_locations) ----
+function batchLocBuildPayload(items){
+  const lines = {};
+  items.forEach(it => {
+    if(!it.locs || !it.locs.length || it.docType === 'credit_note' || it.qty <= 0) return;
+    const p = products.find(x => x.id === it.productId);
+    if(p && p.parentId && p.autoConvertOnStockIn) return;   // 自動切換成主商品的行:第一階段不記位置
+    const key = it.productId + '|' + (it.expiry || '');
+    const ln = lines[key] = lines[key] || { product_id: it.productId, expiry: it.expiry || '', locs: [] };
+    it.locs.forEach(l => { if(l.code && l.qty > 0) ln.locs.push({ code: l.code, qty: l.qty }); });
+  });
+  return Object.values(lines).filter(l => l.locs.length);
+}
+async function batchApplyPurchaseLocations(purchase, items){
+  const payload = batchLocBuildPayload(items);
+  if(!payload.length) return;
+  await batchRpc('batch_set_purchase_locations', { p_purchase_id: purchase.id, p_rows: payload });
+  // 同步庫存分布:每個位置把數量加上去(位置不存在就新增;欄位沿用同代碼的既有位置)
+  const memo = await batchLoadLastLocMap();
+  for(const ln of payload){
+    for(const l of ln.locs){
+      try{
+        let loc = productLocations.find(x => x.productId === ln.product_id && x.locationCode === l.code);
+        if(loc){ loc.qty += l.qty; await upsertProductLocation(loc); }
+        else {
+          const tpl = productLocations.find(x => x.locationCode === l.code);
+          loc = { id: genId(), productId: ln.product_id, zone: tpl ? tpl.zone : '', aisle: tpl ? tpl.aisle : '', bay: tpl ? tpl.bay : '', level: tpl ? tpl.level : '', bin: tpl ? tpl.bin : '', locationCode: l.code, qty: l.qty, photoUrl: null };
+          productLocations.push(loc);
+          await upsertProductLocation(loc);
+        }
+      }catch(e){ console.error('進貨後同步庫存分布失敗', e); }
+    }
+    memo[ln.product_id] = ln.locs[0].code;
+  }
+  try{ await dbSet('batchLastPurchaseLocation', memo); }catch(e){}
+  batchMarkStale();
+  try{ await ensureBatchDataLoaded(); }catch(e){}
+}
+
+// ---- 顯示:批次商品行的位置 ----
+function batchLocSummaryHtml(i){
+  const locs = batchItemLocs[i.id] || [];
+  const assigned = locs.reduce((s, l) => s + l.qty, 0);
+  const un = i.qtyIn - assigned;
+  if(!locs.length) return '';
+  return locs.map(l => `${batchEsc(l.code)} ×${batchFmtQty(l.qty)}`).join('<br>') + (un > 1e-9 ? `<br><span style="color:var(--ink-soft);">${t('unassignedLocationLabel')} ×${batchFmtQty(un)}</span>` : '');
 }

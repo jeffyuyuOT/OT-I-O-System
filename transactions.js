@@ -680,7 +680,7 @@ function addToTxBatch(){
   // 批次追蹤:進貨時「同商品同有效期」才合併,不同有效期分行列出
   const bx = (typeof batchReadAddFields === 'function') ? batchReadAddFields() : { expiry: '', lot: '' };
   const existing = txBatchItems.find(it => it.productId === productId && (it.expiry || '') === bx.expiry);
-  if(existing){ existing.qty += qty; if(bx.lot && !existing.supplierLot) existing.supplierLot = bx.lot; }
+  if(existing){ existing.qty += qty; if(typeof batchLocOnQtyChange === 'function') batchLocOnQtyChange(existing); if(bx.lot && !existing.supplierLot) existing.supplierLot = bx.lot; }
   else txBatchItems.push({ batchItemId: genId(), productId, sku: p.sku || '', name: p.name, unit: p.unit, qty, expiry: bx.expiry, supplierLot: bx.lot });
   if(typeof batchClearAddFields === 'function') batchClearAddFields();
   qtyInput.value = '';
@@ -699,6 +699,7 @@ function updateTxBatchItemQty(batchItemId, value){
   if(!it) return;
   const qty = parseFloat(value);
   it.qty = (!isNaN(qty) && qty !== 0 && Number.isInteger(qty)) ? qty : it.qty;
+  if(typeof batchLocOnQtyChange === 'function') batchLocOnQtyChange(it);
   renderTxBatchList();
 }
 
@@ -724,6 +725,7 @@ function renderTxBatchList(){
   if(typeof batchRenderFormExtras === 'function') batchRenderFormExtras();
   if(typeof pcRender === 'function') pcRender();
   const showBatchCols = typeof batchRowsShowExpiry === 'function' && batchRowsShowExpiry();
+  if(showBatchCols && typeof batchLocPrepareList === 'function') batchLocPrepareList();
   if(txBatchItems.length === 0){
     container.innerHTML = `<div class="empty-note" style="padding:8px 0;" data-i18n="txBatchEmpty">${t('txBatchEmpty')}</div>`;
     return;
@@ -760,7 +762,8 @@ function renderTxBatchList(){
         ${showSellCol ? `<td class="row-num">${spTxItemPriceHtml(it, sellPartyId)}</td>` : ''}
         ${showSellCol ? `<td class="row-num"><span style="${SP_TOTAL_PILL}">${spTxItemTotalHtml(it, sellPartyId)}</span></td>` : ''}
         ${showBatchCols ? `<td class="row-num"><input type="date" class="order-qty-input" style="width:140px;" value="${it.expiry || ''}" onchange="updateTxBatchItemExpiry('${it.batchItemId}', this.value)" /></td>
-        <td class="row-num"><input type="text" class="order-qty-input" style="width:100px;" value="${(it.supplierLot || '').replace(/"/g, '&quot;')}" onchange="updateTxBatchItemLot('${it.batchItemId}', this.value)" /></td>` : ''}
+        <td class="row-num"><input type="text" class="order-qty-input" style="width:100px;" value="${(it.supplierLot || '').replace(/"/g, '&quot;')}" onchange="updateTxBatchItemLot('${it.batchItemId}', this.value)" /></td>
+        ${(typeof batchLocCellHtml === 'function') ? batchLocCellHtml(it) : '<td></td>'}` : ''}
         ${showAmountCol ? `<td class="row-num"><input type="number" class="order-qty-input" step="0.01" min="0" value="${(it.amount !== undefined && it.amount !== null) ? it.amount : ''}" placeholder="–" ${canEditPrice() ? '' : 'readonly'} onchange="updateTxBatchItemAmount('${it.batchItemId}', this.value)" /></td>` : ''}
         <td class="row-action">
           ${(typeof batchTxRowButtonHtml === 'function') ? batchTxRowButtonHtml(it) : ''}
@@ -785,7 +788,7 @@ function renderTxBatchList(){
           <td class="row-name">${tf('netQtyRowLabel', { name: it.name })}</td>
           <td class="row-num">${netQty}<span class="row-unit">${it.unit}</span></td>
           ${showSellCol ? '<td></td><td></td>' : ''}
-          ${showBatchCols ? '<td></td><td></td>' : ''}
+          ${showBatchCols ? '<td></td><td></td><td></td>' : ''}
           ${showAmountCol ? `<td class="row-num">${netAmount !== null ? Number(netAmount).toFixed(2) : '–'}</td>` : ''}
           <td class="row-action"></td>
         </tr>
@@ -794,9 +797,9 @@ function renderTxBatchList(){
   });
   container.innerHTML = `
     <table class="stock-table">
-      <thead><tr><th>${t('colProduct')}</th><th class="num">${t('colQty')}</th>${showSellCol ? `<th class="num">${t('spColUnitPrice')}</th><th class="num">${t('spColTotalPrice')}</th>` : ''}${showBatchCols ? `<th class="num">${t('batchColExpiry')}</th><th class="num">${t('batchFieldLot')}</th>` : ''}${showAmountCol ? `<th class="num">${t('colAmount')}${(typeof pcAmountColSuffix === 'function') ? pcAmountColSuffix() : ''}</th>` : ''}<th></th></tr></thead>
+      <thead><tr><th>${t('colProduct')}</th><th class="num">${t('colQty')}</th>${showSellCol ? `<th class="num">${t('spColUnitPrice')}</th><th class="num">${t('spColTotalPrice')}</th>` : ''}${showBatchCols ? `<th class="num">${t('batchColExpiry')}</th><th class="num">${t('batchFieldLot')}</th><th>${t('batchLocTitle')}</th>` : ''}${showAmountCol ? `<th class="num">${t('colAmount')}${(typeof pcAmountColSuffix === 'function') ? pcAmountColSuffix() : ''}</th>` : ''}<th></th></tr></thead>
       <tbody>${rowsHtml}</tbody>
-      ${showSellCol ? (() => { const tt = spTxItemsTotal(sellPartyId); return `<tfoot><tr style="font-weight:700;"><td class="row-name" colspan="3" style="text-align:right;">${registerOutFlowType === 'load-pending' ? t('spAddedItemsTotal') : t('spOrderTotal')}${tt.missing ? ` <span style="font-weight:400;font-size:11px;color:var(--ink-soft);">(${tf('spTotalMissing', { n: tt.missing })})</span>` : ''}</td><td class="row-num"><span style="${SP_TOTAL_PILL}">${spMoney(tt.sum)}</span></td><td colspan="${(showBatchCols ? 2 : 0) + (showAmountCol ? 1 : 0) + 1}"></td></tr></tfoot>`; })() : ''}
+      ${showSellCol ? (() => { const tt = spTxItemsTotal(sellPartyId); return `<tfoot><tr style="font-weight:700;"><td class="row-name" colspan="3" style="text-align:right;">${registerOutFlowType === 'load-pending' ? t('spAddedItemsTotal') : t('spOrderTotal')}${tt.missing ? ` <span style="font-weight:400;font-size:11px;color:var(--ink-soft);">(${tf('spTotalMissing', { n: tt.missing })})</span>` : ''}</td><td class="row-num"><span style="${SP_TOTAL_PILL}">${spMoney(tt.sum)}</span></td><td colspan="${(showBatchCols ? 3 : 0) + (showAmountCol ? 1 : 0) + 1}"></td></tr></tfoot>`; })() : ''}
     </table>
   `;
 }
@@ -1938,8 +1941,14 @@ async function submitTxBatchSimple(date, msg){
     catch(e){ console.error('儲存進貨單失敗', e); }
     // 批次追蹤:建立批次(必要時一併建立期初批次)。失敗不影響進貨本身,提示後可到編輯進貨單重新儲存補建。
     if(batchTrackThis && purchaseSaved){
-      try{ await batchSavePurchase(purchase); }
+      let batchCreated = false;
+      try{ await batchSavePurchase(purchase); batchCreated = true; }
       catch(e){ console.error('建立批次失敗', e); showInfoModal(t('batchCreateFailed')); }
+      // 庫存位置:批次建好後記錄各商品行放在哪些位置(失敗不影響進貨與批次本身)
+      if(batchCreated && typeof batchApplyPurchaseLocations === 'function'){
+        try{ await batchApplyPurchaseLocations(purchase, txBatchItems); }
+        catch(e){ console.error('記錄批次位置失敗', e); showInfoModal(t('batchLocSaveFailed')); }
+      }
     }
     if(typeof pcRememberExpenseNames === 'function' && purchase.costs) pcRememberExpenseNames(purchase.costs.expenses.map(e => e.name));
     if(typeof pcReset === 'function') pcReset();
