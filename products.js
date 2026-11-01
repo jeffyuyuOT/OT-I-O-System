@@ -705,11 +705,13 @@ async function confirmConversion(){
       msg.textContent = '⚠ 轉換失敗,請重新整理頁面再試一次。';
       return;
     }
-    if(typeof batchConvertAfter === 'function') await batchConvertAfter(conversionId, txA.productId); // 批次追蹤:同批次一出一進
+    const batchConv = (typeof batchConvertAfter === 'function') ? await batchConvertAfter(conversionId, txA.productId, qty, convertedQty) : null; // 批次追蹤:同批次、同有效期、同位置一出一進
     // 交易確定成功之後才處理位置變動,避免庫存扣了/位置卻沒對應更新的不一致:先把主商品
     // 原本的位置庫存扣掉,再幫轉換出來的批量商品指派位置。
     await applyLocationDeductions(sourceLocationChoices);
-    await applyConversionLocationAssignment('conversionLoc', child.id, convertedQty);
+    // 批次追蹤的商品:切換出來的商品放在跟來源同樣的位置;沒有批次位置資料的才用視窗裡選的位置
+    if(batchConv && batchConv.dest) await batchAddToProductLocations(child.id, batchConv.dest);
+    else await applyConversionLocationAssignment('conversionLoc', child.id, convertedQty);
     const batchProductId = conversionSourceBatchProductId;
     const verifyProductId = conversionSourceVerifyProductId;
     closeConversionModal();
@@ -774,11 +776,12 @@ async function confirmConversion(){
     msg.textContent = '⚠ 切換失敗,請重新整理頁面再試一次。';
     return;
   }
-  if(typeof batchConvertAfter === 'function') await batchConvertAfter(conversionId, txA.productId); // 批次追蹤:同批次一出一進
+  const batchConv = (typeof batchConvertAfter === 'function') ? await batchConvertAfter(conversionId, txA.productId, qty, convertedQty) : null; // 批次追蹤:同批次、同有效期、同位置一出一進
   // 交易確定成功之後才處理位置變動:先扣掉批量商品原本的位置庫存,再幫轉換出來的主商品
   // 指派位置。
   await applyLocationDeductions(sourceLocationChoices);
-  await applyConversionLocationAssignment('conversionLoc', parent.id, convertedQty);
+  if(batchConv && batchConv.dest) await batchAddToProductLocations(parent.id, batchConv.dest);
+  else await applyConversionLocationAssignment('conversionLoc', parent.id, convertedQty);
   const batchProductId = conversionSourceBatchProductId;
   const verifyProductId = conversionSourceVerifyProductId;
   // 如果這次切換是從「訂單核對」開的(verifyProductId 有值),把這次切換記在這張訂單、這個主商品

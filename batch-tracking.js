@@ -574,18 +574,67 @@ async function batchAfterInsert(txList){
     await batchReturnAfter(restocks, {});
   } catch(e){ console.error('批次掛鉤失敗', e); }
 }
-async function batchConvertAfter(conversionId, fromProductId){
+// 切換(multipack ⇄ 主商品)寫入後:同批次、同有效期一出一進;位置也一樣(從哪個位置切換,切出來的商品就放在同一個位置)。
+// 回傳 null,或 { dest: [{ code, qty }] } = 切換出來的商品(目標商品)各位置的數量,給呼叫端同步庫存分布。
+async function batchConvertAfter(conversionId, fromProductId, outQty, convertedQty){
   try{
-    if(!batchActive()) return;
+    if(!batchActive()) return null;
     await ensureBatchDataLoaded();
-    if(!batchIsTracked(fromProductId)) return;
-    const res = await batchRpc('batch_convert', { p_conversion_id: conversionId, p_manual: [] });
+    if(!batchIsTracked(fromProductId)) return null;
+    // 切換前選好的「批次 × 位置」計畫(2 分鐘內有效、數量剛好等於這次切換量才採用)
+    let plan = batchLocPlans[fromProductId];
+    delete batchLocPlans[fromProductId];
+    if(!(plan && plan.length && Date.now() - (plan.at || 0) < 120000 && Math.abs(plan.reduce((a, x) => a + x.qty, 0) - outQty) < 1e-9)) plan = null;
+    const manual = plan ? batchMergeManual(plan.map(x => ({ batch_item_id: x.batchItemId, qty: x.qty }))) : [];
+    let res;
+    try{
+      res = await batchRpc('batch_convert', { p_conversion_id: conversionId, p_manual: manual });
+    } catch(e){
+      // 指定的批次不能照原樣切換(例如換成大單位時數量不是換算比例的整數倍)→ 改回自動分配,不套用位置計畫
+      if(plan && /batch_convert_step|batch_bad_pick|batch_insufficient/.test((e && e.message) || '')){
+        plan = null;
+        res = await batchRpc('batch_convert', { p_conversion_id: conversionId, p_manual: [] });
+      } else throw e;
+    }
+    let dest = null;
+    if(plan && res && res.tracked && !(res.untracked > 0)){
+      const ratio = outQty > 0 ? convertedQty / outQty : 1;
+      const okInt = plan.every(x => Math.abs(x.qty * ratio - Math.round(x.qty * ratio)) < 1e-9);
+      if(okInt){
+        try{
+          await batchRpc('batch_tag_convert_locations', { p_conversion_id: conversionId, p_rows: plan.map(x => ({ batch_item_id: x.batchItemId, code: x.code, qty: x.qty })) });
+          const m = {};
+          plan.forEach(x => { if(x.code) m[x.code] = (m[x.code] || 0) + x.qty * ratio; });
+          dest = { dest: Object.keys(m).map(c => ({ code: c, qty: Math.round(m[c]) })) };
+        }catch(e){
+          console.error('切換位置標記失敗', e);
+          if(!batchIsMissingFunctionError(e)) showInfoModal(t('batchLocTagFailed'));
+        }
+      }
+    }
     batchMarkStale();
     await ensureBatchDataLoaded();
     if(res && res.tracked && res.untracked > 0) showInfoModal(tf('batchConvertUntrackedNotice', { n: batchFmtQty(res.untracked) }));
+    return dest;
   } catch(e){
     console.error('批次切換失敗', e);
     showInfoModal(t('batchConvertFailed'));
+    return null;
+  }
+}
+// 切換出來的商品放到跟來源一樣的位置(庫存分布):位置紀錄已存在就加上去,不存在就建立
+async function batchAddToProductLocations(productId, dest){
+  for(const d of (dest || [])){
+    try{
+      let loc = productLocations.find(l => l.productId === productId && l.locationCode === d.code);
+      if(loc){ loc.qty += d.qty; await upsertProductLocation(loc); }
+      else {
+        const tpl = productLocations.find(l => l.locationCode === d.code);
+        loc = { id: genId(), productId, zone: tpl ? tpl.zone : '', aisle: tpl ? tpl.aisle : '', bay: tpl ? tpl.bay : '', level: tpl ? tpl.level : '', bin: tpl ? tpl.bin : '', locationCode: d.code, qty: d.qty, photoUrl: null };
+        productLocations.push(loc);
+        await upsertProductLocation(loc);
+      }
+    }catch(e){ console.error('切換後同步庫存分布失敗', e); }
   }
 }
 
