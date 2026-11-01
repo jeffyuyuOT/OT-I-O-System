@@ -778,7 +778,7 @@ function renderCompletedOrdersInto(container, recentOnly){
         <div class="order-card-head" style="cursor:pointer;" onclick="toggleOrderExpand('${o.id}')">
           <span class="order-card-date">
             <span style="display:inline-block;width:14px;">${isExpanded ? '▾' : '▸'}</span>
-            ${o.orderNo ? `<span style="color:var(--ink-soft);font-weight:400;">${o.orderNo}</span> · ` : ''}${o.date}${o.partyName ? ` <span style="font-weight:400;color:var(--ink-soft);">· ${(o.partyId && hasCapability('cap-manage-parties')) ? tf('orderCardPartyLabel', {name: `<span class="batch-link" title="${t('btnEdit')}" onclick="event.stopPropagation();openPartyEditModal('${o.partyId}')">${escapeHtmlForPrint(o.partyName)}</span>`}) : tf('orderCardPartyLabel', {name: o.partyName})}</span>` : ''}
+            ${o.orderNo ? `<span style="color:var(--ink-soft);font-weight:400;">${o.orderNo}</span> · ` : ''}${o.date}${o.partyName ? ` <span style="font-weight:400;color:var(--ink-soft);">· ${(o.partyId && hasCapability('cap-manage-parties')) ? tf('orderCardPartyLabel', {name: `<span class="batch-link" title="${t('btnEdit')}" onclick="event.stopPropagation();partyEditFromOrder('${o.partyId}')">${escapeHtmlForPrint(o.partyName)}</span>`}) : tf('orderCardPartyLabel', {name: o.partyName})}</span>` : ''}
             ${o.remark ? `<span title="${t('orderHasRemarkTitle')}" style="margin-left:6px;color:var(--yellow-dark);">📝</span>` : ''}
             ${wasModified ? `<span title="${t('orderWasModifiedTitle')}" style="margin-left:6px;color:var(--warn);">✎</span>` : ''}
           </span>
@@ -1169,7 +1169,7 @@ function renderPendingOrders(){
       </div>
     ` : `
       <div style="margin:8px 0;font-size:12px;color:var(--ink-soft);">
-        ${o.partyId ? tf('orderCardPartyLabel', {name: hasCapability('cap-manage-parties') ? `<span class="batch-link" title="${t('btnEdit')}" onclick="openPartyEditModal('${o.partyId}')">${escapeHtmlForPrint(o.partyName || '')}</span>` : (o.partyName || '')}) : `<span style="color:var(--crit);">${t('orderNoPartyLinkedWarning')}</span>`}
+        ${o.partyId ? tf('orderCardPartyLabel', {name: hasCapability('cap-manage-parties') ? `<span class="batch-link" title="${t('btnEdit')}" onclick="partyEditFromOrder('${o.partyId}')">${escapeHtmlForPrint(o.partyName || '')}</span>` : (o.partyName || '')}) : `<span style="color:var(--crit);">${t('orderNoPartyLinkedWarning')}</span>`}
         <span class="del-link" style="margin-left:8px;" onclick="startEditOrderParty('${o.id}')">${t('btnEditOrderParty')}</span>
       </div>
     `;

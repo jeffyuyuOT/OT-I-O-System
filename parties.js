@@ -107,7 +107,15 @@ function openPartyEditModal(id){
   document.getElementById('partyDiscountInput').value = d ? String(d) : '';
   document.getElementById('partyEditModalMsg').textContent = '';
   document.getElementById('partyEditModalMsg').className = 'msg';
+  document.getElementById('partyDeleteBtn').style.display = sp ? '' : 'none';
   document.getElementById('partyEditModalOverlay').style.display = 'flex';
+}
+// 從訂單卡片點出貨方名稱:先確認,再開出貨方編輯視窗;儲存/取消後留在原本的訂單畫面(視窗是疊在訂單上面,不會離開訂單頁)
+function partyEditFromOrder(partyId){
+  if(!hasCapability('cap-manage-parties')) return;
+  const sp = shippingParties.find(x => x.id === partyId);
+  if(!sp) return;
+  showConfirmModal(tf('confirmGoEditParty', { name: sp.name }), () => { openPartyEditModal(partyId); });
 }
 function closePartyEditModal(){
   editingPartyId = null;
@@ -190,6 +198,7 @@ function deleteParty(id){
     ? `「${sp.name}」已經被用在某些訂單裡,刪除後那些訂單仍會保留原本記錄的出貨方名稱文字,但不會再連動。確定要刪除嗎?`
     : `確定要刪除出貨方「${sp.name}」嗎?`;
   showConfirmModal(warnText, async () => {
+    closePartyEditModal();
     shippingParties = shippingParties.filter(x => x.id !== id);
     await saveShippingParties();
     renderPartiesTable();
@@ -215,16 +224,14 @@ function renderPartiesTable(){
     return `
       <tr>
         <td class="row-code" style="white-space:nowrap;color:var(--ink-soft);font-family:'IBM Plex Mono',monospace;font-size:12px;">${esc(sp.code || '')}</td>
-        <td class="row-name">${esc(sp.name)}</td>
+        <td class="row-name"><span class="del-link" style="font-weight:600;" onclick="openPartyEditModal('${sp.id}')">${esc(sp.name)}</span></td>
         <td><span class="mini-label">${t('fieldPartyPhone')}</span>${esc(sp.phone !== undefined ? sp.phone : (sp.contact || '')) || '—'}</td>
         <td class="row-note"><span class="mini-label">${t('colNote')}</span>${esc(sp.note || '') || '—'}</td>
         <td><span class="mini-label">${t('colOrderFrequency')}</span>${t(sp.orderFrequency === 'fortnight' ? 'freqFortnight' : (sp.orderFrequency === 'monthly' ? 'freqMonthly' : 'freqWeekly'))}</td>
         <td class="row-action" style="white-space:nowrap;text-align:right;">
           <span class="del-link" onclick="partyGoNewOrder('${sp.id}')" style="margin-right:6px;">${t('btnPartyNewOrder')}</span>
           <span class="del-link" onclick="partyGoOrderHistory('${sp.id}')" style="margin-right:6px;">${t('btnPartyOrderHistory')}</span>
-          <span class="del-link" onclick="openPartyEditModal('${sp.id}')" style="margin-right:6px;">${t('btnEdit')}</span>
-          <span class="del-link" onclick="togglePartyProductPanel('${sp.id}')" style="margin-right:6px;">${openPartyProductPanelId === sp.id ? t('btnCollapseProductList') : t('btnSetOrderableProducts')}</span>
-          <button onclick="deleteParty('${sp.id}')" title="${t('deletePartyTitle')}">✕</button>
+          <span class="del-link" onclick="togglePartyProductPanel('${sp.id}')">${openPartyProductPanelId === sp.id ? t('btnCollapseProductList') : t('btnSetOrderableProducts')}</span>
         </td>
       </tr>
       ${openPartyProductPanelId === sp.id ? `<tr><td colspan="6">${renderPartyProductPanelHtml(sp)}</td></tr>` : ''}
@@ -373,17 +380,13 @@ function renderSupplierManagementTable(){
       ${sorted.map(s => `
         <tr>
           <td style="white-space:nowrap;color:var(--ink-soft);font-family:'IBM Plex Mono',monospace;font-size:12px;">${escapeHtmlForPrint(s.code || '')}</td>
-          <td>${escapeHtmlForPrint(s.name)}</td>
+          <td><span class="del-link" style="font-weight:600;" onclick="openSupplierEditModal('${s.id}')">${escapeHtmlForPrint(s.name)}</span></td>
           <td>${escapeHtmlForPrint(s.contact || '')}</td>
           <td>${escapeHtmlForPrint(s.phone || '')}</td>
           <td>${escapeHtmlForPrint(s.address || '')}</td>
           <td>${escapeHtmlForPrint(s.note || '')}</td>
           <td style="white-space:nowrap;text-align:right;">
             <span class="del-link" onclick="supplierGoPurchaseHistory('${s.id}')">${t('btnSupplierPurchaseHistory')}</span>
-            &nbsp;·&nbsp;
-            <span class="del-link" onclick="openSupplierEditModal('${s.id}')">${t('btnEdit')}</span>
-            &nbsp;·&nbsp;
-            <span class="del-link" onclick="deleteSupplier('${s.id}')">${t('btnDelete')}</span>
           </td>
         </tr>
       `).join('')}
@@ -451,6 +454,7 @@ function openSupplierEditModal(supplierId, prefillName){
   document.getElementById('supplierAddressInput').value = s ? s.address || '' : '';
   document.getElementById('supplierNoteInput').value = s ? s.note || '' : '';
   document.getElementById('supplierEditModalMsg').textContent = '';
+  document.getElementById('supplierDeleteBtn').style.display = s ? '' : 'none';
   document.getElementById('supplierEditModalOverlay').style.display = 'flex';
 }
 function closeSupplierEditModal(){
@@ -500,6 +504,7 @@ function deleteSupplier(supplierId){
   showConfirmModal(tf('confirmDeleteSupplier', { name: s.name }), async () => {
     try{
       await deletePurchaseSupplierRow(supplierId);
+      closeSupplierEditModal();
       purchaseSuppliers = purchaseSuppliers.filter(x => x.id !== supplierId);
       renderSupplierManagementTable();
       populateTxPartyHistorySelect();
