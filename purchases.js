@@ -102,7 +102,7 @@ function renderPurchaseLog(){
             <td class="pl-actions" style="white-space:nowrap;">
               <span class="del-link" onclick="openEditPurchaseModal('${p.id}')">${t('btnEdit')}</span>
               &nbsp;·&nbsp;
-              <span class="del-link" onclick="exportSinglePurchase('${p.id}')">${t('btnExportPurchaseLog')}</span>
+              <span class="del-link" title="${escapeHtmlForPrint(t('btnExportPurchaseLog').replace(/^📤\s*/, ''))}" aria-label="${escapeHtmlForPrint(t('btnExportPurchaseLog').replace(/^📤\s*/, ''))}" onclick="exportSinglePurchase('${p.id}')">📤</span>
               &nbsp;·&nbsp;
               <span class="del-link" onclick="openSendPurchaseEmailModal('${p.id}')">${t('btnSendEmail')}</span>
               ${p.emailedAt ? `<br class="pl-actions-br"><span style="color:var(--safe);font-size:12px;" title="${tf('emailedToTitle', { email: p.emailedTo || '', when: p.emailedAt })}">${t('alreadyEmailedBadge')}</span><span style="margin-left:4px;color:var(--ink-soft);font-size:10.5px;">${formatEmailedTimeShort(p.emailedAt)}</span>` : ''}
