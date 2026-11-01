@@ -1034,7 +1034,18 @@
     #txBatchList .stock-table td[data-label]::before{ content:attr(data-label); display:block; font-size:11px; color:var(--ink-soft); }
     #txBatchList .stock-table td.row-action{ display:flex; gap:10px; justify-content:flex-start; }
     #txBatchList .stock-table input.order-qty-input{ max-width:100%; box-sizing:border-box; }
-    #txBatchList .stock-table input[type=date].order-qty-input{ width:100% !important; }
+    #txBatchList .stock-table input[type=date].order-qty-input{ width:150px !important; }
+    /* 進貨清單卡片:第1行商品名;第2行 數量 + 金額;第3行 有效期 + 位置;最後是操作按鈕 */
+    #txBatchList .stock-table tr{ display:flex; flex-wrap:wrap; align-items:flex-end; column-gap:14px; }
+    #txBatchList .stock-table td{ order:3; }
+    #txBatchList .stock-table td:empty{ display:none; }
+    #txBatchList .stock-table td.row-name{ order:0; width:100%; }
+    #txBatchList .stock-table td:nth-child(2){ order:1; width:auto; flex:0 0 auto; }
+    #txBatchList .stock-table td.tx-sell, #txBatchList .stock-table td.tx-amt{ order:2; width:auto; flex:0 0 auto; }
+    #txBatchList .stock-table td.tx-amt input.order-qty-input{ width:110px; }
+    #txBatchList .stock-table td.tx-exp{ order:3; width:auto; flex:0 0 auto; }
+    #txBatchList .stock-table td.tx-loc{ order:4; width:auto; flex:1 1 120px; }
+    #txBatchList .stock-table td.row-action{ order:5; width:100%; }
     /* 載入待處理/已完成訂單的原有商品列、訂單卡片的商品列:固定寬度的價格欄改成可換行 */
     #txExistingItemsList .sp-cols-head, #txExistingItemsList .sp-total-row{ display:none !important; }
     #txExistingItemsList span[style*="width"], .order-items span[style*="width"]{ width:auto !important; min-width:0 !important; }

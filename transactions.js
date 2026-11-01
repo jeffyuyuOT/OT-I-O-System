@@ -759,12 +759,12 @@ function renderTxBatchList(){
           <input type="number" class="order-qty-input" step="1" value="${it.qty}"
             onchange="updateTxBatchItemQty('${it.batchItemId}', this.value)" /><span class="row-unit">${it.unit}</span>
         </td>
-        ${showSellCol ? `<td class="row-num">${spTxItemPriceHtml(it, sellPartyId)}</td>` : ''}
-        ${showSellCol ? `<td class="row-num"><span style="${SP_TOTAL_PILL}">${spTxItemTotalHtml(it, sellPartyId)}</span></td>` : ''}
-        ${showBatchCols ? `<td class="row-num" data-label="${t('batchColExpiry')}"><input type="date" class="order-qty-input" style="width:140px;" value="${it.expiry || ''}" onchange="updateTxBatchItemExpiry('${it.batchItemId}', this.value)" onblur="commitTxBatchItemExpiry('${it.batchItemId}')" /></td>
+        ${showSellCol ? `<td class="row-num tx-sell">${spTxItemPriceHtml(it, sellPartyId)}</td>` : ''}
+        ${showSellCol ? `<td class="row-num tx-sell"><span style="${SP_TOTAL_PILL}">${spTxItemTotalHtml(it, sellPartyId)}</span></td>` : ''}
+        ${showBatchCols ? `<td class="row-num tx-exp" data-label="${t('batchColExpiry')}"><input type="date" class="order-qty-input" style="width:140px;" value="${it.expiry || ''}" onchange="updateTxBatchItemExpiry('${it.batchItemId}', this.value)" onblur="commitTxBatchItemExpiry('${it.batchItemId}')" /></td>
         
         ${(typeof batchLocCellHtml === 'function') ? batchLocCellHtml(it) : '<td></td>'}` : ''}
-        ${showAmountCol ? `<td class="row-num" data-label="${t('colAmount')}"><input type="number" class="order-qty-input" step="0.01" min="0" value="${(it.amount !== undefined && it.amount !== null) ? it.amount : ''}" placeholder="–" ${canEditPrice() ? '' : 'readonly'} onchange="updateTxBatchItemAmount('${it.batchItemId}', this.value)" /></td>` : ''}
+        ${showAmountCol ? `<td class="row-num tx-amt" data-label="${t('colAmount')}"><input type="number" class="order-qty-input" step="0.01" min="0" value="${(it.amount !== undefined && it.amount !== null) ? it.amount : ''}" placeholder="–" ${canEditPrice() ? '' : 'readonly'} onchange="updateTxBatchItemAmount('${it.batchItemId}', this.value)" /></td>` : ''}
         <td class="row-action">
           ${(typeof batchTxRowButtonHtml === 'function') ? batchTxRowButtonHtml(it) : ''}
           ${(showBatchCols && typeof batchTxDetailButtonHtml === 'function') ? batchTxDetailButtonHtml(it) : `<button onclick="openConversionFromTxBatch('${it.productId}')" title="${t('btnConvertBatchItem')}">🔄</button>`}
@@ -789,7 +789,7 @@ function renderTxBatchList(){
           <td class="row-num">${netQty}<span class="row-unit">${it.unit}</span></td>
           ${showSellCol ? '<td></td><td></td>' : ''}
           ${showBatchCols ? '<td></td><td></td>' : ''}
-          ${showAmountCol ? `<td class="row-num">${netAmount !== null ? Number(netAmount).toFixed(2) : '–'}</td>` : ''}
+          ${showAmountCol ? `<td class="row-num tx-amt">${netAmount !== null ? Number(netAmount).toFixed(2) : '–'}</td>` : ''}
           <td class="row-action"></td>
         </tr>
       `;
