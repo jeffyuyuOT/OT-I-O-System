@@ -649,7 +649,8 @@ function renderEditPurchaseItemsList(){
          ${editPurchaseIsBatchTracked() ? `<div style="display:flex;align-items:center;gap:8px;margin-top:4px;flex-wrap:wrap;">
           <span style="font-size:11.5px;color:var(--ink-soft);">${t('batchColExpiry')}</span>
           <input type="date" value="${it.expiry || ''}" title="${t('batchColExpiry')}" style="width:122px;" onchange="updateEditPurchaseItemExpiry(${i}, this.value)" />
-          <input type="text" value="${escapeHtmlForPrint(it.supplierLot || '')}" placeholder="${t('batchFieldLot')}" title="${t('batchFieldLot')}" style="width:96px;" oninput="updateEditPurchaseItemLot(${i}, this.value)" />
+          <span style="font-size:11.5px;color:var(--ink-soft);">${t('batchLotLabel')}</span>
+          <input type="text" value="${escapeHtmlForPrint(it.supplierLot || '')}" title="${t('batchFieldLot')}" style="width:96px;" oninput="updateEditPurchaseItemLot(${i}, this.value)" />
           ${(it.docType === 'credit_note') ? '' : `<button type="button" class="btn ghost" style="padding:2px 8px;" title="${t('batchFieldNote')}" onclick="editPurchaseOpenLineNote(${i})">📝${(it.batchNote !== undefined ? it.batchNote : batchLineNote(editPurchaseTargetId, it.productId, it.expiry || '')) ? ' ✓' : ''}</button>`}
          </div>` : ''}
         </div>
