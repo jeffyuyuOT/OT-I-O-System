@@ -228,6 +228,17 @@ function batchShowExpiryInfo(expiry){
   const d = batchDaysUntil(expiry);
   showInfoModal((d < 0 ? t('batchExpired') : tf('batchExpiresInDays', { n: d })) + ' (EXP ' + expiry + ')');
 }
+// 這個批次商品行的庫存價值(成本)= 剩餘量 × Total price;沒有成本資料回傳 null
+function batchItemValue(i){
+  const c = (typeof spTotalUnit === 'function') ? spTotalUnit(i) : null;
+  return (c === null || !(i.remaining > 0)) ? null : c * i.remaining;
+}
+// 一組批次商品行的庫存價值加總:{ sum, missing(有庫存但沒成本的行數) }
+function batchValueSum(items){
+  let sum = 0, missing = 0;
+  items.forEach(i => { if(!(i.remaining > 0)) return; const v = batchItemValue(i); if(v === null) missing++; else sum += v; });
+  return { sum, missing };
+}
 function batchExpiryBadge(expiry, small){
   if(!expiry) return '';
   const d = batchDaysUntil(expiry);
@@ -852,6 +863,7 @@ function batchRenderProductDetail(pid){
           </tr>`).join('')}
         ${untrackedRow}
       </tbody>
+      ${items.length === 0 ? '' : (() => { const live = items.filter(i => i.remaining > 0); const v = batchValueSum(live); const q = live.reduce((a, i) => a + i.remaining, 0); return `<tfoot><tr style="font-weight:700;"><td colspan="2" style="text-align:right;">${t('batchValueTotal')}</td><td class="num">${batchFmtQty(q)} ${batchEsc(batchProductUnit(pid))}</td><td colspan="2" style="font-weight:400;">${t('batchStockValue')}: <strong>${(typeof spMoney === 'function') ? spMoney(v.sum) : v.sum.toFixed(2)}</strong>${v.missing ? ` <span style="font-size:11px;color:var(--ink-soft);">(${tf('batchValueMissing', { n: v.missing })})</span>` : ''}</td></tr></tfoot>`; })()}
     </table>`;
 }
 
@@ -987,14 +999,28 @@ function batchRenderExpiryList(){
   let rows = withExp.slice().sort((a, b) => a.expiry.localeCompare(b.expiry) || batchProductName(a.productId).localeCompare(batchProductName(b.productId)));
   if(bt.expOnly) rows = rows.filter(i => batchDaysUntil(i.expiry) <= warn);
   const table = rows.length === 0 ? `<div class="empty-note">${t('batchNoExpiryRows')}</div>` : `<table class="stock-table">
-    <thead><tr><th>${t('batchColExpiry')}</th><th>${t('colProduct')}</th><th>${t('batchColBatch')}</th><th class="num">${t('batchColRemaining')}</th></tr></thead>
+    <thead><tr><th>${t('batchColExpiry')}</th><th>${t('colProduct')}</th><th>${t('batchColBatch')}</th><th class="num">${t('batchColRemaining')}</th><th class="num">${t('batchStockValue')}</th></tr></thead>
     <tbody>${rows.map(i => `<tr>
       <td>${batchEsc(i.expiry)}${batchExpiryBadge(i.expiry, true)}</td>
       <td><span class="batch-link" onclick="batchTrackerOpenProduct('${i.productId}')">${batchEsc(batchProductName(i.productId))}</span></td>
       <td><span class="batch-link" onclick="batchTrackerOpenBatch('${i.batchId}')">${batchEsc(i.batchNo)}</span></td>
       <td class="num">${batchFmtQty(i.remaining)} ${batchEsc(batchProductUnit(i.productId))}</td>
+      <td class="num">${(() => { const v = batchItemValue(i); return v === null ? '–' : spMoney(v); })()}</td>
     </tr>`).join('')}</tbody></table>`;
+  // 摘要(不受下面「只看快到期與已過期」勾選影響):有填有效期的庫存總價值、快到期、已過期的價值
+  const expired = batchValueSum(withExp.filter(i => batchDaysUntil(i.expiry) < 0));
+  const soon = batchValueSum(withExp.filter(i => { const d = batchDaysUntil(i.expiry); return d >= 0 && d <= warn; }));
+  const all = batchValueSum(withExp);
+  const missingTotal = all.missing;
+  const chip = (label, v, color) => `<span style="display:inline-block;padding:6px 12px;border:1px solid var(--line);border-radius:3px;background:#fff;"><span style="font-size:11px;color:var(--ink-soft);">${label}</span><br><strong style="font-size:14px;${color ? 'color:' + color + ';' : ''}">${spMoney(v)}</strong></span>`;
+  const summary = `<div style="margin:0 0 12px;display:flex;gap:10px;flex-wrap:wrap;align-items:stretch;">
+      ${chip(t('batchStockValue'), all.sum)}
+      ${chip('🟠 ' + t('batchValueSoon'), soon.sum, '#B8860B')}
+      ${chip('🔴 ' + t('batchValueExpired'), expired.sum, 'var(--crit)')}
+      ${missingTotal ? `<span style="align-self:center;font-size:11px;color:var(--ink-soft);">${tf('batchValueMissing', { n: missingTotal })}</span>` : ''}
+    </div>`;
   return `
+    ${summary}
     <div style="margin:0 0 10px;">
       <label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer;">
         <input type="checkbox" ${bt.expOnly ? 'checked' : ''} onchange="bt.expOnly=this.checked;renderBatchTracker();" /> ${t('batchExpOnlyLabel')}
