@@ -508,10 +508,16 @@ async function batchAllocateAfter(txList, picksByTx){
     if(plan && plan.length && Date.now() - (plan.at || 0) < 120000 && Math.abs(plan.reduce((a, x) => a + x.qty, 0) - tx.qty) < 1e-9) planByTx[tx.id] = plan;
   });
   const manual = {};
-  list.forEach(tx => {
-    if(planByTx[tx.id]) manual[tx.id] = batchMergeManual(planByTx[tx.id].map(x => ({ batch_item_id: x.batchItemId, qty: x.qty })));
-    else if(picksByTx && picksByTx[tx.id] && picksByTx[tx.id].length) manual[tx.id] = batchMergeManual(picksByTx[tx.id]);
-  });
+  for(const tx of list){
+    if(planByTx[tx.id]){ manual[tx.id] = batchMergeManual(planByTx[tx.id].map(x => ({ batch_item_id: x.batchItemId, qty: x.qty }))); continue; }
+    let mp = (picksByTx && picksByTx[tx.id] && picksByTx[tx.id].length) ? picksByTx[tx.id].slice() : [];
+    // 已完成訂單增加數量(補出貨):預設先拿這張訂單原本用的批次,那批沒了才依先到期先出往下拿
+    if(tx.orderId){
+      const pref = await batchOrderPreferredPicks(tx.orderId, tx.productId);
+      mp = mp.concat(pref.map(x => ({ batch_item_id: x.batchItemId, qty: x.qty })));
+    }
+    if(mp.length) manual[tx.id] = batchMergeManual(mp);
+  }
   let res;
   let usedFallback = false;
   try{
@@ -2019,8 +2025,35 @@ function batchBucketLabel(item, b){
 // 出貨前(扣庫存之前)解析:這次出貨會從哪些(批次, 位置)出。回傳 null = 這個商品不用批次位置邏輯(走原本流程);
 // 否則回傳 { allocations, tracked, rest }:allocations = 原本 product_locations 扣減格式,rest = 沒有批次可扣的數量(走原本流程)。
 // 取消(使用者在選位置視窗按取消)時丟出 Error('cancelled'),呼叫端照原本方式中止。
-async function batchResolveLocationAllocations(productId, neededQty, picks){
+// 已完成訂單增加數量時的預設來源:這張訂單當初出貨用過的「批次 × 位置」(用得多的先),各自最多拿到該位置目前剩餘的量;
+// 那個批次/位置的貨沒了,剩下的量就依一般順序(期初 → 先到期 → 先進貨)往下一批拿(同批次同有效期多個位置才會問)。
+async function batchOrderPreferredPicks(orderId, productId){
+  try{
+    const { data, error } = await sb.from('batch_movements').select('batch_item_id,qty,location_code,kind').eq('order_id', orderId).in('kind', ['out', 'return']);
+    if(error) throw error;
+    const net = {};
+    (data || []).forEach(m => {
+      const it = batchData.items.find(x => x.id === m.batch_item_id);
+      if(!it || it.productId !== productId) return;
+      const k = m.batch_item_id + '|' + (m.location_code || '');
+      net[k] = (net[k] || 0) - Number(m.qty);
+    });
+    const out = [];
+    Object.keys(net).filter(k => net[k] > 1e-9).sort((a, b) => net[b] - net[a]).forEach(k => {
+      const [id, code] = k.split('|');
+      const it = batchData.items.find(x => x.id === id);
+      const b = it ? batchBuckets(it).find(x => x.code === code) : null;
+      if(b && b.rem > 1e-9) out.push({ batchItemId: id, code, qty: b.rem });
+    });
+    return out;
+  }catch(e){ console.warn('讀取訂單原本出貨批次失敗', e); return []; }
+}
+async function batchResolveLocationAllocations(productId, neededQty, picks, orderId){
   delete batchLocPlans[productId];
+  if(orderId && batchActive() && batchIsTracked(productId)){
+    // 使用者在批次按鈕指定的先照指定;其餘預設拿這張訂單原本用的批次與位置
+    picks = (picks || []).concat(await batchOrderPreferredPicks(orderId, productId));
+  }
   if(!batchActive() || !batchIsTracked(productId) || !(neededQty > 0)) return null;
   const hasAnyLoc = batchItemsOfProduct(productId).some(i => (batchItemLocRem[i.id] || []).length > 0);
   if(!hasAnyLoc) return null;

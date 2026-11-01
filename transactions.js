@@ -441,7 +441,7 @@ function renderTxExistingItems(){
           <span style="${priceOn ? SP_QTY_W : ''}"><span style="text-decoration:line-through;color:var(--ink-soft);">${it.qty}</span> → <span style="color:var(--warn-dark);font-weight:600;">${pending.newQty}</span> ${it.unit}</span>
           ${priceOn ? spUnitCellHtml(order, it) : ''}
           ${priceOn ? spTotalCellHtml(order, it, pending.newQty) : ''}
-          ${registerOutFlowType === 'load-pending' ? `<span class="del-link" onclick="registerExistingItemEditKey='${it.productId}';renderTxExistingItems();">${t('btnEditQty')}</span>` : ''}
+          <span class="del-link" onclick="registerExistingItemEditKey='${it.productId}';renderTxExistingItems();">${t('btnEditQty')}</span>
           ${(typeof batchExistingItemButtonHtml === 'function') ? batchExistingItemButtonHtml(it, pending) : ''}
           <span class="del-link" onclick="undoPendingItemChange('${it.productId}')">${t('btnUndo')}</span>
           ${(typeof batchExistingItemLineHtml === 'function') ? batchExistingItemLineHtml(it) : ''}
@@ -450,7 +450,7 @@ function renderTxExistingItems(){
     }
 
     const qtyHtml = `${it.qty} ${it.unit}${it.qty < 0 ? ` <span style="color:var(--safe);font-weight:600;font-size:11px;">(${t('stockedInLabel')})</span>` : ''}`;
-    const actionsHtml = `${registerOutFlowType === 'load-pending' ? `<span class="del-link" onclick="registerExistingItemEditKey='${it.productId}';renderTxExistingItems();">${t('btnEditQty')}</span>` : ''}
+    const actionsHtml = `<span class="del-link" onclick="registerExistingItemEditKey='${it.productId}';renderTxExistingItems();">${t('btnEditQty')}</span>
         ${(typeof batchExistingItemButtonHtml === 'function') ? batchExistingItemButtonHtml(it, pending) : ''}
         <span class="del-link" style="color:var(--crit);" onclick="deleteTxExistingItem('${it.productId}')">${t('btnDelete')}</span>`;
     if(priceOn){
@@ -477,7 +477,7 @@ function renderTxExistingItems(){
   });
   // 標題列(單價 / 數量 / 總價)+ 品項 + 訂單總金額(暫存改的數量算新數量、暫存刪除的不算)
   const totalOverrides = it => { const pc = registerPendingItemChanges[it.productId]; if(!pc) return undefined; return pc.type === 'delete' ? false : (pc.type === 'qty' ? pc.newQty : undefined); };
-  list.innerHTML = (priceOn ? spColsHeaderHtml(canActOnRows || false) : '') + rowsHtml.join('') + (priceOn ? spOrderTotalRowHtml(order, canActOnRows || false, totalOverrides) : '');
+  list.innerHTML = (priceOn ? spColsHeaderHtml(true) : '') + rowsHtml.join('') + (priceOn ? spOrderTotalRowHtml(order, true, totalOverrides) : '');
   if(typeof batchFillOrderBreakdown === 'function') batchFillOrderBreakdown(list, order); // 批次追蹤:顯示每個商品目前用了哪些批次
 }
 
@@ -2359,7 +2359,7 @@ async function submitLoadCompletedFlow(date, msg){
     let qtyChangeAllocationsByProductId = {};
     if(increaseChanges.length > 0){
       try{
-        const resolved = await resolveLocationChoicesForItems(increaseChanges.map(({ item, newQty }) => ({ productId: item.productId, qty: newQty - item.qty })));
+        const resolved = await resolveLocationChoicesForItems(increaseChanges.map(({ item, newQty, picks }) => ({ productId: item.productId, qty: newQty - item.qty, batchPicks: picks, orderId: order.id })));
         resolved.forEach(r => { qtyChangeAllocationsByProductId[r.productId] = r.allocations; });
       } catch(e){
         return; // 使用者取消了位置選擇,整個儲存動作中止

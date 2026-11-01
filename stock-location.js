@@ -672,9 +672,9 @@ function cancelLocationChoiceSequence(){
 //   剩下還缺的量自動繼續問(排除掉這個已經用完的來源),直到湊滿為止
 // 批次追蹤的商品(而且批次有記位置)先依「批次 × 位置」決定從哪裡出(batch-tracking.js 的 batchResolveLocationAllocations);
 // 沒有批次可扣的部分、或不用批次位置的商品,走下面原本的流程(legacy)。
-async function resolveLocationAllocationsForItem(productId, neededQty, batchPicks){
+async function resolveLocationAllocationsForItem(productId, neededQty, batchPicks, orderId){
   let pre = null;
-  if(typeof batchResolveLocationAllocations === 'function') pre = await batchResolveLocationAllocations(productId, neededQty, batchPicks);
+  if(typeof batchResolveLocationAllocations === 'function') pre = await batchResolveLocationAllocations(productId, neededQty, batchPicks, orderId);
   if(!pre) return resolveLocationAllocationsLegacy(productId, neededQty, {});
   if(!(pre.rest > 1e-9)) return pre.allocations;
   // 剩下沒有批次的量:先把批次那部分已經用掉的位置數量扣掉,再走原本的流程
@@ -720,7 +720,7 @@ async function resolveLocationAllocationsLegacy(productId, neededQty, initialVir
 async function resolveLocationChoicesForItems(items){
   const results = [];
   for(const it of items){
-    const allocations = await resolveLocationAllocationsForItem(it.productId, it.qty, it.batchPicks);
+    const allocations = await resolveLocationAllocationsForItem(it.productId, it.qty, it.batchPicks, it.orderId);
     results.push({ productId: it.productId, qty: it.qty, allocations });
   }
   return results;
@@ -748,7 +748,7 @@ async function resolveLocationChoicesForItemsWithPreset(items, presetMap){
         return false;
       });
     }
-    const allocations = presetStillValid ? preset : await resolveLocationAllocationsForItem(it.productId, it.qty, it.batchPicks);
+    const allocations = presetStillValid ? preset : await resolveLocationAllocationsForItem(it.productId, it.qty, it.batchPicks, it.orderId);
     results.push({ productId: it.productId, qty: it.qty, allocations });
   }
   return results;
