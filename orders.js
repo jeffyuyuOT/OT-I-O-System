@@ -1248,7 +1248,7 @@ async function printOrderDocument(orderId, opts){
   if(includeCheck && stockLocationShowOnPickingSlip){
     try{
       const resolvedItems = await resolveLocationChoicesForItemsWithPreset(
-        items.map(it => ({ productId: it.productId, qty: it.qty })),
+        items.map(it => { const oi = order.items.find(x => x.productId === it.productId && !x.deleted); return { productId: it.productId, qty: it.qty, batchPicks: (oi && oi.batchPicks) || undefined }; }), // 帶入這張訂單已指定的批次,跟核對時用同一套規則
         order.pickedLocationAllocations
       );
       resolvedItems.forEach(r => {
