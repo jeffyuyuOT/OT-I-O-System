@@ -3735,6 +3735,7 @@ function buildWeightedOutSeries(productId, opts){
       if(t.productId !== pid || (t.type !== 'out' && t.type !== 'restock')) return;
       if(t.conversion) return; // 切換數量不算入平均用量
       if(isStockAdjustmentTx(t)) return; // 庫存調整不算入平均用量
+      if(t.masterImportAdjustment) return; // Excel 匯入商品主檔自動產生的庫存調整也不算入平均用量(庫存總覽、訂貨頁一致)
       if(opts.excludeMasterImportAdjustment && t.masterImportAdjustment) return;
       if(opts.onlyParty && t.party !== opts.onlyParty) return;
       const signedQty = t.type === 'restock' ? -t.qty : t.qty;
