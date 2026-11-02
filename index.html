@@ -1739,16 +1739,13 @@
 
     <div id="subtab-overview-summary" class="subtab-content active-subtab">
     <div class="section">
+      <div class="section-title" style="margin:0 0 10px;"><span data-i18n="secStockOverview">庫存總覽</span></div>
       <div class="toolbar">
         <div class="overview-toolbar-left" style="display:flex;flex-direction:column;gap:10px;align-items:flex-start;">
-         <div class="overview-toolbar-row" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
-          <div class="section-title" style="margin:0;"><span data-i18n="secStockOverview">庫存總覽</span></div>
-         </div>
          <div class="overview-toolbar-row" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
           <select id="categoryFilter" onchange="renderStockCards()">
             <option value="" data-i18n="catFilterAll">全部分類</option>
           </select>
-          <input type="search" id="stockSearchInput" oninput="renderStockCards()" data-i18n-placeholder="stockSearchPlaceholder" placeholder="搜尋商品名稱…" style="width:170px;" />
           <select id="statusFilter" onchange="renderStockCards()">
             <option value="" data-i18n="statusFilterAll">燈號:全部</option>
             <option value="crit" data-i18n="statusFilterCrit">🔴 紅燈(庫存吃緊)</option>
@@ -1762,17 +1759,20 @@
             <option value="expired" data-i18n="expiryFilterExpired">🔴 已過期</option>
           </select>
          </div>
+         <div class="overview-toolbar-row" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+          <input type="search" id="stockSearchInput" oninput="renderStockCards()" data-i18n-placeholder="stockSearchPlaceholder" placeholder="搜尋商品名稱…" style="width:140px;" />
+         </div>
         </div>
-        <div class="overview-toolbar-right" style="display:flex;gap:10px;align-items:flex-start;flex-wrap:wrap;justify-content:flex-end;align-self:flex-start;">
-          <label class="pending-toggle-mobile" style="align-items:center;gap:5px;font-size:12px;color:var(--ink-soft);cursor:pointer;padding-top:8px;">
+        <div class="overview-toolbar-right" style="display:flex;gap:14px;align-items:center;min-height:34px;flex-wrap:wrap;justify-content:flex-end;align-self:flex-start;">
+          <label class="pending-toggle-mobile" style="align-items:center;gap:5px;font-size:12px;color:var(--ink-soft);cursor:pointer;">
             <input type="checkbox" id="stockIncludePendingMobile" onchange="toggleStockIncludePending(this.checked)" />
             <span data-i18n="chkIncludePending">包含進貨預估</span>
           </label>
-          <label style="display:flex;align-items:center;gap:5px;font-size:12px;color:var(--ink-soft);cursor:pointer;padding-top:8px;">
+          <label style="display:flex;align-items:center;gap:5px;font-size:12px;color:var(--ink-soft);cursor:pointer;">
             <input type="checkbox" id="showHiddenProducts" onchange="toggleShowHiddenProducts(this.checked)" />
             <span data-i18n="showHiddenProducts">顯示隱藏商品</span>
           </label>
-          <div class="overview-action-box" style="display:flex;flex-direction:column;gap:6px;align-items:stretch;">
+          <div class="overview-action-box" style="display:flex;flex-direction:row;gap:8px;align-items:center;flex-wrap:wrap;">
             <select id="stockActionSelect" onchange="onStockActionChange(this.value)">
               <option value="" data-i18n="stockActionPlaceholder">Action</option>
               <option value="quicklist" data-i18n="stockActionQuickList">從快捷清單篩選</option>
