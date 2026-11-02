@@ -743,7 +743,7 @@ function renderTxBatchList(){
   // 總價這欄只有在有收據掃描模組的時候才顯示——手動登記進出貨(沒掃描收據)本來就沒有「總價」
   // 這個概念,這欄存在的目的是讓人核對「掃描收據自動帶入商品」時有沒有把金額也正確抓進來,
   // 沒有這個模組就沒有意義,不用佔畫面空間。
-  const showAmountCol = hasFeature('receiptScanModule');
+  const showAmountCol = hasFeature('receiptScanModule') && currentTxType === 'in'; // 金額只有進貨才用(出貨/入庫/調整不記金額),其他類型不顯示
   // 出貨(新增訂單 / 載入待處理訂單加品項):顯示 Sell price(依出貨方 Discount 與預計批次),受系統設置開關控制
   const showSellCol = typeof spEnabled === 'function' && spEnabled() && currentTxType === 'out' && (registerOutFlowType === 'new-order' || registerOutFlowType === 'load-pending');
   const sellPartyId = showSellCol ? ((document.getElementById('txPartySelect') || {}).value || '') : '';
@@ -2235,7 +2235,7 @@ async function submitLoadPendingFlow(action, msg){
     registerPendingItemChanges = {};
 
     if(txBatchItems.length > 0){
-      const newItems = txBatchItems.map(it => ({ productId: it.productId, sku: it.sku||'', name: it.name, unit: it.unit, qty: it.qty }));
+      const newItems = txBatchItems.map(it => { const ni = { productId: it.productId, sku: it.sku||'', name: it.name, unit: it.unit, qty: it.qty }; if(it.batchPicks && it.batchPicks.length) ni.batchPicks = it.batchPicks.map(x => ({ ...x })); return ni; });
       const result = await mergeItemsIntoOrderCore(orderId, newItems);
       if(!result.ok){
         msg.className='msg error';
