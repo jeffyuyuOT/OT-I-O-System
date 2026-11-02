@@ -492,7 +492,7 @@ const I18N = {
     secUploadMasterExcelDesc: '可以一次選取多個檔案。第一列要是欄位標題,系統會自動辨識這些欄位名稱(大小寫、中英文都可以):<br/><span style="font-family:\'IBM Plex Mono\',monospace;font-size:11.5px;">必要:SKU、Name/品名、Stock/庫存量&nbsp;&nbsp;|&nbsp;&nbsp;選填:Unit/單位、AvgMonthlySales/平均使用量、Categories/分類、SafetyStock/安全庫存(填月數,不是填數量)、Note/備註、ParentSKU/主商品SKU、ChildWeight/加權數、Length/長、Width/寬、Height/高</span><br/><b>以 SKU 為比對主鍵</b>:表格裡的 SKU 如果跟現有商品相同,就算表格上的名稱不一樣,也會視為同一項商品並更新其他欄位;<b>商品名稱一律維持庫存總覽現有的名稱,不會被表格覆蓋</b>。SKU 不同或全新的 SKU 會用表格上的名稱新增成一項新商品。<b>沒有填 SKU 的資料列會被略過,不會寫入。</b><br/><b>批量商品(multi-pack)</b>:如果這一列是某個主商品底下的批量商品,在 ParentSKU 欄位填主商品的 SKU,並在 ChildWeight 欄位填加權數(換算主商品庫存時,這個批量商品的庫存量會先乘以這個數字);沒填 ParentSKU 就當一般商品匯入。ParentSKU 必須是同一份表格裡或系統裡已經存在的 SKU,而且那個商品本身不能又是別人的批量商品(不支援兩層巢狀)。<br/><b>箱子尺寸(Length/Width/Height)</b>:單位是公分,三個都填了「倉庫後台管理 → 進貨預估」頁面才能算出這個商品的體積。',
     fieldSelectFiles: '選擇檔案(檔案在不同資料夾可分次加選)',
     secImportTxDesc: '上傳你填好的每日進出貨紀錄表(<b>可以一次選取多個檔案</b>),系統會依<b>檔名</b>自動判斷進貨或出貨(檔名需包含「stock in」或「stock out」),並自動比對商品名稱、抓出每一列的數量,整批登記成紀錄。每個檔案會各自偵測自己的日期/供應商。',
-    secImportTxWarning: '注意:庫存主檔(像 stock.xlsx,含品名/庫存量/分類/安全庫存)請不要在這裡上傳,那個要到「系統管理 → 商品主頁」用「從 Excel 匯入商品主檔」。',
+    secImportTxWarning: '注意:庫存主檔(像 stock.xlsx,含品名/庫存量/分類/安全庫存)請不要在這裡上傳,那個要到「系統管理 → 系統設置 → 資料維護 → 商品主頁」用「上傳你自己的商品主檔 Excel」。',
     fieldImportDate: '日期(若表格內有 Date: 會自動帶入,每個檔案各自偵測)',
     fieldImportParty: '進貨方/出貨方(若表格內有 Supplier 會自動帶入,選填)',
 
@@ -561,6 +561,9 @@ const I18N = {
     emptyDataBannerDesc: '如果你電腦裡有之前自動備份的資料夾,可以點下面按鈕讀取最新的一份直接還原,不用手動找檔案。',
     emptyDataRestoreBtn: '📥 從備份資料夾還原',
 
+    chkIncludeStockAdjustments: '包含庫存調整', includeStockAdjustmentsHint: '預設不含「庫存調整」登記產生的出貨/入庫紀錄(對帳時才需要勾選)。',
+    secMasterTemplate: '匯入商品主檔範本', masterTemplateDesc: '下載一份已經填好目前所有商品資料(含重量、箱子尺寸、條碼…)的 Excel 範本,修改後可以拿回下方「上傳你自己的商品主檔 Excel」匯入。預設空白的格子不會清空系統裡的資料,有填的格子才會覆蓋。', btnDownloadMasterTemplate: '📄 下載匯入範本',
+    warnLocLogNeedSql: '⚠ 庫存分布紀錄沒有清除/還原成功:請先在 Supabase SQL Editor 執行 sql/location_transfer_log.sql(含 location_log_restore 函式)。',
     secExportReport: '匯出報表',
     exportReportDesc: '選擇「類型」(出貨/進貨/入庫),依「對象」跟日期區間篩選紀錄,匯出成 Excel 報表(格式比照 stock_out_sheet 範本,含 SKU、分類等欄位)。<b>同一對象、同一商品在選取區間內會自動加總成一筆</b>,不會重複列出每一次的紀錄。',
     fieldExportType: '類型', exportTypeOut: '出貨', exportTypeIn: '進貨', exportTypeRestock: '入庫', exportTypePending: '待出貨訂單(彙總)',
@@ -1357,7 +1360,7 @@ const I18N = {
     secUploadMasterExcelDesc: 'You can select multiple files at once. The first row must be column headers — the system auto-detects these column names (case-insensitive, Chinese or English):<br/><span style="font-family:\'IBM Plex Mono\',monospace;font-size:11.5px;">Required: SKU, Name, Stock&nbsp;&nbsp;|&nbsp;&nbsp;Optional: Unit, AvgMonthlySales, Categories, SafetyStock (in months, not a quantity), Note, ParentSKU, ChildWeight, Length, Width, Height</span><br/><b>Matched by SKU</b>: if a row\'s SKU matches an existing product, it\'s treated as the same product and other fields are updated — even if the name in the sheet differs; <b>the product name always stays as whatever is currently in Stock Overview and is never overwritten by the sheet</b>. A different or brand-new SKU creates a new product using the name from the sheet. <b>Rows without a SKU are skipped.</b><br/><b>Multi-pack products</b>: if a row is a multi-pack (child) product under a main product, put the main product\'s SKU in ParentSKU and the weighting number in ChildWeight (when computing the main product\'s total stock, this multi-pack\'s stock is multiplied by that number first). Leave ParentSKU blank to import as a regular standalone product. ParentSKU must match a SKU that exists either elsewhere in this sheet or already in the system, and that product can\'t itself be another product\'s multi-pack (no two-level nesting).<br/><b>Box dimensions (Length/Width/Height)</b>: in centimeters — fill in all three to enable volume calculation on the "Warehouse Back Office → Purchase Forecast" page.',
     fieldSelectFiles: 'Choose Files (add more from different folders as needed)',
     secImportTxDesc: 'Upload your filled-in daily stock in/out sheets (<b>you can select multiple files at once</b>). The system uses the <b>file name</b> to auto-detect stock in or out (file name must include "stock in" or "stock out"), matches product names automatically, reads the quantity in each row, and logs them all as records. Each file\'s date/supplier is detected independently.',
-    secImportTxWarning: 'Note: don\'t upload a product master file here (like stock.xlsx, containing name/stock/category/safety stock) — use "Import from Excel" under "System Admin → Product Master" for that.',
+    secImportTxWarning: 'Note: don\'t upload a product master file here (like stock.xlsx, containing name/stock/category/safety stock) — use "Upload your own product master Excel" under "System Admin → System Settings → Data Maintenance → Product Master" for that.',
     fieldImportDate: 'Date (auto-filled if the sheet has a Date column; detected per file)',
     fieldImportParty: 'Supplier/Customer (auto-filled if the sheet has a Supplier column, optional)',
 
@@ -1427,6 +1430,9 @@ const I18N = {
     emptyDataRestoreBtn: '📥 Restore From Backup Folder',
 
     secExportReport: 'Export Report',
+    chkIncludeStockAdjustments: 'Include stock adjustments', includeStockAdjustmentsHint: 'By default, stock-out/in records created by Stock Adjustment are left out (tick this only when reconciling).',
+    secMasterTemplate: 'Product master import template', masterTemplateDesc: 'Download an Excel template pre-filled with all current product data (including weight, box size, barcode…). Edit it and import it back using "Upload your own product master Excel" below. By default, blank cells never clear existing data; filled cells overwrite it.', btnDownloadMasterTemplate: '📄 Download import template',
+    warnLocLogNeedSql: '⚠ The Stock Location Log was not cleared/restored: please run sql/location_transfer_log.sql (it includes the location_log_restore function) in the Supabase SQL Editor first.',
     exportReportDesc: 'Pick a "Type" (Stock Out/In/Restock), filter by "Party" and date range, and export an Excel report (formatted like the stock_out_sheet template, with SKU, category, etc.). <b>Records for the same party and product within the selected range are automatically summed into one line</b> — individual transactions are not listed separately.',
     fieldExportType: 'Type', exportTypeOut: 'Stock Out', exportTypeIn: 'Stock In', exportTypeRestock: 'Restock', exportTypePending: 'Orders to Ship (Summary)',
     fieldFromDate: 'From Date', fieldToDate: 'To Date', btnExportReport: '📄 Export Report (Excel)',

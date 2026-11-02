@@ -209,6 +209,7 @@ async function restoreFromBackupFolder(){
     await restoreQuickListsFromBackup(backup);
     const forecastRestoreOk = await restoreForecastDataFromBackup(backup);
     const batchRes = await batchRestoreFromBackup(backup);
+    await locationLogReplace(locationLogRowsFromBackup(backup));   // 庫存分布紀錄一起還原(舊備份沒有 = 清空)
     const seqSynced = await syncOrderNoSequenceAfterRestore(orders);
     // 這個資料夾既然能讀,順便記起來,之後自動備份也直接寫進同一個地方。
     backupDirHandle = dirHandle;
@@ -488,6 +489,7 @@ async function clearAllData(){
     // 避免「清到一半失敗」導致部分資料表已清空、部分還留著的不一致狀態。
     await clearInventoryLogTable();        // 透過 RPC 清空 inventory_log(繞過 RLS 限制)
 
+    const locLogCleared = await locationLogReplace([]);   // 清空庫存分布紀錄(歷史紀錄 → 庫存分布紀錄)
     await batchClearAll();                 // 清空批次追蹤三張表(batches / batch_items / batch_movements);放在動 transactions 之前,失敗時其他資料不會被清到一半
     await replaceAllTransactions([]);      // 清空 transactions 表 + 重建庫存快取為空
     await replaceAllOrders([]);            // 清空 orders 表
@@ -530,7 +532,7 @@ async function clearAllData(){
     renderSupplierManagementTable();
     renderAccountingEmailList();
     if(hasFeature('receiptScanModule')) renderOcrDbProductSelect();
-    showInfoModal(t('restoreDefaultSuccessAll'));
+    showInfoModal(t('restoreDefaultSuccessAll') + (locLogCleared ? '' : '\n\n' + t('warnLocLogNeedSql')));
   } catch(e){
     console.error('Clear All Data 失敗', e);
     showInfoModal(batchIsMissingFunctionError(e) ? t('warnBatchClearNeedSql') : t('restoreDefaultError'));
@@ -542,6 +544,7 @@ async function clearInventoryLogsAndResetOrders(){
   try{
     // 一樣先確認 RPC 能成功執行,再動 orders 表,避免清到一半失敗留下不一致狀態。
     await clearInventoryLogTable();        // 透過 RPC 清空 inventory_log(繞過 RLS 限制)
+    const locLogCleared2 = await locationLogReplace([]);   // 庫存分布紀錄也是紀錄,一併清空
     await replaceAllOrders([]);            // 清空 orders 表
     await clearAllDeliveryNotes();         // 清空 delivery_notes 表(同上,訂單都清空了會變孤兒資料)
 
@@ -557,7 +560,7 @@ async function clearInventoryLogsAndResetOrders(){
     renderAll();
     renderInventoryLog();
     renderDeliveryNoteLog();
-    showInfoModal(t('restoreDefaultSuccessLogsOrders'));
+    showInfoModal(t('restoreDefaultSuccessLogsOrders') + (locLogCleared2 ? '' : '\n\n' + t('warnLocLogNeedSql')));
   } catch(e){
     console.error('Clear Inventory Logs & Reset Order # 失敗', e);
     showInfoModal(t('restoreDefaultError'));
@@ -670,6 +673,7 @@ function importFullBackup(){
         await restoreQuickListsFromBackup(backup);
         const forecastRestoreOk = await restoreForecastDataFromBackup(backup);
         const batchRes = await batchRestoreFromBackup(backup);
+        await locationLogReplace(locationLogRowsFromBackup(backup));   // 庫存分布紀錄一起還原(舊備份沒有 = 清空)
         // inventory_log 是稽核用途的紀錄,故意不開放前端刪除(見 clearInventoryLogTable 旁邊的
         // 說明)——還原備份的時候也一樣不整批覆蓋,只把「資料庫裡還沒有」的紀錄補進去。
         // 這張表的 id 是由資料庫自己產生的(GENERATED ALWAYS),不能帶 id 寫入,所以改用內容

@@ -478,6 +478,9 @@ async function exportShipmentSheet(opts){
   let rows = type === 'pending'
     ? getPendingOrderExportRows()
     : transactions.filter(t => t.type === type && (!t.system || t.orderId));
+  // 「庫存調整」登記產生的出貨/入庫紀錄(備註開頭是調整前綴)只是把帳面對齊實際庫存,不是真的出貨/入庫:
+  // 預設不匯出,匯出視窗勾選「包含庫存調整」才會包含(跟平均用量排除調整是同一個規則)。
+  if(type !== 'pending' && !opts.includeAdjustments) rows = rows.filter(t => !isStockAdjustmentTx(t));
   if(isMulti) rows = rows.filter(t => selectedStores.includes(t.party));
   else if(party) rows = rows.filter(t => t.party === party);
   if(dateFrom) rows = rows.filter(t => t.date >= dateFrom);
@@ -772,6 +775,7 @@ async function saveExportEmailLogs(){
 // 匯出報表:按下才選「一般匯出」還是「會計匯出」(預設一般匯出)
 function openExportModeModal(){
   document.getElementById('exportModeModalSelect').value = 'general';
+  document.getElementById('exportModeModalAdj').checked = false;
   document.getElementById('exportModeModalOverlay').style.display = 'flex';
 }
 function closeExportModeModal(){
@@ -780,7 +784,7 @@ function closeExportModeModal(){
 function confirmExportModeModal(){
   const mode = document.getElementById('exportModeModalSelect').value;
   closeExportModeModal();
-  exportShipmentSheet({ exportMode: mode });
+  exportShipmentSheet({ exportMode: mode, includeAdjustments: document.getElementById('exportModeModalAdj').checked });
 }
 
 function openExportEmailModal(){
@@ -792,6 +796,7 @@ function openExportEmailModal(){
   document.getElementById('exportEmailCcInput').value = defaults.cc || '';
   document.getElementById('exportEmailNoteInput').value = '';
   document.getElementById('exportEmailModeSelect').value = 'accountant'; // 寄 email 預設會計匯出
+  document.getElementById('exportEmailAdj').checked = false;
   const m = document.getElementById('exportEmailModalMsg'); m.className = 'msg'; m.textContent = '';
   document.getElementById('exportEmailModalOverlay').style.display = 'flex';
 }
@@ -819,7 +824,7 @@ async function confirmExportEmail(){
   pageMsg.className = 'msg'; pageMsg.textContent = '';
   let ran = false;
   try{
-    await exportShipmentSheet({ exportMode: document.getElementById('exportEmailModeSelect').value, emailJob: async (wb, filename) => {
+    await exportShipmentSheet({ exportMode: document.getElementById('exportEmailModeSelect').value, includeAdjustments: document.getElementById('exportEmailAdj').checked, emailJob: async (wb, filename) => {
       ran = true;
       const buf = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
       const blob = new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
@@ -874,4 +879,66 @@ function showExportLogRecipients(id){
   const l = exportEmailLogs.find(x => x.id === id);
   if(!l) return;
   showInfoModal(`${t('colExportTo')}: ${l.to || '-'}` + (l.cc ? `\nCC: ${l.cc}` : ''));
+}
+
+
+// ===== 系統設置 → 資料維護:下載「匯入商品主檔」範本 =====
+// 範本裡已經填入目前系統裡所有商品的現有資料(跟匯入時認得的欄位完全對應,含重量、箱子尺寸、條碼…),
+// 修改後直接拿回「從 Excel 匯入商品主檔」匯入即可。匯入規則(預設):表格上空白的格子不會清空系統裡原本的資料,
+// 有填的格子才會覆蓋系統的值;庫存量(Stock)有填而且跟系統不同,會自動產生一筆庫存調整。
+function downloadMasterImportTemplate(){
+  if(typeof XLSX === 'undefined'){ showInfoModal('Excel 套件載入失敗,請重新整理頁面再試一次'); return; }
+  const headers = ['SKU','Name','Unit','Stock','Avg Monthly Sales','Category','Safety Stock','Note','Parent SKU','Child Weight','Box Length (cm)','Box Width (cm)','Box Height (cm)','Weight Kg','Hidden','Auto Convert','Order Page Remark','Barcode'];
+  const skuById = Object.fromEntries(products.map(p => [p.id, p.sku || '']));
+  const blank = v => (v === null || v === undefined) ? '' : v;
+  const rows = products.map(p => [
+    p.sku || '',
+    p.name || '',
+    p.unit || '',
+    computeStock(p.id),
+    blank(p.manualAvg),
+    p.category || '',
+    blank(p.safetyStock),
+    p.note || '',
+    p.parentId ? (skuById[p.parentId] || '') : '',
+    p.parentId ? blank(p.childWeight) : '',
+    blank(p.boxLengthCm),
+    blank(p.boxWidthCm),
+    blank(p.boxHeightCm),
+    blank(p.weightKg),
+    p.hidden ? 'TRUE' : 'FALSE',
+    p.parentId ? (p.autoConvertOnStockIn ? 'TRUE' : 'FALSE') : '',
+    p.orderPageRemark || '',
+    p.barcode || ''
+  ]);
+  const ws = XLSX.utils.aoa_to_sheet([headers, ...rows]);
+  ws['!cols'] = [{wch:16},{wch:34},{wch:8},{wch:8},{wch:12},{wch:14},{wch:10},{wch:24},{wch:14},{wch:10},{wch:10},{wch:10},{wch:10},{wch:10},{wch:8},{wch:10},{wch:24},{wch:16}];
+  ws['!freeze'] = { xSplit: 0, ySplit: 1 };
+  const guide = [
+    ['欄位 / Column', '說明 / Notes'],
+    ['SKU', '必填。用 SKU 對應系統裡的商品:SKU 已存在 = 更新那個商品;不存在 = 新增商品。 / Required. Matches existing products by SKU; a new SKU creates a new product.'],
+    ['Name', '必填。品名。 / Required.'],
+    ['Unit', '單位(箱、罐、個…)。 / Unit.'],
+    ['Stock', '庫存量。有填而且跟系統庫存不同,匯入時會自動產生一筆「庫存調整」;空白 = 不動庫存。 / Stock quantity. If filled and different from the system, a stock adjustment is created; blank = stock untouched.'],
+    ['Avg Monthly Sales', '平均使用量(初始輸入值)。 / Initial average monthly usage.'],
+    ['Category', '分類。 / Category.'],
+    ['Safety Stock', '安全庫存(月數)。 / Safety stock (months).'],
+    ['Note', '備註。 / Note.'],
+    ['Parent SKU', '這個商品如果是 multipack(批量商品),填它主商品的 SKU。 / For multipack child products, the SKU of the main product.'],
+    ['Child Weight', 'multipack 的加權數(一個批量商品 = 幾個主商品單位)。 / Multipack weight (main-product units per child unit).'],
+    ['Box Length / Width / Height (cm)', '箱子尺寸(公分),進貨單其他支出依材積分攤時使用。 / Box size in cm, used for volume-based cost allocation.'],
+    ['Weight Kg', '這個商品自己的單位的重量(公斤),進貨單其他支出依重量分攤時使用。 / Weight of one unit of this product in kg, used for weight-based cost allocation.'],
+    ['Hidden', 'TRUE = 隱藏商品;FALSE = 不隱藏;空白 = 不動。 / TRUE hides the product; blank = unchanged.'],
+    ['Auto Convert', '只有 multipack 子商品用:進貨時是否自動切換成主商品。 / Multipack children only: auto-convert to the main product on stock-in.'],
+    ['Order Page Remark', '訂貨頁面附註。 / Remark shown on the order page.'],
+    ['Barcode', '條碼。 / Barcode.'],
+    ['', ''],
+    ['匯入規則 / Import rules', '預設:表格上空白的格子不會清空系統裡原本的資料,有填的格子才會覆蓋系統的值。匯入視窗勾選「空白就清空」才會清空。 / By default, blank cells never clear existing data; filled cells overwrite it. Tick "clear blanks" on the import page to clear.']
+  ];
+  const wsGuide = XLSX.utils.aoa_to_sheet(guide);
+  wsGuide['!cols'] = [{wch:30},{wch:110}];
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Products');
+  XLSX.utils.book_append_sheet(wb, wsGuide, 'Guide');
+  XLSX.writeFile(wb, `product_master_import_template_${todayISO()}.xlsx`);
 }
