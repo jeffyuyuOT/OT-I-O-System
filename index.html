@@ -3720,6 +3720,11 @@ function computeTotalStock(productId){
 // 一律算是真的出貨給客人,兩種來源在資料上分不出來(都是走同一套「核對/送出訂貨」的程式碼,一樣會有
 // orderId),所以不特別排除有 orderId 的紀錄——這裡以前曾經排除過,但那樣反而會把 Excel 匯入出貨單
 // 核對確認後的出貨量也一起排除掉,不正確,已經拿掉這條規則。
+// 「庫存調整」登記產生的出貨/入庫紀錄(備註開頭是調整前綴,中英文兩種都要認):只是把帳面對齊實際庫存,不是真的出貨,不算入平均用量。
+function isStockAdjustmentTx(t){
+  const n = (t && t.note) || '';
+  return n.startsWith('庫存調整 - ') || n.startsWith('Stock Adjustment - ');
+}
 function buildWeightedOutSeries(productId, opts){
   opts = opts || {};
   const p = products.find(x => x.id === productId);
@@ -3729,6 +3734,8 @@ function buildWeightedOutSeries(productId, opts){
     transactions.forEach(t => {
       if(t.productId !== pid || (t.type !== 'out' && t.type !== 'restock')) return;
       if(t.conversion) return; // 切換數量不算入平均用量
+      if(isStockAdjustmentTx(t)) return; // 庫存調整不算入平均用量
+      if(t.masterImportAdjustment) return; // Excel 匯入商品主檔自動產生的庫存調整也不算入平均用量(庫存總覽、訂貨頁一致)
       if(opts.excludeMasterImportAdjustment && t.masterImportAdjustment) return;
       if(opts.onlyParty && t.party !== opts.onlyParty) return;
       const signedQty = t.type === 'restock' ? -t.qty : t.qty;
