@@ -172,15 +172,15 @@ function renderStockLocationMultiList(){
     return;
   }
   container.innerHTML = `
-    <table class="stock-table" style="margin-top:14px;">
+    <table class="stock-table loc-multi-table" style="margin-top:14px;">
       <thead><tr><th>SKU</th><th>${t('lblProduct')}</th><th>${t('colLocation')}</th><th></th></tr></thead>
       <tbody>
         ${rows.map(p => `
           <tr>
-            <td>${escapeHtmlForPrint(p.sku || '—')}</td>
-            <td>${escapeHtmlForPrint(p.name)}</td>
-            <td>${getSortedLocationsForProduct(p.id).map(l => `${escapeHtmlForPrint(l.locationCode)} ×${l.qty} ${escapeHtmlForPrint(p.unit)}`).concat(computeUnassignedQty(p.id) > 0 ? [`<span style="color:var(--ink-soft);">${t('unassignedLocationLabel')} ×${computeUnassignedQty(p.id)} ${escapeHtmlForPrint(p.unit)}</span>`] : []).join('<br>')}</td>
-            <td><span class="del-link" onclick="jumpToProductInStockLocation(products.find(x => x.id === '${p.id}'))">${t('btnViewDetail')}</span></td>
+            <td class="lm-sku">${escapeHtmlForPrint(p.sku || '—')}</td>
+            <td class="lm-name">${escapeHtmlForPrint(p.name)}</td>
+            <td class="lm-loc">${getSortedLocationsForProduct(p.id).map(l => `${escapeHtmlForPrint(l.locationCode)} ×${l.qty} ${escapeHtmlForPrint(p.unit)}`).concat(computeUnassignedQty(p.id) > 0 ? [`<span style="color:var(--ink-soft);">${t('unassignedLocationLabel')} ×${computeUnassignedQty(p.id)} ${escapeHtmlForPrint(p.unit)}</span>`] : []).join('<br>')}</td>
+            <td class="lm-act"><span class="del-link" onclick="jumpToProductInStockLocation(products.find(x => x.id === '${p.id}'))">${t('btnViewDetail')}</span></td>
           </tr>
         `).join('')}
       </tbody>
