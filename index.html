@@ -2534,6 +2534,13 @@
         <option value="accountant" data-i18n="optExportAccountant">會計匯出</option>
       </select>
     </div>
+    <div class="field-block">
+      <label style="display:flex;align-items:center;gap:8px;font-weight:600;cursor:pointer;text-transform:none;">
+        <input type="checkbox" id="exportModeModalAdj" style="width:15px;height:15px;cursor:pointer;" />
+        <span data-i18n="chkIncludeStockAdjustments">包含庫存調整</span>
+      </label>
+      <div style="font-size:11.5px;color:var(--ink-soft);margin-top:2px;" data-i18n="includeStockAdjustmentsHint">預設不含「庫存調整」登記產生的出貨/入庫紀錄(對帳時才需要勾選)。</div>
+    </div>
     <div class="modal-actions">
       <button class="btn ghost" onclick="closeExportModeModal()" data-i18n="btnCancel">取消</button>
       <button class="btn" onclick="confirmExportModeModal()" data-i18n="btnExportReport">📄 匯出報表(Excel)</button>
@@ -2562,6 +2569,12 @@
         <option value="general" data-i18n="optExportGeneral">一般匯出</option>
         <option value="accountant" data-i18n="optExportAccountant">會計匯出</option>
       </select>
+    </div>
+    <div class="field-block">
+      <label style="display:flex;align-items:center;gap:8px;font-weight:600;cursor:pointer;text-transform:none;">
+        <input type="checkbox" id="exportEmailAdj" style="width:15px;height:15px;cursor:pointer;" />
+        <span data-i18n="chkIncludeStockAdjustments">包含庫存調整</span>
+      </label>
     </div>
     <div class="field-block">
       <label data-i18n="fieldEmailNote">附註(選填)</label>

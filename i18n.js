@@ -561,6 +561,7 @@ const I18N = {
     emptyDataBannerDesc: '如果你電腦裡有之前自動備份的資料夾,可以點下面按鈕讀取最新的一份直接還原,不用手動找檔案。',
     emptyDataRestoreBtn: '📥 從備份資料夾還原',
 
+    chkIncludeStockAdjustments: '包含庫存調整', includeStockAdjustmentsHint: '預設不含「庫存調整」登記產生的出貨/入庫紀錄(對帳時才需要勾選)。',
     secExportReport: '匯出報表',
     exportReportDesc: '選擇「類型」(出貨/進貨/入庫),依「對象」跟日期區間篩選紀錄,匯出成 Excel 報表(格式比照 stock_out_sheet 範本,含 SKU、分類等欄位)。<b>同一對象、同一商品在選取區間內會自動加總成一筆</b>,不會重複列出每一次的紀錄。',
     fieldExportType: '類型', exportTypeOut: '出貨', exportTypeIn: '進貨', exportTypeRestock: '入庫', exportTypePending: '待出貨訂單(彙總)',
@@ -1427,6 +1428,7 @@ const I18N = {
     emptyDataRestoreBtn: '📥 Restore From Backup Folder',
 
     secExportReport: 'Export Report',
+    chkIncludeStockAdjustments: 'Include stock adjustments', includeStockAdjustmentsHint: 'By default, stock-out/in records created by Stock Adjustment are left out (tick this only when reconciling).',
     exportReportDesc: 'Pick a "Type" (Stock Out/In/Restock), filter by "Party" and date range, and export an Excel report (formatted like the stock_out_sheet template, with SKU, category, etc.). <b>Records for the same party and product within the selected range are automatically summed into one line</b> — individual transactions are not listed separately.',
     fieldExportType: 'Type', exportTypeOut: 'Stock Out', exportTypeIn: 'Stock In', exportTypeRestock: 'Restock', exportTypePending: 'Orders to Ship (Summary)',
     fieldFromDate: 'From Date', fieldToDate: 'To Date', btnExportReport: '📄 Export Report (Excel)',

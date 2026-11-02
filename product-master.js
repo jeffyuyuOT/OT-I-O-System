@@ -478,6 +478,9 @@ async function exportShipmentSheet(opts){
   let rows = type === 'pending'
     ? getPendingOrderExportRows()
     : transactions.filter(t => t.type === type && (!t.system || t.orderId));
+  // 「庫存調整」登記產生的出貨/入庫紀錄(備註開頭是調整前綴)只是把帳面對齊實際庫存,不是真的出貨/入庫:
+  // 預設不匯出,匯出視窗勾選「包含庫存調整」才會包含(跟平均用量排除調整是同一個規則)。
+  if(type !== 'pending' && !opts.includeAdjustments) rows = rows.filter(t => !isStockAdjustmentTx(t));
   if(isMulti) rows = rows.filter(t => selectedStores.includes(t.party));
   else if(party) rows = rows.filter(t => t.party === party);
   if(dateFrom) rows = rows.filter(t => t.date >= dateFrom);
@@ -772,6 +775,7 @@ async function saveExportEmailLogs(){
 // 匯出報表:按下才選「一般匯出」還是「會計匯出」(預設一般匯出)
 function openExportModeModal(){
   document.getElementById('exportModeModalSelect').value = 'general';
+  document.getElementById('exportModeModalAdj').checked = false;
   document.getElementById('exportModeModalOverlay').style.display = 'flex';
 }
 function closeExportModeModal(){
@@ -780,7 +784,7 @@ function closeExportModeModal(){
 function confirmExportModeModal(){
   const mode = document.getElementById('exportModeModalSelect').value;
   closeExportModeModal();
-  exportShipmentSheet({ exportMode: mode });
+  exportShipmentSheet({ exportMode: mode, includeAdjustments: document.getElementById('exportModeModalAdj').checked });
 }
 
 function openExportEmailModal(){
@@ -792,6 +796,7 @@ function openExportEmailModal(){
   document.getElementById('exportEmailCcInput').value = defaults.cc || '';
   document.getElementById('exportEmailNoteInput').value = '';
   document.getElementById('exportEmailModeSelect').value = 'accountant'; // 寄 email 預設會計匯出
+  document.getElementById('exportEmailAdj').checked = false;
   const m = document.getElementById('exportEmailModalMsg'); m.className = 'msg'; m.textContent = '';
   document.getElementById('exportEmailModalOverlay').style.display = 'flex';
 }
@@ -819,7 +824,7 @@ async function confirmExportEmail(){
   pageMsg.className = 'msg'; pageMsg.textContent = '';
   let ran = false;
   try{
-    await exportShipmentSheet({ exportMode: document.getElementById('exportEmailModeSelect').value, emailJob: async (wb, filename) => {
+    await exportShipmentSheet({ exportMode: document.getElementById('exportEmailModeSelect').value, includeAdjustments: document.getElementById('exportEmailAdj').checked, emailJob: async (wb, filename) => {
       ran = true;
       const buf = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
       const blob = new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
