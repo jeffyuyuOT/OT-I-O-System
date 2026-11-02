@@ -2235,7 +2235,7 @@ async function submitLoadPendingFlow(action, msg){
     registerPendingItemChanges = {};
 
     if(txBatchItems.length > 0){
-      const newItems = txBatchItems.map(it => ({ productId: it.productId, sku: it.sku||'', name: it.name, unit: it.unit, qty: it.qty }));
+      const newItems = txBatchItems.map(it => { const ni = { productId: it.productId, sku: it.sku||'', name: it.name, unit: it.unit, qty: it.qty }; if(it.batchPicks && it.batchPicks.length) ni.batchPicks = it.batchPicks.map(x => ({ ...x })); return ni; });
       const result = await mergeItemsIntoOrderCore(orderId, newItems);
       if(!result.ok){
         msg.className='msg error';

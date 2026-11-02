@@ -531,6 +531,12 @@ async function mergeItemsIntoOrderCore(orderId, newItems){
     if(existing){
       const oldQty = existing.qty;
       existing.qty += newIt.qty;
+      // 新增商品時指定的批次併進這個品項原本指定的批次(同一批次數量相加;沒指定的部分核對時自動分配)
+      if(newIt.batchPicks && newIt.batchPicks.length){
+        const picks = (existing.batchPicks || []).map(x => ({ ...x }));
+        newIt.batchPicks.forEach(np => { const m = picks.find(x => x.batchItemId === np.batchItemId); if(m) m.qty += np.qty; else picks.push({ ...np }); });
+        existing.batchPicks = picks;
+      }
       if(!existing.qtyHistory) existing.qtyHistory = [];
       const changeAt = new Date().toISOString();
       existing.qtyHistory.push({ from: oldQty, to: existing.qty, at: changeAt });
