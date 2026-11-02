@@ -1008,3 +1008,28 @@ function renderLocationLog(){
       </tr>`;
     }).join('')}</tbody></table>`;
 }
+
+
+// 庫存分布紀錄(location_transfer_log)的整份取代:還原備份 / Clear All Data / Clear Inventory Logs 共用。
+// rows 空陣列 = 全部清空。需要 sql/location_transfer_log.sql 裡的 location_log_restore;
+// 還沒執行的話回傳 false(呼叫端可以提示),不會擋住其他動作。
+async function locationLogReplace(rows){
+  locationTransferLog = [];
+  locationTransferLogLoaded = false;
+  locationTransferLogError = '';
+  try{
+    const { error } = await sb.rpc('location_log_restore', { p_rows: Array.isArray(rows) ? rows : [] });
+    if(error) throw error;
+    return true;
+  }catch(e){
+    console.warn('庫存分布紀錄清除/還原失敗', e);
+    return false;
+  }
+}
+// 從備份檔取出庫存分布紀錄(新版放在 batchTracking.locationTransferLog,沒有的舊備份 = 清空)
+function locationLogRowsFromBackup(backup){
+  const bt = backup && backup.batchTracking;
+  if(bt && Array.isArray(bt.locationTransferLog)) return bt.locationTransferLog;
+  if(backup && Array.isArray(backup.locationTransferLog)) return backup.locationTransferLog;
+  return [];
+}

@@ -1669,12 +1669,9 @@ async function batchRestoreFromBackup(backup){
       const restoreArgs = { p_batches: bt3.batches, p_items: bt3.items, p_movements: bt3.movements };
       if(Array.isArray(bt3.locations)) restoreArgs.p_locations = bt3.locations;   // 舊備份沒有這一段
       await batchRpc('batch_restore_all', restoreArgs);
-      try{ await batchRpc('location_log_restore', { p_rows: Array.isArray(bt3.locationTransferLog) ? bt3.locationTransferLog : [] }); }
-      catch(e){ if(!batchIsMissingFunctionError(e) && !batchIsMissingTableError(e)) console.error('還原庫存分布紀錄失敗', e); }
       return { ok: true, restored: true };
     }
     await batchRpc('batch_clear_all', {});
-    try{ await batchRpc('location_log_restore', { p_rows: [] }); }catch(e){}
     return { ok: true, cleared: true };
   } catch(e){
     console.error('還原批次資料失敗', e);
@@ -1691,7 +1688,6 @@ async function batchClearAll(){
   if(!batchFeatureOn() || !batchAvailable) return;
   try{
     await batchRpc('batch_clear_all', {});
-    try{ await batchRpc('location_log_restore', { p_rows: [] }); }catch(e){}
   } catch(e){
     if(batchIsMissingTableError(e)) return;
     throw e;

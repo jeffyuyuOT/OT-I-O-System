@@ -563,6 +563,7 @@ const I18N = {
 
     chkIncludeStockAdjustments: '包含庫存調整', includeStockAdjustmentsHint: '預設不含「庫存調整」登記產生的出貨/入庫紀錄(對帳時才需要勾選)。',
     secMasterTemplate: '匯入商品主檔範本', masterTemplateDesc: '下載一份已經填好目前所有商品資料(含重量、箱子尺寸、條碼…)的 Excel 範本,修改後可以拿回「系統管理 → 商品主頁 → 從 Excel 匯入商品主檔」匯入。預設空白的格子不會清空系統裡的資料,有填的格子才會覆蓋。', btnDownloadMasterTemplate: '📄 下載匯入範本',
+    warnLocLogNeedSql: '⚠ 庫存分布紀錄沒有清除/還原成功:請先在 Supabase SQL Editor 執行 sql/location_transfer_log.sql(含 location_log_restore 函式)。',
     secExportReport: '匯出報表',
     exportReportDesc: '選擇「類型」(出貨/進貨/入庫),依「對象」跟日期區間篩選紀錄,匯出成 Excel 報表(格式比照 stock_out_sheet 範本,含 SKU、分類等欄位)。<b>同一對象、同一商品在選取區間內會自動加總成一筆</b>,不會重複列出每一次的紀錄。',
     fieldExportType: '類型', exportTypeOut: '出貨', exportTypeIn: '進貨', exportTypeRestock: '入庫', exportTypePending: '待出貨訂單(彙總)',
@@ -1431,6 +1432,7 @@ const I18N = {
     secExportReport: 'Export Report',
     chkIncludeStockAdjustments: 'Include stock adjustments', includeStockAdjustmentsHint: 'By default, stock-out/in records created by Stock Adjustment are left out (tick this only when reconciling).',
     secMasterTemplate: 'Product master import template', masterTemplateDesc: 'Download an Excel template pre-filled with all current product data (including weight, box size, barcode…). Edit it and import it back via System → Products → Import product master from Excel. By default, blank cells never clear existing data; filled cells overwrite it.', btnDownloadMasterTemplate: '📄 Download import template',
+    warnLocLogNeedSql: '⚠ The Stock Location Log was not cleared/restored: please run sql/location_transfer_log.sql (it includes the location_log_restore function) in the Supabase SQL Editor first.',
     exportReportDesc: 'Pick a "Type" (Stock Out/In/Restock), filter by "Party" and date range, and export an Excel report (formatted like the stock_out_sheet template, with SKU, category, etc.). <b>Records for the same party and product within the selected range are automatically summed into one line</b> — individual transactions are not listed separately.',
     fieldExportType: 'Type', exportTypeOut: 'Stock Out', exportTypeIn: 'Stock In', exportTypeRestock: 'Restock', exportTypePending: 'Orders to Ship (Summary)',
     fieldFromDate: 'From Date', fieldToDate: 'To Date', btnExportReport: '📄 Export Report (Excel)',
