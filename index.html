@@ -1405,6 +1405,14 @@
         </div>
 
         <div class="settings-card" data-sgroup="data">
+          <div class="section-title" data-i18n="secMasterTemplate">匯入商品主檔範本</div>
+          <p style="font-size:12.5px;color:var(--ink-soft);margin:0 0 12px;" data-i18n="masterTemplateDesc">
+            下載一份已經填好目前所有商品資料(含重量、箱子尺寸、條碼…)的 Excel 範本,修改後可以拿回「系統管理 → 商品主頁 → 從 Excel 匯入商品主檔」匯入。預設空白的格子不會清空系統裡的資料,有填的格子才會覆蓋。
+          </p>
+          <button class="btn" onclick="downloadMasterImportTemplate()" data-i18n="btnDownloadMasterTemplate">📄 下載匯入範本</button>
+        </div>
+
+        <div class="settings-card" data-sgroup="data">
           <div class="section-title" data-i18n="secFullBackup">完整資料備份</div>
           <p style="font-size:12.5px;color:var(--ink-soft);margin:0 0 12px;" data-i18n="fullBackupDesc">
             匯出目前 App 裡的所有資料(商品主檔、進出貨紀錄、分類順序)成一個備份檔。如果之後資料不見或想換裝置,直接匯入這個檔案就能完整還原,包括所有進出貨紀錄。
