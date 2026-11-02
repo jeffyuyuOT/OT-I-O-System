@@ -1404,6 +1404,65 @@
         </div>
 
         <div class="settings-card" data-sgroup="data">
+          <div class="section-title" style="margin-bottom:12px;" data-i18n="subtabSysProduct">商品主頁</div>
+        <div class="section-title"><span data-i18n="secImportTitle">從 Excel 匯入商品主檔</span></div>
+
+        <div id="importSection">
+          <p style="font-size:12.5px;color:var(--ink-soft);margin:0 0 12px;" data-i18n-html="importDetectedMsg">
+            偵測到你之前上傳的 <b>stock.xlsx</b>,裡面有 <b id="importCount">66</b> 項商品(品名、單位、庫存量、平均使用量、分類、安全庫存)。按下方按鈕匯入:新商品會新增,已存在的商品會自動比對並更新庫存量/分類/平均值/安全庫存/備註(庫存量不同會產生一筆調整紀錄),不會重複新增。
+          </p>
+          <button class="btn" onclick="importFromExcel()" data-i18n="btnImportUpdate">匯入 / 更新 stock.xlsx 的庫存資料</button>
+          <button class="btn ghost" onclick="reapplyCategories()" style="margin-left:8px;" data-i18n="btnRefreshMeta">只更新分類/平均值/安全庫存/備註(不動庫存量)</button>
+          <button class="btn ghost" onclick="dismissImport()" style="margin-left:8px;" data-i18n="btnCloseSection">不用了,關閉這個區塊</button>
+        </div>
+
+        <div id="importMsg" class="msg"></div>
+
+        <hr class="divider" />
+
+        <div class="toolbar" style="margin-top:4px;margin-bottom:2px;">
+          <label style="display:flex;align-items:center;gap:5px;font-size:12px;color:var(--ink-soft);cursor:pointer;">
+            <input type="checkbox" id="showSystemTx" onchange="renderLog()" />
+            <span data-i18n="showSystemTxLabel">在進出貨紀錄裡顯示主檔匯入的系統紀錄</span>
+          </label>
+        </div>
+        <p style="font-size:11.5px;color:var(--ink-soft);margin:0 0 4px;" data-i18n="systemTxHint">
+          商品主檔匯入產生的初始庫存/庫存調整紀錄,預設不會顯示在「進出貨紀錄」分頁裡,但仍會計入庫存量。你手動登記或用「登記進出貨→從 Excel 匯入」的進出貨都會照常顯示。
+        </p>
+
+        <hr class="divider" />
+
+        <div class="section-title" style="margin-bottom:8px;" data-i18n="secMasterTemplate">匯入商品主檔範本</div>
+        <p style="font-size:12.5px;color:var(--ink-soft);margin:0 0 12px;" data-i18n="masterTemplateDesc">
+          下載一份已經填好目前所有商品資料(含重量、箱子尺寸、條碼…)的 Excel 範本,修改後可以拿回下方「上傳你自己的商品主檔 Excel」匯入。預設空白的格子不會清空系統裡的資料,有填的格子才會覆蓋。
+        </p>
+        <button class="btn" onclick="downloadMasterImportTemplate()" data-i18n="btnDownloadMasterTemplate">📄 下載匯入範本</button>
+
+        <hr class="divider" />
+
+        <div class="section-title" style="margin-bottom:8px;" data-i18n="secUploadMasterExcel">上傳你自己的商品主檔 Excel</div>
+        <p style="font-size:12.5px;color:var(--ink-soft);margin:0 0 12px;" data-i18n-html="secUploadMasterExcelDesc">
+          可以一次選取多個檔案。第一列要是欄位標題,系統會自動辨識這些欄位名稱(大小寫、中英文都可以):<br/>
+          <span style="font-family:'IBM Plex Mono',monospace;font-size:11.5px;">
+            必要:SKU、Name/品名、Stock/庫存量&nbsp;&nbsp;|&nbsp;&nbsp;選填:Unit/單位、AvgMonthlySales/平均使用量、Categories/分類、SafetyStock/安全庫存(填月數,不是填數量)、Note/備註
+          </span><br/>
+          <b>以 SKU 為比對主鍵</b>:表格裡的 SKU 如果跟現有商品相同,就算表格上的名稱不一樣,也會視為同一項商品並更新其他欄位;<b>商品名稱一律維持庫存總覽現有的名稱,不會被表格覆蓋</b>。SKU 不同或全新的 SKU 會用表格上的名稱新增成一項新商品。<b>沒有填 SKU 的資料列會被略過,不會寫入。</b>
+        </p>
+        <div style="display:flex;align-items:center;gap:8px;margin:0 0 12px;">
+          <input type="checkbox" id="clearBlanksOnImport" style="width:16px;height:16px;cursor:pointer;" />
+          <label for="clearBlanksOnImport" style="font-size:12.5px;color:var(--ink);cursor:pointer;" data-i18n="clearBlanksOnImportLabel">表格裡選填欄位如果是空白,就清空現有商品對應的資料(預設不勾選,空白欄位維持現有商品原本的值不變)</label>
+        </div>
+        <div class="form-grid" style="grid-template-columns:1fr auto;">
+          <div class="field">
+            <label data-i18n="fieldSelectFiles">選擇檔案(檔案在不同資料夾可分次加選)</label>
+            <input type="file" id="masterImportFile" accept=".xlsx,.xls" multiple onchange="addMasterFiles(this.files)" style="border:1px solid var(--line);background:#fff;border-radius:2px;padding:8px;font-family:'IBM Plex Mono',monospace;font-size:12px;width:100%;" />
+          </div>
+          <button class="btn" onclick="parseMasterExcelFile()" data-i18n="btnParseImport">解析並匯入</button>
+        </div>
+        <div id="masterFileList" class="file-chip-list"></div>
+        </div>
+
+        <div class="settings-card" data-sgroup="data">
           <div class="section-title" data-i18n="secFullBackup">完整資料備份</div>
           <p style="font-size:12.5px;color:var(--ink-soft);margin:0 0 12px;" data-i18n="fullBackupDesc">
             匯出目前 App 裡的所有資料(商品主檔、進出貨紀錄、分類順序)成一個備份檔。如果之後資料不見或想換裝置,直接匯入這個檔案就能完整還原,包括所有進出貨紀錄。
@@ -2089,64 +2148,6 @@
       <div class="section-title"><span data-i18n="secAddProduct">新增商品</span></div>
       <button class="btn" onclick="openAddNewProductModal()" data-i18n="btnAddProduct">新增商品</button>
     </div>
-    </div>
-    <div class="section" style="margin-top:16px;">
-      <div class="section-title" style="margin-bottom:12px;" data-i18n="subtabSysProduct">商品主頁</div>
-        <div class="section-title"><span data-i18n="secImportTitle">從 Excel 匯入商品主檔</span></div>
-
-        <div id="importSection">
-          <p style="font-size:12.5px;color:var(--ink-soft);margin:0 0 12px;" data-i18n-html="importDetectedMsg">
-            偵測到你之前上傳的 <b>stock.xlsx</b>,裡面有 <b id="importCount">66</b> 項商品(品名、單位、庫存量、平均使用量、分類、安全庫存)。按下方按鈕匯入:新商品會新增,已存在的商品會自動比對並更新庫存量/分類/平均值/安全庫存/備註(庫存量不同會產生一筆調整紀錄),不會重複新增。
-          </p>
-          <button class="btn" onclick="importFromExcel()" data-i18n="btnImportUpdate">匯入 / 更新 stock.xlsx 的庫存資料</button>
-          <button class="btn ghost" onclick="reapplyCategories()" style="margin-left:8px;" data-i18n="btnRefreshMeta">只更新分類/平均值/安全庫存/備註(不動庫存量)</button>
-          <button class="btn ghost" onclick="dismissImport()" style="margin-left:8px;" data-i18n="btnCloseSection">不用了,關閉這個區塊</button>
-        </div>
-
-        <div id="importMsg" class="msg"></div>
-
-        <hr class="divider" />
-
-        <div class="toolbar" style="margin-top:4px;margin-bottom:2px;">
-          <label style="display:flex;align-items:center;gap:5px;font-size:12px;color:var(--ink-soft);cursor:pointer;">
-            <input type="checkbox" id="showSystemTx" onchange="renderLog()" />
-            <span data-i18n="showSystemTxLabel">在進出貨紀錄裡顯示主檔匯入的系統紀錄</span>
-          </label>
-        </div>
-        <p style="font-size:11.5px;color:var(--ink-soft);margin:0 0 4px;" data-i18n="systemTxHint">
-          商品主檔匯入產生的初始庫存/庫存調整紀錄,預設不會顯示在「進出貨紀錄」分頁裡,但仍會計入庫存量。你手動登記或用「登記進出貨→從 Excel 匯入」的進出貨都會照常顯示。
-        </p>
-
-        <hr class="divider" />
-
-        <div class="section-title" style="margin-bottom:8px;" data-i18n="secMasterTemplate">匯入商品主檔範本</div>
-        <p style="font-size:12.5px;color:var(--ink-soft);margin:0 0 12px;" data-i18n="masterTemplateDesc">
-          下載一份已經填好目前所有商品資料(含重量、箱子尺寸、條碼…)的 Excel 範本,修改後可以拿回下方「上傳你自己的商品主檔 Excel」匯入。預設空白的格子不會清空系統裡的資料,有填的格子才會覆蓋。
-        </p>
-        <button class="btn" onclick="downloadMasterImportTemplate()" data-i18n="btnDownloadMasterTemplate">📄 下載匯入範本</button>
-
-        <hr class="divider" />
-
-        <div class="section-title" style="margin-bottom:8px;" data-i18n="secUploadMasterExcel">上傳你自己的商品主檔 Excel</div>
-        <p style="font-size:12.5px;color:var(--ink-soft);margin:0 0 12px;" data-i18n-html="secUploadMasterExcelDesc">
-          可以一次選取多個檔案。第一列要是欄位標題,系統會自動辨識這些欄位名稱(大小寫、中英文都可以):<br/>
-          <span style="font-family:'IBM Plex Mono',monospace;font-size:11.5px;">
-            必要:SKU、Name/品名、Stock/庫存量&nbsp;&nbsp;|&nbsp;&nbsp;選填:Unit/單位、AvgMonthlySales/平均使用量、Categories/分類、SafetyStock/安全庫存(填月數,不是填數量)、Note/備註
-          </span><br/>
-          <b>以 SKU 為比對主鍵</b>:表格裡的 SKU 如果跟現有商品相同,就算表格上的名稱不一樣,也會視為同一項商品並更新其他欄位;<b>商品名稱一律維持庫存總覽現有的名稱,不會被表格覆蓋</b>。SKU 不同或全新的 SKU 會用表格上的名稱新增成一項新商品。<b>沒有填 SKU 的資料列會被略過,不會寫入。</b>
-        </p>
-        <div style="display:flex;align-items:center;gap:8px;margin:0 0 12px;">
-          <input type="checkbox" id="clearBlanksOnImport" style="width:16px;height:16px;cursor:pointer;" />
-          <label for="clearBlanksOnImport" style="font-size:12.5px;color:var(--ink);cursor:pointer;" data-i18n="clearBlanksOnImportLabel">表格裡選填欄位如果是空白,就清空現有商品對應的資料(預設不勾選,空白欄位維持現有商品原本的值不變)</label>
-        </div>
-        <div class="form-grid" style="grid-template-columns:1fr auto;">
-          <div class="field">
-            <label data-i18n="fieldSelectFiles">選擇檔案(檔案在不同資料夾可分次加選)</label>
-            <input type="file" id="masterImportFile" accept=".xlsx,.xls" multiple onchange="addMasterFiles(this.files)" style="border:1px solid var(--line);background:#fff;border-radius:2px;padding:8px;font-family:'IBM Plex Mono',monospace;font-size:12px;width:100%;" />
-          </div>
-          <button class="btn" onclick="parseMasterExcelFile()" data-i18n="btnParseImport">解析並匯入</button>
-        </div>
-        <div id="masterFileList" class="file-chip-list"></div>
     </div>
     </div>
   </div>
