@@ -463,6 +463,9 @@ function switchWarehouseAdminSubTab(subtabId){
   container.querySelectorAll('.subtab-content').forEach(el => el.classList.remove('active-subtab'));
   const waSel = document.getElementById('warehouseAdminSubtabSelect');
   if(waSel && waSel.value !== subtabId) waSel.value = subtabId;
+  // 「出貨方 / 進貨方 / 快捷清單」下拉放在子分頁下拉的右邊,只有「供應與清單管理」才顯示
+  const supSel = document.getElementById('supplyListSelect');
+  if(supSel) supSel.style.display = subtabId === 'subtab-supply-list' ? '' : 'none';
   if(subtabId === 'subtab-supply-list') switchSupplyListPane(supplyPane);
   else if(subtabId === 'subtab-tx-forecast') renderForecastTable();
   else if(subtabId === 'subtab-tx-data'){ populateExportPartySelect(); renderExportProductList(); }
