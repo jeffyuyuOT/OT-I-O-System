@@ -264,7 +264,8 @@ function setTxOutFlowType(flowType){
     if(orderWrap) orderWrap.style.display = '';
     if(orderSelectLabel) orderSelectLabel.textContent = flowType === 'load-pending' ? t('fieldSelectPendingOrder') : t('fieldSelectCompletedOrder');
     if(orderSelect){
-      const eligible = orders.filter(o => !o.deleted && !o.signedAt && orderStatus(o) === (flowType === 'load-pending' ? 'pending' : 'confirmed'));
+      // 「待處理」包含還沒核對的兩種狀態:pending(待處理)和 processing(處理中,已印過撿貨單),跟「待處理訂單」頁面一致
+      const eligible = orders.filter(o => !o.deleted && !o.signedAt && (flowType === 'load-pending' ? isPreVerificationStatus(o) : orderStatus(o) === 'confirmed'));
       orderSelect.innerHTML = `<option value="">${t('optSelectPendingOrder')}</option>` +
         eligible.map(o => `<option value="${o.id}">${o.orderNo || ''} · ${o.date}${o.partyName ? ' · ' + o.partyName : ''}</option>`).join('');
     }
