@@ -808,7 +808,7 @@ function renderTxBatchList(){
   });
   container.innerHTML = `
     <table class="stock-table">
-      <thead><tr><th>${t('colProduct')}</th><th class="num">${t('colQty')}</th>${showSellCol ? `<th class="num">${t('spColUnitPrice')}</th><th class="num">${t('spColTotalPrice')}</th>` : ''}${showBatchCols ? `<th class="num">${t('batchColExpiry')}</th><th style="min-width:220px;">${t('batchLocTitle')}</th>` : ''}${showAmountCol ? `<th class="num">${t('colAmount')}${(typeof pcAmountColSuffix === 'function') ? pcAmountColSuffix() : ''}</th>` : ''}<th></th></tr></thead>
+      <thead><tr><th>${t('colProduct')}</th><th class="num">${t('colQty')}</th>${showSellCol ? `<th class="num">${t('spColUnitPrice')}</th><th class="num">${t('spColTotalPrice')}</th>` : ''}${showBatchCols ? `<th class="num">${t('batchColExpiry')}</th><th style="min-width:220px;padding-left:18px;">${t('batchLocTitle')}</th>` : ''}${showAmountCol ? `<th class="num">${t('colAmount')}${(typeof pcAmountColSuffix === 'function') ? pcAmountColSuffix() : ''}</th>` : ''}<th></th></tr></thead>
       <tbody>${rowsHtml}</tbody>
       ${showSellCol ? (() => { const tt = spTxItemsTotal(sellPartyId); return `<tfoot><tr style="font-weight:700;"><td class="row-name" colspan="3" style="text-align:right;">${registerOutFlowType === 'load-pending' ? t('spAddedItemsTotal') : t('spOrderTotal')}${tt.missing ? ` <span style="font-weight:400;font-size:11px;color:var(--ink-soft);">(${tf('spTotalMissing', { n: tt.missing })})</span>` : ''}</td><td class="row-num"><span style="${SP_TOTAL_PILL}">${spMoney(tt.sum)}</span></td><td colspan="${(showBatchCols ? 2 : 0) + (showAmountCol ? 1 : 0) + 1}"></td></tr></tfoot>`; })() : ''}
     </table>

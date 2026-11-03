@@ -1814,7 +1814,7 @@ function batchLocCellHtml(it){
   const summary = locs.length
     ? locs.map(l => `${batchEsc(l.code)}×${batchFmtQty(l.qty)}`).join('<br>') + (un > 1e-9 ? `<br><span style="color:var(--ink-soft);">${t('unassignedLocationLabel')}×${batchFmtQty(un)}</span>` : '')
     : `<span style="color:var(--ink-soft);">${t('unassignedLocationLabel')}</span>`;
-  return `<td class="row-num tx-loc" data-label="${t('batchLocTitle')}" style="text-align:left;font-size:12px;min-width:220px;white-space:normal;line-height:1.4;"><span class="batch-link" onclick="batchLocOpenEditor('${it.batchItemId}')">📍 ${summary}</span></td>`;
+  return `<td class="row-num tx-loc" data-label="${t('batchLocTitle')}" style="text-align:left;font-size:12px;min-width:220px;padding-left:18px;white-space:normal;line-height:1.4;"><span class="batch-link" onclick="batchLocOpenEditor('${it.batchItemId}')">${summary}</span></td>`;
 }
 
 // ---- 位置編輯視窗 ----
