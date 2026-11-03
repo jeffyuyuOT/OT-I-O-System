@@ -155,6 +155,20 @@ function renderMasterFileList(){
 
 
 // 依檔名決定匯入哪一種:檔名以 pricing_management 開頭(也接受舊名 price_setting;後面的 template、日期或說明可以改掉或不要)= Price setting,其他 = 商品主檔
+// 「上傳檔案」標題旁的 ⓘ:點了用視窗顯示商品主檔匯入欄位的詳細說明
+function showUploadFileHelp(){
+  const old = document.getElementById('uploadFileHelpOverlay'); if(old) old.remove();
+  const ov = document.createElement('div');
+  ov.id = 'uploadFileHelpOverlay'; ov.className = 'modal-overlay'; ov.style.display = 'flex'; ov.style.zIndex = '1150';
+  ov.onclick = e => { if(e.target === ov) ov.remove(); };
+  ov.innerHTML = `<div class="modal-box" style="max-width:min(640px,94vw);max-height:86vh;overflow:auto;">
+    <div class="section-title" style="margin-top:0;">${t('secUploadFile')}</div>
+    <p style="font-size:12.5px;line-height:1.7;margin:0 0 12px;">${t('importByFilenameDesc')}</p>
+    <p style="font-size:12.5px;line-height:1.7;margin:0;">${t('secUploadMasterExcelDesc')}</p>
+    <div class="modal-actions"><button class="btn ghost" onclick="document.getElementById('uploadFileHelpOverlay').remove()">${t('btnClose')}</button></div>
+  </div>`;
+  document.body.appendChild(ov);
+}
 function isPriceImportFile(file){ return /^\s*(pricing[_\- ]?management|price[_\- ]?setting)/i.test((file && file.name) || ''); }
 // 下載匯入範本:依「資料維護 → 匯入資料」的下拉選擇下載商品主檔範本或 Price setting 範本
 function downloadImportTemplate(){
