@@ -154,7 +154,23 @@ function renderMasterFileList(){
 }
 
 
+// 依檔名決定匯入哪一種:檔名含「price」= Price setting,其他 = 商品主檔
+function isPriceImportFile(file){ return /price/i.test((file && file.name) || ''); }
+// 下載匯入範本:依「資料維護 → 匯入資料」的下拉選擇下載商品主檔範本或 Price setting 範本
+function downloadImportTemplate(){
+  const sel = document.getElementById('importTemplateSelect');
+  if(sel && sel.value === 'price' && typeof psDownloadTemplate === 'function') psDownloadTemplate();
+  else downloadMasterImportTemplate();
+}
+
 function parseMasterExcelFile(){
+  const priceFiles = pendingMasterFiles.filter(isPriceImportFile);
+  if(priceFiles.length > 0 && typeof psImportFiles === 'function'){
+    pendingMasterFiles = pendingMasterFiles.filter(f => !isPriceImportFile(f));
+    renderMasterFileList();
+    psImportFiles(priceFiles);
+    if(pendingMasterFiles.length === 0) return;
+  }
   const msg = document.getElementById('importMsg');
   const files = pendingMasterFiles;
   const clearBlanksEl = document.getElementById('clearBlanksOnImport');

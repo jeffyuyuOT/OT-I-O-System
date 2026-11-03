@@ -351,7 +351,7 @@ async function psOpenRecordList(){
   await psLoadIndex(true);
   psRenderRecordList();
 }
-function psSourceLabel(r){ return r.source === 'batchMargin' ? t('psRecBatchMargin') : t('psRecManual'); }
+function psSourceLabel(r){ return r.source === 'batchMargin' ? t('psRecBatchMargin') : (r.source === 'import' ? t('psRecImport') : t('psRecManual')); }
 function psFmtTime(iso){
   const d = new Date(iso); if(isNaN(d)) return '';
   const pad = n => String(n).padStart(2, '0');
@@ -488,4 +488,86 @@ async function psClearAll(){
   await dbSet('priceSettings', '{}');
   await dbSet('batchMarginManual', '{}');
   psRecordIndex = []; spPriceMap = {}; spManualMargins = {}; psDraft = {};
+}
+
+// ============================================================
+// 系統設置 → 資料維護 → 匯入資料:Price setting 範本下載 / 匯入
+// 範本欄位:SKU、Name、Price(Sell price)。匯入以 SKU 對應商品(Name 只供對照,不用來比對);
+// Price 空白 = 不動;有填就覆蓋 Price Setting 的價格,並新增一筆售價紀錄(類型:檔案匯入)。
+// ============================================================
+function psDownloadTemplate(){
+  if(typeof XLSX === 'undefined'){ showInfoModal(t('psImportNoXlsx')); return; }
+  const rows = psSortProducts(psAllProducts()).map(p => [p.sku || '', p.name || '', spSettingPrice(p.id) === null ? '' : spSettingPrice(p.id)]);
+  const ws = XLSX.utils.aoa_to_sheet([['SKU', 'Name', 'Price'], ...rows]);
+  ws['!cols'] = [{ wch: 16 }, { wch: 40 }, { wch: 12 }];
+  ws['!freeze'] = { xSplit: 0, ySplit: 1 };
+  const guide = [['欄位 / Column', '說明 / Notes'],
+    ['SKU', '必填。用 SKU 對應系統裡的商品(Name 只供對照,不用來比對)。 / Required. Matches products by SKU (Name is for reference only).'],
+    ['Name', '商品名稱,僅供對照。 / Product name, reference only.'],
+    ['Price', 'Sell price(單價)。空白 = 不動;填數字 = 覆蓋 Price Setting 的價格。 / Sell price per unit. Blank = unchanged; a number overwrites the Price Setting price.']];
+  const wsG = XLSX.utils.aoa_to_sheet(guide); wsG['!cols'] = [{ wch: 16 }, { wch: 100 }];
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Price');
+  XLSX.utils.book_append_sheet(wb, wsG, 'Guide');
+  XLSX.writeFile(wb, `price_setting_template_${todayISO()}.xlsx`);
+}
+function psReadFileRows(file){
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onerror = () => reject(new Error('read'));
+    r.onload = e => {
+      try{
+        const wb = XLSX.read(new Uint8Array(e.target.result), { type: 'array' });
+        resolve(XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, raw: true, defval: null }));
+      }catch(err){ reject(err); }
+    };
+    r.readAsArrayBuffer(file);
+  });
+}
+async function psImportFiles(files){
+  const msg = document.getElementById('priceImportMsg');
+  const say = (txt, cls) => { if(msg){ msg.className = 'msg ' + (cls || ''); msg.textContent = txt; } };
+  if(typeof XLSX === 'undefined'){ say(t('psImportNoXlsx'), 'error'); return; }
+  if(!canEditPrice()){ say(t('psNoEditPermission'), 'error'); return; }
+  say(t('psImportParsing'));
+  const bySku = new Map();
+  (products || []).forEach(p => { const k = String(p.sku || '').trim().toLowerCase(); if(k && !bySku.has(k)) bySku.set(k, p); });
+  const updates = {};     // 商品id -> 價格
+  const problems = [];
+  let okRows = 0;
+  for(const f of files){
+    let rows;
+    try{ rows = await psReadFileRows(f); }catch(e){ problems.push(`${f.name}: ${t('psImportReadFail')}`); continue; }
+    if(!rows || rows.length === 0){ problems.push(`${f.name}: ${t('psImportEmpty')}`); continue; }
+    const head = rows[0];
+    const cSku = findColumnIndex(head, ['SKU', '商品編號', '貨號']);
+    const cPrice = findColumnIndex(head, ['Price', 'Sell price', 'SellPrice', '價格', '售價']);
+    if(cSku === -1 || cPrice === -1){ problems.push(`${f.name}: ${t('psImportNoColumns')}`); continue; }
+    for(let i = 1; i < rows.length; i++){
+      const row = rows[i] || [];
+      const sku = String(row[cSku] == null ? '' : row[cSku]).trim();
+      const raw = row[cPrice];
+      if(!sku && (raw === null || raw === '')) continue;
+      if(raw === null || raw === undefined || String(raw).trim() === '') continue;           // 價格空白 = 不動
+      const p = bySku.get(sku.toLowerCase());
+      if(!p){ problems.push(`${f.name} #${i + 1}: ${tf('psImportSkuUnknown', { sku })}`); continue; }
+      const n = Number(String(raw).replace(/[$,\s]/g, ''));
+      if(!Number.isFinite(n) || n < 0){ problems.push(`${f.name} #${i + 1}: ${tf('psImportBadPrice', { sku, v: raw })}`); continue; }
+      updates[p.id] = spRound2(n); okRows++;
+    }
+  }
+  const changed = Object.keys(updates).filter(pid => spSettingPrice(pid) !== updates[pid]);
+  const problemText = problems.length ? '\n' + problems.slice(0, 15).join('\n') + (problems.length > 15 ? '\n… (+' + (problems.length - 15) + ')' : '') : '';
+  if(changed.length === 0){ say(t('psImportNothing') + problemText, problems.length ? 'error' : ''); return; }
+  say('');
+  showConfirmModal(tf('psImportConfirm', { n: changed.length, skipped: problems.length }) + (spIsSettingBasis() ? '' : '\n\n' + t('psImportBasisNote')), async () => {
+    try{
+      const next = Object.assign({}, spPriceMap);
+      changed.forEach(pid => { next[pid] = updates[pid]; });
+      await psSavePriceMap(next, 'import', files.map(f => f.name).join(', '));
+      say(tf('psImportDone', { n: changed.length }) + problemText, 'ok');
+      try{ if(typeof psRenderPage === 'function') psRenderPage(); }catch(e){}
+      try{ if(typeof renderAll === 'function') renderAll(); }catch(e){}
+    }catch(e){ console.error('匯入 Price setting 失敗', e); say(t('spMarginSaveFailed'), 'error'); }
+  });
 }
