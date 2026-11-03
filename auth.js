@@ -684,10 +684,98 @@ function detectAuthEmailLink(){
   return { type, tokenHash: searchParams.get('token_hash'), hasHashToken: !!hashParams.get('access_token'), error: !!linkError };
 }
 
+// ---- 忘記密碼 / 連結過期後重寄(參照 OT portal 的 ResetEmailForm) ----
+// 輸入 email → Supabase 內建的 resetPasswordForEmail:該 email 有帳號就自動寄出設定密碼連結,沒有帳號就不寄。
+// Supabase 兩種情況都回「成功」(避免被人探測哪些 email 有帳號),所以訊息用中性說法。
+// 連結點開後回到這個 App(#access_token=...&type=recovery),走原本的「設定密碼」頁面。
+// 每個 email 每 60 秒只能要一次,所以送出後按鈕鎖 60 秒。
+const RESET_COOLDOWN_SECONDS = 60;
+let resetCooldownTimer = null;
+let resetCooldownLeft = 0;
+
+function renderResetEmailForm(hostId, opts){
+  const host = document.getElementById(hostId);
+  if(!host) return;
+  const o = opts || {};
+  const prefill = (o.prefill || '').replace(/"/g, '&quot;');
+  host.innerHTML = `
+    <form onsubmit="return submitResetEmail(event, '${hostId}')">
+      <div id="resetEmailSent_${hostId}" class="msg ok" style="display:none;"></div>
+      <div class="field">
+        <label>${t('resetEmailLabel')}</label>
+        <input type="email" id="resetEmailInput_${hostId}" autocomplete="email" required value="${prefill}" />
+      </div>
+      <div id="resetEmailError_${hostId}" class="msg error" style="display:none;"></div>
+      <button type="submit" class="btn" id="resetEmailBtn_${hostId}" data-label="${o.submitKey || 'btnSendResetEmail'}">${t(o.submitKey || 'btnSendResetEmail')}</button>
+      ${o.cancelFn ? `<button type="button" class="btn ghost" style="margin-top:10px;" onclick="${o.cancelFn}">${t('btnBackToSignIn')}</button>` : ''}
+    </form>`;
+}
+
+function updateResetEmailButton(hostId, sent){
+  const btn = document.getElementById('resetEmailBtn_' + hostId);
+  if(!btn) return;
+  const key = sent ? 'btnSendAgain' : (btn.dataset.label || 'btnSendResetEmail');
+  if(resetCooldownLeft > 0){ btn.disabled = true; btn.textContent = t(key) + ' (' + resetCooldownLeft + 's)'; }
+  else { btn.disabled = false; btn.textContent = t(key); }
+}
+
+function startResetCooldown(hostId, sent){
+  resetCooldownLeft = RESET_COOLDOWN_SECONDS;
+  if(resetCooldownTimer) clearInterval(resetCooldownTimer);
+  updateResetEmailButton(hostId, sent);
+  resetCooldownTimer = setInterval(() => {
+    resetCooldownLeft--;
+    if(resetCooldownLeft <= 0){ clearInterval(resetCooldownTimer); resetCooldownTimer = null; resetCooldownLeft = 0; }
+    updateResetEmailButton(hostId, sent);
+  }, 1000);
+}
+
+async function submitResetEmail(e, hostId){
+  if(e) e.preventDefault();
+  const emailEl = document.getElementById('resetEmailInput_' + hostId);
+  const errEl = document.getElementById('resetEmailError_' + hostId);
+  const sentEl = document.getElementById('resetEmailSent_' + hostId);
+  const btn = document.getElementById('resetEmailBtn_' + hostId);
+  errEl.style.display = 'none';
+  const email = (emailEl.value || '').trim();
+  if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)){ errEl.textContent = t('errResetNeedsEmail'); errEl.style.display = 'block'; return false; }
+  if(resetCooldownLeft > 0) return false;
+  if(btn){ btn.disabled = true; btn.textContent = t('sendingResetMsg'); }
+  const { error } = await sb.auth.resetPasswordForEmail(email, { redirectTo: appBaseUrl() });
+  if(error){
+    if(error.status === 429 || /rate limit|security purposes|too many/i.test(error.message || '')){
+      errEl.textContent = t('resetEmailRateLimit');
+      errEl.style.display = 'block';
+      startResetCooldown(hostId, false);
+    } else {
+      errEl.textContent = error.message || 'Failed';
+      errEl.style.display = 'block';
+      if(btn){ btn.disabled = false; btn.textContent = t(btn.dataset.label || 'btnSendResetEmail'); }
+    }
+    return false;
+  }
+  sentEl.textContent = tf('resetEmailSent', { email });
+  sentEl.style.display = 'block';
+  startResetCooldown(hostId, true);
+  return false;
+}
+
+function showForgotPassword(){
+  const emailGuess = (document.getElementById('loginUsernameInput').value || '').trim();
+  document.getElementById('loginForm').style.display = 'none';
+  document.getElementById('forgotPasswordBox').style.display = '';
+  renderResetEmailForm('forgotPasswordFormHost', { prefill: /@/.test(emailGuess) ? emailGuess : '', cancelFn: 'hideForgotPassword()' });
+}
+function hideForgotPassword(){
+  document.getElementById('forgotPasswordBox').style.display = 'none';
+  document.getElementById('loginForm').style.display = '';
+}
+
 function showSetPasswordState(state){
   document.getElementById('setPasswordChecking').style.display = state === 'checking' ? '' : 'none';
   document.getElementById('setPasswordForm').style.display = state === 'ready' ? '' : 'none';
   document.getElementById('setPasswordInvalid').style.display = state === 'invalid' ? '' : 'none';
+  if(state === 'invalid') renderResetEmailForm('setPasswordInvalidFormHost', { submitKey: 'btnSendNewLink', cancelFn: 'backToSignInFromSetPassword()' });
   document.getElementById('setPasswordDone').style.display = state === 'done' ? '' : 'none';
 }
 
