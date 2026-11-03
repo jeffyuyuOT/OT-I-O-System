@@ -463,6 +463,7 @@ function switchWarehouseAdminSubTab(subtabId){
   else if(subtabId === 'subtab-tx-forecast') renderForecastTable();
   else if(subtabId === 'subtab-tx-data'){ populateExportPartySelect(); renderExportProductList(); }
   else if(subtabId === 'subtab-purchase-mgmt-ocrdb' && hasFeature('receiptScanModule')) renderOcrDbProductSelect();
+  else if(subtabId === 'subtab-price-setting' && typeof psOpenPage === 'function') psOpenPage();
   document.getElementById(subtabId).classList.add('active-subtab');
   document.getElementById('btn-' + subtabId).classList.add('active');
 }
@@ -502,6 +503,7 @@ function switchLogSubTab(subtabId){
   if(subtabId === 'subtab-log-forecast'){ loadForecastRecords().then(renderLogForecastRecords); }
   if(subtabId === 'subtab-log-convert'){ renderConvertHistoryTable(); }
   if(subtabId === 'subtab-log-location'){ openLocationLogTab(); }
+  if(subtabId === 'subtab-log-pricerec' && typeof psOpenRecordList === 'function'){ psOpenRecordList(); }
   if(subtabId === 'subtab-log-exports'){ loadExportEmailLogs().then(renderExportLog); }
   if(subtabId === 'subtab-log-inventory'){ loadInventoryLog().then(renderInventoryLog); }
 }

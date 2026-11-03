@@ -699,7 +699,7 @@ async function batchSavePurchase(purchase){
   });
   // 第三期:新批次先帶入預設 margin(已經有 margin 的批次不動);margin 欄位沒建立(SQL 未執行)時略過
   try{
-    if(data && data.batch_id && typeof spDefaultMargin === 'function') await batchRpc('batch_set_margin', { p_batch_id: data.batch_id, p_margin: spDefaultMargin(), p_only_if_null: true });
+    if(data && data.batch_id && typeof spDefaultMargin === 'function' && !(typeof spIsSettingBasis === 'function' && spIsSettingBasis())) await batchRpc('batch_set_margin', { p_batch_id: data.batch_id, p_margin: spDefaultMargin(), p_only_if_null: true });
   }catch(e){ console.warn('設定批次預設 margin 失敗', e); }
   batchMarkStale();
   try{ await ensureBatchDataLoaded(); }catch(e){}
@@ -1039,15 +1039,16 @@ function batchOpenBatchDetail(batchId){
   if(items.length === 0) return;
   const h = items[0];
   const lots = items.filter(i => i.supplierLot).map(i => `${batchEsc(batchProductName(i.productId))}: ${batchEsc(i.supplierLot)}`).join('<br>');
+  const settingBasis = typeof spIsSettingBasis === 'function' && spIsSettingBasis();
+  const mv = spMarginOf(h);
   const marginBlock = (typeof spMarginOf === 'function' && !h.isOpening) ? `
     <div style="margin-top:12px;padding-top:10px;border-top:1px solid var(--line);">
       <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
         <strong style="font-size:12.5px;">Margin</strong>
-        <input id="batchDetailMargin" type="number" min="0" step="any" value="${spMarginOf(h)}" style="width:90px;" /><span>%</span>
+        <input id="batchDetailMargin" type="number" min="0" step="any" value="${mv === null ? '' : mv}" style="width:90px;" /><span>%</span>
         <button class="btn" onclick="spSaveBatchMarginFromModal('${batchId}')">${t('btnSave')}</button>
       </div>
-      <div style="margin-top:6px;"><span class="batch-link" style="font-size:12px;" onclick="spOpenDefaultMarginModal()">${t('spManageDefault')}</span></div>
-      <div style="font-size:11.5px;color:var(--ink-soft);margin-top:4px;">Sell price = Total price × (1 + Margin%)</div>
+      <div style="font-size:11.5px;color:var(--ink-soft);margin-top:4px;">${settingBasis ? t('spBatchMarginNoteSetting') : 'Sell price = Total price × (1 + Margin%)'}</div>
     </div>` : '';
   batchShowDetailModal(batchEsc(h.batchNo), `<table class="stock-table"><tbody>
     ${batchDetailRow(t('batchColDate'), batchEsc(h.isOpening ? t('batchOpening') : h.batchDate))}
