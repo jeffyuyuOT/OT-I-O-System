@@ -1304,7 +1304,7 @@
               </label>
               <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
                 <input type="radio" name="sellPriceBasis" value="setting" onchange="applySellBasis(this.value)" />
-                <span data-i18n="sellBasisSetting">Price Setting(手動設定的價格)</span>
+                <span data-i18n="sellBasisSetting">定價管理(手動設定的價格)</span>
                 <span role="button" tabindex="0" class="info-icon" style="cursor:pointer;color:var(--ink-soft);font-size:14px;" onclick="event.preventDefault();spShowModeHelp('basisSetting')">ⓘ</span>
               </label>
             </div>
@@ -1479,7 +1479,7 @@
         <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:0 0 4px;">
           <select id="importTemplateSelect" style="min-width:180px;">
             <option value="master" data-i18n="optImportTemplateMaster">商品主檔範本</option>
-            <option value="price" data-i18n="optImportTemplatePrice">Price setting 範本</option>
+            <option value="price" data-i18n="optImportTemplatePrice">定價管理範本</option>
           </select>
           <button class="btn" onclick="downloadImportTemplate()" data-i18n="btnDownloadMasterTemplate">📄 下載匯入範本</button>
         </div>
@@ -1986,7 +1986,7 @@
         <option value="subtab-tx-forecast" data-i18n="subtabTxForecast">進貨預估</option>
         <option value="subtab-tx-data" data-i18n="subtabTxData">資料維護</option>
         <option value="subtab-purchase-mgmt-ocrdb" data-i18n="secReceiptOcrDb">掃描收據數據庫</option>
-        <option value="subtab-price-setting" data-i18n="subtabPriceSetting">Price Setting</option>
+        <option value="subtab-price-setting" data-i18n="subtabPriceSetting">定價管理</option>
       </select>
       <select id="supplyListSelect" onchange="switchSupplyListPane(this.value)">
         <option value="subtab-order-parties" data-i18n="optSupplyParties">出貨方</option>
@@ -2036,7 +2036,7 @@
     </div>
 
     <div id="subtab-price-setting" class="subtab-content">
-      <div class="section-title" style="margin-top:0;">Price Setting</div>
+      <div class="section-title" style="margin-top:0;" data-i18n="subtabPriceSetting">定價管理</div>
       <div id="priceSettingRoot"></div>
     </div>
 
@@ -2272,7 +2272,7 @@
         <option value="subtab-log-tx" data-i18n="subtabLogTx" selected>進出貨紀錄</option>
         <option value="subtab-log-convert" data-i18n="subtabLogConvert">切換紀錄</option>
         <option value="subtab-log-location" data-i18n="subtabLogLocation">庫存分布紀錄</option>
-        <option value="subtab-log-pricerec" data-i18n="subtabLogPriceRecord">Price record</option>
+        <option value="subtab-log-pricerec" data-i18n="subtabLogPriceRecord">定價管理紀錄</option>
         <option value="subtab-log-exports" data-i18n="subtabLogExports">匯出紀錄</option>
         <option value="subtab-log-inventory" data-i18n="subtabLogInventory">後台紀錄</option>
       </select>
@@ -2418,9 +2418,9 @@
     <div id="subtab-log-pricerec" class="subtab-content">
       <div class="section">
         <div class="toolbar">
-          <div class="section-title" style="margin:0;" data-i18n="subtabLogPriceRecord">Price record</div>
+          <div class="section-title" style="margin:0;" data-i18n="subtabLogPriceRecord">定價管理紀錄</div>
         </div>
-        <p style="font-size:12.5px;color:var(--ink-soft);margin:0 0 12px;" data-i18n="priceRecordDesc">每次在 Price Setting 按儲存(或在批次詳細資料儲存 margin 覆蓋 Price Setting 價格)都會留一筆紀錄,點進去可以看當時所有商品的 Sell price、成本價與 margin。</p>
+        <p style="font-size:12.5px;color:var(--ink-soft);margin:0 0 12px;" data-i18n="priceRecordDesc">每次在定價管理按儲存(或在批次詳細資料儲存 margin 覆蓋 Price Setting 價格)都會留一筆紀錄,點進去可以看當時所有商品的 Sell price、成本價與 margin。</p>
         <div id="priceRecordRoot"></div>
       </div>
     </div>

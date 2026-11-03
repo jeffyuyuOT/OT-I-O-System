@@ -504,12 +504,12 @@ function psDownloadTemplate(){
   const guide = [['欄位 / Column', '說明 / Notes'],
     ['SKU', '必填。用 SKU 對應系統裡的商品(Name 只供對照,不用來比對)。 / Required. Matches products by SKU (Name is for reference only).'],
     ['Name', '商品名稱,僅供對照。 / Product name, reference only.'],
-    ['Price', 'Sell price(單價)。空白 = 不動;填數字 = 覆蓋 Price Setting 的價格。 / Sell price per unit. Blank = unchanged; a number overwrites the Price Setting price.']];
+    ['Price', 'Sell price(單價)。空白 = 不動;填數字 = 覆蓋定價管理的價格。 / Sell price per unit. Blank = unchanged; a number overwrites the Pricing management price.']];
   const wsG = XLSX.utils.aoa_to_sheet(guide); wsG['!cols'] = [{ wch: 16 }, { wch: 100 }];
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Price');
   XLSX.utils.book_append_sheet(wb, wsG, 'Guide');
-  XLSX.writeFile(wb, `price_setting_template_${todayISO()}.xlsx`);
+  XLSX.writeFile(wb, `pricing_management_template_${todayISO()}.xlsx`);
 }
 function psReadFileRows(file){
   return new Promise((resolve, reject) => {

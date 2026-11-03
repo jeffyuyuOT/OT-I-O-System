@@ -154,8 +154,8 @@ function renderMasterFileList(){
 }
 
 
-// 依檔名決定匯入哪一種:檔名以 price_setting 開頭(下載範本的檔名前段,後面的 template、日期或說明可以改掉或不要)= Price setting,其他 = 商品主檔
-function isPriceImportFile(file){ return /^\s*price[_\- ]?setting/i.test((file && file.name) || ''); }
+// 依檔名決定匯入哪一種:檔名以 pricing_management 開頭(也接受舊名 price_setting;後面的 template、日期或說明可以改掉或不要)= Price setting,其他 = 商品主檔
+function isPriceImportFile(file){ return /^\s*(pricing[_\- ]?management|price[_\- ]?setting)/i.test((file && file.name) || ''); }
 // 下載匯入範本:依「資料維護 → 匯入資料」的下拉選擇下載商品主檔範本或 Price setting 範本
 function downloadImportTemplate(){
   const sel = document.getElementById('importTemplateSelect');
