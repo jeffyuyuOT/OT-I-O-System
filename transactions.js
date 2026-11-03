@@ -2046,7 +2046,7 @@ async function submitNewOrderFlow(action, date, msg){
     catch(e){ msg.className='msg error'; msg.textContent='⚠ 取得訂單編號失敗,請重新整理頁面再試一次。'; return; }
     const newOrder = {
       id: genId(), date, note, partyId: outPartyId, partyName: party,
-      items: txBatchItems.map(it => ({ productId: it.productId, sku: it.sku||'', name: it.name, unit: it.unit, qty: it.qty })),
+      items: txBatchItems.map(it => spCarryTxPrice({ productId: it.productId, sku: it.sku||'', name: it.name, unit: it.unit, qty: it.qty }, it)),
       status: 'pending', createdAt: new Date().toISOString(), orderNo
     };
     orders.push(newOrder);
@@ -2064,7 +2064,7 @@ async function submitNewOrderFlow(action, date, msg){
     const orderId = genId();
     const newOrder = {
       id: orderId, date, note, partyId: outPartyId, partyName: party,
-      items: txBatchItems.map(it => ({ productId: it.productId, sku: it.sku||'', name: it.name, unit: it.unit, qty: it.qty })),
+      items: txBatchItems.map(it => spCarryTxPrice({ productId: it.productId, sku: it.sku||'', name: it.name, unit: it.unit, qty: it.qty }, it)),
       status: 'confirmed', createdAt: new Date().toISOString(), confirmedAt: new Date().toISOString(), orderNo
     };
     if(typeof spFreezeItems === 'function') newOrder.items = spFreezeItems(newOrder);   // 售價在建立當下固定(出貨前的批次分配預覽)
@@ -2236,7 +2236,7 @@ async function submitLoadPendingFlow(action, msg){
     registerPendingItemChanges = {};
 
     if(txBatchItems.length > 0){
-      const newItems = txBatchItems.map(it => { const ni = { productId: it.productId, sku: it.sku||'', name: it.name, unit: it.unit, qty: it.qty }; if(it.batchPicks && it.batchPicks.length) ni.batchPicks = it.batchPicks.map(x => ({ ...x })); return ni; });
+      const newItems = txBatchItems.map(it => { const ni = { productId: it.productId, sku: it.sku||'', name: it.name, unit: it.unit, qty: it.qty }; spCarryTxPrice(ni, it); if(it.batchPicks && it.batchPicks.length) ni.batchPicks = it.batchPicks.map(x => ({ ...x })); return ni; });
       const result = await mergeItemsIntoOrderCore(orderId, newItems);
       if(!result.ok){
         msg.className='msg error';

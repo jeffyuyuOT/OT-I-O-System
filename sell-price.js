@@ -324,11 +324,68 @@ async function spResetManualPrice(orderId, productId){
   try{ await upsertOrders([order]); } catch(e){ console.error('儲存售價失敗', e); showInfoModal(t('spMarginSaveFailed')); return; }
   spCloseOrderPopup(); spRefreshOrderViews();
 }
-// 登記進出貨清單(尚未建立訂單的品項)用:依出貨方 Discount 與預計批次算售價
+// 登記進出貨清單(尚未建立訂單的品項)用:依出貨方 Discount 與預計批次算售價;手動改過價的品項(it.sellPriceManual)用手動價
+function spTxUnit(it, partyId){
+  if(!it || !(it.qty > 0)) return null;
+  if(it.sellPriceManual && Number.isFinite(Number(it.sellPrice))) return Number(it.sellPrice);
+  if(!spPriceable(it.productId)) return null;
+  return spPriceCalc(it.productId, it.qty, null, spPartyDiscountById(partyId)).unit;
+}
 function spTxItemPriceHtml(it, partyId){
-  if(!spEnabled() || !it || !(it.qty > 0) || !spPriceable(it.productId)) return '–';
-  const pr = spPriceCalc(it.productId, it.qty, null, spPartyDiscountById(partyId));
-  return pr.unit === null ? '–' : spMoney(pr.unit);
+  if(!spEnabled() || !it || !(it.qty > 0)) return '–';
+  const unit = spTxUnit(it, partyId);
+  const label = unit === null ? '–' : spMoney(unit) + (it.sellPriceManual ? ' ✎' : '');
+  if(typeof canEditPrice === 'function' && canEditPrice()){
+    return `<span class="batch-link" title="${batchEsc(t('spTxPriceEditHint'))}" onclick="spOpenTxPricePopup('${it.batchItemId}')">${label}</span>`;
+  }
+  return label;
+}
+// 新增品項的單價視窗:可以手動輸入這個品項的單價(建立 / 加進訂單時會一起存進訂單品項,等同在待處理訂單手動改價)
+function spOpenTxPricePopup(batchItemId){
+  const it = (typeof txBatchItems !== 'undefined' ? txBatchItems : []).find(x => x.batchItemId === batchItemId);
+  if(!it || !canEditPrice()) return;
+  const old = document.getElementById('spTxPriceOverlay'); if(old) old.remove();
+  const partyId = (document.getElementById('txPartySelect') || {}).value || '';
+  const auto = (it.qty > 0 && spPriceable(it.productId)) ? spPriceCalc(it.productId, it.qty, null, spPartyDiscountById(partyId)).unit : null;
+  const cur = spTxUnit(it, partyId);
+  const ov = document.createElement('div');
+  ov.id = 'spTxPriceOverlay'; ov.className = 'modal-overlay'; ov.style.display = 'flex'; ov.style.zIndex = '1150';
+  ov.onclick = e => { if(e.target === ov) ov.remove(); };
+  ov.innerHTML = `<div class="modal-box" style="max-width:min(420px,92vw);">
+    <div class="section-title" style="margin-top:0;">${batchEsc(it.name)} · ${batchFmtQty(it.qty)} ${batchEsc(it.unit || '')}</div>
+    <p style="font-size:12.5px;margin:0 0 8px;">${t('spTxPriceAuto')}: <strong>${auto === null ? '–' : spMoney(auto)}</strong></p>
+    <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
+      <span>${t('spManualPrice')}</span><input id="spTxPriceInput" type="number" min="0" step="0.01" value="${cur === null ? '' : cur}" style="width:110px;" />
+    </div>
+    <div class="modal-actions">
+      ${it.sellPriceManual ? `<button class="btn ghost" onclick="spResetTxPrice('${batchItemId}')">${t('spResetAuto')}</button>` : ''}
+      <button class="btn ghost" onclick="document.getElementById('spTxPriceOverlay').remove()">${t('btnCancel')}</button>
+      <button class="btn" onclick="spSaveTxPrice('${batchItemId}')">${t('btnSave')}</button>
+    </div>
+  </div>`;
+  document.body.appendChild(ov);
+}
+function spSaveTxPrice(batchItemId){
+  const it = txBatchItems.find(x => x.batchItemId === batchItemId);
+  const el = document.getElementById('spTxPriceInput');
+  if(!it || !el || !canEditPrice()) return;
+  const n = Number(el.value);
+  if(el.value.trim() === '' || !Number.isFinite(n) || n < 0){ showInfoModal(t('spPriceInvalid')); return; }
+  it.sellPrice = spRound2(n); it.sellPriceManual = true;
+  document.getElementById('spTxPriceOverlay').remove();
+  renderTxBatchList();
+}
+function spResetTxPrice(batchItemId){
+  const it = txBatchItems.find(x => x.batchItemId === batchItemId);
+  if(!it) return;
+  delete it.sellPrice; delete it.sellPriceManual;
+  document.getElementById('spTxPriceOverlay').remove();
+  renderTxBatchList();
+}
+// 建立 / 加進訂單時,把新增品項手動設定的單價帶進訂單品項
+function spCarryTxPrice(orderItem, txItem){
+  if(txItem && txItem.sellPriceManual && Number.isFinite(Number(txItem.sellPrice))){ orderItem.sellPrice = Number(txItem.sellPrice); orderItem.sellPriceManual = true; }
+  return orderItem;
 }
 
 // ---- 核對 / 直接建立已完成訂單時,把每個品項的售價固定下來(之後不能改)----
@@ -437,17 +494,16 @@ function spOrderTotalRowHtml(order, withActions, overrides){
 
 // 登記進出貨清單(還沒建立訂單的新品項):單項總價與整份清單的總金額
 function spTxItemTotalHtml(it, partyId){
-  if(!spEnabled() || !it || !(it.qty > 0) || !spPriceable(it.productId)) return '–';
-  const pr = spPriceCalc(it.productId, it.qty, null, spPartyDiscountById(partyId));
-  return pr.unit === null ? '–' : spMoney(spRound2(pr.unit * it.qty));
+  if(!spEnabled() || !it || !(it.qty > 0)) return '–';
+  const u = spTxUnit(it, partyId);
+  return u === null ? '–' : spMoney(spRound2(u * it.qty));
 }
 function spTxItemsTotal(partyId){
   let sum = 0, missing = 0;
   (txBatchItems || []).forEach(it => {
     if(!(it.qty > 0)) return;
-    if(!spPriceable(it.productId)){ missing++; return; }
-    const pr = spPriceCalc(it.productId, it.qty, null, spPartyDiscountById(partyId));
-    if(pr.unit === null) missing++; else sum += pr.unit * it.qty;
+    const u = spTxUnit(it, partyId);
+    if(u === null) missing++; else sum += u * it.qty;
   });
   return { sum: spRound2(sum), missing };
 }
