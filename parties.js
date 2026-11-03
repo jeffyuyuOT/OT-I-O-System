@@ -369,6 +369,8 @@ async function partyProductBulkSetHidden(partyId, hidden){
 function renderSupplierManagementTable(){
   const container = document.getElementById('supplierManagementTable');
   if(!container) return;
+  // 還沒有編號的進貨方(例如之前「從進貨單匯入進貨方」建立的)現在補上編號並存檔
+  ensureSupplierCodes().forEach(sup => { upsertPurchaseSupplier(sup).catch(e => console.error('補進貨方編號失敗', e)); });
   if(purchaseSuppliers.length === 0){
     container.innerHTML = `<div class="empty-note">${t('noSuppliersYet')}</div>`;
     return;
@@ -432,7 +434,7 @@ async function importSuppliersFromPurchases(){
   showConfirmModal(tf('importSuppliersConfirm', { n: names.length, names: shown }), async () => {
     let failed = 0;
     for(const n of names){
-      const sup = { id: genId(), name: n, contact: '', phone: '', address: '', note: '' };
+      const sup = { id: genId(), code: nextEntityCode('S', purchaseSuppliers), name: n, contact: '', phone: '', address: '', note: '' };
       try{ await upsertPurchaseSupplier(sup); purchaseSuppliers.push(sup); }
       catch(e){ failed++; console.error('匯入進貨方失敗', n, e); }
     }

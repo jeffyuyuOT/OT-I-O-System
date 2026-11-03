@@ -12,6 +12,14 @@
 // Sell price 顯示方式(系統設置):'none' 不顯示 / 'export' 僅已完成訂單的匯出檔案顯示 / 'all' 訂單畫面與匯出都顯示
 let spSellPriceMode = 'none';
 let spDefaultMarginPct = 0;
+// Sell price 依據(系統設置,app_data 'sellPriceBasis'):'batch' = 依批次成本 + 批次 margin 計算(預設)/ 'setting' = 用 Price Setting 頁面設定的價格
+let spSellBasis = 'batch';
+// 警示 margin(%,app_data 'sellWarnMargin'):Price Setting 裡 margin 低於這個值會顯示警示圖案
+let spWarnMarginPct = 0;
+// Price Setting 的價格:{ 商品id: 售價 }(app_data 'priceSettings')
+let spPriceMap = {};
+// Price Setting 依據下,手動輸入過 margin 的批次:{ 批次id: margin% }(app_data 'batchMarginManual');沒在這裡的批次 margin 一律顯示空白
+let spManualMargins = {};
 
 async function loadSellPriceSettings(){
   try{
@@ -28,15 +36,57 @@ async function loadSellPriceSettings(){
     const n = r && r.value !== undefined && r.value !== null ? Number(r.value) : NaN;
     if(Number.isFinite(n) && n >= 0) spDefaultMarginPct = n;
   } catch(e){}
+  try{
+    const r = await dbGet('sellWarnMargin');
+    const n = r && r.value !== undefined && r.value !== null ? Number(r.value) : NaN;
+    if(Number.isFinite(n)) spWarnMarginPct = n;
+  } catch(e){}
+  try{
+    const r = await dbGet('sellPriceBasis');
+    if(r && ['batch', 'setting'].includes(String(r.value))) spSellBasis = String(r.value);
+  } catch(e){}
+  try{
+    const r = await dbGet('batchMarginManual');
+    const m = r && r.value ? JSON.parse(r.value) : null;
+    if(m && typeof m === 'object' && !Array.isArray(m)){
+      spManualMargins = {};
+      Object.keys(m).forEach(k => { const v = Number(m[k]); if(Number.isFinite(v)) spManualMargins[k] = v; });
+    }
+  } catch(e){}
+  try{
+    const r = await dbGet('priceSettings');
+    const m = r && r.value ? JSON.parse(r.value) : null;
+    if(m && typeof m === 'object' && !Array.isArray(m)){
+      spPriceMap = {};
+      Object.keys(m).forEach(k => { const v = Number(m[k]); if(Number.isFinite(v) && v >= 0) spPriceMap[k] = v; });
+    }
+  } catch(e){}
 }
 function spDefaultMargin(){ return spDefaultMarginPct; }
+function spWarnMargin(){ return spWarnMarginPct; }
+function spIsSettingBasis(){ return spSellBasis === 'setting'; }
+// Price Setting 裡這個商品的售價;沒設定回傳 null
+function spSettingPrice(pid){
+  const v = spPriceMap[pid];
+  return (v === undefined || v === null || !Number.isFinite(Number(v))) ? null : Number(v);
+}
+// 這個商品算得出售價嗎(依批次 cost,或 Price Setting 有設定)
+function spPriceable(pid){
+  if(spIsSettingBasis()) return spSettingPrice(pid) !== null || (typeof batchIsTracked === 'function' && batchIsTracked(pid));
+  return typeof batchIsTracked === 'function' && batchIsTracked(pid);
+}
 // 要不要在訂單畫面顯示售價(開關打開、而且批次追蹤可用)
 function spEnabled(){ return spSellPriceMode === 'all' && typeof batchActive === 'function' && batchActive(); }
 // 已完成訂單的匯出檔案要不要多一欄 Sell price('export' 或 'all')
 function spExportEnabled(){ return (spSellPriceMode === 'export' || spSellPriceMode === 'all') && typeof batchActive === 'function' && batchActive(); }
 
 function spRound2(n){ return Math.round((Number(n) + Number.EPSILON) * 100) / 100; }
+// 批次的 margin:依批次成本計價時,沒設定過就用系統預設 margin;依 Price Setting 計價時,沒手動輸入過就是 null(顯示空白)
 function spMarginOf(item){
+  if(spIsSettingBasis()){
+    const v = item ? spManualMargins[item.batchId] : undefined;
+    return (v === undefined || v === null || !Number.isFinite(Number(v))) ? null : Number(v);
+  }
   const m = item && item.marginPct;
   return (m === null || m === undefined || !Number.isFinite(Number(m))) ? spDefaultMarginPct : Number(m);
 }
@@ -46,6 +96,7 @@ function spTotalUnit(item){
   return (c === null || c === undefined || !Number.isFinite(Number(c))) ? null : Number(c);
 }
 function spSellUnit(item){
+  if(spIsSettingBasis()) return item ? spSettingPrice(item.productId) : null;
   const c = spTotalUnit(item);
   return c === null ? null : spRound2(c * (1 + spMarginOf(item) / 100));
 }
@@ -65,29 +116,6 @@ async function spSaveBatchMargin(batchId, raw){
   }
   renderBatchTracker();
 }
-function spOpenDefaultMarginModal(){
-  const old = document.getElementById('spDefaultMarginOverlay'); if(old) old.remove();
-  const ov = document.createElement('div');
-  ov.id = 'spDefaultMarginOverlay'; ov.className = 'modal-overlay'; ov.style.display = 'flex'; ov.style.zIndex = '1150';
-  ov.innerHTML = `<div class="modal-box" style="max-width:min(420px,92vw);">
-    <div class="section-title" style="margin-top:0;">${t('spDefaultMarginTitle')}</div>
-    <p style="font-size:12px;color:var(--ink-soft);margin:0 0 10px;">${t('spDefaultMarginHint')}</p>
-    <div style="display:flex;align-items:center;gap:6px;margin-bottom:8px;"><input id="spDefaultMarginInput" type="number" min="0" step="any" value="${spDefaultMarginPct}" style="width:110px;" /><span>%</span></div>
-    <div id="spDefaultMarginMsg" class="msg"></div>
-    <div class="modal-actions"><button class="btn ghost" onclick="document.getElementById('spDefaultMarginOverlay').remove()">${t('btnCancel')}</button><button class="btn" onclick="spSaveDefaultMargin()">${t('btnSave')}</button></div>
-  </div>`;
-  document.body.appendChild(ov);
-}
-async function spSaveDefaultMargin(){
-  const el = document.getElementById('spDefaultMarginInput'), msg = document.getElementById('spDefaultMarginMsg');
-  const n = Number(el.value);
-  if(el.value.trim() === '' || !Number.isFinite(n) || n < 0 || n > 1000){ msg.className = 'msg error'; msg.textContent = t('spMarginInvalid'); return; }
-  spDefaultMarginPct = n;
-  try{ await dbSet('batchDefaultMargin', String(n)); } catch(e){ console.error('儲存預設 margin 失敗', e); msg.className = 'msg error'; msg.textContent = t('spMarginSaveFailed'); return; }
-  document.getElementById('spDefaultMarginOverlay').remove();
-  renderBatchTracker();
-}
-
 // ---- 單價欄:顯示 Total price,點擊看 Base price / 其他支出分攤 / Total price / Margin / Sell price ----
 function spPriceCellHtml(i){
   const total = spTotalUnit(i);
@@ -101,7 +129,10 @@ function spShowPricePopup(itemId){
   const base = (i.unitCostBase === null || i.unitCostBase === undefined) ? null : Number(i.unitCostBase);
   const total = spTotalUnit(i);
   const extra = (total !== null && base !== null) ? total - base : null;
-  const margin = spMarginOf(i);
+  const settingBasis = spIsSettingBasis();
+  const sellNow = spSellUnit(i);
+  // 依 Price Setting 計價時,margin 是「Price Setting 售價相對這個批次成本」算出來的
+  const margin = settingBasis ? ((sellNow !== null && total !== null && total > 0) ? spRound2((sellNow / total - 1) * 100) : null) : spMarginOf(i);
   const ov = document.createElement('div');
   ov.id = 'spPriceOverlay'; ov.className = 'modal-overlay'; ov.style.display = 'flex'; ov.style.zIndex = '1150';
   ov.onclick = e => { if(e.target === ov) ov.remove(); };
@@ -112,30 +143,63 @@ function spShowPricePopup(itemId){
       ${row(t('spBasePrice'), spMoney(base))}
       ${row(t('spExtraCosts'), extra === null ? '–' : spMoney(extra))}
       ${row(t('spTotalPrice'), spMoney(total), true)}
-      ${row('Margin', margin + '%')}
-      ${row('Sell price', spMoney(spSellUnit(i)), true)}
+      ${row('Margin', margin === null ? '–' : margin + '%')}
+      ${row('Sell price', spMoney(sellNow), true)}
     </tbody></table>
-    <p style="font-size:11.5px;color:var(--ink-soft);margin:8px 0 0;">Sell price = Total price × (1 + Margin%)</p>
+    <p style="font-size:11.5px;color:var(--ink-soft);margin:8px 0 0;">${settingBasis ? t('spPopupNoteSetting') : 'Sell price = Total price × (1 + Margin%)'}</p>
     <div class="modal-actions"><button class="btn ghost" onclick="document.getElementById('spPriceOverlay').remove()">${t('btnClose')}</button></div>
   </div>`;
   document.body.appendChild(ov);
 }
 
-// ---- 系統設置:訂單顯示 Sell price ----
+// ---- 系統設置:Sell price(顯示方式 / 依據 / Margin 設置,同一個區塊)----
 function renderSellPriceSetting(){
   document.querySelectorAll('input[name="sellPriceMode"]').forEach(r => { r.checked = (r.value === spSellPriceMode); });
+  document.querySelectorAll('input[name="sellPriceBasis"]').forEach(r => { r.checked = (r.value === spSellBasis); });
+  const dm = document.getElementById('spDefaultMarginSetting'); if(dm && document.activeElement !== dm) dm.value = String(spDefaultMarginPct);
+  const wm = document.getElementById('spWarnMarginSetting'); if(wm && document.activeElement !== wm) wm.value = String(spWarnMarginPct);
   const card = document.getElementById('sellPriceSettingCard');
   if(card) card.style.display = (typeof batchFeatureOn === 'function' && batchFeatureOn()) ? '' : 'none';
 }
 // 選項說明太長,不直接顯示,點旁邊的 ⓘ 才跳出視窗
 function spShowModeHelp(mode){
-  const key = { export: 'sellPriceModeExportHelp', all: 'sellPriceModeAllHelp', none: 'sellPriceModeNoneHelp' }[mode];
+  const key = { export: 'sellPriceModeExportHelp', all: 'sellPriceModeAllHelp', none: 'sellPriceModeNoneHelp', basisBatch: 'sellBasisBatchHelp', basisSetting: 'sellBasisSettingHelp' }[mode];
   if(key) showInfoModal(t(key));
-}async function applySellPriceMode(mode){
+}
+async function applySellPriceMode(mode){
   if(!['none', 'export', 'all'].includes(mode)) return;
   spSellPriceMode = mode;
   try{ await dbSet('sellPriceMode', mode); } catch(e){ console.error('儲存失敗', e); }
   try{ if(typeof renderAll === 'function') renderAll(); }catch(e){}
+}
+// Sell price 依據:batch(批次成本 + margin)/ setting(Price Setting)。切換前先確認。
+function applySellBasis(basis){
+  if(!['batch', 'setting'].includes(basis) || basis === spSellBasis){ renderSellPriceSetting(); return; }
+  showConfirmModal(t(basis === 'setting' ? 'sellBasisConfirmSetting' : 'sellBasisConfirmBatch'), async () => {
+    spSellBasis = basis;
+    try{ await dbSet('sellPriceBasis', basis); } catch(e){ console.error('儲存失敗', e); showInfoModal(t('spMarginSaveFailed')); spSellBasis = basis === 'setting' ? 'batch' : 'setting'; }
+    renderSellPriceSetting();
+    spRefreshAfterBasisChange();
+  }, () => renderSellPriceSetting());
+}
+function spRefreshAfterBasisChange(){
+  try{ if(typeof renderAll === 'function') renderAll(); }catch(e){}
+  try{ if(typeof renderBatchTracker === 'function' && document.getElementById('batchTrackerRoot')) renderBatchTracker(); }catch(e){}
+  try{ if(typeof psRenderPage === 'function') psRenderPage(); }catch(e){}
+}
+// 預設 margin / 警示 margin
+async function spApplyMarginSettings(which, raw){
+  const msg = document.getElementById('spMarginSettingMsg');
+  const v = String(raw).trim(), n = Number(v);
+  const bad = v === '' || !Number.isFinite(n) || n > 1000 || (which === 'default' && n < 0) || n < -100;
+  if(bad){ if(msg){ msg.className = 'msg error'; msg.textContent = t('spMarginInvalid'); } renderSellPriceSetting(); return; }
+  try{
+    if(which === 'default'){ spDefaultMarginPct = n; await dbSet('batchDefaultMargin', String(n)); }
+    else { spWarnMarginPct = n; await dbSet('sellWarnMargin', String(n)); }
+    if(msg){ msg.className = 'msg ok'; msg.textContent = t('spMarginSettingSaved'); setTimeout(() => { if(msg.textContent === t('spMarginSettingSaved')) msg.textContent = ''; }, 2500); }
+  } catch(e){ console.error('儲存失敗', e); if(msg){ msg.className = 'msg error'; msg.textContent = t('spMarginSaveFailed'); } }
+  try{ if(typeof psRenderPage === 'function') psRenderPage(); }catch(e){}
+  try{ if(typeof renderBatchTracker === 'function' && document.getElementById('batchTrackerRoot')) renderBatchTracker(); }catch(e){}
 }
 // ============================================================
 // 訂單商品的售價
@@ -151,6 +215,16 @@ function spPartyDiscountById(partyId){
 // 依預計(或指定)的批次分配算加權平均 Sell price,再套出貨方 Discount
 // 回傳 { unit, base, discountPct, manual, frozen, lines:[{ batchNo, expiry, qty, ratio, sell }], untracked, unpricedQty }
 function spPriceCalc(productId, qty, picks, discountPct){
+  if(spIsSettingBasis()){
+    // 依 Price Setting:整個商品一個售價,不看批次;批次分配只用來顯示用量
+    const sp = spSettingPrice(productId);
+    const al = (typeof batchIsTracked === 'function' && batchIsTracked(productId)) ? batchPreviewAllocation(productId, qty, picks) : { lines: [], untracked: 0 };
+    const lns = al.lines.map(l => ({ batchNo: l.item.batchNo, isOpening: l.item.isOpening, expiry: l.item.expiry || '', qty: l.qty, sell: sp, manual: !!l.manual }));
+    const tq = lns.reduce((x, l) => x + l.qty, 0);
+    lns.forEach(l => { l.ratio = tq > 0 ? l.qty / tq : 0; });
+    const un = sp === null ? null : spRound2(sp * (1 - (discountPct || 0) / 100));
+    return { unit: un, base: sp === null ? null : spRound2(sp), discountPct: discountPct || 0, manual: false, frozen: false, lines: lns, untracked: 0, unpricedQty: sp === null ? qty : 0 };
+  }
   const alloc = batchPreviewAllocation(productId, qty, picks);
   const lines = alloc.lines.map(l => ({ batchNo: l.item.batchNo, isOpening: l.item.isOpening, expiry: l.item.expiry || '', qty: l.qty, sell: spSellUnit(l.item), manual: !!l.manual }));
   const priced = lines.filter(l => l.sell !== null);
@@ -173,7 +247,7 @@ function spPriceOrderItem(order, it){
   if(it.sellPriceManual && Number.isFinite(Number(it.sellPrice))){
     return { unit: Number(it.sellPrice), base: null, discountPct: disc, manual: true, frozen: false, lines: [], untracked: 0, unpricedQty: 0 };
   }
-  if(!(it.qty > 0) || !batchIsTracked(it.productId)) return { unit: null, base: null, discountPct: disc, manual: false, frozen: false, lines: [], untracked: it.qty > 0 ? it.qty : 0, unpricedQty: 0 };
+  if(!(it.qty > 0) || !spPriceable(it.productId)) return { unit: null, base: null, discountPct: disc, manual: false, frozen: false, lines: [], untracked: it.qty > 0 ? it.qty : 0, unpricedQty: 0 };
   return spPriceCalc(it.productId, it.qty, it.batchPicks, disc);
 }
 // 訂單品項後面的售價(可點擊看明細;editable=true 時明細視窗裡可以手動改)
@@ -204,7 +278,7 @@ function spOpenOrderPricePopup(orderId, productId){
   } else {
     const calc = pr.manual ? spPriceCalc(productId, it.qty, it.batchPicks, pr.discountPct) : pr;
     const rows = calc.lines.map(l => `<tr><td>${batchEsc(l.batchNo)}${l.isOpening ? ' (' + t('batchOpening') + ')' : ''}</td><td class="num">${batchFmtQty(l.qty)}</td><td class="num">${Math.round(l.ratio * 1000) / 10}%</td><td class="num">${spMoney(l.sell)}</td></tr>`).join('');
-    body = `${calc.lines.length ? `<table class="stock-table"><thead><tr><th>${t('batchColBatch')}</th><th class="num">${t('colQty')}</th><th class="num">${t('spRatio')}</th><th class="num">Sell price</th></tr></thead><tbody>${rows}</tbody></table>` : `<div class="empty-note">${t('spNoBatchCost')}</div>`}
+    body = `${(calc.lines.length || spIsSettingBasis()) ? (calc.lines.length ? `<table class="stock-table"><thead><tr><th>${t('batchColBatch')}</th><th class="num">${t('colQty')}</th><th class="num">${t('spRatio')}</th><th class="num">Sell price</th></tr></thead><tbody>${rows}</tbody></table>` : '') : `<div class="empty-note">${t('spNoBatchCost')}</div>`}
       ${calc.untracked > 0 ? `<p style="font-size:11.5px;color:var(--warn-dark,#b45309);margin:6px 0 0;">${t('batchUntracked')}: ${batchFmtQty(calc.untracked)}</p>` : ''}
       ${calc.base !== null ? `<p style="margin:8px 0 2px;font-size:12.5px;">${t('spWeighted')}: <strong>${spMoney(calc.base)}</strong>${calc.discountPct ? ` · Discount ${calc.discountPct}% → <strong>${spMoney(calc.unit)}</strong>` : ''}</p>` : ''}
       ${pr.manual ? `<p style="margin:6px 0 0;font-size:12.5px;color:var(--warn-dark,#b45309);">${t('spManualNow')}: <strong>${spMoney(pr.unit)}</strong></p>` : ''}
@@ -251,7 +325,7 @@ async function spResetManualPrice(orderId, productId){
 }
 // 登記進出貨清單(尚未建立訂單的品項)用:依出貨方 Discount 與預計批次算售價
 function spTxItemPriceHtml(it, partyId){
-  if(!spEnabled() || !it || !(it.qty > 0) || !batchIsTracked(it.productId)) return '–';
+  if(!spEnabled() || !it || !(it.qty > 0) || !spPriceable(it.productId)) return '–';
   const pr = spPriceCalc(it.productId, it.qty, null, spPartyDiscountById(partyId));
   return pr.unit === null ? '–' : spMoney(pr.unit);
 }
@@ -263,7 +337,7 @@ function spFreezeOne(order, it){
   const disc = spPartyDiscountOfOrder(order);
   let unit = null, manual = false;
   if(it.sellPriceManual && Number.isFinite(Number(it.sellPrice))){ unit = Number(it.sellPrice); manual = true; }
-  else if(it.qty > 0 && typeof batchActive === 'function' && batchActive() && batchIsTracked(it.productId)){
+  else if(it.qty > 0 && typeof batchActive === 'function' && batchActive() && spPriceable(it.productId)){
     unit = spPriceCalc(it.productId, it.qty, it.batchPicks, disc).unit;
   }
   const out = Object.assign({}, it, { sellFrozen: true, sellDiscount: disc, sellPriceManual: manual });
@@ -362,7 +436,7 @@ function spOrderTotalRowHtml(order, withActions, overrides){
 
 // 登記進出貨清單(還沒建立訂單的新品項):單項總價與整份清單的總金額
 function spTxItemTotalHtml(it, partyId){
-  if(!spEnabled() || !it || !(it.qty > 0) || !batchIsTracked(it.productId)) return '–';
+  if(!spEnabled() || !it || !(it.qty > 0) || !spPriceable(it.productId)) return '–';
   const pr = spPriceCalc(it.productId, it.qty, null, spPartyDiscountById(partyId));
   return pr.unit === null ? '–' : spMoney(spRound2(pr.unit * it.qty));
 }
@@ -370,7 +444,7 @@ function spTxItemsTotal(partyId){
   let sum = 0, missing = 0;
   (txBatchItems || []).forEach(it => {
     if(!(it.qty > 0)) return;
-    if(!batchIsTracked(it.productId)){ missing++; return; }
+    if(!spPriceable(it.productId)){ missing++; return; }
     const pr = spPriceCalc(it.productId, it.qty, null, spPartyDiscountById(partyId));
     if(pr.unit === null) missing++; else sum += pr.unit * it.qty;
   });
@@ -401,6 +475,40 @@ function spSellCellHtml(i){
 async function spSaveBatchMarginFromModal(batchId){
   const el = document.getElementById('batchDetailMargin');
   const v = el ? el.value : '';
-  const ov = document.getElementById('batchDetailOverlay'); if(ov) ov.remove();
-  await spSaveBatchMargin(batchId, v);
+  const n = Number(String(v).trim());
+  const bad = String(v).trim() === '' || !Number.isFinite(n) || n < 0 || n > 1000;
+  if(bad){ showInfoModal(t('spMarginInvalid')); return; }
+  if(!spIsSettingBasis()){
+    const ov = document.getElementById('batchDetailOverlay'); if(ov) ov.remove();
+    await spSaveBatchMargin(batchId, v);
+    return;
+  }
+  // 依 Price Setting 計價:只有「正在出貨」的批次,margin 才會覆蓋 Price Setting 的價格(先確認);
+  // 還沒輪到的批次只記下 margin,輪到時 Price Setting 頁會提醒。
+  const withCost = batchData.items.filter(i => i.batchId === batchId && !i.isOpening && spTotalUnit(i) !== null);
+  if(withCost.length === 0){ showInfoModal(t('spBatchMarginNoCost')); return; }
+  const cur = withCost.filter(i => { const c = (typeof psCurrentBatchItem === 'function') ? psCurrentBatchItem(i.productId) : null; return c && c.id === i.id; });
+  const doSave = async () => {
+    const ov = document.getElementById('batchDetailOverlay'); if(ov) ov.remove();
+    try{
+      try{ await batchRpc('batch_set_margin', { p_batch_id: batchId, p_margin: n, p_only_if_null: false }); }
+      catch(e){ if(!/batch_set_margin|margin_pct/i.test((e && e.message) || '')) throw e; }   // margin_pct 欄位沒建立也不影響 Price Setting 流程
+      batchData.items.forEach(i => { if(i.batchId === batchId) i.marginPct = n; });
+      spManualMargins[batchId] = n;
+      await dbSet('batchMarginManual', JSON.stringify(spManualMargins));
+      if(cur.length > 0){
+        const next = Object.assign({}, spPriceMap);
+        cur.forEach(i => { next[i.productId] = spRound2(spTotalUnit(i) * (1 + n / 100)); });
+        await psSavePriceMap(next, 'batchMargin', (withCost[0].batchNo || '') + ' · ' + n + '%');
+      } else {
+        showInfoModal(t('spBatchMarginSavedPending'));
+      }
+    } catch(e){
+      console.error('儲存批次 margin / Price Setting 失敗', e);
+      showInfoModal(t('spMarginSaveFailed'));
+    }
+    spRefreshAfterBasisChange();
+  };
+  if(cur.length === 0){ await doSave(); return; }
+  showConfirmModal(t('spBatchMarginOverwrite') + '\n' + tf('spBatchMarginOverwriteN', { n: cur.length }), doSave);
 }

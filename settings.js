@@ -41,6 +41,8 @@ async function runAutoBackup(){
   };
   try{ const bt = await batchExportForBackup(); if(bt) backup.batchTracking = bt; }
   catch(e){ console.error('自動備份:讀取批次資料失敗,這份備份不含批次資料', e); }
+  try{ if(typeof psExportForBackup === 'function') backup.priceData = await psExportForBackup(); }
+  catch(e){ console.error('自動備份:讀取 Price Setting / 售價紀錄失敗,這份備份不含這些資料', e); }
   const content = JSON.stringify(backup, null, 2);
 
   if(backupDirHandle){
@@ -209,6 +211,7 @@ async function restoreFromBackupFolder(){
     await restoreQuickListsFromBackup(backup);
     const forecastRestoreOk = await restoreForecastDataFromBackup(backup);
     const batchRes = await batchRestoreFromBackup(backup);
+    try{ if(typeof psRestoreFromBackup === 'function') await psRestoreFromBackup(backup); }catch(e){ console.error('還原 Price Setting / 售價紀錄失敗', e); }
     await locationLogReplace(locationLogRowsFromBackup(backup));   // 庫存分布紀錄一起還原(舊備份沒有 = 清空)
     const seqSynced = await syncOrderNoSequenceAfterRestore(orders);
     // 這個資料夾既然能讀,順便記起來,之後自動備份也直接寫進同一個地方。
@@ -490,6 +493,7 @@ async function clearAllData(){
     await clearInventoryLogTable();        // 透過 RPC 清空 inventory_log(繞過 RLS 限制)
 
     const locLogCleared = await locationLogReplace([]);   // 清空庫存分布紀錄(歷史紀錄 → 庫存分布紀錄)
+    try{ if(typeof psClearAll === 'function') await psClearAll(); }catch(e){ console.error('清除 Price Setting / 售價紀錄失敗', e); }
     await batchClearAll();                 // 清空批次追蹤三張表(batches / batch_items / batch_movements);放在動 transactions 之前,失敗時其他資料不會被清到一半
     await replaceAllTransactions([]);      // 清空 transactions 表 + 重建庫存快取為空
     await replaceAllOrders([]);            // 清空 orders 表
@@ -593,6 +597,12 @@ async function exportFullBackup(){
     if(msg0){ msg0.className = 'msg error'; msg0.textContent = t('warnBatchBackupReadFailed'); }
     return;   // 寧可不產生備份,也不要產生一份缺批次資料、之後還原會清掉批次的備份
   }
+  try{ if(typeof psExportForBackup === 'function') backup.priceData = await psExportForBackup(); }
+  catch(e){
+    console.error('匯出備份:讀取 Price Setting / 售價紀錄失敗', e);
+    if(msg0){ msg0.className = 'msg error'; msg0.textContent = t('warnPriceBackupReadFailed'); }
+    return;
+  }
   const filename = `stock_ledger_backup_${todayISO()}.json`;
   const content = JSON.stringify(backup, null, 2);
   const msg = document.getElementById('backupMsg');
@@ -673,6 +683,7 @@ function importFullBackup(){
         await restoreQuickListsFromBackup(backup);
         const forecastRestoreOk = await restoreForecastDataFromBackup(backup);
         const batchRes = await batchRestoreFromBackup(backup);
+        try{ if(typeof psRestoreFromBackup === 'function') await psRestoreFromBackup(backup); }catch(e){ console.error('還原 Price Setting / 售價紀錄失敗', e); }
         await locationLogReplace(locationLogRowsFromBackup(backup));   // 庫存分布紀錄一起還原(舊備份沒有 = 清空)
         // inventory_log 是稽核用途的紀錄,故意不開放前端刪除(見 clearInventoryLogTable 旁邊的
         // 說明)——還原備份的時候也一樣不整批覆蓋,只把「資料庫裡還沒有」的紀錄補進去。
