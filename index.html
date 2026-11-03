@@ -1110,7 +1110,12 @@
       </div>
       <div id="loginError" class="msg error" style="display:none;"></div>
       <button type="submit" class="btn" data-i18n="btnLogin">登入</button>
+      <button type="button" class="btn ghost" style="margin-top:10px;" onclick="showForgotPassword()" data-i18n="forgotPasswordLink">忘記密碼?</button>
     </form>
+    <div id="forgotPasswordBox" style="display:none;text-align:left;">
+      <p class="login-subtitle" data-i18n="forgotPasswordIntro">輸入你的 Email,我們會寄一封設定新密碼的連結給你。</p>
+      <div id="forgotPasswordFormHost"></div>
+    </div>
   </div>
 </div>
 
@@ -1133,7 +1138,8 @@
     </form>
     <div id="setPasswordInvalid" style="display:none;">
       <p class="login-subtitle" style="color:var(--crit);" data-i18n="setPasswordInvalid">這個連結無效、已過期或已經用過了。請請管理者重新寄出邀請信,收到新信後馬上開啟。</p>
-      <button type="button" class="btn ghost" onclick="backToSignInFromSetPassword()" data-i18n="btnBackToSignIn">回到登入頁</button>
+      <div id="setPasswordInvalidFormHost"></div>
+      <p class="login-subtitle" style="margin-top:14px;font-size:11px;" data-i18n="resetEmailLinkTip"></p>
     </div>
     <div id="setPasswordDone" style="display:none;"><p class="login-subtitle" data-i18n="setPasswordDone">密碼已設定,正在帶你進入…</p></div>
   </div>
