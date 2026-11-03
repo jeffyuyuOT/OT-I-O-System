@@ -138,7 +138,8 @@
   .supply-pane{ display:none; }
   .supply-pane.active-pane{ display:block; }
   #tab-log{ padding:16px 36px 0; }
-  #tab-log .log-select-bar{ margin:0 0 14px; }
+  #tab-log .log-select-bar, #tab-warehouse-admin .log-select-bar{ margin:0 0 14px; }
+  #tab-warehouse-admin .log-select-bar select{ font-size:17px; font-weight:700; padding:12px 16px; min-width:320px; max-width:100%; border:2px solid var(--ink); border-radius:6px; background:#fff; color:var(--ink); cursor:pointer; }
   #tab-log .log-select-bar select{ font-size:17px; font-weight:700; padding:12px 16px; min-width:320px; max-width:100%; border:2px solid var(--ink); border-radius:6px; background:#fff; color:var(--ink); cursor:pointer; }
   #tab-log .subtab-content > .section{ padding:0 0 20px; border-bottom:none; }
   #tab-log .section-title{ margin-bottom:10px; }
@@ -731,7 +732,7 @@
     .section{ padding:16px; }
     .pending-toggle-mobile{ display:flex; }
     #tab-log{ padding:12px 16px 0; }
-    #tab-log .log-select-bar select{ min-width:0; width:100%; }
+    #tab-log .log-select-bar select, #tab-warehouse-admin .log-select-bar select{ min-width:0; width:100%; }
 
     .section-title{ font-size:12px; }
 
@@ -1972,12 +1973,14 @@
 
   <div id="tab-warehouse-admin" class="tab-content">
     <div class="section">
-    <div class="subtab-bar">
-      <button class="subtab-btn active" onclick="switchWarehouseAdminSubTab('subtab-supply-list')" id="btn-subtab-supply-list" data-i18n="subtabSupplyList">供應與清單管理</button>
-      <button class="subtab-btn" onclick="switchWarehouseAdminSubTab('subtab-tx-forecast')" id="btn-subtab-tx-forecast" data-i18n="subtabTxForecast">進貨預估</button>
-      <button class="subtab-btn" onclick="switchWarehouseAdminSubTab('subtab-tx-data')" id="btn-subtab-tx-data" data-i18n="subtabTxData">資料維護</button>
-      <button class="subtab-btn" onclick="switchWarehouseAdminSubTab('subtab-purchase-mgmt-ocrdb')" id="btn-subtab-purchase-mgmt-ocrdb" data-i18n="secReceiptOcrDb">掃描收據數據庫</button>
-      <button class="subtab-btn" onclick="switchWarehouseAdminSubTab('subtab-price-setting')" id="btn-subtab-price-setting">Price Setting</button>
+    <div class="log-select-bar" id="warehouseAdminSelectBar">
+      <select id="warehouseAdminSubtabSelect" onchange="switchWarehouseAdminSubTab(this.value)">
+        <option value="subtab-supply-list" data-i18n="subtabSupplyList">供應與清單管理</option>
+        <option value="subtab-tx-forecast" data-i18n="subtabTxForecast">進貨預估</option>
+        <option value="subtab-tx-data" data-i18n="subtabTxData">資料維護</option>
+        <option value="subtab-purchase-mgmt-ocrdb" data-i18n="secReceiptOcrDb">掃描收據數據庫</option>
+        <option value="subtab-price-setting" data-i18n="subtabPriceSetting">Price Setting</option>
+      </select>
     </div>
 
     <div id="subtab-supply-list" class="subtab-content active-subtab">
@@ -2410,7 +2413,7 @@
     <div id="subtab-log-pricerec" class="subtab-content">
       <div class="section">
         <div class="toolbar">
-          <div class="section-title" style="margin:0;">Price record</div>
+          <div class="section-title" style="margin:0;" data-i18n="subtabLogPriceRecord">Price record</div>
         </div>
         <p style="font-size:12.5px;color:var(--ink-soft);margin:0 0 12px;" data-i18n="priceRecordDesc">每次在 Price Setting 按儲存(或在批次詳細資料儲存 margin 覆蓋 Price Setting 價格)都會留一筆紀錄,點進去可以看當時所有商品的 Sell price、成本價與 margin。</p>
         <div id="priceRecordRoot"></div>

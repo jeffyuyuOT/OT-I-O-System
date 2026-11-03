@@ -18,6 +18,8 @@ let spSellBasis = 'batch';
 let spWarnMarginPct = 0;
 // Price Setting 的價格:{ 商品id: 售價 }(app_data 'priceSettings')
 let spPriceMap = {};
+// Price Setting 依據下,手動輸入過 margin 的批次:{ 批次id: margin% }(app_data 'batchMarginManual');沒在這裡的批次 margin 一律顯示空白
+let spManualMargins = {};
 
 async function loadSellPriceSettings(){
   try{
@@ -42,6 +44,14 @@ async function loadSellPriceSettings(){
   try{
     const r = await dbGet('sellPriceBasis');
     if(r && ['batch', 'setting'].includes(String(r.value))) spSellBasis = String(r.value);
+  } catch(e){}
+  try{
+    const r = await dbGet('batchMarginManual');
+    const m = r && r.value ? JSON.parse(r.value) : null;
+    if(m && typeof m === 'object' && !Array.isArray(m)){
+      spManualMargins = {};
+      Object.keys(m).forEach(k => { const v = Number(m[k]); if(Number.isFinite(v)) spManualMargins[k] = v; });
+    }
   } catch(e){}
   try{
     const r = await dbGet('priceSettings');
@@ -73,9 +83,12 @@ function spExportEnabled(){ return (spSellPriceMode === 'export' || spSellPriceM
 function spRound2(n){ return Math.round((Number(n) + Number.EPSILON) * 100) / 100; }
 // 批次的 margin:依批次成本計價時,沒設定過就用系統預設 margin;依 Price Setting 計價時,沒手動輸入過就是 null(顯示空白)
 function spMarginOf(item){
+  if(spIsSettingBasis()){
+    const v = item ? spManualMargins[item.batchId] : undefined;
+    return (v === undefined || v === null || !Number.isFinite(Number(v))) ? null : Number(v);
+  }
   const m = item && item.marginPct;
-  if(m === null || m === undefined || !Number.isFinite(Number(m))) return spIsSettingBasis() ? null : spDefaultMarginPct;
-  return Number(m);
+  return (m === null || m === undefined || !Number.isFinite(Number(m))) ? spDefaultMarginPct : Number(m);
 }
 // 這個批次商品行的 Total price(單價)/ Sell price(單價);沒有成本資料回傳 null
 function spTotalUnit(item){
@@ -470,22 +483,32 @@ async function spSaveBatchMarginFromModal(batchId){
     await spSaveBatchMargin(batchId, v);
     return;
   }
-  // 依 Price Setting 計價:這個批次的 margin 會覆蓋 Price Setting 裡這個批次商品的售價,先確認
-  const affected = batchData.items.filter(i => i.batchId === batchId && !i.isOpening && spTotalUnit(i) !== null);
-  if(affected.length === 0){ showInfoModal(t('spBatchMarginNoCost')); return; }
-  showConfirmModal(t('spBatchMarginOverwrite') + '\n' + tf('spBatchMarginOverwriteN', { n: affected.length }), async () => {
+  // 依 Price Setting 計價:只有「正在出貨」的批次,margin 才會覆蓋 Price Setting 的價格(先確認);
+  // 還沒輪到的批次只記下 margin,輪到時 Price Setting 頁會提醒。
+  const withCost = batchData.items.filter(i => i.batchId === batchId && !i.isOpening && spTotalUnit(i) !== null);
+  if(withCost.length === 0){ showInfoModal(t('spBatchMarginNoCost')); return; }
+  const cur = withCost.filter(i => { const c = (typeof psCurrentBatchItem === 'function') ? psCurrentBatchItem(i.productId) : null; return c && c.id === i.id; });
+  const doSave = async () => {
     const ov = document.getElementById('batchDetailOverlay'); if(ov) ov.remove();
     try{
-      await batchRpc('batch_set_margin', { p_batch_id: batchId, p_margin: n, p_only_if_null: false });
+      try{ await batchRpc('batch_set_margin', { p_batch_id: batchId, p_margin: n, p_only_if_null: false }); }
+      catch(e){ if(!/batch_set_margin|margin_pct/i.test((e && e.message) || '')) throw e; }   // margin_pct 欄位沒建立也不影響 Price Setting 流程
       batchData.items.forEach(i => { if(i.batchId === batchId) i.marginPct = n; });
-      const next = Object.assign({}, spPriceMap);
-      affected.forEach(i => { next[i.productId] = spRound2(spTotalUnit(i) * (1 + n / 100)); });
-      const batchNo = (affected[0] && affected[0].batchNo) || '';
-      await psSavePriceMap(next, 'batchMargin', batchNo + ' · ' + n + '%');
+      spManualMargins[batchId] = n;
+      await dbSet('batchMarginManual', JSON.stringify(spManualMargins));
+      if(cur.length > 0){
+        const next = Object.assign({}, spPriceMap);
+        cur.forEach(i => { next[i.productId] = spRound2(spTotalUnit(i) * (1 + n / 100)); });
+        await psSavePriceMap(next, 'batchMargin', (withCost[0].batchNo || '') + ' · ' + n + '%');
+      } else {
+        showInfoModal(t('spBatchMarginSavedPending'));
+      }
     } catch(e){
       console.error('儲存批次 margin / Price Setting 失敗', e);
-      showInfoModal(/batch_set_margin|margin_pct/i.test((e && e.message) || '') ? t('spMarginNeedSql') : t('spMarginSaveFailed'));
+      showInfoModal(t('spMarginSaveFailed'));
     }
     spRefreshAfterBasisChange();
-  });
+  };
+  if(cur.length === 0){ await doSave(); return; }
+  showConfirmModal(t('spBatchMarginOverwrite') + '\n' + tf('spBatchMarginOverwriteN', { n: cur.length }), doSave);
 }

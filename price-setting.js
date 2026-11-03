@@ -12,7 +12,7 @@
 // 依賴:sell-price.js、batch-tracking.js、quick-lists.js
 // ============================================================
 let psDraft = {};            // 還沒儲存的修改:{ 商品id: 數字 或 null(清空) }
-let psFilters = { cat: '', sup: '', ql: '' };
+let psFilters = { type: '', val: '' };   // 篩選方式 type:''(不篩選)/ 'cat' / 'sup' / 'ql',val = 選到的分類/供應商/快捷清單
 let psMarginInput = null;    // 頁面上 Apply margin 輸入框的值(字串);null = 用系統預設 margin
 let psPageMsg = '';          // 頁面上方的提示訊息(例如已套用到幾個商品)
 let psPageMsgType = '';
@@ -75,6 +75,7 @@ function psUsedCategories(list){
 }
 function psFilterProducts(list, f, supMap){
   let out = list;
+  f = { cat: f.type === 'cat' ? f.val : '', sup: f.type === 'sup' ? f.val : '', ql: f.type === 'ql' ? f.val : '', q: f.q || '' };
   if(f.cat) out = out.filter(p => (p.category || '未分類') === f.cat);
   if(f.sup){
     const e = (supMap || psSupplierMap()).get(String(f.sup).toLowerCase());
@@ -91,22 +92,27 @@ function psFilterProducts(list, f, supMap){
   }
   return out;
 }
+// 篩選:先用下拉選擇篩選方式(依分類 / 依供應商 / 依快捷清單),選了之後才會出現後面對應的下拉欄
 function psFilterSelectsHtml(prefix, f, supMap, list, onchangeJs){
-  const cats = psUsedCategories(list);
-  const sups = Array.from(supMap.values()).sort((a, b) => a.name.localeCompare(b.name));
-  const qls = (typeof quickLists !== 'undefined' ? quickLists : []).slice().sort((a, b) => a.name.localeCompare(b.name));
   const opt = (v, label, cur) => `<option value="${psEsc(v)}"${v === cur ? ' selected' : ''}>${psEsc(label)}</option>`;
-  return `
-    <div class="field"><label>${t('fieldFilterByCategory')}</label>
-      <select id="${prefix}Cat" onchange="${onchangeJs}">${opt('', t('catFilterAll'), f.cat)}${cats.map(c => opt(c, catLabel(c), f.cat)).join('')}</select></div>
-    <div class="field"><label>${t('psFilterSupplier')}</label>
-      <select id="${prefix}Sup" onchange="${onchangeJs}">${opt('', t('psSupplierAll'), f.sup)}${sups.map(s => opt(s.name, s.name, f.sup)).join('')}</select></div>
-    <div class="field"><label>${t('psFilterQuickList')}</label>
-      <select id="${prefix}Ql" onchange="${onchangeJs}">${opt('', t('quickListFilterAll'), f.ql)}${qls.map(q => opt(q.id, q.name, f.ql)).join('')}</select></div>`;
+  let valHtml = '';
+  if(f.type === 'cat'){
+    valHtml = `<div class="field"><label>${t('psFilterByCat')}</label><select id="${prefix}Val" onchange="${onchangeJs}">${opt('', t('catFilterAll'), f.val)}${psUsedCategories(list).map(c => opt(c, catLabel(c), f.val)).join('')}</select></div>`;
+  } else if(f.type === 'sup'){
+    const sups = Array.from(supMap.values()).sort((a, b) => a.name.localeCompare(b.name));
+    valHtml = `<div class="field"><label>${t('psFilterSupplier')}</label><select id="${prefix}Val" onchange="${onchangeJs}">${opt('', t('psSupplierAll'), f.val)}${sups.map(s => opt(s.name, s.name, f.val)).join('')}</select></div>`;
+  } else if(f.type === 'ql'){
+    const qls = (typeof quickLists !== 'undefined' ? quickLists : []).slice().sort((a, b) => a.name.localeCompare(b.name));
+    valHtml = `<div class="field"><label>${t('psFilterQuickList')}</label><select id="${prefix}Val" onchange="${onchangeJs}">${opt('', t('quickListFilterAll'), f.val)}${qls.map(q => opt(q.id, q.name, f.val)).join('')}</select></div>`;
+  }
+  return `<div class="field"><label>${t('psFilterBy')}</label>
+      <select id="${prefix}Type" onchange="${onchangeJs}">${opt('', t('psFilterNone'), f.type)}${opt('cat', t('psFilterByCat'), f.type)}${opt('sup', t('psFilterBySup'), f.type)}${opt('ql', t('psFilterByQl'), f.type)}</select></div>${valHtml}`;
 }
 function psReadFilters(prefix, f){
-  const g = id => { const el = document.getElementById(prefix + id); return el ? el.value : ''; };
-  f.cat = g('Cat'); f.sup = g('Sup'); f.ql = g('Ql');
+  const ty = document.getElementById(prefix + 'Type'), va = document.getElementById(prefix + 'Val');
+  const newType = ty ? ty.value : '';
+  if(newType !== f.type){ f.type = newType; f.val = ''; }
+  else f.val = va ? va.value : '';
 }
 
 // ---------- 儲存 Price Setting + Price record ----------
@@ -180,7 +186,7 @@ function psRenderPage(){
   const all = psAllProducts();
   const supMap = psSupplierMap();
   // 篩選條件失效(例如快捷清單被刪)就退回「全部」
-  if(psFilters.ql && !(quickLists || []).some(q => q.id === psFilters.ql)) psFilters.ql = '';
+  if(psFilters.type === 'ql' && psFilters.val && !(quickLists || []).some(q => q.id === psFilters.val)) psFilters.val = '';
   const list = psSortProducts(psFilterProducts(all, psFilters, supMap));
   const setting = spIsSettingBasis();
   const editable = psCanEdit();
@@ -200,8 +206,10 @@ function psRenderPage(){
       ? `<input type="number" min="0" step="0.01" id="psSell_${psEsc(p.id)}" value="${sell === null || sell === undefined ? '' : sell}" oninput="psOnSellInput('${psEsc(p.id)}', this.value)" style="width:100px;text-align:right;${edited ? 'background:#FFF8E1;' : ''}" />`
       : `<span>${sell === null || sell === undefined ? '–' : spMoney(sell)}</span>`;
     const costCell = ci ? (cost === null ? `<span title="${psEsc(t('psNoCostHint'))}">–</span>` : spMoney(cost)) + `<div style="font-size:10.5px;color:var(--ink-soft);">${ci.isOpening ? psEsc(t('batchOpening')) : psEsc(ci.batchNo)}</div>` : '–';
+    const bw = setting ? psBatchMarginWarn(p.id, sell) : null;
+    const bwHtml = bw ? ` <span class="batch-link" title="${psEsc(t('psBatchWarnTitle'))}" style="cursor:pointer;" onclick="psShowBatchMarginInfo('${psEsc(p.id)}')">🏷️⚠️</span>` : '';
     return `<tr>
-      <td>${psEsc(p.name || '')}${p.parentId ? ' <span style="color:var(--ink-soft);font-size:11px;">⧉</span>' : ''}<div style="font-size:10.5px;color:var(--ink-soft);">${psEsc(p.sku || '')}${p.unit ? ' · ' + psEsc(p.unit) : ''}</div></td>
+      <td>${psEsc(p.name || '')}${bwHtml}${p.parentId ? ' <span style="color:var(--ink-soft);font-size:11px;">⧉</span>' : ''}<div style="font-size:10.5px;color:var(--ink-soft);">${psEsc(p.sku || '')}${p.unit ? ' · ' + psEsc(p.unit) : ''}</div></td>
       <td class="num">${sellCell}</td>
       <td class="num">${costCell}</td>
       <td class="num" id="psMargin_${psEsc(p.id)}">${psMarginHtml(m)}</td>
@@ -227,9 +235,51 @@ function psRenderPage(){
     <div style="font-size:11.5px;color:var(--ink-soft);margin:0 0 8px;">${t('psColumnsHint')}</div>
     ${list.length === 0 ? `<div class="empty-note">${t('psNoProducts')}</div>` : `<div style="overflow-x:auto;"><table class="stock-table"><thead><tr><th>${t('lblProduct')}</th><th class="num">Sell price</th><th class="num">${t('psColCost')}</th><th class="num">Margin</th></tr></thead><tbody>${rows}</tbody></table></div>`}`;
 }
+// 這個商品正在出貨的批次有手動設定 margin,而且算出來的售價跟目前 Price Setting 的價格不同 → 回傳 { item, margin, suggested, cost }
+function psBatchMarginWarn(pid, shownSell){
+  if(!spIsSettingBasis()) return null;
+  const ci = psCostInfo(pid);
+  if(!ci || ci.cost === null || ci.isOpening) return null;
+  const m = spManualMargins[ci.item.batchId];
+  if(m === undefined || m === null) return null;
+  const suggested = spRound2(ci.cost * (1 + m / 100));
+  if(shownSell !== null && shownSell !== undefined && Math.abs(Number(shownSell) - suggested) < 0.005) return null;
+  return { item: ci.item, margin: m, suggested, cost: ci.cost };
+}
+function psShowBatchMarginInfo(pid){
+  const bw = psBatchMarginWarn(pid, psShownSell(pid, psCostInfo(pid)));
+  if(!bw) return;
+  const p = products.find(x => x.id === pid);
+  const old = document.getElementById('psBatchInfoOverlay'); if(old) old.remove();
+  const cur = psShownSell(pid, psCostInfo(pid));
+  const row = (l, v) => `<tr><td>${l}</td><td class="num">${v}</td></tr>`;
+  const ov = document.createElement('div');
+  ov.id = 'psBatchInfoOverlay'; ov.className = 'modal-overlay'; ov.style.display = 'flex'; ov.style.zIndex = '1150';
+  ov.onclick = e => { if(e.target === ov) ov.remove(); };
+  ov.innerHTML = `<div class="modal-box" style="max-width:min(420px,92vw);">
+    <div class="section-title" style="margin-top:0;">${psEsc(p ? p.name : pid)} · ${psEsc(bw.item.batchNo)}</div>
+    <p style="font-size:12.5px;margin:0 0 8px;">${t('psBatchInfoHint')}</p>
+    <table class="stock-table"><tbody>
+      ${row(t('psInfoCost'), spMoney(bw.cost))}
+      ${row(t('psInfoBatchMargin'), bw.margin + '%')}
+      ${row(t('psInfoBatchSell'), spMoney(bw.suggested))}
+      ${row(t('psInfoCurrentSell'), cur === null || cur === undefined ? '–' : spMoney(cur))}
+    </tbody></table>
+    <div class="modal-actions"><button class="btn ghost" onclick="document.getElementById('psBatchInfoOverlay').remove()">${t('btnClose')}</button>${psCanEdit() ? `<button class="btn" onclick="psApplyBatchSuggested('${psEsc(pid)}')">${t('psBtnApplySuggested')}</button>` : ''}</div>
+  </div>`;
+  document.body.appendChild(ov);
+}
+function psApplyBatchSuggested(pid){
+  const bw = psBatchMarginWarn(pid, psShownSell(pid, psCostInfo(pid)));
+  const ov = document.getElementById('psBatchInfoOverlay'); if(ov) ov.remove();
+  if(!bw || !psCanEdit()) return;
+  psDraft[pid] = bw.suggested;
+  psSetMsg(t('psSuggestedApplied'), 'ok');
+  psRenderPage();
+}
 function psSetMsg(msg, type){ psPageMsg = msg || ''; psPageMsgType = type || ''; }
 function psOnFilterChange(){ psReadFilters('psF', psFilters); psSetMsg(''); psRenderPage(); }
-function psClearFilters(){ psFilters = { cat: '', sup: '', ql: '' }; psSetMsg(''); psRenderPage(); }
+function psClearFilters(){ psFilters = { type: '', val: '' }; psSetMsg(''); psRenderPage(); }
 // 輸入 Sell price:只更新同一列的 margin 與儲存按鈕,不重畫整頁(避免輸入框失去游標)
 function psOnSellInput(pid, raw){
   const v = String(raw).trim();
@@ -347,7 +397,7 @@ async function psOpenRecord(id){
     rec = r && r.value ? JSON.parse(r.value) : null;
   }catch(e){ console.warn('讀取 Price record 失敗', e); }
   if(!rec || !Array.isArray(rec.items)){ psRecView = null; psRenderRecordList(); showInfoModal(t('psRecLoadFailed')); return; }
-  psRecView = { rec, f: { cat: '', sup: '', ql: '', q: '' } };
+  psRecView = { rec, f: { type: '', val: '', q: '' } };
   psRenderRecordDetail();
 }
 function psRecBack(){ psRecView = null; psRenderRecordList(); }
@@ -390,4 +440,52 @@ function psRenderRecordTable(){
     </tr>`;
   }).join('');
   box.innerHTML = rows ? `<div style="overflow-x:auto;"><table class="stock-table"><thead><tr><th>${t('lblProduct')}</th><th class="num">Sell price</th><th class="num">${t('psRecColCostThen')}</th><th class="num">Margin</th></tr></thead><tbody>${rows}</tbody></table></div>` : `<div class="empty-note">${t('psNoProducts')}</div>`;
+}
+
+// ============================================================
+// 備份 / 還原 / 清除全部資料
+// 備份檔的 priceData = { priceSettings, batchMarginManual, records:[完整的售價紀錄], index }
+// ============================================================
+async function psExportForBackup(){
+  const idx = await psLoadIndex(true);
+  const records = [];
+  for(const m of idx){
+    const r = await dbGet('priceRecord_' + m.id);
+    if(r && r.value){ try{ records.push(JSON.parse(r.value)); }catch(e){} }
+  }
+  return { priceSettings: spPriceMap || {}, batchMarginManual: spManualMargins || {}, index: idx, records };
+}
+async function psDeleteKeys(keys){
+  for(let i = 0; i < keys.length; i += 50){
+    const { error } = await sb.from('app_data').delete().in('key', keys.slice(i, i + 50).map(id => 'priceRecord_' + id));
+    if(error) throw error;
+  }
+}
+// 還原備份:備份檔有 priceData 才覆蓋(舊版備份沒有這個欄位,就維持目前的 Price Setting 與售價紀錄不動)
+async function psRestoreFromBackup(backup){
+  const d = backup && backup.priceData;
+  if(!d || typeof d !== 'object') return;
+  const oldIdx = await psLoadIndex(true);
+  const recs = Array.isArray(d.records) ? d.records.filter(r => r && r.id && Array.isArray(r.items)) : [];
+  const keep = new Set(recs.map(r => r.id));
+  await psDeleteKeys(oldIdx.map(m => m.id).filter(id => !keep.has(id)));
+  for(const r of recs) await dbSet('priceRecord_' + r.id, JSON.stringify(r));
+  const idx = (Array.isArray(d.index) ? d.index : []).filter(m => m && keep.has(m.id));
+  await dbSet('priceRecordIndex', JSON.stringify(idx));
+  const ps = (d.priceSettings && typeof d.priceSettings === 'object') ? d.priceSettings : {};
+  const mm = (d.batchMarginManual && typeof d.batchMarginManual === 'object') ? d.batchMarginManual : {};
+  await dbSet('priceSettings', JSON.stringify(ps));
+  await dbSet('batchMarginManual', JSON.stringify(mm));
+  psRecordIndex = idx; spPriceMap = {}; spManualMargins = {}; psDraft = {};
+  Object.keys(ps).forEach(k => { const v = Number(ps[k]); if(Number.isFinite(v) && v >= 0) spPriceMap[k] = v; });
+  Object.keys(mm).forEach(k => { const v = Number(mm[k]); if(Number.isFinite(v)) spManualMargins[k] = v; });
+}
+// 清除全部資料:Price Setting 價格、批次 margin 記錄、售價紀錄全部清空
+async function psClearAll(){
+  const idx = await psLoadIndex(true);
+  await psDeleteKeys(idx.map(m => m.id));
+  await dbSet('priceRecordIndex', '[]');
+  await dbSet('priceSettings', '{}');
+  await dbSet('batchMarginManual', '{}');
+  psRecordIndex = []; spPriceMap = {}; spManualMargins = {}; psDraft = {};
 }

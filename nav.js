@@ -382,8 +382,10 @@ function switchTab(tabId){
     // 「收據掃描數據庫」是收據掃描模組(receipt-scan-module.js,選配)的一部分——沒有這個模組的話,
     // 這個按鈕整個藏起來,理由跟上面「管理出貨方」一樣:模組沒帶,底下的功能(掃描比對記憶表)
     // 根本沒有意義存在,藏起來比留著一個點了也沒用的按鈕清楚。
-    const ocrDbBtn = document.getElementById('btn-subtab-purchase-mgmt-ocrdb');
-    if(ocrDbBtn) ocrDbBtn.style.display = hasFeature('receiptScanModule') ? '' : 'none';
+    const ocrDbOpt = document.querySelector('#warehouseAdminSubtabSelect option[value="subtab-purchase-mgmt-ocrdb"]');
+    if(ocrDbOpt) ocrDbOpt.hidden = ocrDbOpt.disabled = !hasFeature('receiptScanModule');
+    const priceOpt = document.querySelector('#warehouseAdminSubtabSelect option[value="subtab-price-setting"]');
+    if(priceOpt) priceOpt.hidden = priceOpt.disabled = !(typeof batchFeatureOn === 'function' && batchFeatureOn());
     if(!hasFeature('receiptScanModule')) switchWarehouseAdminSubTab('subtab-supply-list');
   }
   if(tabId === 'tab-master'){
@@ -455,17 +457,18 @@ function switchWarehouseAdminSubTab(subtabId){
   if(['subtab-order-parties', 'subtab-purchase-mgmt-suppliers', 'subtab-quicklist-mgmt'].includes(subtabId)){
     supplyPane = subtabId; subtabId = 'subtab-supply-list';
   }
+  // 倉庫後台管理現在跟歷史紀錄一樣用下拉選單切換(沒有子分頁按鍵列),手機版不需要「子分頁選單」這一層
   document.body.classList.remove('mobile-subtab-menu-active');
-  document.body.classList.add('mobile-subtab-content-active');
+  document.body.classList.remove('mobile-subtab-content-active');
   container.querySelectorAll('.subtab-content').forEach(el => el.classList.remove('active-subtab'));
-  container.querySelectorAll('.subtab-btn').forEach(el => el.classList.remove('active'));
+  const waSel = document.getElementById('warehouseAdminSubtabSelect');
+  if(waSel && waSel.value !== subtabId) waSel.value = subtabId;
   if(subtabId === 'subtab-supply-list') switchSupplyListPane(supplyPane);
   else if(subtabId === 'subtab-tx-forecast') renderForecastTable();
   else if(subtabId === 'subtab-tx-data'){ populateExportPartySelect(); renderExportProductList(); }
   else if(subtabId === 'subtab-purchase-mgmt-ocrdb' && hasFeature('receiptScanModule')) renderOcrDbProductSelect();
   else if(subtabId === 'subtab-price-setting' && typeof psOpenPage === 'function') psOpenPage();
   document.getElementById(subtabId).classList.add('active-subtab');
-  document.getElementById('btn-' + subtabId).classList.add('active');
 }
 
 // 「供應與清單管理」下拉選單:出貨方 / 進貨方 / 快捷清單。沒有「管理出貨方」權限就不能選出貨方。
