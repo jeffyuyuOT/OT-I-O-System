@@ -169,6 +169,12 @@ function showUploadFileHelp(){
   </div>`;
   document.body.appendChild(ov);
 }
+// 標題旁那個標準的 i 按鈕(nav.js initTitleHints 產生)改成點了跳出說明視窗,不展開下面的說明段落
+(function bindUploadFileHelpButton(){
+  const title = document.getElementById('uploadFileTitle');
+  const btn = title && title.querySelector('.title-hint-btn');
+  if(btn) btn.onclick = showUploadFileHelp;
+})();
 function isPriceImportFile(file){ return /^\s*(pricing[_\- ]?management|price[_\- ]?setting)/i.test((file && file.name) || ''); }
 // 下載匯入範本:依「資料維護 → 匯入資料」的下拉選擇下載商品主檔範本或 Price setting 範本
 function downloadImportTemplate(){
