@@ -147,6 +147,7 @@ function spShowPricePopup(itemId){
       ${row('Sell price', spMoney(sellNow), true)}
     </tbody></table>
     <p style="font-size:11.5px;color:var(--ink-soft);margin:8px 0 0;">${settingBasis ? t('spPopupNoteSetting') : 'Sell price = Total price × (1 + Margin%)'}</p>
+    ${(i.isOpening && total !== null) ? `<p style="font-size:11.5px;color:var(--warn-dark,#b45309);margin:8px 0 0;">${t('psEstCostInfo')}</p>` : ''}
     <div class="modal-actions"><button class="btn ghost" onclick="document.getElementById('spPriceOverlay').remove()">${t('btnClose')}</button></div>
   </div>`;
   document.body.appendChild(ov);

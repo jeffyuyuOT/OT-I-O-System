@@ -41,6 +41,25 @@ function psCostInfo(pid){
   if(!it) return null;
   return { cost: spTotalUnit(it), batchNo: it.batchNo, isOpening: !!it.isOpening, item: it };
 }
+// 成本價:一般 = 正在出貨批次的 Total price;如果正在出貨的是「Opening Price 匯入」建立的期初批次(期初批次而且有成本),
+// 成本 = 目前 Sell price ÷ 1.2(推算值,不是進貨單算出來的實際成本),est = true 用來標註圖示。顯示一律到小數點第二位。
+function psEffCost(ci, sell){
+  if(!ci) return { cost: null, est: false };
+  if(ci.isOpening && ci.cost !== null){
+    const base = (sell !== null && sell !== undefined) ? Number(sell) / 1.2 : ci.cost;
+    return { cost: spRound2(base), est: true };
+  }
+  return { cost: ci.cost, est: false };
+}
+function psMarginFor(sell, eff){
+  if(eff.est && sell !== null && sell !== undefined) return 20;   // 1.2 = 1 + 20%
+  return psMarginOf(sell, eff.cost);
+}
+function psEstIconHtml(){
+  return ` <span class="batch-link" title="${psEsc(t('psEstCostTitle'))}" style="cursor:pointer;" onclick="psShowEstCostInfo()">ⓘ</span>`;
+}
+function psShowEstCostInfo(){ showInfoModal(t('psEstCostInfo')); }
+function psFmt2(n){ return (n === null || n === undefined) ? '–' : spMoney(spRound2(n)); }
 function psMarginOf(sell, cost){
   if(sell === null || sell === undefined || cost === null || cost === undefined) return null;
   if(!(Number(cost) > 0)) return null;
@@ -124,9 +143,12 @@ function psBuildRecord(map, source, note){
   psAllProducts().forEach(p => {
     const s = (map[p.id] === undefined || map[p.id] === null) ? null : Number(map[p.id]);
     const ci = psCostInfo(p.id);
-    const k = ci && ci.cost !== null ? ci.cost : null;
+    const eff = psEffCost(ci, s);
+    const k = eff.cost !== null ? eff.cost : null;
     if(s === null && k === null) return;
-    items.push({ p: p.id, n: p.name || '', u: p.unit || '', c: p.category || '未分類', s, k, b: ci ? ci.batchNo : '' });
+    const it = { p: p.id, n: p.name || '', u: p.unit || '', c: p.category || '未分類', s, k, b: ci ? ci.batchNo : '' };
+    if(eff.est) it.e = 1;      // 成本是期初匯入推算的(Sell price ÷ 1.2)
+    items.push(it);
   });
   return { id: genId(), ts: new Date().toISOString(), by: psWho(), source: source || 'manual', note: note || '', items };
 }
@@ -198,14 +220,15 @@ function psRenderPage(){
 
   const rows = list.map(p => {
     const ci = psCostInfo(p.id);
-    const cost = ci ? ci.cost : null;
     const sell = psShownSell(p.id, ci);
-    const m = psMarginOf(sell, cost);
+    const eff = psEffCost(ci, sell);
+    const cost = eff.cost;
+    const m = psMarginFor(sell, eff);
     const edited = setting && Object.prototype.hasOwnProperty.call(psDraft, p.id) && (psDraft[p.id] === undefined ? null : psDraft[p.id]) !== psSavedSell(p.id);
     const sellCell = (setting && editable)
-      ? `<input type="number" min="0" step="0.01" id="psSell_${psEsc(p.id)}" value="${sell === null || sell === undefined ? '' : sell}" oninput="psOnSellInput('${psEsc(p.id)}', this.value)" style="width:100px;text-align:right;${edited ? 'background:#FFF8E1;' : ''}" />`
-      : `<span>${sell === null || sell === undefined ? '–' : spMoney(sell)}</span>`;
-    const costCell = ci ? (cost === null ? `<span title="${psEsc(t('psNoCostHint'))}">–</span>` : spMoney(cost)) + `<div style="font-size:10.5px;color:var(--ink-soft);">${ci.isOpening ? psEsc(t('batchOpening')) : psEsc(ci.batchNo)}</div>` : '–';
+      ? `<input type="number" min="0" step="0.01" id="psSell_${psEsc(p.id)}" value="${sell === null || sell === undefined ? '' : Number(sell).toFixed(2)}" oninput="psOnSellInput('${psEsc(p.id)}', this.value)" style="width:100px;text-align:right;${edited ? 'background:#FFF8E1;' : ''}" />`
+      : `<span>${psFmt2(sell)}</span>`;
+    const costCell = `<span id="psCostVal_${psEsc(p.id)}">${ci ? (cost === null ? `<span title="${psEsc(t('psNoCostHint'))}">–</span>` : psFmt2(cost) + (eff.est ? psEstIconHtml() : '')) : '–'}</span>` + (ci ? `<div style="font-size:10.5px;color:var(--ink-soft);">${ci.isOpening ? psEsc(t('batchOpening')) : psEsc(ci.batchNo)}</div>` : '');
     const bw = setting ? psBatchMarginWarn(p.id, sell) : null;
     const bwHtml = bw ? ` <span class="batch-link" title="${psEsc(t('psBatchWarnTitle'))}" style="cursor:pointer;" onclick="psShowBatchMarginInfo('${psEsc(p.id)}')">🏷️⚠️</span>` : '';
     return `<tr>
@@ -288,8 +311,11 @@ function psOnSellInput(pid, raw){
   else if(Number.isFinite(n) && n >= 0) psDraft[pid] = n;
   else return;
   const ci = psCostInfo(pid);
+  const eff = psEffCost(ci, psDraft[pid]);
   const cell = document.getElementById('psMargin_' + pid);
-  if(cell) cell.innerHTML = psMarginHtml(psMarginOf(psDraft[pid], ci ? ci.cost : null));
+  if(cell) cell.innerHTML = psMarginHtml(psMarginFor(psDraft[pid], eff));
+  const cc = document.getElementById('psCostVal_' + pid);
+  if(cc && eff.est) cc.innerHTML = (eff.cost === null ? '–' : psFmt2(eff.cost)) + psEstIconHtml();
   const dirty = Object.keys(psDraft).filter(k => (psDraft[k] === undefined ? null : psDraft[k]) !== psSavedSell(k)).length;
   const sb2 = document.getElementById('psSaveBtn'), db2 = document.getElementById('psDiscardBtn');
   if(sb2){ sb2.disabled = dirty === 0; sb2.textContent = t('btnSave') + (dirty > 0 ? ' (' + dirty + ')' : ''); }
@@ -308,7 +334,7 @@ function psApplyMargin(){
   let done = 0, skipped = 0;
   list.forEach(p => {
     const ci = psCostInfo(p.id);
-    if(!ci || ci.cost === null || !(ci.cost > 0)){ skipped++; return; }
+    if(!ci || ci.isOpening || ci.cost === null || !(ci.cost > 0)){ skipped++; return; }
     psDraft[p.id] = spRound2(ci.cost * (1 + m / 100));
     done++;
   });
@@ -351,7 +377,7 @@ async function psOpenRecordList(){
   await psLoadIndex(true);
   psRenderRecordList();
 }
-function psSourceLabel(r){ return r.source === 'batchMargin' ? t('psRecBatchMargin') : (r.source === 'import' ? t('psRecImport') : t('psRecManual')); }
+function psSourceLabel(r){ return r.source === 'batchMargin' ? t('psRecBatchMargin') : (r.source === 'openingImport' ? t('psRecOpeningImport') : (r.source === 'import' ? t('psRecImport') : t('psRecManual'))); }
 function psFmtTime(iso){
   const d = new Date(iso); if(isNaN(d)) return '';
   const pad = n => String(n).padStart(2, '0');
@@ -431,11 +457,11 @@ function psRenderRecordTable(){
   const order = (typeof categoryOrder !== 'undefined' && Array.isArray(categoryOrder)) ? categoryOrder : [];
   const idx = c => { const k = order.indexOf(c || '未分類'); return k === -1 ? 9999 : k; };
   const rows = items.filter(i => keep.has(i.p)).sort((a, b) => (idx(a.c) - idx(b.c)) || String(a.n).localeCompare(String(b.n))).map(i => {
-    const m = psMarginOf(i.s, i.k);
+    const m = i.e && i.s !== null && i.s !== undefined ? 20 : psMarginOf(i.s, i.k);
     return `<tr>
       <td>${psEsc(i.n)}<div style="font-size:10.5px;color:var(--ink-soft);">${psEsc(catLabel(i.c || '未分類'))}${i.u ? ' · ' + psEsc(i.u) : ''}</div></td>
-      <td class="num">${i.s === null || i.s === undefined ? '–' : spMoney(i.s)}</td>
-      <td class="num">${i.k === null || i.k === undefined ? '–' : spMoney(i.k)}${i.b ? `<div style="font-size:10.5px;color:var(--ink-soft);">${psEsc(i.b)}</div>` : ''}</td>
+      <td class="num">${psFmt2(i.s)}</td>
+      <td class="num">${i.k === null || i.k === undefined ? '–' : psFmt2(i.k)}${i.e ? psEstIconHtml() : ''}${i.b ? `<div style="font-size:10.5px;color:var(--ink-soft);">${psEsc(i.b)}</div>` : ''}</td>
       <td class="num">${psMarginHtml(m)}</td>
     </tr>`;
   }).join('');
@@ -556,10 +582,38 @@ async function psImportFiles(files){
       updates[p.id] = spRound2(n); okRows++;
     }
   }
-  const changed = Object.keys(updates).filter(pid => spSettingPrice(pid) !== updates[pid]);
   const problemText = problems.length ? '\n' + problems.slice(0, 15).join('\n') + (problems.length > 15 ? '\n… (+' + (problems.length - 15) + ')' : '') : '';
-  if(changed.length === 0){ say(t('psImportNothing') + problemText, problems.length ? 'error' : ''); return; }
+  const valid = Object.keys(updates);
+  if(valid.length === 0){ say(t('psImportNothing') + problemText, problems.length ? 'error' : ''); return; }
   say('');
+  // 先選匯入方式:Price update(照原本邏輯更新價格)/ Opening Price(期初價格:建立期初批次並載入 Sell price)
+  psAskImportMode(valid.length, mode => {
+    if(mode === 'opening') psConfirmOpeningImport(files, updates, problems, problemText, say);
+    else psConfirmUpdateImport(files, updates, problems, problemText, say);
+  });
+}
+function psAskImportMode(n, onPick){
+  const old = document.getElementById('psImportModeOverlay'); if(old) old.remove();
+  const ov = document.createElement('div');
+  ov.id = 'psImportModeOverlay'; ov.className = 'modal-overlay'; ov.style.display = 'flex'; ov.style.zIndex = '1150';
+  window._psPickImportMode = m => { ov.remove(); onPick(m); };
+  ov.innerHTML = `<div class="modal-box" style="max-width:min(460px,92vw);">
+    <div class="section-title" style="margin-top:0;">${t('psImportModeTitle')}</div>
+    <p style="font-size:12.5px;margin:0 0 10px;">${tf('psImportModeHint', { n })}</p>
+    <div style="display:flex;flex-direction:column;gap:10px;">
+      <button class="btn" onclick="_psPickImportMode('update')">Price Update</button>
+      <div style="font-size:11.5px;color:var(--ink-soft);margin:-4px 0 4px;">${t('psImportModeUpdateHint')}</div>
+      <button class="btn" onclick="_psPickImportMode('opening')">Opening Price</button>
+      <div style="font-size:11.5px;color:var(--ink-soft);margin:-4px 0 0;">${t('psImportModeOpeningHint')}</div>
+    </div>
+    <div class="modal-actions"><button class="btn ghost" onclick="document.getElementById('psImportModeOverlay').remove()">${t('btnCancel')}</button></div>
+  </div>`;
+  document.body.appendChild(ov);
+}
+// Price Update:有填價格而且跟目前不同的商品,覆蓋 Price Setting 的價格
+function psConfirmUpdateImport(files, updates, problems, problemText, say){
+  const changed = Object.keys(updates).filter(pid => spSettingPrice(pid) !== updates[pid]);
+  if(changed.length === 0){ say(t('psImportNothing') + problemText, problems.length ? 'error' : ''); return; }
   showConfirmModal(tf('psImportConfirm', { n: changed.length, skipped: problems.length }) + (spIsSettingBasis() ? '' : '\n\n' + t('psImportBasisNote')), async () => {
     try{
       const next = Object.assign({}, spPriceMap);
@@ -569,5 +623,28 @@ async function psImportFiles(files){
       try{ if(typeof psRenderPage === 'function') psRenderPage(); }catch(e){}
       try{ if(typeof renderAll === 'function') renderAll(); }catch(e){}
     }catch(e){ console.error('匯入 Price setting 失敗', e); say(t('spMarginSaveFailed'), 'error'); }
+  });
+}
+// Opening Price:有價格的商品放進批次追蹤的期初批次(用目前庫存),期初批次成本 = 價格 ÷ 1.2、margin 20%(Sell price = 匯入的價格),
+// 同時把價格寫進 Price Setting。需要先執行 sql/batch_import_opening.sql。
+function psConfirmOpeningImport(files, updates, problems, problemText, say){
+  if(typeof batchActive !== 'function' || !batchActive()){ say(t('psFeatureOff'), 'error'); return; }
+  const ids = Object.keys(updates);
+  showConfirmModal(tf('psOpeningConfirm', { n: ids.length, skipped: problems.length }), async () => {
+    try{
+      const rows = ids.map(pid => ({ product_id: pid, price: updates[pid] }));
+      const res = await batchRpc('batch_import_opening', { p_rows: rows }) || {};
+      const next = Object.assign({}, spPriceMap);
+      ids.forEach(pid => { next[pid] = updates[pid]; });
+      await psSavePriceMap(next, 'openingImport', files.map(f => f.name).join(', '));
+      try{ batchMarkStale(); await ensureBatchDataLoaded(); }catch(e){}
+      say(tf('psOpeningDone', { n: ids.length, created: res.created || 0, updated: res.updated || 0, tracked: res.skipped_tracked || 0, nostock: res.skipped_no_stock || 0 }) + problemText, 'ok');
+      try{ if(typeof psRenderPage === 'function') psRenderPage(); }catch(e){}
+      try{ if(typeof renderBatchTracker === 'function' && document.getElementById('batchTrackerRoot')) renderBatchTracker(); }catch(e){}
+      try{ if(typeof renderAll === 'function') renderAll(); }catch(e){}
+    }catch(e){
+      console.error('Opening Price 匯入失敗', e);
+      say(batchIsMissingFunctionError(e) ? t('psOpeningNeedSql') : t('spMarginSaveFailed'), 'error');
+    }
   });
 }

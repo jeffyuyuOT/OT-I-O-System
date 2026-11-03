@@ -43,6 +43,16 @@ function getSubTabBar(tabId){
   const container = document.getElementById(tabId);
   return container ? container.querySelector('.subtab-bar') : null;
 }
+// 用下拉選單切換子分頁的主分頁(歷史紀錄、倉庫後台管理):沒有 .subtab-bar,改抓它的下拉選單,
+// 每個 <option> 當一個子分頁,key = 'opt:' + option 的 value。
+function getSubTabSelect(tabId){
+  const container = document.getElementById(tabId);
+  if(!container || container.querySelector('.subtab-bar')) return null;
+  return container.querySelector('.log-select-bar > select');
+}
+function getSelectSubTabItems(sel){
+  return Array.from(sel.options).map(o => ({ key: 'opt:' + o.value, el: o, opt: o }));
+}
 
 // 子分頁列裡的每一個項目(按鈕本身,或像「待處理訂單」那樣外面包了一層 span 的情況)
 function getSubTabBarItems(bar){
@@ -58,35 +68,59 @@ function getSubTabLabel(btn){
   const key = btn.getAttribute('data-i18n');
   return key ? t(key) : btn.textContent.trim();
 }
+// 排序面板用:依 key 找出子分頁(按鈕或下拉選項)顯示的名稱;找不到回傳 null
+function getSubTabLabelByKey(key){
+  if(String(key).startsWith('opt:')){
+    const v = key.slice(4);
+    const opt = Array.from(document.querySelectorAll('.log-select-bar > select option')).find(o => o.value === v);
+    if(!opt) return null;
+    const k = opt.getAttribute('data-i18n');
+    return k ? t(k) : opt.textContent.trim();
+  }
+  const btn = document.getElementById(key);
+  return btn ? getSubTabLabel(btn) : null;
+}
 
-// 目前畫面上某個主分頁的子分頁順序(按鈕 id 陣列);沒有子分頁的主分頁回傳空陣列。
+// 目前畫面上某個主分頁的子分頁順序(按鈕 id 或 'opt:value' 陣列);沒有子分頁的主分頁回傳空陣列。
 function getCurrentSubTabKeys(tabId){
   const bar = getSubTabBar(tabId);
-  return bar ? getSubTabBarItems(bar).map(i => i.key) : [];
+  if(bar) return getSubTabBarItems(bar).map(i => i.key);
+  const sel = getSubTabSelect(tabId);
+  return sel ? getSelectSubTabItems(sel).map(i => i.key) : [];
+}
+
+function orderSubTabItems(items, saved){
+  const byKey = new Map(items.map(i => [i.key, i]));
+  const ordered = [];
+  saved.forEach(k => { if(byKey.has(k)){ ordered.push(byKey.get(k)); byKey.delete(k); } });
+  // 存檔裡沒有的(後來新增的子分頁):插在它原本(預設順序)前一個子分頁的後面,而不是全部堆在最後面
+  items.forEach((i, idx) => {
+    if(!byKey.has(i.key)) return;
+    let insertAt = 0;
+    for(let j = idx - 1; j >= 0; j--){
+      const pos = ordered.findIndex(o => o.key === items[j].key);
+      if(pos !== -1){ insertAt = pos + 1; break; }
+    }
+    ordered.splice(insertAt, 0, i);
+  });
+  return ordered;
 }
 
 function applySubTabOrder(){
   TAB_DEFS.forEach(def => {
-    const bar = getSubTabBar(def.id);
-    if(!bar) return;
     const saved = Array.isArray(subTabOrder[def.id]) ? subTabOrder[def.id] : [];
     if(saved.length === 0) return;
-    const items = getSubTabBarItems(bar);
-    const byKey = new Map(items.map(i => [i.key, i]));
-    const ordered = [];
-    saved.forEach(k => { if(byKey.has(k)){ ordered.push(byKey.get(k)); byKey.delete(k); } });
-    // 存檔裡沒有的(後來新增的子分頁):插在它原本(預設順序)前一個子分頁的後面,而不是全部堆在最後面——
-    // 例如「進貨預估紀錄」會跟在「進貨預估」後面,即使使用者之前已經存過自訂的子分頁順序。
-    items.forEach((i, idx) => {
-      if(!byKey.has(i.key)) return;
-      let insertAt = 0;
-      for(let j = idx - 1; j >= 0; j--){
-        const pos = ordered.findIndex(o => o.key === items[j].key);
-        if(pos !== -1){ insertAt = pos + 1; break; }
-      }
-      ordered.splice(insertAt, 0, i);
-    });
-    ordered.forEach(i => bar.appendChild(i.el));
+    const bar = getSubTabBar(def.id);
+    if(bar){
+      orderSubTabItems(getSubTabBarItems(bar), saved).forEach(i => bar.appendChild(i.el));
+      return;
+    }
+    const sel = getSubTabSelect(def.id);
+    if(sel){
+      const cur = sel.value;
+      orderSubTabItems(getSelectSubTabItems(sel), saved).forEach(i => sel.appendChild(i.el));
+      sel.value = cur;
+    }
   });
 }
 
@@ -132,11 +166,11 @@ function renderTabOrderPanel(){
         const subRows = expanded ? `
           <div style="margin:0 0 10px 18px;padding-left:10px;border-left:3px solid var(--yellow);">
             ${subKeys.map((key, si) => {
-              const btn = document.getElementById(key);
-              if(!btn) return '';
+              const subLabel = getSubTabLabelByKey(key);
+              if(subLabel === null) return '';
               return `
               <div class="cat-order-row">
-                <span class="cat-order-name">${escapeHtmlText(getSubTabLabel(btn))}</span>
+                <span class="cat-order-name">${escapeHtmlText(subLabel)}</span>
                 <button onclick="moveSubTabOrderDraft('${id}', ${si}, -1)" ${si === 0 ? 'disabled' : ''} title="${t('titleMoveUp')}">↑</button>
                 <button onclick="moveSubTabOrderDraft('${id}', ${si}, 1)" ${si === subKeys.length - 1 ? 'disabled' : ''} title="${t('titleMoveDown')}">↓</button>
               </div>`;

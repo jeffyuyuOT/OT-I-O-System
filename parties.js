@@ -177,8 +177,30 @@ function partyGoNewOrder(partyId){
   setTxOutFlowType('new-order');
   if(ps) ps.value = partyId;
 }
-// 「訂購紀錄」:跳到 歷史紀錄 → 已完成訂單,自動篩選這個出貨方
+// 「訂購紀錄」:先選 By Invoice(跳到 歷史紀錄 → 已完成訂單)或 By Item(跳到 歷史紀錄 → 進出貨紀錄),
+// 兩邊都自動篩選這個出貨方
 function partyGoOrderHistory(partyId){
+  if(!partyTabAllowed('tab-log')) return;
+  const old = document.getElementById('partyHistoryChoiceOverlay'); if(old) old.remove();
+  const sp = shippingParties.find(x => x.id === partyId);
+  const ov = document.createElement('div');
+  ov.id = 'partyHistoryChoiceOverlay'; ov.className = 'modal-overlay'; ov.style.display = 'flex'; ov.style.zIndex = '1150';
+  ov.onclick = e => { if(e.target === ov) ov.remove(); };
+  const esc = x => String(x == null ? '' : x).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  ov.innerHTML = `<div class="modal-box" style="max-width:min(420px,92vw);">
+    <div class="section-title" style="margin-top:0;">${esc(sp ? sp.name : '')} · ${t('btnPartyOrderHistory')}</div>
+    <div style="display:flex;flex-direction:column;gap:10px;margin-top:6px;">
+      <button class="btn" onclick="document.getElementById('partyHistoryChoiceOverlay').remove();partyGoOrderHistoryInvoice('${esc(partyId)}')">By Invoice</button>
+      <div style="font-size:11.5px;color:var(--ink-soft);margin:-4px 0 4px;">${t('partyHistoryInvoiceHint')}</div>
+      <button class="btn" onclick="document.getElementById('partyHistoryChoiceOverlay').remove();partyGoOrderHistoryItem('${esc(partyId)}')">By Item</button>
+      <div style="font-size:11.5px;color:var(--ink-soft);margin:-4px 0 0;">${t('partyHistoryItemHint')}</div>
+    </div>
+    <div class="modal-actions"><button class="btn ghost" onclick="document.getElementById('partyHistoryChoiceOverlay').remove()">${t('btnCancel')}</button></div>
+  </div>`;
+  document.body.appendChild(ov);
+}
+// By Invoice:歷史紀錄 → 已完成訂單,篩選這個出貨方
+function partyGoOrderHistoryInvoice(partyId){
   if(!partyTabAllowed('tab-log')) return;
   switchTab('tab-log');
   switchLogSubTab('subtab-log-completed');
@@ -187,6 +209,24 @@ function partyGoOrderHistory(partyId){
   const from = document.getElementById('completedOrderDateFrom'), to = document.getElementById('completedOrderDateTo');
   if(from) from.value = ''; if(to) to.value = '';
   renderOrders();
+}
+// By Item:歷史紀錄 → 進出貨紀錄,對象篩選這個出貨方(日期範圍清空,載入全部紀錄)
+async function partyGoOrderHistoryItem(partyId){
+  if(!partyTabAllowed('tab-log')) return;
+  const sp = shippingParties.find(x => x.id === partyId);
+  if(!sp) return;
+  switchTab('tab-log');
+  switchLogSubTab('subtab-log-tx');
+  const set = (id, v) => { const el = document.getElementById(id); if(el) el.value = v; };
+  set('logFilter', ''); set('logCategoryFilter', ''); set('logTypeFilter', ''); set('logDateFrom', ''); set('logDateTo', '');
+  try{ await ensureTransactionsLoadedFrom(''); }catch(e){}
+  renderLog();                                   // 先重畫一次,對象下拉選單才有這個出貨方的選項
+  const sel = document.getElementById('logPartyFilter');
+  const name = (sp.name || '').trim();
+  const has = sel && Array.from(sel.options).some(o => o.value === name);
+  if(!has){ showInfoModal(t('partyNoItemRecords')); return; }
+  sel.value = name;
+  renderLog();
 }
 
 function deleteParty(id){
