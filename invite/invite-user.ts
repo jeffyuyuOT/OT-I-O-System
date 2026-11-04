@@ -139,7 +139,7 @@ Deno.serve(async (req) => {
         if (!clash) break;
         username = base + i;
       }
-      const role = ["admin", "order", "inventory"].includes(body.role) ? body.role : "order";
+      const role = ["admin", "accountant", "order", "inventory"].includes(body.role) ? body.role : "order";
       const { data: created, error: createErr } = await admin.auth.admin.createUser({
         email,
         email_confirm: false,

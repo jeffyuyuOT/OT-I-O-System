@@ -633,15 +633,18 @@ function refreshOrderLists(){
 // 訂單卡片裡單一品項那一列的 HTML,「待處理訂單」跟「已完成訂單」共用:isPending=true 時用
 // 待處理專用的刪除/改數量流程(不動進出貨紀錄,因為都還沒扣庫存),isPending=false 時維持原本
 // 「未出庫/已出庫」那套(因為已經扣過庫存、有真的出貨紀錄要處理)。
+// 品項備註:接在商品名稱後面,用斜體、淡色顯示(跟商品名稱區別)
+function orderItemNoteInline(it){
+  return it && it.note ? ` <i style="font-size:11.5px;color:var(--ink-soft);font-weight:400;">${String(it.note).replace(/&/g,'&amp;').replace(/</g,'&lt;')}</i>` : '';
+}
 function orderItemRowHtml(o, it, isPending, readOnly, context){
   context = context || 'default';
   if(it.deleted){
     const label = isPending ? t('itemDeletedLabelPending') : (it.deleteStockStatus === 'stocked_out' ? t('itemDeletedLabelStockedOut') : t('itemDeletedLabel'));
     return `
       <div>
-        <span style="text-decoration:line-through;color:var(--ink-soft);">${it.sku ? `<span class="sku-tooltip-trigger" data-sku="${it.sku.replace(/"/g,'&quot;')}">${it.name}</span>` : it.name}</span>
+        <span style="text-decoration:line-through;color:var(--ink-soft);">${it.sku ? `<span class="sku-tooltip-trigger" data-sku="${it.sku.replace(/"/g,'&quot;')}">${it.name}</span>` : it.name}</span>${orderItemNoteInline(it)}
         <span style="color:var(--ink-soft);">${it.qty} ${it.unit} · <span style="color:var(--crit);">${label}</span></span>
-        ${it.note ? `<div style="font-size:11px;color:var(--ink-soft);font-style:italic;">${t('noteLabelPrefix')}${it.note.replace(/</g,'&lt;')}</div>` : ''}
       </div>
     `;
   }
@@ -658,7 +661,7 @@ function orderItemRowHtml(o, it, isPending, readOnly, context){
   if(isEditingQty){
     return `
       <div>
-        <span>${it.sku ? `<span class="sku-tooltip-trigger" data-sku="${it.sku.replace(/"/g,'&quot;')}">${it.name}</span>` : it.name}</span>
+        <span>${it.sku ? `<span class="sku-tooltip-trigger" data-sku="${it.sku.replace(/"/g,'&quot;')}">${it.name}</span>` : it.name}${orderItemNoteInline(it)}</span>
         <span>
           <input type="number" id="orderItemQtyInput_${context}_${o.id}_${it.productId}" value="${it.qty}" ${isPending ? 'min="0"' : ''} step="1"
             style="width:70px;font-family:inherit;font-size:inherit;" />
@@ -686,9 +689,8 @@ function orderItemRowHtml(o, it, isPending, readOnly, context){
   const actionLinks = `${canEdit ? `<span class="del-link" style="margin-left:8px;" onclick="startEditOrderItemQty('${context}','${o.id}','${it.productId}')">${t('btnEditQty')}</span>` : ''}
         ${(canEdit && context === 'verify' && typeof batchOrderItemButtonHtml === 'function') ? batchOrderItemButtonHtml(o, it) : ''}
         ${canEdit ? `<span class="del-link" style="margin-left:8px;color:var(--crit);" onclick="${deleteFn}('${o.id}','${it.productId}')">${t('btnDelete')}</span>` : ''}`;
-  const nameHtml = it.sku ? `<span class="sku-tooltip-trigger" data-sku="${it.sku.replace(/"/g,'&quot;')}">${it.name}</span>` : it.name;
-  const tail = `${(context === 'verify' && typeof batchOrderItemPreviewHtml === 'function') ? batchOrderItemPreviewHtml(o, it) : ''}
-      ${it.note ? `<div style="font-size:11px;color:var(--ink-soft);font-style:italic;">${t('noteLabelPrefix')}${it.note.replace(/</g,'&lt;')}</div>` : ''}`;
+  const nameHtml = (it.sku ? `<span class="sku-tooltip-trigger" data-sku="${it.sku.replace(/"/g,'&quot;')}">${it.name}</span>` : it.name) + orderItemNoteInline(it);
+  const tail = `${(context === 'verify' && typeof batchOrderItemPreviewHtml === 'function') ? batchOrderItemPreviewHtml(o, it) : ''}`;
   if(priceOn){
     return `
     <div style="flex-wrap:wrap;">
@@ -1448,34 +1450,49 @@ function openOrderActionModal(orderId, kind){
   let opts;
   if(kind === 'pending'){
     const activeCount = o.items.filter(it => !it.deleted).length;
-    opts = [
-      ['print', t('btnPrintPickingSlip'), false],
-      ['verify', t('btnLoadIntoVerifyPage'), activeCount === 0],
-      ['edit', t('btnEdit'), false],
-      ['cancel', t('btnCancelWholeOrder'), false]
-    ];
+    opts = [['print', t('btnPrintPickingSlip'), false]];
+    if(typeof canVerifyOrders !== 'function' || canVerifyOrders()) opts.push(['verify', t('btnLoadIntoVerifyPage'), activeCount === 0]);
+    opts.push(['edit', t('btnEdit'), false], ['cancel', t('btnCancelWholeOrder'), false]);
   } else {
     opts = [];
     // 編輯放最上、觀看修改紀錄放第二(跟展開後卡片底下的按鈕同樣的條件:簽收或刪除後不能編輯;沒有任何異動就沒有修改紀錄)
     if(!(o.deleted || o.signedAt)) opts.push(['edit', t('btnEdit'), false]);
     const wasModified = !o.deleted && o.items.some(it => (it.qtyHistory && it.qtyHistory.length > 0) || it.deleted);
     if(wasModified || (o.postVerifyChanges && o.postVerifyChanges.length > 0)) opts.push(['history', t('btnViewHistory'), false]);
+    // Create Invoice / Invoice:只有管理者、會計看得到;建立之後選項變成 Invoice(可匯出 PDF 或列印)
+    if(!o.deleted && typeof canCreateInvoice === 'function' && canCreateInvoice()) opts.push(o.invoice ? ['invoice', t('invActionInvoice'), false] : ['create-invoice', t('invActionCreate'), false]);
     if(o.signedAt) opts.push(['email', t('actionEmail'), false]);
-    opts.push(['export', t('actionExport'), false], ['print', t('actionPrint'), false]);
+    opts.push(['output', t('actionOutput'), false]);
   }
   document.getElementById('orderActionModalTitle').textContent = (o.orderNo ? o.orderNo + ' · ' : '') + (o.date || '');
   document.getElementById('orderActionModalSelect').innerHTML = opts.map(([v, label, dis]) => `<option value="${v}" ${dis ? 'disabled' : ''}>${label}</option>`).join('');
   updateOrderActionModeVisibility();
   document.getElementById('orderActionModalOverlay').style.display = 'flex';
 }
-// 匯出/寄 Email 才需要選「一般匯出/會計匯出」,列印跟其他動作不用。
-function updateOrderActionModeVisibility(){
+// 「輸出」要再選輸出方式(匯出/列印);選匯出再選格式(Excel/MYOB 匯入檔);Excel 跟寄 Email 才需要
+// 選「一般匯出/會計匯出」。fromSub=true 表示是改了下面的選項(不要把匯出類型重設回預設)。
+function updateOrderActionModeVisibility(fromSub){
   const act = document.getElementById('orderActionModalSelect').value;
   const kind = orderActionTarget ? orderActionTarget.kind : '';
-  const show = kind === 'completed' && (act === 'export' || act === 'email');
-  // 換動作就把匯出類型帶回預設:寄 Email 預設會計匯出,匯出預設一般匯出(之後仍可手動改)
-  document.getElementById('orderActionModeSelect').value = act === 'email' ? 'accountant' : 'general';
-  document.getElementById('orderActionModeField').style.display = show ? '' : 'none';
+  const isCompleted = kind === 'completed';
+  const isOutput = isCompleted && act === 'output';
+  const outSel = document.getElementById('orderActionOutputSelect');
+  const fmtSel = document.getElementById('orderActionFormatSelect');
+  // MYOB 匯入檔需要價格,只有管理者/會計(能開 Invoice 的人)才有這個選項
+  const myobOpt = fmtSel ? fmtSel.querySelector('option[value="myob"]') : null;
+  const myobOk = typeof canCreateInvoice === 'function' && canCreateInvoice();
+  if(myobOpt){ myobOpt.hidden = myobOpt.disabled = !myobOk; if(!myobOk && fmtSel.value === 'myob') fmtSel.value = 'excel'; }
+  if(!fromSub){
+    if(outSel) outSel.value = 'export';
+    if(fmtSel) fmtSel.value = 'excel';
+  }
+  const isExport = isOutput && outSel && outSel.value === 'export';
+  const isExcel = isExport && fmtSel && fmtSel.value === 'excel';
+  const showMode = isCompleted && (isExcel || act === 'email');
+  if(!fromSub) document.getElementById('orderActionModeSelect').value = act === 'email' ? 'accountant' : 'general';
+  document.getElementById('orderActionOutputField').style.display = isOutput ? '' : 'none';
+  document.getElementById('orderActionFormatField').style.display = isExport ? '' : 'none';
+  document.getElementById('orderActionModeField').style.display = showMode ? '' : 'none';
 }
 function closeOrderActionModal(){
   document.getElementById('orderActionModalOverlay').style.display = 'none';
@@ -1496,8 +1513,15 @@ function confirmOrderActionModal(){
     const exportMode = modeSel ? modeSel.value : 'general';
     if(action === 'edit') editOrderViaRegister(orderId, 'completed');
     else if(action === 'history') openOrderHistoryModal(orderId);
-    else if(action === 'export') exportSingleOrderSheet(orderId, exportMode);
-    else if(action === 'print') printCompletedOrder(orderId);
+    else if(action === 'create-invoice') invOpenCreate(orderId);
+    else if(action === 'invoice') invOpenView(orderId);
+    else if(action === 'output'){
+      const outSel = document.getElementById('orderActionOutputSelect');
+      const fmtSel = document.getElementById('orderActionFormatSelect');
+      if(outSel && outSel.value === 'print') printCompletedOrder(orderId);
+      else if(fmtSel && fmtSel.value === 'myob') invExportMyob(orderId);
+      else exportSingleOrderSheet(orderId, exportMode);
+    }
     else if(action === 'email') openSendOrderEmailModal(orderId, exportMode);
   }
 }

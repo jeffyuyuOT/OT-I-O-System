@@ -338,7 +338,7 @@ function batchOpenPicker(opts){
       const b = buckets[0] || { code: '', rem: i.remaining };
       return `<tr>
         <td>${head}</td><td>${exp}</td>
-        <td style="font-size:12px;">${b.code ? '📍 ' + batchEsc(b.code) : '<span style="color:var(--ink-soft);">–</span>'}</td>
+        <td style="font-size:12px;">${b.code ? batchEsc(b.code) : '<span style="color:var(--ink-soft);">–</span>'}</td>
         <td class="num">${batchFmtQty(i.remaining)}</td>
         <td class="num"><input type="number" class="batch-pick-input" data-id="${i.id}" data-code="${batchEsc(b.code)}" data-max="${i.remaining}" min="0" max="${i.remaining}" step="1" value="${cur[i.id] || ''}" oninput="batchPickerUpdateSum()" style="width:80px;" /></td>
       </tr>`;
@@ -352,7 +352,7 @@ function batchOpenPicker(opts){
       else if(left > 0){ const take = Math.min(left, b.rem); if(take > 0){ v = take; left -= take; } }
       return `<tr>
         <td>${k === 0 ? head : ''}</td><td>${k === 0 ? exp : ''}</td>
-        <td style="font-size:12px;">${b.code ? '📍 ' + batchEsc(b.code) : '<span style="color:var(--ink-soft);">' + t('unassignedLocationLabel') + '</span>'}</td>
+        <td style="font-size:12px;">${b.code ? batchEsc(b.code) : '<span style="color:var(--ink-soft);">' + t('unassignedLocationLabel') + '</span>'}</td>
         <td class="num">${batchFmtQty(b.rem)}</td>
         <td class="num"><input type="number" class="batch-pick-input" data-id="${i.id}" data-code="${batchEsc(b.code)}" data-max="${b.rem}" min="0" max="${b.rem}" step="1" value="${v}" oninput="batchPickerUpdateSum()" style="width:80px;" /></td>
       </tr>`;
@@ -1516,7 +1516,7 @@ function batchRenderHistoryPage(){
   if(batchHist.loading) return back + head + `<div class="empty-note">${t('batchLoading')}</div>`;
   const rowStyle = 'cursor:pointer;';
   const rows = [`<tr style="${rowStyle}" onclick="batchHistOpenRow(-1)"><td>${batchEsc(i.isOpening ? t('batchOpening') : i.batchDate)}</td><td>${t('batchKindIn')}</td><td class="num" style="padding-right:72px;">+${batchFmtQty(i.qtyIn)} ${unit}</td><td class="loc-col">–</td><td>${batchEsc(i.supplier) || '–'}</td><td>${batchEsc(i.invoiceNo) || '–'}</td><td class="num">${batchFmtMoney(batchUnitCost(i))}</td></tr>`]
-    .concat(batchHist.moves.map((m, idx) => `<tr class="${m.location_code ? 'has-loc' : ''}" style="${rowStyle}" onclick="batchHistOpenRow(${idx})"><td>${batchEsc(m.mv_date)}</td><td>${t(BATCH_KIND_LABEL_KEY[m.kind] || 'batchKindAdjust')}</td><td class="num" style="padding-right:72px;">${Number(m.qty) > 0 ? '+' : ''}${batchFmtQty(Number(m.qty))} ${unit}</td><td class="loc-col">${m.location_code ? '📍 ' + batchEsc(m.location_code) : '–'}</td><td>${batchEsc(m.party) || '–'}</td><td>${batchEsc(m.order_no) || '–'}</td><td class="num">${batchCostWithFlag(m.unit_cost, i)}</td></tr>` + (m.location_code ? `<tr class="loc-row" style="${rowStyle}" onclick="batchHistOpenRow(${idx})"><td colspan="6">${t('batchLocTitle')}:📍 ${batchEsc(m.location_code)}</td></tr>` : '')));
+    .concat(batchHist.moves.map((m, idx) => `<tr class="${m.location_code ? 'has-loc' : ''}" style="${rowStyle}" onclick="batchHistOpenRow(${idx})"><td>${batchEsc(m.mv_date)}</td><td>${t(BATCH_KIND_LABEL_KEY[m.kind] || 'batchKindAdjust')}</td><td class="num" style="padding-right:72px;">${Number(m.qty) > 0 ? '+' : ''}${batchFmtQty(Number(m.qty))} ${unit}</td><td class="loc-col">${m.location_code ? batchEsc(m.location_code) : '–'}</td><td>${batchEsc(m.party) || '–'}</td><td>${batchEsc(m.order_no) || '–'}</td><td class="num">${batchCostWithFlag(m.unit_cost, i)}</td></tr>` + (m.location_code ? `<tr class="loc-row" style="${rowStyle}" onclick="batchHistOpenRow(${idx})"><td colspan="6">${t('batchLocTitle')}:📍 ${batchEsc(m.location_code)}</td></tr>` : '')));
   return back + head + `<div class="batch-hist-wrap"><table class="stock-table batch-hist-table">
     <thead>
       <tr><th style="border-bottom:none;"></th><th style="border-bottom:none;"></th><th class="num" style="border-bottom:none;white-space:nowrap;padding-bottom:6px;padding-right:72px;"><span style="display:inline-block;padding:4px 10px;background:rgba(0,0,0,0.07);border-radius:3px;font-size:14px;font-weight:700;color:var(--ink);text-transform:none;letter-spacing:0;">${tf('batchHistRemaining', { qty: batchFmtQty(i.remaining) + ' ' + unit })}</span></th><th colspan="4" style="border-bottom:none;"></th></tr>
@@ -1814,7 +1814,7 @@ function batchLocCellHtml(it){
   const summary = locs.length
     ? locs.map(l => `${batchEsc(l.code)}×${batchFmtQty(l.qty)}`).join('<br>') + (un > 1e-9 ? `<br><span style="color:var(--ink-soft);">${t('unassignedLocationLabel')}×${batchFmtQty(un)}</span>` : '')
     : `<span style="color:var(--ink-soft);">${t('unassignedLocationLabel')}</span>`;
-  return `<td class="row-num tx-loc" data-label="${t('batchLocTitle')}" style="text-align:left;font-size:12px;min-width:220px;white-space:normal;line-height:1.4;"><span class="batch-link" onclick="batchLocOpenEditor('${it.batchItemId}')">📍 ${summary}</span></td>`;
+  return `<td class="row-num tx-loc" data-label="${t('batchLocTitle')}" style="text-align:left;font-size:12px;min-width:220px;padding-left:18px;white-space:normal;line-height:1.4;"><span class="batch-link" onclick="batchLocOpenEditor('${it.batchItemId}')">${summary}</span></td>`;
 }
 
 // ---- 位置編輯視窗 ----

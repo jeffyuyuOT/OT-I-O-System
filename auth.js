@@ -14,13 +14,16 @@ const TAB_DEFS = [
   { id: 'tab-order', labelKey: 'tabOrder' },
   { id: 'tab-order-admin', labelKey: 'secOrderAdmin' },
   { id: 'tab-warehouse-admin', labelKey: 'tabWarehouseAdmin' },
-  { id: 'tab-log', labelKey: 'tabLog' }
+  { id: 'tab-log', labelKey: 'tabLog' },
+  // 會計:Invoices、定價管理、定價管理紀錄;只有管理者、會計預設看得到
+  { id: 'tab-accounting', labelKey: 'tabAccounting' }
 ];
 
 // ===== 使用者帳號 / 身分權限 =====
 
 const ROLE_DEFS = [
   { id: 'admin', labelKey: 'roleAdmin' },
+  { id: 'accountant', labelKey: 'roleAccountant' },
   { id: 'order', labelKey: 'roleOrder' },
   { id: 'inventory', labelKey: 'roleInventory' }
 ];
@@ -34,7 +37,13 @@ const CAPABILITY_DEFS = [
   // 編輯價錢:不掛在特定分頁底下(進貨單、登記進貨、收據掃描都會用到價錢),所以 parentTab 是 null,
   // 永遠顯示。跟其他細部權限相反,這個是「預設不允許」(管理者預設允許、其他身分預設不允許),
   // 所以不能用「沒被限制=允許」的邏輯,見下面 canEditPriceFor。
-  { id: 'cap-edit-price', parentTab: null, labelKey: 'capEditPrice', special: 'price' }
+  { id: 'cap-edit-price', parentTab: null, labelKey: 'capEditPrice', special: 'price' },
+  // 訂單顯示價錢:能不能在訂單畫面(新增訂單/待處理/已完成/登記進出貨)看到單價、金額、GST。會計、管理者預設允許,
+  // 其他身分預設不允許(見 canViewPriceFor)。跟「編輯價錢」是兩回事:能看價錢不代表能改。
+  { id: 'cap-view-price', parentTab: null, labelKey: 'capViewPrice', special: 'viewprice' },
+  // 訂單核對:能不能使用「訂單核對」頁面、把待處理訂單載入核對。除了會計以外預設允許(會計預設不允許,
+  // 需要時再個別勾選)。用 allow:/deny: 標記,見 canVerifyOrdersFor。
+  { id: 'cap-order-verify', parentTab: 'tab-warehouse-ops', labelKey: 'capOrderVerify', special: 'verify' }
 ];
 
 // 「編輯價錢」權限(存在 restricted_capabilities 這個既有欄位裡,不用改資料表):
@@ -44,8 +53,31 @@ const CAPABILITY_DEFS = [
 function canEditPriceFor(role, restrictedList){
   const list = Array.isArray(restrictedList) ? restrictedList : [];
   if(list.includes('allow:cap-edit-price')) return true;
-  return role === 'admin' && !list.includes('deny:cap-edit-price');
+  return (role === 'admin' || role === 'accountant') && !list.includes('deny:cap-edit-price');
 }
+// 「訂單顯示價錢」權限:清單裡有 'allow:cap-view-price' → 允許;管理者、會計預設允許,除非有 'deny:cap-view-price';其他身分預設不允許
+function canViewPriceFor(role, restrictedList){
+  const list = Array.isArray(restrictedList) ? restrictedList : [];
+  if(list.includes('allow:cap-view-price')) return true;
+  return (role === 'admin' || role === 'accountant') && !list.includes('deny:cap-view-price');
+}
+// 「訂單核對」權限:'allow:cap-order-verify' → 允許;會計預設不允許;其他身分預設允許,除非有 'deny:cap-order-verify'
+function canVerifyOrdersFor(role, restrictedList){
+  const list = Array.isArray(restrictedList) ? restrictedList : [];
+  if(list.includes('allow:cap-order-verify')) return true;
+  if(role === 'accountant') return false;
+  return !list.includes('deny:cap-order-verify');
+}
+function canVerifyOrders(){
+  return !!currentUser && canVerifyOrdersFor(currentUser.role, currentUser.restrictedCapabilities);
+}
+function canViewPrice(){
+  return !!currentUser && canViewPriceFor(currentUser.role, currentUser.restrictedCapabilities);
+}
+// 會計(accountant)身分:跟管理者差不多,但不預設帶系統管理分頁(幣種、定價設定、Invoice 格式、匯入資料在「會計」分頁的「會計設定」)
+function isAccountantUser(){ return !!currentUser && currentUser.role === 'accountant'; }
+// 開 Invoice 的權限:管理者、會計
+function canCreateInvoice(){ return !!currentUser && (currentUser.role === 'admin' || currentUser.role === 'accountant'); }
 function canEditPrice(){
   return !!currentUser && canEditPriceFor(currentUser.role, currentUser.restrictedCapabilities);
 }
@@ -66,6 +98,7 @@ function userDisplayName(u){
 // 打開 tab-master,並用上面的 cap-manage-users 限制他們碰不到使用者管理。
 const ROLE_DEFAULT_TABS = {
   admin: TAB_DEFS.map(d => d.id),
+  accountant: TAB_DEFS.map(d => d.id).filter(id => id !== 'tab-master' && id !== 'tab-order'),   // 不帶訂貨(那是出貨方下單用的頁面;會計從訂貨後台管理看訂單)、不帶系統管理(會計用的設定在「會計」分頁的「會計設定」);倉庫作業台要帶(會計要登記進貨、出貨),但「訂單核對」預設隱藏(cap-order-verify)
   order: ['tab-order'],
   inventory: ['tab-warehouse-ops', 'tab-overview', 'tab-order-admin', 'tab-warehouse-admin', 'tab-log']
 };
@@ -99,6 +132,9 @@ async function fetchProfileForUser(authUser){
 function hasCapability(capId){
   if(!currentUser) return false;
   if(capId === 'cap-edit-price') return canEditPrice();
+  if(capId === 'cap-view-price') return canViewPrice();
+  if(capId === 'cap-order-verify') return canVerifyOrders();
+  if(capId === 'cap-manage-users' && currentUser.role === 'accountant') return false;   // 會計不能管理使用者
   if(currentUser.role === 'admin') return true;
   const restricted = Array.isArray(currentUser.restrictedCapabilities) ? currentUser.restrictedCapabilities : [];
   return !restricted.includes(capId);
@@ -297,7 +333,9 @@ function capabilityCheckboxesHtml(userId, tabPermissions, restrictedCapabilities
       <div class="field-hint">${t('capabilitiesHint')}</div>
       <div class="user-perm-checks">
         ${relevant.map(c => {
-          const checked = c.special === 'price' ? canEditPriceFor(role, restrictedCapabilities) : !restrictedCapabilities.includes(c.id);
+          const checked = c.special === 'price' ? canEditPriceFor(role, restrictedCapabilities)
+            : (c.special === 'viewprice' ? canViewPriceFor(role, restrictedCapabilities)
+            : (c.special === 'verify' ? canVerifyOrdersFor(role, restrictedCapabilities) : !restrictedCapabilities.includes(c.id)));
           return `
           <label style="display:flex;align-items:flex-start;gap:6px;max-width:100%;">
             <input type="checkbox" data-cap-id="${c.id}" id="modalCap_${userId}_${c.id}" ${checked ? 'checked' : ''} />
@@ -318,6 +356,10 @@ function collectRestrictedCapabilities(capsWrap){
     const def = CAPABILITY_DEFS.find(c => c.id === el.dataset.capId);
     if(def && def.special === 'price'){
       out.push(el.checked ? 'allow:cap-edit-price' : 'deny:cap-edit-price');
+    } else if(def && def.special === 'viewprice'){
+      out.push(el.checked ? 'allow:cap-view-price' : 'deny:cap-view-price');
+    } else if(def && def.special === 'verify'){
+      out.push(el.checked ? 'allow:cap-order-verify' : 'deny:cap-order-verify');
     } else if(!el.checked){
       out.push(el.dataset.capId);
     }
@@ -498,6 +540,7 @@ function collectCheckedTabIds(idPrefix){
 // cap-manage-users 這個細部功能權限」才算數。
 function canManageUsers(role, tabPermissions, restrictedCapabilities){
   if(role === 'admin') return true;
+  if(role === 'accountant') return false;
   if(!Array.isArray(tabPermissions) || !tabPermissions.includes('tab-master')) return false;
   const restricted = Array.isArray(restrictedCapabilities) ? restrictedCapabilities : [];
   return !restricted.includes('cap-manage-users');

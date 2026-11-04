@@ -84,11 +84,24 @@ function supplierOptionLabel(s){ return entityOptionLabel(s, purchaseSuppliers);
 let partySearchQuery = '';
 function onPartySearchInput(v){ partySearchQuery = v || ''; renderPartiesTable(); }
 
+// Payment type 選 COD 時,Payment term 不能設定
+function onPartyPaymentTypeChange(){
+  const cod = document.getElementById('partyPaymentTypeSelect').value === 'cod';
+  const term = document.getElementById('partyPaymentTermSelect');
+  term.disabled = cod;
+}
 function partyDiscountOf(sp){
   const n = sp ? Number(sp.discount) : 0;
   return Number.isFinite(n) && n > 0 ? n : 0;
 }
 
+// 出貨方名稱預設跟著公司名稱走;使用者手動輸入過名稱就以手動輸入為準(名稱清空後又會恢復跟著公司名稱)
+let partyNameManual = false;
+function onPartyNameInput(){ partyNameManual = document.getElementById('partyNameInput').value.trim() !== ''; }
+function onPartyCompanyInput(){
+  if(partyNameManual) return;
+  document.getElementById('partyNameInput').value = document.getElementById('partyCompanyInput').value;
+}
 function openPartyEditModal(id){
   if(!hasCapability('cap-manage-parties')) return;
   const sp = id ? shippingParties.find(x => x.id === id) : null;
@@ -100,7 +113,17 @@ function openPartyEditModal(id){
   document.getElementById('partyContactPersonInput').value = sp ? (sp.contactPerson || '') : '';
   // 舊資料的「聯絡方式」是一格自由文字(電話 / Line / Email),第一次開啟編輯時帶進「聯繫電話」,存檔後就改用新欄位
   document.getElementById('partyPhoneInput').value = sp ? (sp.phone !== undefined ? sp.phone : (sp.contact || '')) : '';
-  document.getElementById('partyAddressInput').value = sp ? (sp.address || '') : '';
+  // 舊的「送貨住址」改成 Ship To 地址(沒填過 Ship To 就先帶入舊的住址)
+  document.getElementById('partyCompanyInput').value = sp ? (sp.companyName || '') : '';
+  document.getElementById('partyEmailInput').value = sp ? (sp.email || '') : '';
+  // 已存在的出貨方:名稱跟公司名稱不一樣就視為手動輸入;名稱等於公司名稱或新增時,名稱跟著公司名稱走
+  partyNameManual = !!(sp && sp.name && sp.name !== (sp.companyName || ''));
+  document.getElementById('partyBillToInput').value = sp ? (sp.billTo || '') : '';
+  document.getElementById('partyShipToInput').value = sp ? (sp.shipTo !== undefined ? sp.shipTo : (sp.address || '')) : '';
+  document.getElementById('partyAbnInput').value = sp ? (sp.abn || '') : '';
+  document.getElementById('partyPaymentTypeSelect').value = (sp && sp.paymentType === 'cod') ? 'cod' : 'bank';
+  document.getElementById('partyPaymentTermSelect').value = String((sp && Number(sp.paymentTerm) > 0) ? Number(sp.paymentTerm) : 7);
+  onPartyPaymentTypeChange();
   document.getElementById('partyNoteInput').value = sp ? (sp.note || '') : '';
   document.getElementById('partyFrequencySelect').value = (sp && sp.orderFrequency) ? sp.orderFrequency : 'weekly';
   const d = partyDiscountOf(sp);
@@ -139,7 +162,14 @@ async function savePartyEdit(){
   sp.name = name;
   sp.contactPerson = document.getElementById('partyContactPersonInput').value.trim();
   sp.phone = document.getElementById('partyPhoneInput').value.trim();
-  sp.address = document.getElementById('partyAddressInput').value.trim();
+  sp.companyName = document.getElementById('partyCompanyInput').value.trim();
+  sp.email = document.getElementById('partyEmailInput').value.trim();
+  sp.billTo = document.getElementById('partyBillToInput').value.trim();
+  sp.shipTo = document.getElementById('partyShipToInput').value.trim();
+  sp.abn = document.getElementById('partyAbnInput').value.trim();
+  sp.paymentType = document.getElementById('partyPaymentTypeSelect').value === 'cod' ? 'cod' : 'bank';
+  sp.paymentTerm = sp.paymentType === 'cod' ? 0 : (parseInt(document.getElementById('partyPaymentTermSelect').value, 10) || 7);   // COD 沒有 Payment term
+  delete sp.address;   // 舊的聯繫地址取消,改用 Bill To / Ship To
   sp.note = document.getElementById('partyNoteInput').value.trim();
   sp.orderFrequency = document.getElementById('partyFrequencySelect').value || 'weekly';
   sp.discount = discount;
@@ -177,8 +207,30 @@ function partyGoNewOrder(partyId){
   setTxOutFlowType('new-order');
   if(ps) ps.value = partyId;
 }
-// 「訂購紀錄」:跳到 歷史紀錄 → 已完成訂單,自動篩選這個出貨方
+// 「訂購紀錄」:先選 By Invoice(跳到 歷史紀錄 → 已完成訂單)或 By Item(跳到 歷史紀錄 → 進出貨紀錄),
+// 兩邊都自動篩選這個出貨方
 function partyGoOrderHistory(partyId){
+  if(!partyTabAllowed('tab-log')) return;
+  const old = document.getElementById('partyHistoryChoiceOverlay'); if(old) old.remove();
+  const sp = shippingParties.find(x => x.id === partyId);
+  const ov = document.createElement('div');
+  ov.id = 'partyHistoryChoiceOverlay'; ov.className = 'modal-overlay'; ov.style.display = 'flex'; ov.style.zIndex = '1150';
+  ov.onclick = e => { if(e.target === ov) ov.remove(); };
+  const esc = x => String(x == null ? '' : x).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  ov.innerHTML = `<div class="modal-box" style="max-width:min(420px,92vw);">
+    <div class="section-title" style="margin-top:0;">${esc(sp ? sp.name : '')} · ${t('btnPartyOrderHistory')}</div>
+    <div style="display:flex;flex-direction:column;gap:10px;margin-top:6px;">
+      <button class="btn" onclick="document.getElementById('partyHistoryChoiceOverlay').remove();partyGoOrderHistoryInvoice('${esc(partyId)}')">By Invoice</button>
+      <div style="font-size:11.5px;color:var(--ink-soft);margin:-4px 0 4px;">${t('partyHistoryInvoiceHint')}</div>
+      <button class="btn" onclick="document.getElementById('partyHistoryChoiceOverlay').remove();partyGoOrderHistoryItem('${esc(partyId)}')">By Item</button>
+      <div style="font-size:11.5px;color:var(--ink-soft);margin:-4px 0 0;">${t('partyHistoryItemHint')}</div>
+    </div>
+    <div class="modal-actions"><button class="btn ghost" onclick="document.getElementById('partyHistoryChoiceOverlay').remove()">${t('btnCancel')}</button></div>
+  </div>`;
+  document.body.appendChild(ov);
+}
+// By Invoice:歷史紀錄 → 已完成訂單,篩選這個出貨方
+function partyGoOrderHistoryInvoice(partyId){
   if(!partyTabAllowed('tab-log')) return;
   switchTab('tab-log');
   switchLogSubTab('subtab-log-completed');
@@ -187,6 +239,24 @@ function partyGoOrderHistory(partyId){
   const from = document.getElementById('completedOrderDateFrom'), to = document.getElementById('completedOrderDateTo');
   if(from) from.value = ''; if(to) to.value = '';
   renderOrders();
+}
+// By Item:歷史紀錄 → 進出貨紀錄,對象篩選這個出貨方(日期範圍清空,載入全部紀錄)
+async function partyGoOrderHistoryItem(partyId){
+  if(!partyTabAllowed('tab-log')) return;
+  const sp = shippingParties.find(x => x.id === partyId);
+  if(!sp) return;
+  switchTab('tab-log');
+  switchLogSubTab('subtab-log-tx');
+  const set = (id, v) => { const el = document.getElementById(id); if(el) el.value = v; };
+  set('logFilter', ''); set('logCategoryFilter', ''); set('logTypeFilter', ''); set('logDateFrom', ''); set('logDateTo', '');
+  try{ await ensureTransactionsLoadedFrom(''); }catch(e){}
+  renderLog();                                   // 先重畫一次,對象下拉選單才有這個出貨方的選項
+  const sel = document.getElementById('logPartyFilter');
+  const name = (sp.name || '').trim();
+  const has = sel && Array.from(sel.options).some(o => o.value === name);
+  if(!has){ showInfoModal(t('partyNoItemRecords')); return; }
+  sel.value = name;
+  renderLog();
 }
 
 function deleteParty(id){
@@ -207,6 +277,7 @@ function deleteParty(id){
 }
 
 function renderPartiesTable(){
+  try{ if(typeof acctReqRefreshBadge === 'function') acctReqRefreshBadge(false); }catch(e){}
   const container = document.getElementById('partiesTable');
   if(!container) return;
   if(shippingParties.length === 0){

@@ -311,6 +311,12 @@ function renderProductEditModalBody(p, opts){
       </label>
     </div>
     ` : ''}
+    <div class="field-block">
+      <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-weight:400;">
+        <input type="checkbox" id="editProdGst" ${p.gst ? 'checked' : ''} />
+        <span>${t('fieldProductGst')}<span style="color:var(--ink-soft);font-weight:400;"> ${t('fieldProductGstHint')}</span></span>
+      </label>
+    </div>
     ${showHideFromExportToggle ? `
     <div class="field-block">
       <label style="display:flex;align-items:center;gap:6px;cursor:${childExportCheckboxLocked ? 'not-allowed' : 'pointer'};font-weight:400;">
@@ -501,6 +507,8 @@ async function saveProductEditModal(){
     p.weightKg = weightKg;
     const hiddenEl = document.getElementById('editProdHidden');
     if(hiddenEl) p.hidden = hiddenEl.checked;
+    const gstEl = document.getElementById('editProdGst');
+    if(gstEl) p.gst = gstEl.checked;
     const showInTotalEl = document.getElementById('editProdShowInTotal');
     if(showInTotalEl) applyTotalStockBasisChoice(p, showInTotalEl.checked);
     const hideFromExportEl = document.getElementById('editProdHideFromExport');
