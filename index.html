@@ -1115,6 +1115,7 @@
       <div id="loginError" class="msg error" style="display:none;"></div>
       <button type="submit" class="btn" data-i18n="btnLogin">登入</button>
       <button type="button" class="btn ghost" style="margin-top:10px;" onclick="showForgotPassword()" data-i18n="forgotPasswordLink">忘記密碼?</button>
+      <button type="button" class="btn ghost" style="margin-top:10px;" onclick="openAccountRequestForm()" data-i18n="arApplyLink">申請訂貨帳號</button>
     </form>
     <div id="forgotPasswordBox" style="display:none;text-align:left;">
       <p class="login-subtitle" data-i18n="forgotPasswordIntro">輸入你的 Email,我們會寄一封設定新密碼的連結給你。</p>
@@ -1896,6 +1897,7 @@
       <div class="toolbar" style="margin-bottom:10px;">
         <input type="search" id="partySearchInput" oninput="onPartySearchInput(this.value)" data-i18n-placeholder="partySearchPlaceholder" placeholder="搜尋出貨方名稱…" style="width:240px;max-width:100%;" />
         <button class="btn" onclick="openPartyEditModal(null)" data-i18n="btnAddParty">➕ 新增出貨方</button>
+        <button class="btn ghost" id="acctReqBtn" style="display:none;" onclick="openAccountRequestList()">📝 待審申請</button>
       </div>
       <div id="partyMsg" class="msg"></div>
       <div id="partiesTable" style="margin-top:14px;">
@@ -3199,6 +3201,7 @@
 <script src="invoice.js"></script>
 <script src="purchase-costs.js"></script>
 <script src="parties.js"></script>
+<script src="account-requests.js"></script>
 <script src="quick-lists.js"></script>
 <script src="stock-location.js"></script>
 <script src="logs.js"></script>
@@ -4511,6 +4514,7 @@ function showScanToast(text, isError){
   } catch(e){ /* localStorage unavailable, keep default unchecked */ }
 
   // 從邀請/重設密碼 email 連結進來:先顯示「設定密碼」頁面,不要直接登入或顯示登入頁
+  try{ await handleConfirmRequestLink(); }catch(e){ console.error(e); }
   const emailLink = detectAuthEmailLink();
   if(emailLink){
     await runSetPasswordFlow(emailLink);

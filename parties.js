@@ -277,6 +277,7 @@ function deleteParty(id){
 }
 
 function renderPartiesTable(){
+  try{ if(typeof acctReqRefreshBadge === 'function') acctReqRefreshBadge(false); }catch(e){}
   const container = document.getElementById('partiesTable');
   if(!container) return;
   if(shippingParties.length === 0){

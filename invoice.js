@@ -229,16 +229,16 @@ function invDocHtml(snap, logoDataUrl){
       </td>
       <td style="vertical-align:top;text-align:right;">
         <div style="font-size:24px;font-weight:400;letter-spacing:0.5px;">TAX INVOICE</div>
-        <table style="margin-left:auto;margin-top:8px;border-collapse:collapse;text-align:left;">
-          <tr><td style="padding:2px 14px 2px 0;font-weight:700;">Invoice No:</td><td>${invEsc(snap.no)}</td></tr>
-          <tr><td style="padding:2px 14px 2px 0;font-weight:700;">Invoice Date:</td><td>${invEsc(invIsoToDmy(snap.date))}</td></tr>
-          <tr><td style="padding:2px 14px 2px 0;font-weight:700;">Terms:</td><td>${invEsc(termText)}</td></tr>
-          <tr><td style="padding:2px 14px 2px 0;font-weight:700;">Due Date:</td><td>${invEsc(invIsoToDmy(snap.dueDate))}</td></tr>
-          <tr><td style="padding:2px 14px 2px 0;font-weight:700;">Sale Rep</td><td>${invEsc(snap.saleRep)}</td></tr>
+        <table style="margin-left:auto;margin-top:4px;border-collapse:collapse;text-align:left;">
+          <tr><td style="padding:1px 14px 1px 0;font-weight:700;">Invoice No:</td><td>${invEsc(snap.no)}</td></tr>
+          <tr><td style="padding:1px 14px 1px 0;font-weight:700;">Invoice Date:</td><td>${invEsc(invIsoToDmy(snap.date))}</td></tr>
+          <tr><td style="padding:1px 14px 1px 0;font-weight:700;">Terms:</td><td>${invEsc(termText)}</td></tr>
+          <tr><td style="padding:1px 14px 1px 0;font-weight:700;">Due Date:</td><td>${invEsc(invIsoToDmy(snap.dueDate))}</td></tr>
+          <tr><td style="padding:1px 14px 1px 0;font-weight:700;">Sale Rep</td><td>${invEsc(snap.saleRep)}</td></tr>
         </table>
       </td></tr></table>
 
-    <table style="width:100%;border-collapse:collapse;margin-top:22px;"><tr>
+    <table style="width:100%;border-collapse:collapse;margin-top:4px;"><tr>
       <td style="vertical-align:top;width:50%;padding-right:14px;">
         <div style="font-weight:700;">Name:</div>
         <div>${invEsc(cu.name)}</div>
