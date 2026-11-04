@@ -511,7 +511,23 @@ async function invDoPrint(){
 // ============================================================
 const INV_MYOB_COLS = ['Co./Last Name','First Name','Addr 1 - Line 1','           - Line 2','           - Line 3','           - Line 4','Inclusive','Invoice #','Date','Customer PO','Ship Via','Delivery Status','Item Number','Quantity','Description','Price','Inc-Tax Price','Discount','Total','Inc-Tax Total','Job','Comment','Journal Memo','Salesperson Last Name','Salesperson First Name','Shipping Date','Referral Source','Tax Code','Non-GST Amount','GST Amount','LCT Amount','Freight Amount','Inc-Tax Freight Amount','Freight Tax Code','Freight Non-GST Amount','Freight GST Amount','Freight LCT Amount','Sale Status','Currency Code','Exchange Rate','Terms - Payment is Due','           - Discount Days','           - Balance Due Days','           - % Discount','           - % Monthly Charge','Amount Paid','Payment Method','Payment Notes','Name on Card','Card Number','Expiry Date','Authorisation Code','BSB','Account Number','Drawer/Account Name','Cheque Number','Category','Location ID','Card ID','Record ID'];
 function invMyobClean(v){ return String(v === undefined || v === null ? '' : v).replace(/[\t\r\n]+/g, ' ').trim(); }
+// 「會計匯出不顯示」的商品 SKU(整個家族都不顯示:主商品+批量商品;僅顯示切換:主商品本身)。
+// MYOB 匯入檔也比照會計匯出,不包含這些商品——舊的 Invoice 快照(沒記錄商品 id)也靠 SKU 過濾。
+function invAccountantHiddenSkus(){
+  const set = new Set();
+  const ps = (typeof products !== 'undefined') ? products : [];
+  ps.forEach(p => {
+    if(p.parentId || !p.hideFromCompletedOrderExport) return;
+    if(p.sku) set.add(p.sku);
+    if(p.hideFromCompletedOrderExportMode === 'wholeFamily' && typeof getChildProducts === 'function'){
+      getChildProducts(p.id).forEach(c => { if(c.sku) set.add(c.sku); });
+    }
+  });
+  return set;
+}
 function invMyobText(snap, fallbackNo){
+  const hiddenSkus = invAccountantHiddenSkus();
+  snap = Object.assign({}, snap, { lines: (snap.lines || []).filter(l => !(l.sku && hiddenSkus.has(l.sku))) });
   const idx = {}; INV_MYOB_COLS.forEach((c, i) => { idx[c.trim()] = i; });
   const idx2 = {}; // 有重複名稱的欄位(縮排的 Line 2~4 等)用位置取
   const blank = () => INV_MYOB_COLS.map(() => '');
