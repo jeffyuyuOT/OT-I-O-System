@@ -2050,6 +2050,13 @@
     <hr class="divider" />
 
     <div class="section">
+      <div class="section-title"><span data-i18n="secAddProduct">新增商品</span></div>
+      <button class="btn" onclick="openAddNewProductModal()" data-i18n="btnAddProduct">新增商品</button>
+    </div>
+
+    <hr class="divider" />
+
+    <div class="section">
       <div class="section-title"><span data-i18n="secImportTx">從 Excel 匯入進出貨紀錄</span></div>
       <p style="font-size:12.5px;color:var(--ink-soft);margin:0 0 14px;" data-i18n-html="secImportTxDesc">
         上傳你填好的每日進出貨紀錄表(<b>可以一次選取多個檔案</b>),系統會依<b>檔名</b>自動判斷進貨或出貨(檔名需包含「stock in」或「stock out」),並自動比對商品名稱、抓出每一列的數量,整批登記成紀錄。每個檔案會各自偵測自己的日期/供應商。<br/>
@@ -2075,12 +2082,6 @@
       <div id="txImportPreview"></div>
     </div>
 
-    <hr class="divider" />
-
-    <div class="section">
-      <div class="section-title"><span data-i18n="secAddProduct">新增商品</span></div>
-      <button class="btn" onclick="openAddNewProductModal()" data-i18n="btnAddProduct">新增商品</button>
-    </div>
     </div>
     </div>
   </div>
