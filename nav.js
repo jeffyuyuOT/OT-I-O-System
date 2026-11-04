@@ -390,6 +390,7 @@ function switchTab(tabId){
   // display:none, so re-render whichever tab just became visible
   if(tabId === 'tab-overview'){ populateCategoryDropdowns(); renderStockCards(); }
   if(tabId === 'tab-log'){ refreshLogSubTab(); }
+  if(tabId === 'tab-accounting'){ refreshAccountingSubTab(); }
   if(tabId === 'tab-warehouse-ops'){ renderProductSelect(); renderTxBatchList(); }
   if(tabId === 'tab-order'){
     populatePartySelect(); renderOrderItemsTable(); renderOrderHistory();
@@ -418,8 +419,6 @@ function switchTab(tabId){
     // 根本沒有意義存在,藏起來比留著一個點了也沒用的按鈕清楚。
     const ocrDbOpt = document.querySelector('#warehouseAdminSubtabSelect option[value="subtab-purchase-mgmt-ocrdb"]');
     if(ocrDbOpt) ocrDbOpt.hidden = ocrDbOpt.disabled = !hasFeature('receiptScanModule');
-    const priceOpt = document.querySelector('#warehouseAdminSubtabSelect option[value="subtab-price-setting"]');
-    if(priceOpt) priceOpt.hidden = priceOpt.disabled = !(typeof batchFeatureOn === 'function' && batchFeatureOn());
     if(!hasFeature('receiptScanModule')) switchWarehouseAdminSubTab('subtab-supply-list');
   }
   if(tabId === 'tab-master'){
@@ -504,7 +503,6 @@ function switchWarehouseAdminSubTab(subtabId){
   else if(subtabId === 'subtab-tx-forecast') renderForecastTable();
   else if(subtabId === 'subtab-tx-data'){ populateExportPartySelect(); renderExportProductList(); }
   else if(subtabId === 'subtab-purchase-mgmt-ocrdb' && hasFeature('receiptScanModule')) renderOcrDbProductSelect();
-  else if(subtabId === 'subtab-price-setting' && typeof psOpenPage === 'function') psOpenPage();
   document.getElementById(subtabId).classList.add('active-subtab');
 }
 
@@ -525,6 +523,25 @@ function switchSupplyListPane(paneId){
   else if(paneId === 'subtab-quicklist-mgmt') renderQuickListMgmt();
 }
 
+// 會計分頁(tab-accounting)的下拉選單:Invoices / 定價管理 / 定價管理紀錄
+function switchAccountingSubTab(subtabId){
+  const container = document.getElementById('tab-accounting');
+  if(!container) return;
+  document.body.classList.remove('mobile-subtab-menu-active');
+  document.body.classList.remove('mobile-subtab-content-active');
+  container.querySelectorAll('.subtab-content').forEach(el => el.classList.remove('active-subtab'));
+  const sel = document.getElementById('accountingSubtabSelect');
+  if(sel && sel.value !== subtabId) sel.value = subtabId;
+  document.getElementById(subtabId).classList.add('active-subtab');
+  if(subtabId === 'subtab-acc-invoices' && typeof invOpenListPage === 'function') invOpenListPage();
+  if(subtabId === 'subtab-price-setting' && typeof psOpenPage === 'function') psOpenPage();
+  if(subtabId === 'subtab-log-pricerec' && typeof psOpenRecordList === 'function') psOpenRecordList();
+}
+function refreshAccountingSubTab(){
+  const sel = document.getElementById('accountingSubtabSelect');
+  switchAccountingSubTab(sel && sel.value ? sel.value : 'subtab-acc-invoices');
+}
+
 // 歷史紀錄分頁(tab-log)自己的子分頁切換(進出貨紀錄/切換紀錄/Delivery Note紀錄/後台紀錄),
 // 只在它自己的容器裡找 .subtab-content/.subtab-btn,不會動到其他分頁那幾組子分頁的顯示狀態。
 function switchLogSubTab(subtabId){
@@ -543,7 +560,6 @@ function switchLogSubTab(subtabId){
   if(subtabId === 'subtab-log-forecast'){ loadForecastRecords().then(renderLogForecastRecords); }
   if(subtabId === 'subtab-log-convert'){ renderConvertHistoryTable(); }
   if(subtabId === 'subtab-log-location'){ openLocationLogTab(); }
-  if(subtabId === 'subtab-log-pricerec' && typeof psOpenRecordList === 'function'){ psOpenRecordList(); }
   if(subtabId === 'subtab-log-exports'){ loadExportEmailLogs().then(renderExportLog); }
   if(subtabId === 'subtab-log-inventory'){ loadInventoryLog().then(renderInventoryLog); }
 }

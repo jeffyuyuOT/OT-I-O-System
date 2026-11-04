@@ -138,12 +138,13 @@
   .pending-toggle-mobile{ display:none; }
   .supply-pane{ display:none; }
   .supply-pane.active-pane{ display:block; }
-  #tab-log{ padding:16px 36px 0; }
-  #tab-log .log-select-bar, #tab-warehouse-admin .log-select-bar{ margin:0 0 14px; }
+  #tab-log, #tab-accounting{ padding:16px 36px 0; }
+  #tab-log .log-select-bar, #tab-warehouse-admin .log-select-bar, #tab-accounting .log-select-bar{ margin:0 0 14px; }
   #tab-warehouse-admin .log-select-bar{ display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
   #tab-warehouse-admin .log-select-bar select{ font-size:17px; font-weight:700; padding:12px 16px; min-width:320px; max-width:100%; border:2px solid var(--ink); border-radius:6px; background:#fff; color:var(--ink); cursor:pointer; }
+  #tab-accounting .log-select-bar select{ font-size:17px; font-weight:700; padding:12px 16px; min-width:320px; max-width:100%; border:2px solid var(--ink); border-radius:6px; background:#fff; color:var(--ink); cursor:pointer; }
   #tab-log .log-select-bar select{ font-size:17px; font-weight:700; padding:12px 16px; min-width:320px; max-width:100%; border:2px solid var(--ink); border-radius:6px; background:#fff; color:var(--ink); cursor:pointer; }
-  #tab-log .subtab-content > .section{ padding:0 0 20px; border-bottom:none; }
+  #tab-log .subtab-content > .section, #tab-accounting .subtab-content > .section{ padding:0 0 20px; border-bottom:none; }
   #tab-log .section-title{ margin-bottom:10px; }
   .section{ padding:26px 36px; border-bottom:1px solid var(--line); }
   .batch-hist-table tr.loc-row{ display:none; }
@@ -733,8 +734,8 @@
     }
     .section{ padding:16px; }
     .pending-toggle-mobile{ display:flex; }
-    #tab-log{ padding:12px 16px 0; }
-    #tab-log .log-select-bar select, #tab-warehouse-admin .log-select-bar select{ min-width:0; width:100%; }
+    #tab-log, #tab-accounting{ padding:12px 16px 0; }
+    #tab-log .log-select-bar select, #tab-warehouse-admin .log-select-bar select, #tab-accounting .log-select-bar select{ min-width:0; width:100%; }
 
     .section-title{ font-size:12px; }
 
@@ -1996,7 +1997,6 @@
         <option value="subtab-tx-forecast" data-i18n="subtabTxForecast">進貨預估</option>
         <option value="subtab-tx-data" data-i18n="subtabTxData">資料維護</option>
         <option value="subtab-purchase-mgmt-ocrdb" data-i18n="secReceiptOcrDb">掃描收據數據庫</option>
-        <option value="subtab-price-setting" data-i18n="subtabPriceSetting">定價管理</option>
       </select>
       <select id="supplyListSelect" onchange="switchSupplyListPane(this.value)">
         <option value="subtab-order-parties" data-i18n="optSupplyParties">出貨方</option>
@@ -2043,11 +2043,6 @@
       <div id="supplierManagementTable"></div>
     </div>
 
-    </div>
-
-    <div id="subtab-price-setting" class="subtab-content">
-      <div class="section-title" style="margin-top:0;" data-i18n="subtabPriceSetting">定價管理</div>
-      <div id="priceSettingRoot"></div>
     </div>
 
     <div id="subtab-purchase-mgmt-ocrdb" class="subtab-content">
@@ -2273,6 +2268,38 @@
     </div>
   </div>
 
+  <div id="tab-accounting" class="tab-content">
+    <div class="log-select-bar">
+      <select id="accountingSubtabSelect" onchange="switchAccountingSubTab(this.value)">
+        <option value="subtab-acc-invoices" data-i18n="subtabAccInvoices">Invoices</option>
+        <option value="subtab-price-setting" data-i18n="subtabPriceSetting">定價管理</option>
+        <option value="subtab-log-pricerec" data-i18n="subtabLogPriceRecord">定價管理紀錄</option>
+      </select>
+    </div>
+
+    <div id="subtab-acc-invoices" class="subtab-content active-subtab">
+      <div class="section">
+        <div class="toolbar"><div class="section-title" style="margin:0;" data-i18n="subtabAccInvoices">Invoices</div></div>
+        <div id="invoiceListRoot"></div>
+      </div>
+    </div>
+
+    <div id="subtab-price-setting" class="subtab-content">
+      <div class="section-title" style="margin-top:0;" data-i18n="subtabPriceSetting">定價管理</div>
+      <div id="priceSettingRoot"></div>
+    </div>
+
+    <div id="subtab-log-pricerec" class="subtab-content">
+      <div class="section">
+        <div class="toolbar">
+          <div class="section-title" style="margin:0;" data-i18n="subtabLogPriceRecord">定價管理紀錄</div>
+        </div>
+        <p style="font-size:12.5px;color:var(--ink-soft);margin:0 0 12px;" data-i18n="priceRecordDesc">每次在定價管理按儲存(或在批次詳細資料儲存 margin 覆蓋 Price Setting 價格)都會留一筆紀錄,點進去可以看當時所有商品的 Sell price、成本價與 margin。</p>
+        <div id="priceRecordRoot"></div>
+      </div>
+    </div>
+  </div>
+
   <div id="tab-log" class="tab-content">
     <div class="log-select-bar">
       <select id="logSubtabSelect" onchange="switchLogSubTab(this.value)">
@@ -2282,7 +2309,6 @@
         <option value="subtab-log-tx" data-i18n="subtabLogTx" selected>進出貨紀錄</option>
         <option value="subtab-log-convert" data-i18n="subtabLogConvert">切換紀錄</option>
         <option value="subtab-log-location" data-i18n="subtabLogLocation">庫存分布紀錄</option>
-        <option value="subtab-log-pricerec" data-i18n="subtabLogPriceRecord">定價管理紀錄</option>
         <option value="subtab-log-exports" data-i18n="subtabLogExports">匯出紀錄</option>
         <option value="subtab-log-inventory" data-i18n="subtabLogInventory">後台紀錄</option>
       </select>
@@ -2422,16 +2448,6 @@
           保留最近一個月的切換紀錄。若切換錯誤,可以點右側「復原」按鈕撤銷。
         </p>
         <div id="convertHistoryTable"><div class="empty-note" data-i18n="noConvertHistory">最近一個月沒有切換紀錄。</div></div>
-      </div>
-    </div>
-
-    <div id="subtab-log-pricerec" class="subtab-content">
-      <div class="section">
-        <div class="toolbar">
-          <div class="section-title" style="margin:0;" data-i18n="subtabLogPriceRecord">定價管理紀錄</div>
-        </div>
-        <p style="font-size:12.5px;color:var(--ink-soft);margin:0 0 12px;" data-i18n="priceRecordDesc">每次在定價管理按儲存(或在批次詳細資料儲存 margin 覆蓋 Price Setting 價格)都會留一筆紀錄,點進去可以看當時所有商品的 Sell price、成本價與 margin。</p>
-        <div id="priceRecordRoot"></div>
       </div>
     </div>
 

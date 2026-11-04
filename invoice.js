@@ -2,9 +2,11 @@
 // Invoice(發票)
 //
 // - 系統設置 → Invoice 格式(管理者、會計看得到):公司資料(名稱、地址、ABN 必填;電話、Email、網址、Logo 選填)和銀行資料。
-//   存在 app_data 'invoiceSettings'(JSON);下一張 Invoice 號碼存在 app_data 'invoiceNextNo'。
+//   存在 app_data 'invoiceSettings'(JSON)。Invoice 本身存在獨立資料表 invoices(sql/invoices_table.sql),號碼由資料庫連號;
+//   還沒執行 SQL 時退回舊做法(快照存在訂單裡、號碼存在 app_data 'invoiceNextNo')。
 // - 已完成訂單 Action → Create Invoice(管理者、會計):先跳出 Invoice 預覽視窗,按「儲存 PDF」或「列印」才會真的建立
-//   (取號碼、記下日期 / 操作者),Invoice 內容快照存在 order.invoice;之後 Action 變成 Invoice,可以匯出 PDF 或列印。
+//   (取號碼、記下日期 / 操作者),內容快照存進 invoices 資料表,order.invoice 只留 { id, no, date } 的參照;之後 Action 變成 Invoice。
+// - 會計分頁 → Invoices:所有 Invoice 的清單(篩選日期 / 客戶 / 號碼),點一張可預覽、匯出 PDF、列印,也能匯出清單 Excel。
 // - Invoice 版面參照 TF International 的 Tax Invoice:左上公司資料,右上 Invoice No / Invoice Date / Terms / Due Date / Sale Rep,
 //   Name(Bill To)與 Ship To、Notes、品項表(#、Product Description、Comment、Quantity、Price、Disc%、Amount、Tax、Barcode)、
 //   Payment Method 與 Before Tax / Tax / Total。價格都是 Ex. GST;商品有勾 GST 才另外算 10% Tax。
@@ -25,6 +27,31 @@ async function loadInvoiceSettings(){
 }
 function invSettingsComplete(){ return !!(invSettings.companyName.trim() && invSettings.address.trim() && invSettings.abn.trim()); }
 
+// ---------- 資料庫函式(invoices 資料表)----------
+let invDbMode = null;   // 'table'(已執行 sql/invoices_table.sql)/ 'legacy'(還沒執行,退回舊做法)
+function invIsMissingFn(e){ return !!(e && (e.code === 'PGRST202' || e.code === '42883' || e.code === 'PGRST205' || e.code === '42P01' || /could not find the (function|table)|does not exist/i.test(e.message || ''))); }
+async function invGetNextNo(){
+  try{
+    const { data, error } = await sb.rpc('invoice_get_next');
+    if(error) throw error;
+    invDbMode = 'table'; return Number(data) || 1;
+  }catch(e){
+    if(!invIsMissingFn(e)) throw e;
+    invDbMode = 'legacy';
+    const r = await dbGet('invoiceNextNo'); const n = r && r.value ? parseInt(r.value, 10) : 1; return Number.isFinite(n) && n > 0 ? n : 1;
+  }
+}
+async function invSetNextNo(n){
+  try{
+    const { error } = await sb.rpc('invoice_set_next', { p_n: n });
+    if(error) throw error;
+    invDbMode = 'table';
+  }catch(e){
+    if(!invIsMissingFn(e)) throw e;
+    invDbMode = 'legacy'; await dbSet('invoiceNextNo', String(n));
+  }
+}
+
 // ---------- 設定頁 ----------
 async function invRenderSettings(){
   const set = (id, v) => { const el = document.getElementById(id); if(el && document.activeElement !== el) el.value = v || ''; };
@@ -36,7 +63,7 @@ async function invRenderSettings(){
   if(prev){ prev.src = logo || ''; prev.style.display = logo ? '' : 'none'; }
   const nx = document.getElementById('invNextNo');
   if(nx && document.activeElement !== nx){
-    try{ const r = await dbGet('invoiceNextNo'); const n = r && r.value ? parseInt(r.value, 10) : 1; nx.value = String(Number.isFinite(n) && n > 0 ? n : 1); }
+    try{ const n = await invGetNextNo(); nx.value = String(n); }
     catch(e){ nx.value = '1'; }
   }
 }
@@ -69,7 +96,7 @@ async function invSaveSettings(){
   if(!Number.isFinite(nn) || nn < 1){ msg.className = 'msg error'; msg.textContent = t('invBadNextNo'); return; }
   try{
     await dbSet('invoiceSettings', JSON.stringify(next));
-    await dbSet('invoiceNextNo', String(nn));
+    await invSetNextNo(nn);
     invSettings = next; invLogoDraft = null;
     msg.className = 'msg ok'; msg.textContent = t('invSaved');
   }catch(e){ console.error('儲存 Invoice 設定失敗', e); msg.className = 'msg error'; msg.textContent = t('spMarginSaveFailed'); }
@@ -235,7 +262,7 @@ function invShowModal(orderId, snap, created){
   const ov = document.createElement('div');
   ov.id = 'invoiceOverlay'; ov.className = 'modal-overlay'; ov.style.display = 'flex'; ov.style.zIndex = '1150';
   const order = orders.find(o => o.id === orderId);
-  const title = `${created ? 'Invoice' : 'Create Invoice'}${order && order.orderNo ? ' · ' + order.orderNo : ''}`;
+  const title = `${created ? 'Invoice' : 'Create Invoice'}${(order && order.orderNo) || snap.orderNo ? ' · ' + ((order && order.orderNo) || snap.orderNo) : ''}`;
   const shown = created ? snap : Object.assign({}, snap, { no: t('invNoAuto') });
   ov.innerHTML = `<div class="modal-box" style="max-width:min(900px,96vw);max-height:92vh;overflow:auto;">
     <div class="section-title" style="margin-top:0;">${invEsc(title)}</div>
@@ -254,7 +281,7 @@ function invOpenCreate(orderId){
   if(!canCreateInvoice()) return;
   const order = orders.find(o => o.id === orderId);
   if(!order || order.deleted || orderStatus(order) !== 'confirmed') return;
-  if(order.invoice){ invShowModal(orderId, order.invoice, true); return; }
+  if(order.invoice){ invOpenView(orderId); return; }
   const r = invBuildSnapshot(order);
   if(!r.ok){
     if(r.reason === 'settings') showInfoModal(t('invNeedSettings'));
@@ -264,9 +291,17 @@ function invOpenCreate(orderId){
   }
   invShowModal(orderId, r.snap, false);
 }
-function invOpenView(orderId){
+async function invFetchSnapshot(invoiceId){
+  const { data, error } = await sb.from('invoices').select('snapshot').eq('id', invoiceId).maybeSingle();
+  if(error || !data) throw error || new Error('not found');
+  return data.snapshot;
+}
+async function invOpenView(orderId){
   const order = orders.find(o => o.id === orderId);
-  if(order && order.invoice) invShowModal(orderId, order.invoice, true);
+  if(!order || !order.invoice) return;
+  if(order.invoice.lines){ invShowModal(orderId, order.invoice, true); return; }
+  try{ invShowModal(orderId, await invFetchSnapshot(order.invoice.id), true); }
+  catch(e){ console.error('讀取 Invoice 失敗', e); showInfoModal(t('invLoadFailed')); }
 }
 // 按下儲存 / 列印才真的建立 Invoice:取號碼、記下今天日期與操作者,存回訂單
 async function invEnsureCreated(){
@@ -274,20 +309,35 @@ async function invEnsureCreated(){
   if(invModal.created) return invModal.snap;
   const order = orders.find(o => o.id === invModal.orderId);
   if(!order) return null;
-  if(order.invoice){ invModal.snap = order.invoice; invModal.created = true; return order.invoice; }
+  if(order.invoice && order.invoice.lines){ invModal.snap = order.invoice; invModal.created = true; return order.invoice; }
   const msg = document.getElementById('invModalMsg');
+  const fail = (key) => { if(msg){ msg.className = 'msg error'; msg.textContent = t(key || 'invCreateFailed'); } return null; };
+  // 日期、Due date、Sale Rep 以「按下建立」當下為準
+  const snap0 = Object.assign({}, invModal.snap);
+  snap0.date = (typeof todayISO === 'function') ? todayISO() : snap0.date;
+  snap0.dueDate = invAddDays(snap0.date, snap0.term || 0);
+  snap0.saleRep = (typeof userDisplayName === 'function' && currentUser) ? userDisplayName(currentUser) : snap0.saleRep;
+  snap0.createdAt = new Date().toISOString();
+  const prevInvoice = order.invoice;
   try{
-    let n = 1;
-    const r = await dbGet('invoiceNextNo');
-    const v = r && r.value ? parseInt(r.value, 10) : 1;
-    if(Number.isFinite(v) && v > 0) n = v;
-    const snap = Object.assign({}, invModal.snap, { no: invPad(n, 8), createdAt: new Date().toISOString() });
-    // 日期、Due date、Sale Rep 以「按下建立」當下為準
-    snap.date = (typeof todayISO === 'function') ? todayISO() : snap.date;
-    snap.dueDate = invAddDays(snap.date, snap.term || 0);
-    snap.saleRep = (typeof userDisplayName === 'function' && currentUser) ? userDisplayName(currentUser) : snap.saleRep;
-    await dbSet('invoiceNextNo', String(n + 1));
-    order.invoice = snap;
+    let snap;
+    try{
+      const { data, error } = await sb.rpc('invoice_create', { p_snapshot: snap0, p_order_id: order.id, p_order_no: order.orderNo || '', p_party_id: order.partyId || '' });
+      if(error) throw error;
+      invDbMode = 'table';
+      snap = Object.assign({}, snap0, { no: data.invoice_no, id: data.id });
+      order.invoice = { id: data.id, no: data.invoice_no, date: snap.date };
+    }catch(e){
+      if(/invoice_exists/.test((e && e.message) || '')) return fail('invAlreadyExists');
+      if(/invoice_forbidden/.test((e && e.message) || '')) return fail('invForbidden');
+      if(!invIsMissingFn(e)) throw e;
+      // 還沒執行 sql/invoices_table.sql:退回舊做法(快照存在訂單裡,號碼存在 app_data)
+      invDbMode = 'legacy';
+      const n = await invGetNextNo();
+      snap = Object.assign({}, snap0, { no: invPad(n, 8) });
+      await dbSet('invoiceNextNo', String(n + 1));
+      order.invoice = snap;
+    }
     await upsertOrders([order]);
     invModal.snap = snap; invModal.created = true;
     try{ logInventoryAction('order_edit', `Order ${order.orderNo || order.id} - invoice created: ${snap.no}`, order.orderNo); }catch(e){}
@@ -295,9 +345,8 @@ async function invEnsureCreated(){
     return snap;
   }catch(e){
     console.error('建立 Invoice 失敗', e);
-    delete order.invoice;
-    if(msg){ msg.className = 'msg error'; msg.textContent = t('invCreateFailed'); }
-    return null;
+    if(prevInvoice) order.invoice = prevInvoice; else delete order.invoice;
+    return fail('invCreateFailed');
   }
 }
 function invRefreshModalAfterCreate(){
@@ -306,7 +355,7 @@ function invRefreshModalAfterCreate(){
   const ov = document.getElementById('invoiceOverlay');
   if(ov && invModal){
     const ttl = ov.querySelector('.section-title'); const order = orders.find(o => o.id === invModal.orderId);
-    if(ttl) ttl.textContent = 'Invoice' + (order && order.orderNo ? ' · ' + order.orderNo : '');
+    if(ttl) ttl.textContent = 'Invoice' + ((order && order.orderNo) || invModal.snap.orderNo ? ' · ' + ((order && order.orderNo) || invModal.snap.orderNo) : '');
     const hint = ov.querySelector('p'); if(hint) hint.remove();
   }
 }
@@ -343,4 +392,111 @@ async function invDoPrint(){
   d.close();
   const go = () => { try{ iframe.contentWindow.focus(); iframe.contentWindow.print(); }catch(e){ console.error(e); } setTimeout(() => iframe.remove(), 2000); };
   if(iframe.contentWindow.document.readyState === 'complete') setTimeout(go, 200); else iframe.onload = () => setTimeout(go, 200);
+}
+
+
+// ============================================================
+// 會計分頁 → Invoices 清單
+// ============================================================
+let invList = [];            // 從 invoices 資料表讀到的清單(不含完整快照)
+let invListError = '';
+let invListFilter = { from: '', to: '', q: '' };
+async function invOpenListPage(){
+  const root = document.getElementById('invoiceListRoot');
+  if(root) root.innerHTML = `<div class="empty-note">${t('batchLoading')}</div>`;
+  invListError = '';
+  try{
+    const { data, error } = await sb.from('invoices')
+      .select('id,invoice_no,order_id,order_no,party_id,customer,invoice_date,due_date,terms,payment_type,sale_rep,before_tax,tax,total,currency')
+      .order('invoice_date', { ascending: false }).order('invoice_no', { ascending: false }).limit(2000);
+    if(error) throw error;
+    invList = data || [];
+  }catch(e){
+    invList = [];
+    invListError = invIsMissingFn(e) ? 'sql' : 'error';
+    if(invListError === 'error') console.error('讀取 Invoice 清單失敗', e);
+  }
+  invRenderList();
+}
+function invFilteredList(){
+  const f = invListFilter, q = (f.q || '').trim().toLowerCase();
+  return invList.filter(r => (!f.from || r.invoice_date >= f.from) && (!f.to || r.invoice_date <= f.to)
+    && (!q || [r.invoice_no, r.customer, r.order_no, r.sale_rep].join(' ').toLowerCase().includes(q)));
+}
+function invRenderList(){
+  const root = document.getElementById('invoiceListRoot');
+  if(!root) return;
+  if(invListError === 'sql'){ root.innerHTML = `<div class="empty-note">${t('invListNeedSql')}</div>`; return; }
+  if(invListError){ root.innerHTML = `<div class="empty-note">${t('invLoadFailed')}</div>`; return; }
+  const list = invFilteredList();
+  const sum = list.reduce((a, r) => { a.b += Number(r.before_tax) || 0; a.t += Number(r.tax) || 0; a.g += Number(r.total) || 0; return a; }, { b: 0, t: 0, g: 0 });
+  const rows = list.map(r => `<tr style="cursor:pointer;" onclick="invOpenFromList('${invEsc(r.id)}')">
+      <td style="white-space:nowrap;"><span class="batch-link">${invEsc(r.invoice_no)}</span></td>
+      <td style="white-space:nowrap;">${invEsc(invIsoToDmy(r.invoice_date))}</td>
+      <td>${invEsc(r.customer)}</td>
+      <td>${invEsc(r.order_no)}</td>
+      <td style="white-space:nowrap;">${invEsc(r.payment_type === 'cod' ? 'COD' : (r.terms ? r.terms + ' Days' : ''))}<div style="font-size:10.5px;color:var(--ink-soft);">${invEsc(invIsoToDmy(r.due_date))}</div></td>
+      <td>${invEsc(r.sale_rep)}</td>
+      <td class="num">${invMoney2(r.before_tax)}</td><td class="num">${invMoney2(r.tax)}</td><td class="num"><b>${invMoney2(r.total)}</b></td>
+    </tr>`).join('');
+  root.innerHTML = `
+    <div class="filter-row" style="margin-bottom:10px;">
+      <div class="field"><label>${t('lblFromDate')}</label><input type="date" id="invFltFrom" value="${invEsc(invListFilter.from)}" onchange="invOnListFilter()" /></div>
+      <div class="field"><label>${t('lblToDate')}</label><input type="date" id="invFltTo" value="${invEsc(invListFilter.to)}" onchange="invOnListFilter()" /></div>
+      <div class="field" style="min-width:220px;"><label>${t('psSearchProduct').replace(/商品|product/i, '')}</label><input type="search" id="invFltQ" value="${invEsc(invListFilter.q)}" oninput="invOnListFilter(true)" placeholder="${invEsc(t('invListSearchPh'))}" /></div>
+      <button class="btn ghost" onclick="invListFilter={from:'',to:'',q:''};invRenderList()" style="align-self:flex-end;">${t('btnClearFilter')}</button>
+      <button class="btn ghost" onclick="invExportListXlsx()" style="align-self:flex-end;">${t('invExportList')}</button>
+    </div>
+    ${list.length === 0 ? `<div class="empty-note">${t('invListEmpty')}</div>` : `<div style="font-size:11.5px;color:var(--ink-soft);margin-bottom:6px;">${t('invListClickHint')}</div>
+    <div style="overflow-x:auto;"><table class="stock-table"><thead><tr><th>Invoice No</th><th>Invoice Date</th><th>${t('invColCustomer')}</th><th>${t('invColOrder')}</th><th>Terms / Due</th><th>Sale Rep</th><th class="num">${t('spSaleAmt')}</th><th class="num">${t('spGstAmt')}</th><th class="num">${t('spTotalAmt')}</th></tr></thead>
+      <tbody>${rows}</tbody>
+      <tfoot><tr style="font-weight:700;"><td colspan="6" style="text-align:right;">${t('invListTotals')} (${list.length})</td><td class="num">${invMoney2(sum.b)}</td><td class="num">${invMoney2(sum.t)}</td><td class="num">${invMoney2(sum.g)}</td></tr></tfoot></table></div>`}`;
+}
+function invOnListFilter(typing){
+  invListFilter.from = (document.getElementById('invFltFrom') || {}).value || '';
+  invListFilter.to = (document.getElementById('invFltTo') || {}).value || '';
+  invListFilter.q = (document.getElementById('invFltQ') || {}).value || '';
+  if(!typing){ invRenderList(); return; }
+  // 輸入搜尋字時只重畫,保留輸入框的游標
+  const pos = (document.getElementById('invFltQ') || {}).selectionStart;
+  invRenderList();
+  const el = document.getElementById('invFltQ'); if(el){ el.focus(); try{ el.setSelectionRange(pos, pos); }catch(e){} }
+}
+async function invOpenFromList(id){
+  try{ invShowModal(null, await invFetchSnapshot(id), true); }
+  catch(e){ console.error('讀取 Invoice 失敗', e); showInfoModal(t('invLoadFailed')); }
+}
+function invExportListXlsx(){
+  if(typeof XLSX === 'undefined'){ showInfoModal(t('psImportNoXlsx')); return; }
+  const list = invFilteredList();
+  const aoa = [['Invoice No', 'Invoice Date', 'Customer', 'Order No', 'Terms', 'Due Date', 'Sale Rep', 'Sale Amt (Ex. GST)', 'GST', 'Total Amt (Inc. GST)', 'Currency']]
+    .concat(list.map(r => [r.invoice_no, r.invoice_date, r.customer, r.order_no, r.payment_type === 'cod' ? 'COD' : (r.terms ? r.terms + ' Days' : ''), r.due_date, r.sale_rep, Number(r.before_tax), Number(r.tax), Number(r.total), r.currency]));
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
+  ws['!cols'] = [{ wch: 12 }, { wch: 12 }, { wch: 30 }, { wch: 12 }, { wch: 10 }, { wch: 12 }, { wch: 16 }, { wch: 16 }, { wch: 10 }, { wch: 18 }, { wch: 8 }];
+  const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, 'Invoices');
+  XLSX.writeFile(wb, `invoices_${(typeof todayISO === 'function') ? todayISO() : ''}.xlsx`);
+}
+
+// ============================================================
+// 備份 / 還原 / 清除全部資料(只有管理者;資料表沒建立時略過)
+// ============================================================
+async function invExportForBackup(){
+  try{
+    const { data, error } = await sb.from('invoices').select('*').order('invoice_no', { ascending: true }).limit(100000);
+    if(error) throw error;
+    return { invoices: data || [], next: await invGetNextNo() };
+  }catch(e){
+    if(invIsMissingFn(e)) return null;
+    throw e;
+  }
+}
+async function invRestoreFromBackup(backup){
+  const d = backup && backup.invoiceData;
+  if(!d || !Array.isArray(d.invoices)) return;
+  const { error } = await sb.rpc('invoice_restore_all', { p_rows: d.invoices, p_next: d.next || 1 });
+  if(error && !invIsMissingFn(error)) throw error;
+}
+async function invClearAll(){
+  const { error } = await sb.rpc('invoice_clear_all');
+  if(error && !invIsMissingFn(error)) throw error;
 }

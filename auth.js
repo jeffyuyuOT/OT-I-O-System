@@ -14,7 +14,9 @@ const TAB_DEFS = [
   { id: 'tab-order', labelKey: 'tabOrder' },
   { id: 'tab-order-admin', labelKey: 'secOrderAdmin' },
   { id: 'tab-warehouse-admin', labelKey: 'tabWarehouseAdmin' },
-  { id: 'tab-log', labelKey: 'tabLog' }
+  { id: 'tab-log', labelKey: 'tabLog' },
+  // 會計:Invoices、定價管理、定價管理紀錄;只有管理者、會計預設看得到
+  { id: 'tab-accounting', labelKey: 'tabAccounting' }
 ];
 
 // ===== 使用者帳號 / 身分權限 =====
