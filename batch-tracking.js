@@ -1089,12 +1089,13 @@ function batchRenderBatchView(){
       <span style="font-size:12px;color:var(--ink-soft);">${batchEsc(h.isOpening ? t('batchOpening') : h.batchDate)}</span>
     </div>
     <table class="stock-table">
-      <thead><tr><th>${t('colProduct')}</th><th class="num">${t('batchColRemaining')}</th><th>${t('batchColExpiry')}</th><th class="num">Sell price</th><th></th></tr></thead>
+      <thead><tr><th style="width:30%;">${t('colProduct')}</th><th class="num" style="width:14%;">${t('batchColRemaining')}</th><th style="width:20%;">${t('batchColExpiry')}</th><th class="num" style="width:12%;">${t('batchColCostPrice')}</th><th class="num" style="width:12%;">Sell price</th><th style="width:12%;"></th></tr></thead>
       <tbody>${items.sort((a, b) => batchProductName(a.productId).localeCompare(batchProductName(b.productId))).map(i => `
         <tr>
           <td><span class="batch-link" onclick="batchTrackerOpenProduct('${i.productId}')">${batchEsc(batchProductName(i.productId))}</span></td>
           <td class="num">${batchFmtQty(i.remaining)} ${batchEsc(batchProductUnit(i.productId))}</td>
           <td>${i.expiry ? batchEsc(i.expiry) + batchExpiryBadge(i.expiry, true) : '–'}</td>
+          <td class="num">${(typeof spPriceCellHtml === 'function') ? spPriceCellHtml(i) : batchFmtMoney(batchUnitCost(i))}</td>
           <td class="num">${(typeof spSellCellHtml === 'function') ? spSellCellHtml(i) : batchFmtMoney(batchUnitCost(i))}</td>
           <td><span class="del-link" onclick="batchTrackerOpenHistory('${i.id}')">${t('batchBtnHistory')}</span></td>
         </tr>`).join('')}</tbody>
