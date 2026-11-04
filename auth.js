@@ -98,7 +98,7 @@ function userDisplayName(u){
 // 打開 tab-master,並用上面的 cap-manage-users 限制他們碰不到使用者管理。
 const ROLE_DEFAULT_TABS = {
   admin: TAB_DEFS.map(d => d.id),
-  accountant: TAB_DEFS.map(d => d.id).filter(id => id !== 'tab-master'),   // 不帶系統管理(會計用的設定在「會計」分頁的「會計設定」);倉庫作業台要帶(會計要登記進貨、出貨),但「訂單核對」預設隱藏(cap-order-verify)
+  accountant: TAB_DEFS.map(d => d.id).filter(id => id !== 'tab-master' && id !== 'tab-order'),   // 不帶訂貨(那是出貨方下單用的頁面;會計從訂貨後台管理看訂單)、不帶系統管理(會計用的設定在「會計」分頁的「會計設定」);倉庫作業台要帶(會計要登記進貨、出貨),但「訂單核對」預設隱藏(cap-order-verify)
   order: ['tab-order'],
   inventory: ['tab-warehouse-ops', 'tab-overview', 'tab-order-admin', 'tab-warehouse-admin', 'tab-log']
 };
