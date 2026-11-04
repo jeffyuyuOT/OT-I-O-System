@@ -2533,6 +2533,20 @@
       <label data-i18n="lblAction">Action</label>
       <select id="orderActionModalSelect" onchange="updateOrderActionModeVisibility()"></select>
     </div>
+    <div class="field" id="orderActionOutputField" style="display:none;">
+      <label data-i18n="lblOutputMethod">輸出方式</label>
+      <select id="orderActionOutputSelect" onchange="updateOrderActionModeVisibility(true)">
+        <option value="export" data-i18n="actionExport">匯出</option>
+        <option value="print" data-i18n="actionPrint">列印</option>
+      </select>
+    </div>
+    <div class="field" id="orderActionFormatField" style="display:none;">
+      <label data-i18n="lblExportFormat">匯出格式</label>
+      <select id="orderActionFormatSelect" onchange="updateOrderActionModeVisibility(true)">
+        <option value="excel" data-i18n="optFmtExcel">Excel</option>
+        <option value="myob" data-i18n="optFmtMyob">MYOB 匯入檔</option>
+      </select>
+    </div>
     <div class="field" id="orderActionModeField" style="display:none;">
       <label data-i18n="lblExportMode">匯出類型</label>
       <select id="orderActionModeSelect">

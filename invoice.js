@@ -120,16 +120,45 @@ function invBuildSnapshot(order){
   const gstRate = (typeof SP_GST_RATE !== 'undefined') ? SP_GST_RATE : 0.10;
   const noPrice = [];
   const lines = [];
-  (order.items || []).filter(it => !it.deleted && it.qty > 0).forEach((it, i) => {
+  const productsAll = (typeof products !== 'undefined') ? products : [];
+  // 「會計匯出不顯示」的商品設定也套用在 Invoice:跟會計匯出同一套規則
+  //  · 整個家族都不顯示:主商品跟底下所有批量商品的品項都不列入
+  //  · 僅顯示切換的批量商品數量:主商品本身不列入,但訂單核對時切換出去的批量商品數量改列在批量商品自己的行,
+  //    金額以主商品的單價 × 切換換算出的主商品數量計算(總金額跟原本被切換掉的那部分一致)
+  const wholeFamilyHidden = new Set();
+  productsAll.forEach(pp => {
+    if(!pp.parentId && pp.hideFromCompletedOrderExport && pp.hideFromCompletedOrderExportMode === 'wholeFamily'){
+      wholeFamilyHidden.add(pp.id);
+      if(typeof getChildProducts === 'function') getChildProducts(pp.id).forEach(c => wholeFamilyHidden.add(c.id));
+    }
+  });
+  const addLine = (it, p, unit, disc, listPrice, amount) => {
+    const tax = p && p.gst ? Math.round(amount * gstRate * 100) / 100 : 0;
+    lines.push({ n: lines.length + 1, desc: it.name, sku: it.sku || (p && p.sku) || '', comment: it.note || '', qty: it.qty, unit: it.unit || '', price: listPrice, disc, amount, tax });
+  };
+  (order.items || []).filter(it => !it.deleted && it.qty > 0).forEach(it => {
+    const p = productsAll.find(x => x.id === it.productId) || null;
+    if(wholeFamilyHidden.has(it.productId)) return;
     const pr = spPriceOrderItem(order, it);
+    if(p && p.hideFromCompletedOrderExport && !p.parentId){
+      // 主商品本身不列入;切換出去的批量商品改列在批量商品自己的行
+      (it.fulfilledViaSwitch || []).forEach(sw => {
+        if(wholeFamilyHidden.has(sw.childId)) return;
+        if(pr.unit === null || pr.unit === undefined){ noPrice.push(it.name); return; }
+        const cp = productsAll.find(x => x.id === sw.childId) || null;
+        const amount = Math.round(Number(pr.unit) * Number(sw.convertedQty || 0) * 100) / 100;
+        const cq = Number(sw.childQty) || 0;
+        const unitPrice = cq > 0 ? Math.round(amount / cq * 100) / 100 : 0;
+        addLine({ name: sw.childName || (cp && cp.name) || '', sku: sw.childSku || '', unit: sw.childUnit || '', qty: cq, note: it.note }, cp, unitPrice, 0, unitPrice, amount);
+      });
+      return;
+    }
     if(pr.unit === null || pr.unit === undefined){ noPrice.push(it.name); return; }
-    const p = (typeof products !== 'undefined') ? products.find(x => x.id === it.productId) : null;
     const unit = Number(pr.unit);
     const disc = (pr.manual || !pr.discountPct) ? 0 : Number(pr.discountPct);
     const listPrice = disc > 0 && disc < 100 ? Math.round(unit / (1 - disc / 100) * 100) / 100 : unit;
     const amount = Math.round(unit * it.qty * 100) / 100;
-    const tax = p && p.gst ? Math.round(amount * gstRate * 100) / 100 : 0;
-    lines.push({ n: lines.length + 1, desc: it.name, sku: it.sku || (p && p.sku) || '', comment: it.note || '', qty: it.qty, unit: it.unit || '', price: listPrice, disc, amount, tax, barcode: (p && p.barcode) || '' });
+    addLine(it, p, unit, disc, listPrice, amount);
   });
   if(noPrice.length) return { ok: false, reason: 'price', names: noPrice };
   if(lines.length === 0) return { ok: false, reason: 'empty' };
@@ -147,7 +176,7 @@ function invBuildSnapshot(order){
     customer: { name, billTo: (sp && sp.billTo) || '', email: (sp && sp.email) || '', abn: (sp && sp.abn) || '' },
     ship: { name, address: (sp && (sp.shipTo !== undefined ? sp.shipTo : sp.address)) || '', contact: (sp && sp.contactPerson) || '' },
     note: order.note || '', orderNo: order.orderNo || '',
-    lines, beforeTax, tax, total: Math.round((beforeTax + tax) * 100) / 100,
+    lines, beforeTax, tax, total: Math.round((beforeTax + tax) * 100) / 100, paid: 0,
     currency: (typeof getSystemCurrency === 'function') ? getSystemCurrency() : 'AUD'
   };
   return { ok: true, snap };
@@ -166,7 +195,7 @@ function invDocHtml(snap, logoDataUrl){
        <div>${bk.bsb ? 'BSB: ' + invEsc(bk.bsb) : ''}${bk.bsb && bk.accNo ? ', ' : ''}${bk.accNo ? 'A/C: ' + invEsc(bk.accNo) : ''}</div>
        <div style="margin-top:3px;">Payment Reference: Invoice No. ${invEsc(snap.no)}</div>`;
   const th = 'padding:5px 6px;text-align:left;font-weight:700;border-bottom:1px solid #000;';
-  const td = 'padding:5px 6px;vertical-align:top;border-bottom:1px solid #ddd;';
+  const td = 'padding:5px 6px;vertical-align:top;border-bottom:1px solid #ddd;word-wrap:break-word;overflow-wrap:anywhere;';
   const rows = snap.lines.map(l => `<tr style="page-break-inside:avoid;">
       <td style="${td}">${l.n}</td>
       <td style="${td}">${l.sku ? `<b>${invEsc(l.sku)}</b><br>` : ''}${invEsc(l.desc)}</td>
@@ -176,10 +205,13 @@ function invDocHtml(snap, logoDataUrl){
       <td style="${td}text-align:right;">${invMoney2(l.disc)}%</td>
       <td style="${td}text-align:right;">${invMoney2(l.amount)}</td>
       <td style="${td}text-align:right;">${invMoney2(l.tax)}</td>
-      <td style="${td}">${invEsc(l.barcode)}</td>
     </tr>`).join('');
   const cu = snap.customer || {}, sh = snap.ship || {};
-  return `<div class="inv-doc" style="width:794px;box-sizing:border-box;padding:40px 44px 32px;background:#fff;color:#000;font-family:Arial,Helvetica,sans-serif;font-size:11px;line-height:1.45;">
+  const paid = Math.max(0, Number(snap.paid) || 0);
+  const balance = Math.round((Number(snap.total) - paid) * 100) / 100;
+  const tr = 'padding:8px 10px;border-bottom:1px solid #000;';
+  return `<div class="inv-doc" style="width:794px;box-sizing:border-box;padding:40px 44px 32px;background:#fff;color:#000;font-family:Arial,Helvetica,sans-serif;font-size:11px;line-height:1.45;display:flex;flex-direction:column;">
+   <div class="inv-main">
     <table style="width:100%;border-collapse:collapse;"><tr>
       <td style="vertical-align:top;width:60%;">
         <div style="display:flex;gap:14px;align-items:flex-start;">
@@ -220,27 +252,32 @@ function invDocHtml(snap, logoDataUrl){
         <div>${invNl2br(sh.address)}</div>
       </td></tr></table>
 
-    <div style="border:1px solid #000;margin-top:16px;padding:6px 8px;min-height:34px;"><b>Notes:</b> ${invEsc(snap.note)}${snap.orderNo ? `<span style="float:right;">Order ${invEsc(snap.orderNo)}</span>` : ''}</div>
+    <div style="border:1px solid #000;margin-top:16px;padding:6px 8px;min-height:34px;"><b>Notes:</b> ${invNl2br(snap.note)}${snap.orderNo ? `<span style="float:right;">Order ${invEsc(snap.orderNo)}</span>` : ''}</div>
 
-    <table style="width:100%;border-collapse:collapse;margin-top:16px;border-top:1px solid #000;">
+    <table style="width:100%;border-collapse:collapse;margin-top:16px;border-top:1px solid #000;table-layout:fixed;">
+      <colgroup><col style="width:30px;" /><col style="width:185px;" /><col /><col style="width:58px;" /><col style="width:56px;" /><col style="width:58px;" /><col style="width:64px;" /><col style="width:50px;" /></colgroup>
       <thead><tr>
-        <th style="${th}width:22px;">#</th><th style="${th}">Product Description</th><th style="${th}">Comment</th>
+        <th style="${th}">#</th><th style="${th}">Product Description</th><th style="${th}">Comment</th>
         <th style="${th}text-align:right;">Quantity</th><th style="${th}text-align:right;">Price</th><th style="${th}text-align:right;">Disc%</th>
-        <th style="${th}text-align:right;">Amount</th><th style="${th}text-align:right;">Tax</th><th style="${th}">Barcode</th>
+        <th style="${th}text-align:right;">Amount</th><th style="${th}text-align:right;">Tax</th>
       </tr></thead>
       <tbody>${rows}</tbody>
     </table>
+   </div>
 
-    <table style="width:100%;border-collapse:collapse;margin-top:24px;page-break-inside:avoid;"><tr>
+   <div class="inv-foot" style="margin-top:auto;padding-top:24px;">
+    <table style="width:100%;border-collapse:collapse;page-break-inside:avoid;"><tr>
       <td style="vertical-align:top;width:58%;border:1px solid #000;padding:8px 10px;">
         <div style="font-weight:700;text-decoration:underline;margin-bottom:4px;">Payment Method</div>
         ${bankHtml}
       </td>
       <td style="vertical-align:top;padding:0;border:1px solid #000;border-left:none;">
         <table style="width:100%;border-collapse:collapse;">
-          <tr><td style="padding:8px 10px;border-bottom:1px solid #000;">Before Tax</td><td style="padding:8px 10px;border-bottom:1px solid #000;text-align:right;">${invMoney2(snap.beforeTax)}</td></tr>
-          <tr><td style="padding:8px 10px;border-bottom:1px solid #000;">Tax</td><td style="padding:8px 10px;border-bottom:1px solid #000;text-align:right;">${invMoney2(snap.tax)}</td></tr>
-          <tr style="font-weight:700;"><td style="padding:8px 10px;">Total ${invEsc(snap.currency || 'AUD')}</td><td style="padding:8px 10px;text-align:right;">${invMoney2(snap.total)}</td></tr>
+          <tr><td style="${tr}">Before Tax</td><td style="${tr}text-align:right;">${invMoney2(snap.beforeTax)}</td></tr>
+          <tr><td style="${tr}">Tax</td><td style="${tr}text-align:right;">${invMoney2(snap.tax)}</td></tr>
+          <tr style="font-weight:700;"><td style="${tr}">Total Amt</td><td style="${tr}text-align:right;">${invMoney2(snap.total)}</td></tr>
+          <tr><td style="${tr}">Paid Today</td><td style="${tr}text-align:right;">${invMoney2(paid)}</td></tr>
+          <tr style="font-weight:700;background:#d9d9d9;"><td style="padding:8px 10px;background:#d9d9d9;">Balance Due</td><td style="padding:8px 10px;text-align:right;background:#d9d9d9;">${invMoney2(balance)}</td></tr>
         </table>
       </td></tr></table>
 
@@ -250,7 +287,22 @@ function invDocHtml(snap, logoDataUrl){
       <div>Signing indicates the completion of the delivery process, and I accept that no further replenishments will be made thereafter.</div>
       <div style="margin-top:22px;font-size:12px;">Full Name: ____________________________ &nbsp;&nbsp; Signature: ____________________________</div>
     </div>
+   </div>
   </div>`;
+}
+
+// 讓整張 Invoice 的高度剛好是 A4 的整數頁,付款方式/簽名區塊才會貼在(最後一頁)A4 的最底部。
+// pageH:一頁的高度(px 數字,或帶單位的字串);host:裝著 .inv-doc 的容器。
+function invFitPages(host, mode){
+  const doc = host && host.querySelector ? host.querySelector('.inv-doc') : null;
+  if(!doc) return;
+  doc.style.minHeight = '0';
+  const real = doc.scrollHeight;
+  // 列印時每次換頁會因為「整列不拆開」、表頭重複而多佔一點高度,預留一些空間再算頁數
+  const gap = mode === 'print' ? 110 : 0;
+  let pages = 1;
+  while(real + gap * (pages - 1) > pages * 1120) pages++;
+  doc.style.minHeight = mode === 'print' ? (pages === 1 ? 295 : pages * 297 - 20) + 'mm' : (pages * 1120) + 'px';
 }
 
 // ---------- 預覽視窗 ----------
@@ -271,11 +323,64 @@ function invShowModal(orderId, snap, created){
     <div id="invModalMsg" class="msg"></div>
     <div class="modal-actions">
       <button class="btn ghost" onclick="invCloseModal()">${created ? t('btnClose') : t('btnCancel')}</button>
+      <button class="btn ghost" onclick="invOpenPaidPrompt()">${t('invBtnPaidToday')}</button>
       <button class="btn ghost" onclick="invDoPrint()">${t('invBtnPrint')}</button>
       <button class="btn" onclick="invDoSavePdf()">${created ? t('invBtnExport') : t('invBtnSavePdf')}</button>
     </div>
   </div>`;
   document.body.appendChild(ov);
+  invFitPages(document.getElementById('invPreviewHost'), 'pdf');
+}
+
+// ---- Paid Today:輸入今天已收金額,Balance Due 自動扣除 ----
+function invOpenPaidPrompt(){
+  if(!invModal) return;
+  const snap = invModal.snap;
+  const ov = document.createElement('div');
+  ov.id = 'invPaidOverlay'; ov.className = 'modal-overlay'; ov.style.display = 'flex'; ov.style.zIndex = '1200';
+  ov.innerHTML = `<div class="modal-box" style="max-width:360px;">
+    <div class="section-title" style="margin-top:0;">${t('invBtnPaidToday')}</div>
+    <p style="font-size:12px;color:var(--ink-soft);margin:0 0 8px;">Total Amt: <b>${invMoney2(snap.total)}</b></p>
+    <input id="invPaidInput" type="number" min="0" step="0.01" value="${Number(snap.paid) > 0 ? invMoney2(snap.paid) : ''}" style="width:100%;box-sizing:border-box;" placeholder="0.00" />
+    <div id="invPaidMsg" class="msg"></div>
+    <div class="modal-actions"><button class="btn ghost" onclick="document.getElementById('invPaidOverlay').remove()">${t('btnCancel')}</button><button class="btn" onclick="invSavePaid()">${t('btnSave')}</button></div>
+  </div>`;
+  document.body.appendChild(ov);
+  const inp = document.getElementById('invPaidInput'); if(inp){ inp.focus(); inp.select(); }
+}
+async function invSavePaid(){
+  if(!invModal) return;
+  const msg = document.getElementById('invPaidMsg');
+  const raw = (document.getElementById('invPaidInput') || {}).value;
+  const v = raw === '' || raw === undefined ? 0 : Math.round(Number(raw) * 100) / 100;
+  if(!Number.isFinite(v) || v < 0){ msg.className = 'msg error'; msg.textContent = t('invPaidBad'); return; }
+  if(v > Number(invModal.snap.total) + 0.0001){ msg.className = 'msg error'; msg.textContent = t('invPaidTooMuch'); return; }
+  if(invModal.created){
+    // 已建立的 Invoice:存回資料庫(或舊版:存在訂單裡)
+    try{
+      if(invModal.snap.id && invDbMode !== 'legacy'){
+        const { error } = await sb.rpc('invoice_set_paid', { p_id: invModal.snap.id, p_paid: v });
+        if(error) throw error;
+      } else {
+        const order = orders.find(o => o.id === invModal.orderId);
+        if(!order || !order.invoice || !order.invoice.lines) throw new Error('no order invoice');
+        order.invoice.paid = v;
+        await upsertOrders([order]);
+      }
+    }catch(e){
+      console.error('儲存 Paid Today 失敗', e);
+      msg.className = 'msg error'; msg.textContent = invIsMissingFn(e) ? t('invPaidNeedSql') : t('invPaidFailed');
+      return;
+    }
+  }
+  invModal.snap.paid = v;
+  const po = document.getElementById('invPaidOverlay'); if(po) po.remove();
+  const host = document.getElementById('invPreviewHost');
+  if(host){
+    const shown = invModal.created ? invModal.snap : Object.assign({}, invModal.snap, { no: t('invNoAuto') });
+    host.innerHTML = invDocHtml(shown, invSettings.logo);
+    invFitPages(host, 'pdf');
+  }
 }
 function invOpenCreate(orderId){
   if(!canCreateInvoice()) return;
@@ -351,7 +456,7 @@ async function invEnsureCreated(){
 }
 function invRefreshModalAfterCreate(){
   const host = document.getElementById('invPreviewHost');
-  if(host && invModal) host.innerHTML = invDocHtml(invModal.snap, invSettings.logo);
+  if(host && invModal){ host.innerHTML = invDocHtml(invModal.snap, invSettings.logo); invFitPages(host, 'pdf'); }
   const ov = document.getElementById('invoiceOverlay');
   if(ov && invModal){
     const ttl = ov.querySelector('.section-title'); const order = orders.find(o => o.id === invModal.orderId);
@@ -370,6 +475,7 @@ async function invDoSavePdf(){
   holder.style.cssText = 'position:fixed;left:-10000px;top:0;width:794px;background:#fff;';
   holder.innerHTML = invDocHtml(snap, invSettings.logo);
   document.body.appendChild(holder);
+  invFitPages(holder, 'pdf');
   try{
     await html2pdf().set({
       margin: 0, filename: invFileName(snap), image: { type: 'jpeg', quality: 0.98 },
@@ -388,10 +494,88 @@ async function invDoPrint(){
   const d = iframe.contentWindow.document;
   d.open();
   d.write(`<!doctype html><html><head><meta charset="utf-8"><title>${invEsc(invFileName(snap))}</title>
-    <style>@page{size:A4;margin:0;} body{margin:0;} .inv-doc{width:210mm !important;min-height:297mm;} tr{page-break-inside:avoid;}</style></head><body>${invDocHtml(snap, invSettings.logo)}</body></html>`);
+    <style>@page{size:A4;margin:0;} body{margin:0;} .inv-doc{width:210mm !important;min-height:297mm;} .inv-foot{break-inside:avoid;} tr{page-break-inside:avoid;}</style></head><body>${invDocHtml(snap, invSettings.logo)}</body></html>`);
   d.close();
-  const go = () => { try{ iframe.contentWindow.focus(); iframe.contentWindow.print(); }catch(e){ console.error(e); } setTimeout(() => iframe.remove(), 2000); };
+  const go = () => { try{ invFitPages(iframe.contentWindow.document.body, 'print'); iframe.contentWindow.focus(); iframe.contentWindow.print(); }catch(e){ console.error(e); } setTimeout(() => iframe.remove(), 2000); };
   if(iframe.contentWindow.document.readyState === 'complete') setTimeout(go, 200); else iframe.onload = () => setTimeout(go, 200);
+}
+
+
+// ============================================================
+// MYOB 匯入檔(Sales - Item 版面,Tab 分隔的 .txt,有標題列)
+// 欄位與順序參照 MYOB AccountRight / AccountEdge「Import Sales → Item」通用格式:
+//   在 MYOB 裡:File > Import/Export Assistant > Import > Sales > Item Sales,
+//   選 Tab-separated、First Record is Header Record。
+// 規則:Co./Last Name 要跟 MYOB 客戶卡完全一致;Item Number(這裡用商品 SKU)要跟 MYOB 存貨品項一致;
+// 同一張 Invoice 的第一行放完整資料,後面各行只放品項;Invoice 與 Invoice 之間空一行。
+// ============================================================
+const INV_MYOB_COLS = ['Co./Last Name','First Name','Addr 1 - Line 1','           - Line 2','           - Line 3','           - Line 4','Inclusive','Invoice #','Date','Customer PO','Ship Via','Delivery Status','Item Number','Quantity','Description','Price','Inc-Tax Price','Discount','Total','Inc-Tax Total','Job','Comment','Journal Memo','Salesperson Last Name','Salesperson First Name','Shipping Date','Referral Source','Tax Code','Non-GST Amount','GST Amount','LCT Amount','Freight Amount','Inc-Tax Freight Amount','Freight Tax Code','Freight Non-GST Amount','Freight GST Amount','Freight LCT Amount','Sale Status','Currency Code','Exchange Rate','Terms - Payment is Due','           - Discount Days','           - Balance Due Days','           - % Discount','           - % Monthly Charge','Amount Paid','Payment Method','Payment Notes','Name on Card','Card Number','Expiry Date','Authorisation Code','BSB','Account Number','Drawer/Account Name','Cheque Number','Category','Location ID','Card ID','Record ID'];
+function invMyobClean(v){ return String(v === undefined || v === null ? '' : v).replace(/[\t\r\n]+/g, ' ').trim(); }
+function invMyobText(snap, fallbackNo){
+  const idx = {}; INV_MYOB_COLS.forEach((c, i) => { idx[c.trim()] = i; });
+  const idx2 = {}; // 有重複名稱的欄位(縮排的 Line 2~4 等)用位置取
+  const blank = () => INV_MYOB_COLS.map(() => '');
+  const rate = (typeof SP_GST_RATE !== 'undefined') ? SP_GST_RATE : 0.10;
+  const cu = snap.customer || {};
+  const addr = String(cu.billTo || '').split(/\r?\n/).map(x => x.trim()).filter(Boolean);
+  const invNo = snap.no || fallbackNo || '';
+  const rows = [INV_MYOB_COLS];
+  (snap.lines || []).forEach((l, i) => {
+    const r = blank();
+    const set = (name, v) => { const k = INV_MYOB_COLS.findIndex(c => c.trim() === name); if(k >= 0) r[k] = invMyobClean(v); };
+    set('Co./Last Name', cu.name);
+    set('Invoice #', invNo);
+    const taxed = Number(l.tax) > 0;
+    if(i === 0){
+      r[2] = invMyobClean(addr[0]); r[3] = invMyobClean(addr[1]); r[4] = invMyobClean(addr[2]); r[5] = invMyobClean(addr[3]);
+      set('Date', invIsoToDmy(snap.date));
+      set('Customer PO', snap.orderNo);
+      set('Comment', snap.note);
+      set('Journal Memo', 'Sale; ' + (cu.name || ''));
+      set('Sale Status', 'I');
+      if(snap.paymentType === 'cod'){ set('Terms - Payment is Due', '1'); }
+      else { set('Terms - Payment is Due', '3'); r[INV_MYOB_COLS.indexOf('           - Balance Due Days')] = String(snap.term || 0); r[INV_MYOB_COLS.indexOf('           - Discount Days')] = '0'; r[INV_MYOB_COLS.indexOf('           - % Discount')] = '0'; }
+    }
+    set('Item Number', l.sku);
+    set('Quantity', invFmtQty(l.qty).replace(/\.00$/, ''));
+    set('Description', l.comment ? `${l.desc} - ${l.comment}` : l.desc);
+    set('Price', invMoney2(l.price));
+    set('Inc-Tax Price', invMoney2(taxed ? l.price * (1 + rate) : l.price));
+    set('Discount', Number(l.disc) > 0 ? invMoney2(l.disc) : '0');
+    set('Total', invMoney2(l.amount));
+    set('Inc-Tax Total', invMoney2(Number(l.amount) + Number(l.tax || 0)));
+    set('Tax Code', taxed ? 'GST' : 'FRE');
+    set('GST Amount', invMoney2(l.tax || 0));
+    rows.push(r);
+  });
+  const text = rows.map(r => r.join('\t')).join('\r\n') + '\r\n\r\n';
+  return text;
+}
+async function invExportMyob(orderId){
+  if(!canCreateInvoice()) return;
+  const order = orders.find(o => o.id === orderId);
+  if(!order || order.deleted) return;
+  let snap = null;
+  try{
+    if(order.invoice) snap = order.invoice.lines ? order.invoice : await invFetchSnapshot(order.invoice.id);
+  }catch(e){ console.error('讀取 Invoice 失敗', e); showInfoModal(t('invLoadFailed')); return; }
+  if(!snap){
+    const r = invBuildSnapshot(order);   // 還沒開 Invoice:用目前訂單內容產生(不會建立 Invoice、不會佔用號碼)
+    if(!r.ok){
+      if(r.reason === 'settings') showInfoModal(t('invNeedSettings'));
+      else if(r.reason === 'price') showInfoModal(tf('invNoPrice', { names: r.names.slice(0, 8).join(', ') + (r.names.length > 8 ? '…' : '') }));
+      else showInfoModal(t('invNoItems'));
+      return;
+    }
+    snap = r.snap;
+  }
+  const text = invMyobText(snap, order.orderNo);
+  const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `MYOB_Sales_${(snap.no || order.orderNo || 'order').replace(/[^\w\-]+/g, '')}_${(typeof todayISO === 'function') ? todayISO() : ''}.txt`;
+  document.body.appendChild(a); a.click();
+  setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 500);
 }
 
 

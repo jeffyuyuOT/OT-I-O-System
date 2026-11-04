@@ -1460,21 +1460,37 @@ function openOrderActionModal(orderId, kind){
     // Create Invoice / Invoice:只有管理者、會計看得到;建立之後選項變成 Invoice(可匯出 PDF 或列印)
     if(!o.deleted && typeof canCreateInvoice === 'function' && canCreateInvoice()) opts.push(o.invoice ? ['invoice', t('invActionInvoice'), false] : ['create-invoice', t('invActionCreate'), false]);
     if(o.signedAt) opts.push(['email', t('actionEmail'), false]);
-    opts.push(['export', t('actionExport'), false], ['print', t('actionPrint'), false]);
+    opts.push(['output', t('actionOutput'), false]);
   }
   document.getElementById('orderActionModalTitle').textContent = (o.orderNo ? o.orderNo + ' · ' : '') + (o.date || '');
   document.getElementById('orderActionModalSelect').innerHTML = opts.map(([v, label, dis]) => `<option value="${v}" ${dis ? 'disabled' : ''}>${label}</option>`).join('');
   updateOrderActionModeVisibility();
   document.getElementById('orderActionModalOverlay').style.display = 'flex';
 }
-// 匯出/寄 Email 才需要選「一般匯出/會計匯出」,列印跟其他動作不用。
-function updateOrderActionModeVisibility(){
+// 「輸出」要再選輸出方式(匯出/列印);選匯出再選格式(Excel/MYOB 匯入檔);Excel 跟寄 Email 才需要
+// 選「一般匯出/會計匯出」。fromSub=true 表示是改了下面的選項(不要把匯出類型重設回預設)。
+function updateOrderActionModeVisibility(fromSub){
   const act = document.getElementById('orderActionModalSelect').value;
   const kind = orderActionTarget ? orderActionTarget.kind : '';
-  const show = kind === 'completed' && (act === 'export' || act === 'email');
-  // 換動作就把匯出類型帶回預設:寄 Email 預設會計匯出,匯出預設一般匯出(之後仍可手動改)
-  document.getElementById('orderActionModeSelect').value = act === 'email' ? 'accountant' : 'general';
-  document.getElementById('orderActionModeField').style.display = show ? '' : 'none';
+  const isCompleted = kind === 'completed';
+  const isOutput = isCompleted && act === 'output';
+  const outSel = document.getElementById('orderActionOutputSelect');
+  const fmtSel = document.getElementById('orderActionFormatSelect');
+  // MYOB 匯入檔需要價格,只有管理者/會計(能開 Invoice 的人)才有這個選項
+  const myobOpt = fmtSel ? fmtSel.querySelector('option[value="myob"]') : null;
+  const myobOk = typeof canCreateInvoice === 'function' && canCreateInvoice();
+  if(myobOpt){ myobOpt.hidden = myobOpt.disabled = !myobOk; if(!myobOk && fmtSel.value === 'myob') fmtSel.value = 'excel'; }
+  if(!fromSub){
+    if(outSel) outSel.value = 'export';
+    if(fmtSel) fmtSel.value = 'excel';
+  }
+  const isExport = isOutput && outSel && outSel.value === 'export';
+  const isExcel = isExport && fmtSel && fmtSel.value === 'excel';
+  const showMode = isCompleted && (isExcel || act === 'email');
+  if(!fromSub) document.getElementById('orderActionModeSelect').value = act === 'email' ? 'accountant' : 'general';
+  document.getElementById('orderActionOutputField').style.display = isOutput ? '' : 'none';
+  document.getElementById('orderActionFormatField').style.display = isExport ? '' : 'none';
+  document.getElementById('orderActionModeField').style.display = showMode ? '' : 'none';
 }
 function closeOrderActionModal(){
   document.getElementById('orderActionModalOverlay').style.display = 'none';
@@ -1497,8 +1513,13 @@ function confirmOrderActionModal(){
     else if(action === 'history') openOrderHistoryModal(orderId);
     else if(action === 'create-invoice') invOpenCreate(orderId);
     else if(action === 'invoice') invOpenView(orderId);
-    else if(action === 'export') exportSingleOrderSheet(orderId, exportMode);
-    else if(action === 'print') printCompletedOrder(orderId);
+    else if(action === 'output'){
+      const outSel = document.getElementById('orderActionOutputSelect');
+      const fmtSel = document.getElementById('orderActionFormatSelect');
+      if(outSel && outSel.value === 'print') printCompletedOrder(orderId);
+      else if(fmtSel && fmtSel.value === 'myob') invExportMyob(orderId);
+      else exportSingleOrderSheet(orderId, exportMode);
+    }
     else if(action === 'email') openSendOrderEmailModal(orderId, exportMode);
   }
 }
