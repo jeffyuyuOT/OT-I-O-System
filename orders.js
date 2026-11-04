@@ -633,15 +633,18 @@ function refreshOrderLists(){
 // 訂單卡片裡單一品項那一列的 HTML,「待處理訂單」跟「已完成訂單」共用:isPending=true 時用
 // 待處理專用的刪除/改數量流程(不動進出貨紀錄,因為都還沒扣庫存),isPending=false 時維持原本
 // 「未出庫/已出庫」那套(因為已經扣過庫存、有真的出貨紀錄要處理)。
+// 品項備註:接在商品名稱後面,用斜體、淡色顯示(跟商品名稱區別)
+function orderItemNoteInline(it){
+  return it && it.note ? ` <i style="font-size:11.5px;color:var(--ink-soft);font-weight:400;">${String(it.note).replace(/&/g,'&amp;').replace(/</g,'&lt;')}</i>` : '';
+}
 function orderItemRowHtml(o, it, isPending, readOnly, context){
   context = context || 'default';
   if(it.deleted){
     const label = isPending ? t('itemDeletedLabelPending') : (it.deleteStockStatus === 'stocked_out' ? t('itemDeletedLabelStockedOut') : t('itemDeletedLabel'));
     return `
       <div>
-        <span style="text-decoration:line-through;color:var(--ink-soft);">${it.sku ? `<span class="sku-tooltip-trigger" data-sku="${it.sku.replace(/"/g,'&quot;')}">${it.name}</span>` : it.name}</span>
+        <span style="text-decoration:line-through;color:var(--ink-soft);">${it.sku ? `<span class="sku-tooltip-trigger" data-sku="${it.sku.replace(/"/g,'&quot;')}">${it.name}</span>` : it.name}</span>${orderItemNoteInline(it)}
         <span style="color:var(--ink-soft);">${it.qty} ${it.unit} · <span style="color:var(--crit);">${label}</span></span>
-        ${it.note ? `<div style="font-size:11px;color:var(--ink-soft);font-style:italic;">${t('noteLabelPrefix')}${it.note.replace(/</g,'&lt;')}</div>` : ''}
       </div>
     `;
   }
@@ -658,7 +661,7 @@ function orderItemRowHtml(o, it, isPending, readOnly, context){
   if(isEditingQty){
     return `
       <div>
-        <span>${it.sku ? `<span class="sku-tooltip-trigger" data-sku="${it.sku.replace(/"/g,'&quot;')}">${it.name}</span>` : it.name}</span>
+        <span>${it.sku ? `<span class="sku-tooltip-trigger" data-sku="${it.sku.replace(/"/g,'&quot;')}">${it.name}</span>` : it.name}${orderItemNoteInline(it)}</span>
         <span>
           <input type="number" id="orderItemQtyInput_${context}_${o.id}_${it.productId}" value="${it.qty}" ${isPending ? 'min="0"' : ''} step="1"
             style="width:70px;font-family:inherit;font-size:inherit;" />
@@ -686,9 +689,8 @@ function orderItemRowHtml(o, it, isPending, readOnly, context){
   const actionLinks = `${canEdit ? `<span class="del-link" style="margin-left:8px;" onclick="startEditOrderItemQty('${context}','${o.id}','${it.productId}')">${t('btnEditQty')}</span>` : ''}
         ${(canEdit && context === 'verify' && typeof batchOrderItemButtonHtml === 'function') ? batchOrderItemButtonHtml(o, it) : ''}
         ${canEdit ? `<span class="del-link" style="margin-left:8px;color:var(--crit);" onclick="${deleteFn}('${o.id}','${it.productId}')">${t('btnDelete')}</span>` : ''}`;
-  const nameHtml = it.sku ? `<span class="sku-tooltip-trigger" data-sku="${it.sku.replace(/"/g,'&quot;')}">${it.name}</span>` : it.name;
-  const tail = `${(context === 'verify' && typeof batchOrderItemPreviewHtml === 'function') ? batchOrderItemPreviewHtml(o, it) : ''}
-      ${it.note ? `<div style="font-size:11px;color:var(--ink-soft);font-style:italic;">${t('noteLabelPrefix')}${it.note.replace(/</g,'&lt;')}</div>` : ''}`;
+  const nameHtml = (it.sku ? `<span class="sku-tooltip-trigger" data-sku="${it.sku.replace(/"/g,'&quot;')}">${it.name}</span>` : it.name) + orderItemNoteInline(it);
+  const tail = `${(context === 'verify' && typeof batchOrderItemPreviewHtml === 'function') ? batchOrderItemPreviewHtml(o, it) : ''}`;
   if(priceOn){
     return `
     <div style="flex-wrap:wrap;">

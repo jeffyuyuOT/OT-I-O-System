@@ -220,6 +220,7 @@ function resetRegisterOutFlow(){
   if(postVerifySection) postVerifySection.style.display = 'none';
   const noteLabel = document.getElementById('txNoteLabel');
   if(noteLabel) noteLabel.textContent = t('txNoteSharedLabel');
+  txNoteTargetReset();
   const partySelect = document.getElementById('txPartySelect');
   if(partySelect) partySelect.disabled = false;
   { const _pel = document.getElementById('txPartyEditLink'); if(_pel) _pel.style.display = 'none'; }
@@ -387,6 +388,71 @@ function renderTxSubmitArea(){
 // load-pending/load-completed 模式下,顯示這張訂單目前已經有的品項,每項都有「改數量」「刪除」——
 // 跟已完成訂單原本那套 orderItemRowHtml 是不同的簡化版本,因為這裡的異動要等按下「儲存」才會
 // 真的處理(load-completed 模式甚至要另外分流進「核對後變更」清單),不能像原本那樣即時送出。
+// ---- 編輯訂單(登記進出貨→載入現有訂單)的「新增備註」:可選整張訂單或個別品項 ----
+// 整張訂單 → 寫在訂單附註(order.note,開 Invoice 時出現在 Notes 欄);個別品項 → 寫在該品項的 note
+// (開 Invoice 時出現在 Comment 欄)。切換下拉時,輸入框的內容先暫存起來,按「儲存」才一起寫入訂單。
+let txNoteTargetCur = 'order';
+let txNoteOrderStash = '';
+let txItemNoteDrafts = {};
+function txNoteTargetReset(){
+  txNoteTargetCur = 'order'; txNoteOrderStash = ''; txItemNoteDrafts = {};
+  const sel = document.getElementById('txNoteTarget');
+  if(sel){ sel.style.display = 'none'; sel.innerHTML = ''; }
+}
+function txNoteTargetInit(order){
+  txNoteTargetReset();
+  const sel = document.getElementById('txNoteTarget');
+  if(!sel || !order) return;
+  const esc = v => String(v === undefined || v === null ? '' : v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
+  sel.innerHTML = `<option value="order">${t('noteTargetOrder')}</option>` + order.items.filter(it => !it.deleted).map(it => `<option value="${esc(it.productId)}">${it.sku ? esc(it.sku) + ' · ' : ''}${esc(it.name)}</option>`).join('');
+  sel.value = 'order'; sel.style.display = '';
+  const lbl = document.getElementById('txNoteLabel'); if(lbl) lbl.textContent = t('txNoteAddLabel');
+}
+function onTxNoteTargetChange(val){
+  const input = document.getElementById('txNote');
+  const order = orders.find(o => o.id === registerLoadedOrderId);
+  if(!input || !order) return;
+  if(txNoteTargetCur === 'order') txNoteOrderStash = input.value; else txItemNoteDrafts[txNoteTargetCur] = input.value;
+  txNoteTargetCur = val;
+  if(val === 'order') input.value = txNoteOrderStash;
+  else {
+    const it = order.items.find(x => x.productId === val && !x.deleted);
+    input.value = (val in txItemNoteDrafts) ? txItemNoteDrafts[val] : ((it && it.note) || '');
+  }
+  input.placeholder = val === 'order' ? t('txNotePlaceholderExample') : t('txItemNotePlaceholder');
+}
+// 儲存前呼叫:把輸入框還給「整張訂單」附註,各品項備註留在暫存區
+function txNoteCommit(){
+  const input = document.getElementById('txNote');
+  if(!input || txNoteTargetCur === 'order') return;
+  txItemNoteDrafts[txNoteTargetCur] = input.value;
+  input.value = txNoteOrderStash;
+  txNoteTargetCur = 'order';
+  const sel = document.getElementById('txNoteTarget'); if(sel) sel.value = 'order';
+  input.placeholder = t('txNotePlaceholderExample');
+}
+function txItemNoteChanges(order){
+  return Object.keys(txItemNoteDrafts).map(pid => {
+    const item = order.items.find(x => x.productId === pid && !x.deleted);
+    if(!item) return null;
+    const v = String(txItemNoteDrafts[pid]).trim();
+    return v === (item.note || '') ? null : { item, value: v };
+  }).filter(Boolean);
+}
+function txApplyItemNotes(order){
+  txItemNoteChanges(order).forEach(({ item, value }) => {
+    const old = item.note || '';
+    if(value) item.note = value; else delete item.note;
+    logInventoryAction('order_edit', `Order ${order.orderNo || order.id} - item note: ${item.name} "${old}" → "${value}"`, order.orderNo);
+  });
+  txItemNoteDrafts = {};
+}
+
+// 編輯頁品項名稱:SKU 放在商品名稱上面(小字),品項備註接在商品名稱後面用斜體顯示
+function txItemNameHtml(it){
+  const esc = v => String(v === undefined || v === null ? '' : v).replace(/&/g, '&amp;').replace(/</g, '&lt;');
+  return `${it.sku ? `<span style="display:block;font-family:'IBM Plex Mono',monospace;font-size:10.5px;color:var(--ink-soft);line-height:1.2;">${esc(it.sku)}</span>` : ''}${esc(it.name)}${it.note ? ` <i style="font-size:11.5px;color:var(--ink-soft);font-weight:400;">${esc(it.note)}</i>` : ''}`;
+}
 function renderTxExistingItems(){
   const section = document.getElementById('txExistingItemsSection');
   const list = document.getElementById('txExistingItemsList');
@@ -412,7 +478,7 @@ function renderTxExistingItems(){
     if(isEditing){
       return `
         <div style="display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--line);">
-          <span style="flex:1;">${it.name}${it.sku ? ` (${it.sku})` : ''}</span>
+          <span style="flex:1;">${txItemNameHtml(it)}</span>
           <input type="number" id="txExistingItemQtyInput_${it.productId}" value="${pending && pending.type === 'qty' ? pending.newQty : it.qty}" step="1" style="width:80px;font-family:inherit;font-size:inherit;" />
           <span class="row-unit">${it.unit}</span>
           <span class="del-link" onclick="saveTxExistingItemQty('${it.productId}')">${t('btnSave')}</span>
@@ -429,7 +495,7 @@ function renderTxExistingItems(){
     if(pending && pending.type === 'delete'){
       return `
         <div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--line);opacity:0.55;">
-          <span style="flex:1;text-decoration:line-through;">${it.name}${it.sku ? ` (${it.sku})` : ''}</span>
+          <span style="flex:1;text-decoration:line-through;">${txItemNameHtml(it)}</span>
           <span style="text-decoration:line-through;">${it.qty} ${it.unit}</span>
           <span style="color:var(--crit);font-size:11px;">${t('pendingDeleteLabel')}</span>
           <span class="del-link" onclick="undoPendingItemChange('${it.productId}')">${t('btnUndo')}</span>
@@ -441,7 +507,7 @@ function renderTxExistingItems(){
     if(pending && pending.type === 'qty'){
       return `
         <div style="display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--line);">
-          <span style="flex:1;">${it.name}${it.sku ? ` (${it.sku})` : ''}</span>
+          <span style="flex:1;">${txItemNameHtml(it)}</span>
           <span style="${priceOn ? SP_QTY_W : ''}"><span style="text-decoration:line-through;color:var(--ink-soft);">${it.qty}</span> → <span style="color:var(--warn-dark);font-weight:600;">${pending.newQty}</span> ${it.unit}</span>
           ${priceOn ? spUnitCellHtml(order, it) : ''}
           ${priceOn ? spTotalCellHtml(order, it, pending.newQty) : ''}
@@ -461,7 +527,7 @@ function renderTxExistingItems(){
       // 單價 | 數量 | 總價 對齊,操作連結在最右邊
       return `
       <div style="display:flex;flex-wrap:wrap;align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid var(--line);">
-        <span style="flex:1;min-width:140px;">${it.name}${it.sku ? ` (${it.sku})` : ''}</span>
+        <span style="flex:1;min-width:140px;">${txItemNameHtml(it)}</span>
         <span style="${SP_QTY_W}">${qtyHtml}</span>
         ${spUnitCellHtml(order, it)}
         ${spTotalCellHtml(order, it)}
@@ -472,7 +538,7 @@ function renderTxExistingItems(){
     }
     return `
       <div style="display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--line);">
-        <span style="flex:1;">${it.name}${it.sku ? ` (${it.sku})` : ''}</span>
+        <span style="flex:1;">${txItemNameHtml(it)}</span>
         <span>${qtyHtml}</span>
         ${actionsHtml}
         ${(typeof batchExistingItemLineHtml === 'function') ? batchExistingItemLineHtml(it) : ''}
@@ -568,6 +634,7 @@ function loadOrderIntoRegisterFlow(orderId){
   if(!orderId){
     registerLoadedOrderId = null;
     registerPendingItemChanges = {};
+    txNoteTargetReset();
     renderTxExistingItems();
     renderTxPostVerifyChanges();
     renderTxSubmitArea();
@@ -599,6 +666,7 @@ function loadOrderIntoRegisterFlow(orderId){
   }
   const noteInput = document.getElementById('txNote');
   if(noteInput) noteInput.value = order.note || '';
+  txNoteTargetInit(order);
   const browseAllEl = document.getElementById('txBrowseAllProducts');
   if(browseAllEl) browseAllEl.checked = false; // 每次重新載入訂單,「瀏覽所有商品」重設回預設(不勾選)
 
@@ -2174,6 +2242,7 @@ async function submitLoadPendingFlow(action, msg){
 
   const dateInput = document.getElementById('txDate');
   const newDate = dateInput ? dateInput.value : order.date;
+  txNoteCommit();
   const noteInput = document.getElementById('txNote');
   const newNote = noteInput ? noteInput.value.trim() : (order.note || '');
   const { pendingQtyChanges, pendingDeletes } = collectPendingItemChanges(order);
@@ -2181,6 +2250,7 @@ async function submitLoadPendingFlow(action, msg){
   const changes = [];
   if(newDate && newDate !== order.date) changes.push(tf('changeSummaryDate', { old: order.date || '', new: newDate }));
   if(newNote !== (order.note || '')) changes.push(t('changeSummaryNote'));
+  { const inc = txItemNoteChanges(order); if(inc.length) changes.push(tf('changeSummaryItemNote', { names: inc.map(c => c.item.name).join(', ') })); }
   if(pendingQtyChanges.length > 0) changes.push(formatQtyChangesSummary(pendingQtyChanges));
   if(pendingDeletes.length > 0) changes.push(formatDeletesSummary(pendingDeletes));
   if(txBatchItems.length > 0) changes.push(formatNewItemsSummary(txBatchItems));
@@ -2195,6 +2265,7 @@ async function submitLoadPendingFlow(action, msg){
       order.date = newDate;
     }
     order.note = newNote;
+    txApplyItemNotes(order);
     // 日期/備註的異動之前沒有寫進後台紀錄——改數量、刪除品項都有記,但改日期/備註卻沒有,
     // 這裡補上,確保訂單只要有異動都查得到。
     if(dateChanged || noteChanged){
@@ -2287,6 +2358,7 @@ async function submitLoadCompletedFlow(date, msg){
   const outPartyId = document.getElementById('txPartySelect').value || null;
   const partyObj = shippingParties.find(sp => sp.id === outPartyId);
   const party = partyObj ? partyObj.name : (order.partyName || '');
+  txNoteCommit();
   const noteInput = document.getElementById('txNote');
   const noteVal = noteInput ? noteInput.value.trim() : '';
   const { pendingQtyChanges, pendingDeletes } = collectPendingItemChanges(order);
@@ -2337,6 +2409,7 @@ async function submitLoadCompletedFlow(date, msg){
   const changes = [];
   if(date && date !== order.date) changes.push(tf('changeSummaryDate', { old: order.date || '', new: date }));
   if(noteVal !== (order.note || '')) changes.push(t('changeSummaryNote'));
+  { const inc = txItemNoteChanges(order); if(inc.length) changes.push(tf('changeSummaryItemNote', { names: inc.map(c => c.item.name).join(', ') })); }
   if(pendingQtyChanges.length > 0) changes.push(formatQtyChangesSummary(pendingQtyChanges));
   if(pendingDeletes.length > 0) changes.push(formatDeletesSummary(pendingDeletes));
   if(newItems.length > 0) changes.push(formatNewItemsSummary(newItems));
@@ -2351,6 +2424,7 @@ async function submitLoadCompletedFlow(date, msg){
       order.date = date;
     }
     order.note = noteVal;
+    txApplyItemNotes(order);
     // 日期/備註的異動之前沒有寫進後台紀錄——改數量、刪除品項都有記,但改日期/備註卻沒有,
     // 這裡補上,確保訂單只要有異動都查得到。
     if(dateChanged || noteChanged){

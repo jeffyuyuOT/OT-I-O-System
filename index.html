@@ -1545,6 +1545,7 @@
         </div>
         <div class="field">
           <label id="txNoteLabel" data-i18n="txNoteSharedLabel">備註(選填)</label>
+          <select id="txNoteTarget" style="display:none;margin-bottom:6px;" onchange="onTxNoteTargetChange(this.value)"></select>
           <input id="txNote" type="text" placeholder="例如:客戶訂單 #123" data-i18n-placeholder="txNotePlaceholderExample" />
         </div>
       </div>
