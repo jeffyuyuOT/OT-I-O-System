@@ -40,7 +40,10 @@ const CAPABILITY_DEFS = [
   { id: 'cap-edit-price', parentTab: null, labelKey: 'capEditPrice', special: 'price' },
   // 訂單顯示價錢:能不能在訂單畫面(新增訂單/待處理/已完成/登記進出貨)看到單價、金額、GST。會計、管理者預設允許,
   // 其他身分預設不允許(見 canViewPriceFor)。跟「編輯價錢」是兩回事:能看價錢不代表能改。
-  { id: 'cap-view-price', parentTab: null, labelKey: 'capViewPrice', special: 'viewprice' }
+  { id: 'cap-view-price', parentTab: null, labelKey: 'capViewPrice', special: 'viewprice' },
+  // 訂單核對:能不能使用「訂單核對」頁面、把待處理訂單載入核對。除了會計以外預設允許(會計預設不允許,
+  // 需要時再個別勾選)。用 allow:/deny: 標記,見 canVerifyOrdersFor。
+  { id: 'cap-order-verify', parentTab: 'tab-warehouse-ops', labelKey: 'capOrderVerify', special: 'verify' }
 ];
 
 // 「編輯價錢」權限(存在 restricted_capabilities 這個既有欄位裡,不用改資料表):
@@ -57,6 +60,16 @@ function canViewPriceFor(role, restrictedList){
   const list = Array.isArray(restrictedList) ? restrictedList : [];
   if(list.includes('allow:cap-view-price')) return true;
   return (role === 'admin' || role === 'accountant') && !list.includes('deny:cap-view-price');
+}
+// 「訂單核對」權限:'allow:cap-order-verify' → 允許;會計預設不允許;其他身分預設允許,除非有 'deny:cap-order-verify'
+function canVerifyOrdersFor(role, restrictedList){
+  const list = Array.isArray(restrictedList) ? restrictedList : [];
+  if(list.includes('allow:cap-order-verify')) return true;
+  if(role === 'accountant') return false;
+  return !list.includes('deny:cap-order-verify');
+}
+function canVerifyOrders(){
+  return !!currentUser && canVerifyOrdersFor(currentUser.role, currentUser.restrictedCapabilities);
 }
 function canViewPrice(){
   return !!currentUser && canViewPriceFor(currentUser.role, currentUser.restrictedCapabilities);
@@ -85,7 +98,7 @@ function userDisplayName(u){
 // 打開 tab-master,並用上面的 cap-manage-users 限制他們碰不到使用者管理。
 const ROLE_DEFAULT_TABS = {
   admin: TAB_DEFS.map(d => d.id),
-  accountant: TAB_DEFS.map(d => d.id).filter(id => id !== 'tab-master' && id !== 'tab-warehouse-ops'),   // 不帶系統管理(會計用的設定在「會計」分頁的「會計設定」),也不帶倉庫作業台(登記進出貨、訂單核對是倉庫的工作)
+  accountant: TAB_DEFS.map(d => d.id).filter(id => id !== 'tab-master'),   // 不帶系統管理(會計用的設定在「會計」分頁的「會計設定」);倉庫作業台要帶(會計要登記進貨、出貨),但「訂單核對」預設隱藏(cap-order-verify)
   order: ['tab-order'],
   inventory: ['tab-warehouse-ops', 'tab-overview', 'tab-order-admin', 'tab-warehouse-admin', 'tab-log']
 };
@@ -120,6 +133,7 @@ function hasCapability(capId){
   if(!currentUser) return false;
   if(capId === 'cap-edit-price') return canEditPrice();
   if(capId === 'cap-view-price') return canViewPrice();
+  if(capId === 'cap-order-verify') return canVerifyOrders();
   if(capId === 'cap-manage-users' && currentUser.role === 'accountant') return false;   // 會計不能管理使用者
   if(currentUser.role === 'admin') return true;
   const restricted = Array.isArray(currentUser.restrictedCapabilities) ? currentUser.restrictedCapabilities : [];
@@ -320,7 +334,8 @@ function capabilityCheckboxesHtml(userId, tabPermissions, restrictedCapabilities
       <div class="user-perm-checks">
         ${relevant.map(c => {
           const checked = c.special === 'price' ? canEditPriceFor(role, restrictedCapabilities)
-            : (c.special === 'viewprice' ? canViewPriceFor(role, restrictedCapabilities) : !restrictedCapabilities.includes(c.id));
+            : (c.special === 'viewprice' ? canViewPriceFor(role, restrictedCapabilities)
+            : (c.special === 'verify' ? canVerifyOrdersFor(role, restrictedCapabilities) : !restrictedCapabilities.includes(c.id)));
           return `
           <label style="display:flex;align-items:flex-start;gap:6px;max-width:100%;">
             <input type="checkbox" data-cap-id="${c.id}" id="modalCap_${userId}_${c.id}" ${checked ? 'checked' : ''} />
@@ -343,6 +358,8 @@ function collectRestrictedCapabilities(capsWrap){
       out.push(el.checked ? 'allow:cap-edit-price' : 'deny:cap-edit-price');
     } else if(def && def.special === 'viewprice'){
       out.push(el.checked ? 'allow:cap-view-price' : 'deny:cap-view-price');
+    } else if(def && def.special === 'verify'){
+      out.push(el.checked ? 'allow:cap-order-verify' : 'deny:cap-order-verify');
     } else if(!el.checked){
       out.push(el.dataset.capId);
     }

@@ -391,7 +391,12 @@ function switchTab(tabId){
   if(tabId === 'tab-overview'){ populateCategoryDropdowns(); renderStockCards(); }
   if(tabId === 'tab-log'){ refreshLogSubTab(); }
   if(tabId === 'tab-accounting'){ refreshAccountingSubTab(); }
-  if(tabId === 'tab-warehouse-ops'){ renderProductSelect(); renderTxBatchList(); }
+  if(tabId === 'tab-warehouse-ops'){
+    renderProductSelect(); renderTxBatchList();
+    // 沒有「訂單核對」權限(會計預設)就藏起這個子分頁按鍵
+    const vBtn = document.getElementById('btn-subtab-tx-verify');
+    if(vBtn) vBtn.style.display = (typeof canVerifyOrders === 'function' && !canVerifyOrders()) ? 'none' : '';
+  }
   if(tabId === 'tab-order'){
     populatePartySelect(); renderOrderItemsTable(); renderOrderHistory();
     const cartSection = document.getElementById('orderCartSection');
@@ -463,6 +468,7 @@ function switchSystemSubTab(subtabId){
 // 倉庫作業台分頁(tab-warehouse-ops)自己的子分頁切換,只在它自己的容器裡找 .subtab-content/.subtab-btn,
 // 不會動到其他分頁那幾組子分頁的顯示狀態(共用同一套 CSS class,但各自獨立)。
 function switchWarehouseOpsSubTab(subtabId){
+  if(subtabId === 'subtab-tx-verify' && typeof canVerifyOrders === 'function' && !canVerifyOrders()) subtabId = 'subtab-tx-register';
   const container = document.getElementById('tab-warehouse-ops');
   if(!container) return;
   if(subtabId !== 'subtab-tx-register' && (registerOutFlowType || txBatchItems.length > 0)){

@@ -374,7 +374,7 @@ function renderTxSubmitArea(){
     const disabled = registerLoadedOrderId ? '' : 'disabled';
     area.innerHTML = `
       <button class="btn" onclick="submitTxBatch('save-pending')" ${disabled}>${t('btnSave')}</button>
-      <button class="btn ghost" onclick="submitTxBatch('load-verify')" ${disabled}>${t('btnLoadIntoVerifyPage')}</button>
+      ${(typeof canVerifyOrders !== 'function' || canVerifyOrders()) ? `<button class="btn ghost" onclick="submitTxBatch('load-verify')" ${disabled}>${t('btnLoadIntoVerifyPage')}</button>` : ''}
     `;
   } else if(registerOutFlowType === 'load-completed'){
     const disabled = registerLoadedOrderId ? '' : 'disabled';

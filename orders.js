@@ -1448,12 +1448,9 @@ function openOrderActionModal(orderId, kind){
   let opts;
   if(kind === 'pending'){
     const activeCount = o.items.filter(it => !it.deleted).length;
-    opts = [
-      ['print', t('btnPrintPickingSlip'), false],
-      ['verify', t('btnLoadIntoVerifyPage'), activeCount === 0],
-      ['edit', t('btnEdit'), false],
-      ['cancel', t('btnCancelWholeOrder'), false]
-    ];
+    opts = [['print', t('btnPrintPickingSlip'), false]];
+    if(typeof canVerifyOrders !== 'function' || canVerifyOrders()) opts.push(['verify', t('btnLoadIntoVerifyPage'), activeCount === 0]);
+    opts.push(['edit', t('btnEdit'), false], ['cancel', t('btnCancelWholeOrder'), false]);
   } else {
     opts = [];
     // 編輯放最上、觀看修改紀錄放第二(跟展開後卡片底下的按鈕同樣的條件:簽收或刪除後不能編輯;沒有任何異動就沒有修改紀錄)
