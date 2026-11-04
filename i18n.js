@@ -1857,7 +1857,10 @@ function toggleShowHiddenProducts(checked){
 
 function applyStaticTranslations(){
   document.querySelectorAll('[data-i18n]').forEach(el => {
+    // 標題旁的 ⓘ 說明按鈕(nav.js initTitleHints 加進去的)不能被 textContent 洗掉,先拿下來、寫完文字再放回去
+    const hintBtn = el.querySelector(':scope > .title-hint-btn');
     el.textContent = t(el.getAttribute('data-i18n'));
+    if(hintBtn) el.appendChild(hintBtn);
   });
   document.querySelectorAll('[data-i18n-html]').forEach(el => {
     el.innerHTML = t(el.getAttribute('data-i18n-html'));
