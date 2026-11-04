@@ -61,7 +61,7 @@ function canViewPriceFor(role, restrictedList){
 function canViewPrice(){
   return !!currentUser && canViewPriceFor(currentUser.role, currentUser.restrictedCapabilities);
 }
-// 會計(accountant)身分:除了系統管理只看得到系統設置的「價格與批次」「Invoice 格式」和資料維護的「匯入資料」,其他跟管理者差不多
+// 會計(accountant)身分:跟管理者差不多,但不預設帶系統管理分頁(幣種、定價設定、Invoice 格式、匯入資料在「會計」分頁的「會計設定」)
 function isAccountantUser(){ return !!currentUser && currentUser.role === 'accountant'; }
 // 開 Invoice 的權限:管理者、會計
 function canCreateInvoice(){ return !!currentUser && (currentUser.role === 'admin' || currentUser.role === 'accountant'); }
@@ -85,7 +85,7 @@ function userDisplayName(u){
 // 打開 tab-master,並用上面的 cap-manage-users 限制他們碰不到使用者管理。
 const ROLE_DEFAULT_TABS = {
   admin: TAB_DEFS.map(d => d.id),
-  accountant: TAB_DEFS.map(d => d.id),
+  accountant: TAB_DEFS.map(d => d.id).filter(id => id !== 'tab-master'),   // 會計用的設定都在「會計」分頁的「會計設定」,不需要系統管理
   order: ['tab-order'],
   inventory: ['tab-warehouse-ops', 'tab-overview', 'tab-order-admin', 'tab-warehouse-admin', 'tab-log']
 };

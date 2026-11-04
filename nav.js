@@ -536,6 +536,11 @@ function switchAccountingSubTab(subtabId){
   if(subtabId === 'subtab-acc-invoices' && typeof invOpenListPage === 'function') invOpenListPage();
   if(subtabId === 'subtab-price-setting' && typeof psOpenPage === 'function') psOpenPage();
   if(subtabId === 'subtab-log-pricerec' && typeof psOpenRecordList === 'function') psOpenRecordList();
+  if(subtabId === 'subtab-acc-settings'){
+    if(typeof renderSystemCurrencySetting === 'function') renderSystemCurrencySetting();
+    if(typeof renderSellPriceSetting === 'function') renderSellPriceSetting();
+    if(typeof invRenderSettings === 'function') invRenderSettings();
+  }
 }
 function refreshAccountingSubTab(){
   const sel = document.getElementById('accountingSubtabSelect');

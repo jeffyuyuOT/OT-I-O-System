@@ -1226,14 +1226,14 @@ async function applyBatchExpiryWarnDays(v){
 let settingsGroupCurrent = 'ui';
 // 會計身分只看得到「價格與批次」「Invoice 格式」和資料維護裡的「匯入資料」;Invoice 格式只有管理者、會計看得到
 function settingsGroupAllowed(g){
-  if(g === 'invoice') return typeof canCreateInvoice === 'function' && canCreateInvoice();
-  if(typeof isAccountantUser === 'function' && isAccountantUser()) return g === 'price' || g === 'data';
+  // 會計用的設定(幣種、定價設定、Invoice 格式、匯入資料)已搬到「會計」分頁的「會計設定」,
+  // 系統管理的設定只留給管理者與倉庫端使用,會計看不到。
+  if(typeof isAccountantUser === 'function' && isAccountantUser()) return false;
   return true;
 }
 function settingsCardAllowed(card){
   const g = card.dataset.sgroup;
   if(!settingsGroupAllowed(g)) return false;
-  if(typeof isAccountantUser === 'function' && isAccountantUser() && g === 'data' && card.id !== 'importDataCard') return false;
   return true;
 }
 function applySettingsGroup(){

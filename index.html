@@ -1212,7 +1212,6 @@
             <option value="orders" data-i18n="sgroupOrders">訂單與出貨</option>
             <option value="price" data-i18n="sgroupPrice">價格與批次</option>
             <option value="data" data-i18n="sgroupData">資料維護</option>
-            <option value="invoice" data-i18n="sgroupInvoice">Invoice 格式</option>
           </select>
         </div>
 <div class="settings-card" data-sgroup="ui">
@@ -1256,61 +1255,7 @@
           </p>
         </div>
 
-        <div class="settings-card" data-sgroup="price">
-          <div class="section-title" data-i18n="secSystemCurrency">系統預設幣種</div>
-          <p style="font-size:11.5px;color:var(--ink-soft);margin:0 0 8px;" data-i18n="systemCurrencyHint">進貨單的其他支出、海外採購都會統一換算成這個幣種,批次成本也以這個幣種記錄與顯示。更改只影響之後新建立的進貨單,已建立的進貨單與批次成本不會被換算。預設 AUD。</p>
-          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
-            <select id="systemCurrencySelect" onchange="applySystemCurrency(this.value)"></select>
-            <input id="systemCurrencyOther" type="text" maxlength="3" data-i18n-placeholder="systemCurrencyOtherPlaceholder" placeholder="其他幣種代碼,例如 TWD" style="width:170px;text-transform:uppercase;" />
-            <button class="btn ghost" onclick="applySystemCurrencyFromInput()" data-i18n="btnUseCurrency">改用這個幣種</button>
-          </div>
-          <div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--line);">
-            <div style="font-size:12.5px;font-weight:700;" data-i18n="secCurrencyList">管理常用幣種</div>
-            <p style="font-size:11.5px;color:var(--ink-soft);margin:2px 0 8px;" data-i18n="currencyListHint">進貨單的幣種下拉選單(發票幣種、其他支出的幣種)使用這份清單。AUD 與目前的系統預設幣種不能移除。</p>
-            <div id="currencyListChips" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px;"></div>
-            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
-              <input id="currencyListNew" type="text" maxlength="3" data-i18n-placeholder="pcCurrencyCodePlaceholder" placeholder="幣種代碼,例如 USD" style="width:170px;text-transform:uppercase;" />
-              <button class="btn ghost" onclick="addCurrencyToList()" data-i18n="pcAddCurrency">加入</button>
-            </div>
-          </div>
-        </div>
 
-        <div class="settings-card" id="sellPriceSettingCard" data-sgroup="price">
-          <div class="section-title" data-i18n="secSellPriceBlock">Sell price</div>
-
-          <div>
-            <div style="font-size:12.5px;font-weight:700;margin:0 0 6px;" data-i18n="secSellBasis">Sell price 依據</div>
-            <div style="display:flex;flex-direction:column;gap:8px;font-size:12.5px;">
-              <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
-                <input type="radio" name="sellPriceBasis" value="batch" onchange="applySellBasis(this.value)" />
-                <span data-i18n="sellBasisBatch">Batch cost(批次成本 + 批次 margin)</span>
-                <span role="button" tabindex="0" class="info-icon" style="cursor:pointer;color:var(--ink-soft);font-size:14px;" onclick="event.preventDefault();spShowModeHelp('basisBatch')">ⓘ</span>
-              </label>
-              <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
-                <input type="radio" name="sellPriceBasis" value="setting" onchange="applySellBasis(this.value)" />
-                <span data-i18n="sellBasisSetting">定價管理(手動設定的價格)</span>
-                <span role="button" tabindex="0" class="info-icon" style="cursor:pointer;color:var(--ink-soft);font-size:14px;" onclick="event.preventDefault();spShowModeHelp('basisSetting')">ⓘ</span>
-              </label>
-            </div>
-          </div>
-
-          <div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--line);">
-            <div style="font-size:12.5px;font-weight:700;margin:0 0 6px;" data-i18n="secMarginSetting">Margin 設置</div>
-            <div style="display:flex;gap:18px;flex-wrap:wrap;align-items:flex-end;">
-              <div class="field" style="margin:0;">
-                <label style="display:flex;align-items:center;gap:6px;"><span data-i18n="lblDefaultMargin">預設 margin</span>
-                  <span role="button" tabindex="0" class="info-icon" style="cursor:pointer;color:var(--ink-soft);font-size:14px;" onclick="showInfoModal(t('defaultMarginHelp'))">ⓘ</span></label>
-                <div style="display:flex;align-items:center;gap:6px;"><input id="spDefaultMarginSetting" type="number" min="0" step="any" style="width:100px;" onchange="spApplyMarginSettings('default', this.value)" /><span>%</span></div>
-              </div>
-              <div class="field" style="margin:0;">
-                <label style="display:flex;align-items:center;gap:6px;"><span data-i18n="lblWarnMargin">警示 margin</span>
-                  <span role="button" tabindex="0" class="info-icon" style="cursor:pointer;color:var(--ink-soft);font-size:14px;" onclick="showInfoModal(t('warnMarginHelp'))">ⓘ</span></label>
-                <div style="display:flex;align-items:center;gap:6px;"><input id="spWarnMarginSetting" type="number" step="any" style="width:100px;" onchange="spApplyMarginSettings('warn', this.value)" /><span>%</span></div>
-              </div>
-            </div>
-            <div id="spMarginSettingMsg" class="msg"></div>
-          </div>
-        </div>
 
         <div class="settings-card" id="batchExpirySettingCard" data-sgroup="price">
           <div class="section-title" data-i18n="secBatchExpiry">批次到期提醒</div>
@@ -1422,39 +1367,6 @@
           </div>
         </div>
 
-        <div class="settings-card" id="invoiceSettingsCard" data-sgroup="invoice">
-          <div class="section-title" data-i18n="secInvoiceFormat">Invoice 格式</div>
-          <p style="font-size:12.5px;color:var(--ink-soft);margin:0 0 12px;" data-i18n="invoiceFormatDesc">設定 Invoice 左上角顯示的公司資料,以及 Bank Transfer 付款方式下面顯示的銀行資料。公司名稱、地址和 ABN 為必填。</p>
-          <div class="form-grid" style="grid-template-columns:1fr 1fr;gap:10px;">
-            <div class="field"><label><span data-i18n="invFieldCompany">公司名稱</span> *</label><input id="invCompanyName" type="text" /></div>
-            <div class="field"><label><span data-i18n="invFieldAbn">ABN</span> *</label><input id="invAbn" type="text" /></div>
-            <div class="field" style="grid-column:1 / -1;"><label><span data-i18n="invFieldAddress">地址</span> *</label><textarea id="invAddress" rows="3" style="width:100%;"></textarea></div>
-            <div class="field"><label data-i18n="invFieldPhone">電話</label><input id="invPhone" type="text" /></div>
-            <div class="field"><label data-i18n="invFieldEmail">Email</label><input id="invEmail" type="text" /></div>
-            <div class="field" style="grid-column:1 / -1;"><label data-i18n="invFieldWebsite">網址</label><input id="invWebsite" type="text" /></div>
-            <div class="field" style="grid-column:1 / -1;"><label data-i18n="invFieldLogo">Logo(選填)</label>
-              <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
-                <img id="invLogoPreview" alt="" style="max-height:60px;max-width:160px;display:none;border:1px solid var(--line);padding:2px;background:#fff;" />
-                <input id="invLogoFile" type="file" accept="image/*" onchange="invOnLogoChosen(this.files)" />
-                <button class="btn ghost" type="button" onclick="invClearLogo()" data-i18n="invBtnRemoveLogo">移除 Logo</button>
-              </div>
-            </div>
-          </div>
-          <div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--line);">
-            <div style="font-size:12.5px;font-weight:700;margin:0 0 6px;" data-i18n="invBankTitle">銀行資料(Bank Transfer 時顯示)</div>
-            <div class="form-grid" style="grid-template-columns:1fr 1fr;gap:10px;">
-              <div class="field"><label data-i18n="invFieldBankName">銀行名稱</label><input id="invBankName" type="text" /></div>
-              <div class="field"><label data-i18n="invFieldBankAccName">戶名 (Account Name)</label><input id="invBankAccName" type="text" /></div>
-              <div class="field"><label>BSB</label><input id="invBsb" type="text" /></div>
-              <div class="field"><label data-i18n="invFieldAccNo">帳號 (Account No.)</label><input id="invAccNo" type="text" /></div>
-            </div>
-          </div>
-          <div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--line);">
-            <div class="field" style="max-width:260px;"><label data-i18n="invFieldNextNo">下一張 Invoice 號碼</label><input id="invNextNo" type="number" min="1" step="1" /></div>
-          </div>
-          <div style="margin-top:12px;"><button class="btn" onclick="invSaveSettings()" data-i18n="btnSave">儲存</button></div>
-          <div id="invSettingsMsg" class="msg"></div>
-        </div>
 
         <div id="emptyDataBanner" class="settings-card settings-card-warn" style="display:none;">
           <div class="section-title" style="color:#8a6d00;" data-i18n="emptyDataBannerTitle">⚠️ 目前沒有任何商品或進出貨資料</div>
@@ -1464,35 +1376,6 @@
           <button class="btn ghost" onclick="restoreFromBackupFolder()" data-i18n="emptyDataRestoreBtn">📥 從備份資料夾還原</button>
         </div>
 
-        <div class="settings-card" id="importDataCard" data-sgroup="data">
-        <div class="section-title" data-i18n="secImportData">匯入資料</div>
-        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:0 0 4px;">
-          <select id="importTemplateSelect" style="min-width:180px;">
-            <option value="master" data-i18n="optImportTemplateMaster">商品主檔範本</option>
-            <option value="price" data-i18n="optImportTemplatePrice">定價管理範本</option>
-          </select>
-          <button class="btn" onclick="downloadImportTemplate()" data-i18n="btnDownloadMasterTemplate">📄 下載匯入範本</button>
-        </div>
-
-        <hr class="divider" />
-
-        <div class="section-title" id="uploadFileTitle" style="margin-bottom:8px;"><span data-i18n="secUploadFile">上傳檔案</span></div>
-        <p style="font-size:12.5px;color:var(--ink-soft);margin:0 0 10px;" data-i18n="importByFilenameDesc">系統依檔名決定匯入哪一種:檔名含「price」的當作 Price setting 匯入,其他檔案當作商品主檔匯入。直接用下載的範本檔名即可。</p>
-        <div style="display:flex;align-items:center;gap:8px;margin:0 0 12px;">
-          <input type="checkbox" id="clearBlanksOnImport" style="width:16px;height:16px;cursor:pointer;" />
-          <label for="clearBlanksOnImport" style="font-size:12.5px;color:var(--ink);cursor:pointer;" data-i18n="clearBlanksOnImportLabel">表格裡選填欄位如果是空白,就清空現有商品對應的資料(預設不勾選,空白欄位維持現有商品原本的值不變)</label>
-        </div>
-        <div class="form-grid" style="grid-template-columns:1fr auto;">
-          <div class="field">
-            <label data-i18n="fieldSelectFiles">選擇檔案(檔案在不同資料夾可分次加選)</label>
-            <input type="file" id="masterImportFile" accept=".xlsx,.xls" multiple onchange="addMasterFiles(this.files)" style="border:1px solid var(--line);background:#fff;border-radius:2px;padding:8px;font-family:'IBM Plex Mono',monospace;font-size:12px;width:100%;" />
-          </div>
-          <button class="btn" onclick="parseMasterExcelFile()" data-i18n="btnParseImport">解析並匯入</button>
-        </div>
-        <div id="masterFileList" class="file-chip-list"></div>
-        <div id="importMsg" class="msg"></div>
-        <div id="priceImportMsg" class="msg"></div>
-        </div>
 
         <div class="settings-card" data-sgroup="data">
           <div class="section-title" data-i18n="secFullBackup">完整資料備份</div>
@@ -2274,6 +2157,7 @@
         <option value="subtab-acc-invoices" data-i18n="subtabAccInvoices">Invoices</option>
         <option value="subtab-price-setting" data-i18n="subtabPriceSetting">定價管理</option>
         <option value="subtab-log-pricerec" data-i18n="subtabLogPriceRecord">定價管理紀錄</option>
+        <option value="subtab-acc-settings" data-i18n="subtabAccSettings">會計設定</option>
       </select>
     </div>
 
@@ -2287,6 +2171,126 @@
     <div id="subtab-price-setting" class="subtab-content">
       <div class="section-title" style="margin-top:0;" data-i18n="subtabPriceSetting">定價管理</div>
       <div id="priceSettingRoot"></div>
+    </div>
+
+    <div id="subtab-acc-settings" class="subtab-content">
+      <div class="section-title" style="margin-top:0;" data-i18n="subtabAccSettings">會計設定</div>
+        <div class="settings-card">
+          <div class="section-title" data-i18n="secSystemCurrency">系統預設幣種</div>
+          <p style="font-size:11.5px;color:var(--ink-soft);margin:0 0 8px;" data-i18n="systemCurrencyHint">進貨單的其他支出、海外採購都會統一換算成這個幣種,批次成本也以這個幣種記錄與顯示。更改只影響之後新建立的進貨單,已建立的進貨單與批次成本不會被換算。預設 AUD。</p>
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+            <select id="systemCurrencySelect" onchange="applySystemCurrency(this.value)"></select>
+            <input id="systemCurrencyOther" type="text" maxlength="3" data-i18n-placeholder="systemCurrencyOtherPlaceholder" placeholder="其他幣種代碼,例如 TWD" style="width:170px;text-transform:uppercase;" />
+            <button class="btn ghost" onclick="applySystemCurrencyFromInput()" data-i18n="btnUseCurrency">改用這個幣種</button>
+          </div>
+          <div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--line);">
+            <div style="font-size:12.5px;font-weight:700;" data-i18n="secCurrencyList">管理常用幣種</div>
+            <p style="font-size:11.5px;color:var(--ink-soft);margin:2px 0 8px;" data-i18n="currencyListHint">進貨單的幣種下拉選單(發票幣種、其他支出的幣種)使用這份清單。AUD 與目前的系統預設幣種不能移除。</p>
+            <div id="currencyListChips" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px;"></div>
+            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+              <input id="currencyListNew" type="text" maxlength="3" data-i18n-placeholder="pcCurrencyCodePlaceholder" placeholder="幣種代碼,例如 USD" style="width:170px;text-transform:uppercase;" />
+              <button class="btn ghost" onclick="addCurrencyToList()" data-i18n="pcAddCurrency">加入</button>
+            </div>
+          </div>
+        </div>
+        <div class="settings-card" id="sellPriceSettingCard">
+          <div class="section-title" data-i18n="secSellPriceBlock">Sell price</div>
+
+          <div>
+            <div style="font-size:12.5px;font-weight:700;margin:0 0 6px;" data-i18n="secSellBasis">Sell price 依據</div>
+            <div style="display:flex;flex-direction:column;gap:8px;font-size:12.5px;">
+              <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+                <input type="radio" name="sellPriceBasis" value="batch" onchange="applySellBasis(this.value)" />
+                <span data-i18n="sellBasisBatch">Batch cost(批次成本 + 批次 margin)</span>
+                <span role="button" tabindex="0" class="info-icon" style="cursor:pointer;color:var(--ink-soft);font-size:14px;" onclick="event.preventDefault();spShowModeHelp('basisBatch')">ⓘ</span>
+              </label>
+              <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+                <input type="radio" name="sellPriceBasis" value="setting" onchange="applySellBasis(this.value)" />
+                <span data-i18n="sellBasisSetting">定價管理(手動設定的價格)</span>
+                <span role="button" tabindex="0" class="info-icon" style="cursor:pointer;color:var(--ink-soft);font-size:14px;" onclick="event.preventDefault();spShowModeHelp('basisSetting')">ⓘ</span>
+              </label>
+            </div>
+          </div>
+
+          <div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--line);">
+            <div style="font-size:12.5px;font-weight:700;margin:0 0 6px;" data-i18n="secMarginSetting">Margin 設置</div>
+            <div style="display:flex;gap:18px;flex-wrap:wrap;align-items:flex-end;">
+              <div class="field" style="margin:0;">
+                <label style="display:flex;align-items:center;gap:6px;"><span data-i18n="lblDefaultMargin">預設 margin</span>
+                  <span role="button" tabindex="0" class="info-icon" style="cursor:pointer;color:var(--ink-soft);font-size:14px;" onclick="showInfoModal(t('defaultMarginHelp'))">ⓘ</span></label>
+                <div style="display:flex;align-items:center;gap:6px;"><input id="spDefaultMarginSetting" type="number" min="0" step="any" style="width:100px;" onchange="spApplyMarginSettings('default', this.value)" /><span>%</span></div>
+              </div>
+              <div class="field" style="margin:0;">
+                <label style="display:flex;align-items:center;gap:6px;"><span data-i18n="lblWarnMargin">警示 margin</span>
+                  <span role="button" tabindex="0" class="info-icon" style="cursor:pointer;color:var(--ink-soft);font-size:14px;" onclick="showInfoModal(t('warnMarginHelp'))">ⓘ</span></label>
+                <div style="display:flex;align-items:center;gap:6px;"><input id="spWarnMarginSetting" type="number" step="any" style="width:100px;" onchange="spApplyMarginSettings('warn', this.value)" /><span>%</span></div>
+              </div>
+            </div>
+            <div id="spMarginSettingMsg" class="msg"></div>
+          </div>
+        </div>
+        <div class="settings-card" id="invoiceSettingsCard">
+          <div class="section-title" data-i18n="secInvoiceFormat">Invoice 格式</div>
+          <p style="font-size:12.5px;color:var(--ink-soft);margin:0 0 12px;" data-i18n="invoiceFormatDesc">設定 Invoice 左上角顯示的公司資料,以及 Bank Transfer 付款方式下面顯示的銀行資料。公司名稱、地址和 ABN 為必填。</p>
+          <div class="form-grid" style="grid-template-columns:1fr 1fr;gap:10px;">
+            <div class="field"><label><span data-i18n="invFieldCompany">公司名稱</span> *</label><input id="invCompanyName" type="text" /></div>
+            <div class="field"><label><span data-i18n="invFieldAbn">ABN</span> *</label><input id="invAbn" type="text" /></div>
+            <div class="field" style="grid-column:1 / -1;"><label><span data-i18n="invFieldAddress">地址</span> *</label><textarea id="invAddress" rows="3" style="width:100%;"></textarea></div>
+            <div class="field"><label data-i18n="invFieldPhone">電話</label><input id="invPhone" type="text" /></div>
+            <div class="field"><label data-i18n="invFieldEmail">Email</label><input id="invEmail" type="text" /></div>
+            <div class="field" style="grid-column:1 / -1;"><label data-i18n="invFieldWebsite">網址</label><input id="invWebsite" type="text" /></div>
+            <div class="field" style="grid-column:1 / -1;"><label data-i18n="invFieldLogo">Logo(選填)</label>
+              <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+                <img id="invLogoPreview" alt="" style="max-height:60px;max-width:160px;display:none;border:1px solid var(--line);padding:2px;background:#fff;" />
+                <input id="invLogoFile" type="file" accept="image/*" onchange="invOnLogoChosen(this.files)" />
+                <button class="btn ghost" type="button" onclick="invClearLogo()" data-i18n="invBtnRemoveLogo">移除 Logo</button>
+              </div>
+            </div>
+          </div>
+          <div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--line);">
+            <div style="font-size:12.5px;font-weight:700;margin:0 0 6px;" data-i18n="invBankTitle">銀行資料(Bank Transfer 時顯示)</div>
+            <div class="form-grid" style="grid-template-columns:1fr 1fr;gap:10px;">
+              <div class="field"><label data-i18n="invFieldBankName">銀行名稱</label><input id="invBankName" type="text" /></div>
+              <div class="field"><label data-i18n="invFieldBankAccName">戶名 (Account Name)</label><input id="invBankAccName" type="text" /></div>
+              <div class="field"><label>BSB</label><input id="invBsb" type="text" /></div>
+              <div class="field"><label data-i18n="invFieldAccNo">帳號 (Account No.)</label><input id="invAccNo" type="text" /></div>
+            </div>
+          </div>
+          <div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--line);">
+            <div class="field" style="max-width:260px;"><label data-i18n="invFieldNextNo">下一張 Invoice 號碼</label><input id="invNextNo" type="number" min="1" step="1" /></div>
+          </div>
+          <div style="margin-top:12px;"><button class="btn" onclick="invSaveSettings()" data-i18n="btnSave">儲存</button></div>
+          <div id="invSettingsMsg" class="msg"></div>
+        </div>
+        <div class="settings-card" id="importDataCard">
+        <div class="section-title" data-i18n="secImportData">匯入資料</div>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:0 0 4px;">
+          <select id="importTemplateSelect" style="min-width:180px;">
+            <option value="master" data-i18n="optImportTemplateMaster">商品主檔範本</option>
+            <option value="price" data-i18n="optImportTemplatePrice">定價管理範本</option>
+          </select>
+          <button class="btn" onclick="downloadImportTemplate()" data-i18n="btnDownloadMasterTemplate">📄 下載匯入範本</button>
+        </div>
+
+        <hr class="divider" />
+
+        <div class="section-title" id="uploadFileTitle" style="margin-bottom:8px;"><span data-i18n="secUploadFile">上傳檔案</span></div>
+        <p style="font-size:12.5px;color:var(--ink-soft);margin:0 0 10px;" data-i18n="importByFilenameDesc">系統依檔名決定匯入哪一種:檔名含「price」的當作 Price setting 匯入,其他檔案當作商品主檔匯入。直接用下載的範本檔名即可。</p>
+        <div style="display:flex;align-items:center;gap:8px;margin:0 0 12px;">
+          <input type="checkbox" id="clearBlanksOnImport" style="width:16px;height:16px;cursor:pointer;" />
+          <label for="clearBlanksOnImport" style="font-size:12.5px;color:var(--ink);cursor:pointer;" data-i18n="clearBlanksOnImportLabel">表格裡選填欄位如果是空白,就清空現有商品對應的資料(預設不勾選,空白欄位維持現有商品原本的值不變)</label>
+        </div>
+        <div class="form-grid" style="grid-template-columns:1fr auto;">
+          <div class="field">
+            <label data-i18n="fieldSelectFiles">選擇檔案(檔案在不同資料夾可分次加選)</label>
+            <input type="file" id="masterImportFile" accept=".xlsx,.xls" multiple onchange="addMasterFiles(this.files)" style="border:1px solid var(--line);background:#fff;border-radius:2px;padding:8px;font-family:'IBM Plex Mono',monospace;font-size:12px;width:100%;" />
+          </div>
+          <button class="btn" onclick="parseMasterExcelFile()" data-i18n="btnParseImport">解析並匯入</button>
+        </div>
+        <div id="masterFileList" class="file-chip-list"></div>
+        <div id="importMsg" class="msg"></div>
+        <div id="priceImportMsg" class="msg"></div>
+        </div>
     </div>
 
     <div id="subtab-log-pricerec" class="subtab-content">
