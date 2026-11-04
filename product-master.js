@@ -79,6 +79,7 @@ const MASTER_COLUMN_ALIASES = {
   boxHeight: ['boxheight','height','高','箱高','高度cm','heightcm','高(cm)'],
   weightKg: ['weightkg','weight(kg)','weightinkg','重量','重量kg','重量(kg)','kg'],
   hidden: ['hidden','隱藏','ishidden','是否隱藏'],
+  gst: ['gst','含gst','包含gst','taxable'],
   autoConvertOnStockIn: ['autoconvert','autoconvertonstockin','自動切換','進貨自動切換'],
   orderPageRemark: ['orderpageremark','訂貨頁面附註','訂貨附註','orderremark'],
   barcode: ['barcode','條碼','商品條碼','barcodenumber']
@@ -238,6 +239,7 @@ function parseMasterExcelFile(){
         const colBoxHeight = findColumnIndex(headerRow, MASTER_COLUMN_ALIASES.boxHeight);
         const colWeightKg = findColumnIndex(headerRow, MASTER_COLUMN_ALIASES.weightKg);
         const colHidden = findColumnIndex(headerRow, MASTER_COLUMN_ALIASES.hidden);
+        const colGst = findColumnIndex(headerRow, MASTER_COLUMN_ALIASES.gst);
         const colAutoConvert = findColumnIndex(headerRow, MASTER_COLUMN_ALIASES.autoConvertOnStockIn);
         const colOrderPageRemark = findColumnIndex(headerRow, MASTER_COLUMN_ALIASES.orderPageRemark);
         const colBarcode = findColumnIndex(headerRow, MASTER_COLUMN_ALIASES.barcode);
@@ -291,6 +293,7 @@ function parseMasterExcelFile(){
             boxWidthCm: colBoxWidth !== -1 ? parseNumericCell(row[colBoxWidth]) : null,
             boxHeightCm: colBoxHeight !== -1 ? parseNumericCell(row[colBoxHeight]) : null,
             weightKg: colWeightKg !== -1 ? parseNumericCell(row[colWeightKg]) : null,
+            gst: colGst !== -1 && row[colGst] !== null && row[colGst] !== undefined && row[colGst] !== '' ? parseBoolLikeCell(row[colGst]) : null,
             hidden: colHidden !== -1 && row[colHidden] !== null && row[colHidden] !== undefined && row[colHidden] !== '' ? parseBoolLikeCell(row[colHidden]) : null,
             autoConvertOnStockIn: colAutoConvert !== -1 && row[colAutoConvert] !== null && row[colAutoConvert] !== undefined && row[colAutoConvert] !== '' ? parseBoolLikeCell(row[colAutoConvert]) : null,
             orderPageRemark: colOrderPageRemark !== -1 && row[colOrderPageRemark] !== null && row[colOrderPageRemark] !== undefined && String(row[colOrderPageRemark]).trim() !== '' ? String(row[colOrderPageRemark]).trim() : null,
@@ -924,7 +927,7 @@ function showExportLogRecipients(id){
 // 有填的格子才會覆蓋系統的值;庫存量(Stock)有填而且跟系統不同,會自動產生一筆庫存調整。
 function downloadMasterImportTemplate(){
   if(typeof XLSX === 'undefined'){ showInfoModal('Excel 套件載入失敗,請重新整理頁面再試一次'); return; }
-  const headers = ['SKU','Name','Unit','Stock','Avg Monthly Sales','Category','Safety Stock','Note','Parent SKU','Child Weight','Box Length (cm)','Box Width (cm)','Box Height (cm)','Weight Kg','Hidden','Auto Convert','Order Page Remark','Barcode'];
+  const headers = ['SKU','Name','Unit','Stock','Avg Monthly Sales','Category','Safety Stock','Note','Parent SKU','Child Weight','Box Length (cm)','Box Width (cm)','Box Height (cm)','Weight Kg','GST','Hidden','Auto Convert','Order Page Remark','Barcode'];
   const skuById = Object.fromEntries(products.map(p => [p.id, p.sku || '']));
   const blank = v => (v === null || v === undefined) ? '' : v;
   const rows = products.map(p => [
@@ -942,13 +945,14 @@ function downloadMasterImportTemplate(){
     blank(p.boxWidthCm),
     blank(p.boxHeightCm),
     blank(p.weightKg),
+    p.gst ? 'TRUE' : 'FALSE',
     p.hidden ? 'TRUE' : 'FALSE',
     p.parentId ? (p.autoConvertOnStockIn ? 'TRUE' : 'FALSE') : '',
     p.orderPageRemark || '',
     p.barcode || ''
   ]);
   const ws = XLSX.utils.aoa_to_sheet([headers, ...rows]);
-  ws['!cols'] = [{wch:16},{wch:34},{wch:8},{wch:8},{wch:12},{wch:14},{wch:10},{wch:24},{wch:14},{wch:10},{wch:10},{wch:10},{wch:10},{wch:10},{wch:8},{wch:10},{wch:24},{wch:16}];
+  ws['!cols'] = [{wch:16},{wch:34},{wch:8},{wch:8},{wch:12},{wch:14},{wch:10},{wch:24},{wch:14},{wch:10},{wch:10},{wch:10},{wch:10},{wch:10},{wch:6},{wch:8},{wch:10},{wch:24},{wch:16}];
   ws['!freeze'] = { xSplit: 0, ySplit: 1 };
   const guide = [
     ['欄位 / Column', '說明 / Notes'],
@@ -964,6 +968,7 @@ function downloadMasterImportTemplate(){
     ['Child Weight', 'multipack 的加權數(一個批量商品 = 幾個主商品單位)。 / Multipack weight (main-product units per child unit).'],
     ['Box Length / Width / Height (cm)', '箱子尺寸(公分),進貨單其他支出依材積分攤時使用。 / Box size in cm, used for volume-based cost allocation.'],
     ['Weight Kg', '這個商品自己的單位的重量(公斤),進貨單其他支出依重量分攤時使用。 / Weight of one unit of this product in kg, used for weight-based cost allocation.'],
+    ['GST', 'TRUE = 此商品包含 GST(訂單與 Invoice 另外計算 10% GST);FALSE = 不含;空白 = 不動。 / TRUE = product includes GST (10% GST is added on orders and invoices); blank = unchanged.'],
     ['Hidden', 'TRUE = 隱藏商品;FALSE = 不隱藏;空白 = 不動。 / TRUE hides the product; blank = unchanged.'],
     ['Auto Convert', '只有 multipack 子商品用:進貨時是否自動切換成主商品。 / Multipack children only: auto-convert to the main product on stock-in.'],
     ['Order Page Remark', '訂貨頁面附註。 / Remark shown on the order page.'],

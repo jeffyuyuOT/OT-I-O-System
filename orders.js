@@ -1460,6 +1460,8 @@ function openOrderActionModal(orderId, kind){
     if(!(o.deleted || o.signedAt)) opts.push(['edit', t('btnEdit'), false]);
     const wasModified = !o.deleted && o.items.some(it => (it.qtyHistory && it.qtyHistory.length > 0) || it.deleted);
     if(wasModified || (o.postVerifyChanges && o.postVerifyChanges.length > 0)) opts.push(['history', t('btnViewHistory'), false]);
+    // Create Invoice / Invoice:只有管理者、會計看得到;建立之後選項變成 Invoice(可匯出 PDF 或列印)
+    if(!o.deleted && typeof canCreateInvoice === 'function' && canCreateInvoice()) opts.push(o.invoice ? ['invoice', t('invActionInvoice'), false] : ['create-invoice', t('invActionCreate'), false]);
     if(o.signedAt) opts.push(['email', t('actionEmail'), false]);
     opts.push(['export', t('actionExport'), false], ['print', t('actionPrint'), false]);
   }
@@ -1496,6 +1498,8 @@ function confirmOrderActionModal(){
     const exportMode = modeSel ? modeSel.value : 'general';
     if(action === 'edit') editOrderViaRegister(orderId, 'completed');
     else if(action === 'history') openOrderHistoryModal(orderId);
+    else if(action === 'create-invoice') invOpenCreate(orderId);
+    else if(action === 'invoice') invOpenView(orderId);
     else if(action === 'export') exportSingleOrderSheet(orderId, exportMode);
     else if(action === 'print') printCompletedOrder(orderId);
     else if(action === 'email') openSendOrderEmailModal(orderId, exportMode);

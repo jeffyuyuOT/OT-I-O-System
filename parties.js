@@ -84,6 +84,12 @@ function supplierOptionLabel(s){ return entityOptionLabel(s, purchaseSuppliers);
 let partySearchQuery = '';
 function onPartySearchInput(v){ partySearchQuery = v || ''; renderPartiesTable(); }
 
+// Payment type 選 COD 時,Payment term 不能設定
+function onPartyPaymentTypeChange(){
+  const cod = document.getElementById('partyPaymentTypeSelect').value === 'cod';
+  const term = document.getElementById('partyPaymentTermSelect');
+  term.disabled = cod;
+}
 function partyDiscountOf(sp){
   const n = sp ? Number(sp.discount) : 0;
   return Number.isFinite(n) && n > 0 ? n : 0;
@@ -100,7 +106,15 @@ function openPartyEditModal(id){
   document.getElementById('partyContactPersonInput').value = sp ? (sp.contactPerson || '') : '';
   // 舊資料的「聯絡方式」是一格自由文字(電話 / Line / Email),第一次開啟編輯時帶進「聯繫電話」,存檔後就改用新欄位
   document.getElementById('partyPhoneInput').value = sp ? (sp.phone !== undefined ? sp.phone : (sp.contact || '')) : '';
-  document.getElementById('partyAddressInput').value = sp ? (sp.address || '') : '';
+  // 舊的「送貨住址」改成 Ship To 地址(沒填過 Ship To 就先帶入舊的住址)
+  document.getElementById('partyCompanyInput').value = sp ? (sp.companyName || '') : '';
+  document.getElementById('partyEmailInput').value = sp ? (sp.email || '') : '';
+  document.getElementById('partyBillToInput').value = sp ? (sp.billTo || '') : '';
+  document.getElementById('partyShipToInput').value = sp ? (sp.shipTo !== undefined ? sp.shipTo : (sp.address || '')) : '';
+  document.getElementById('partyAbnInput').value = sp ? (sp.abn || '') : '';
+  document.getElementById('partyPaymentTypeSelect').value = (sp && sp.paymentType === 'cod') ? 'cod' : 'bank';
+  document.getElementById('partyPaymentTermSelect').value = String((sp && Number(sp.paymentTerm) > 0) ? Number(sp.paymentTerm) : 7);
+  onPartyPaymentTypeChange();
   document.getElementById('partyNoteInput').value = sp ? (sp.note || '') : '';
   document.getElementById('partyFrequencySelect').value = (sp && sp.orderFrequency) ? sp.orderFrequency : 'weekly';
   const d = partyDiscountOf(sp);
@@ -139,7 +153,14 @@ async function savePartyEdit(){
   sp.name = name;
   sp.contactPerson = document.getElementById('partyContactPersonInput').value.trim();
   sp.phone = document.getElementById('partyPhoneInput').value.trim();
-  sp.address = document.getElementById('partyAddressInput').value.trim();
+  sp.companyName = document.getElementById('partyCompanyInput').value.trim();
+  sp.email = document.getElementById('partyEmailInput').value.trim();
+  sp.billTo = document.getElementById('partyBillToInput').value.trim();
+  sp.shipTo = document.getElementById('partyShipToInput').value.trim();
+  sp.abn = document.getElementById('partyAbnInput').value.trim();
+  sp.paymentType = document.getElementById('partyPaymentTypeSelect').value === 'cod' ? 'cod' : 'bank';
+  sp.paymentTerm = sp.paymentType === 'cod' ? 0 : (parseInt(document.getElementById('partyPaymentTermSelect').value, 10) || 7);   // COD 沒有 Payment term
+  delete sp.address;   // 舊的聯繫地址取消,改用 Bill To / Ship To
   sp.note = document.getElementById('partyNoteInput').value.trim();
   sp.orderFrequency = document.getElementById('partyFrequencySelect').value || 'weekly';
   sp.discount = discount;

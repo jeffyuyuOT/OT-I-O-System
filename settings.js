@@ -246,6 +246,7 @@ function updateMultipackSettingsUI(){
   renderBatchExpirySetting();
   applySettingsGroup();
   if(typeof renderSellPriceSetting === 'function') renderSellPriceSetting();
+  if(typeof invRenderSettings === 'function') invRenderSettings();
   renderAccountingEmailList();
   const slmSelect = document.getElementById('stockLocationModeSelect');
   if(slmSelect){
@@ -1212,11 +1213,28 @@ async function applyBatchExpiryWarnDays(v){
 // 系統設置:卡片分組(一次只顯示一組)。警告橫幅(沒有資料時的提示)不屬於任何組,永遠顯示。
 // ============================================================
 let settingsGroupCurrent = 'ui';
+// 會計身分只看得到「價格與批次」「Invoice 格式」和資料維護裡的「匯入資料」;Invoice 格式只有管理者、會計看得到
+function settingsGroupAllowed(g){
+  if(g === 'invoice') return typeof canCreateInvoice === 'function' && canCreateInvoice();
+  if(typeof isAccountantUser === 'function' && isAccountantUser()) return g === 'price' || g === 'data';
+  return true;
+}
+function settingsCardAllowed(card){
+  const g = card.dataset.sgroup;
+  if(!settingsGroupAllowed(g)) return false;
+  if(typeof isAccountantUser === 'function' && isAccountantUser() && g === 'data' && card.id !== 'importDataCard') return false;
+  return true;
+}
 function applySettingsGroup(){
-  document.querySelectorAll('#subtab-sys-settings .settings-card[data-sgroup]').forEach(card => {
-    card.classList.toggle('sgroup-hidden', card.dataset.sgroup !== settingsGroupCurrent);
-  });
   const gSel = document.getElementById('settingsGroupSelect');
+  if(gSel) Array.from(gSel.options).forEach(o => { o.hidden = o.disabled = !settingsGroupAllowed(o.value); });
+  if(!settingsGroupAllowed(settingsGroupCurrent)){
+    const first = Array.from(gSel ? gSel.options : []).find(o => !o.disabled);
+    settingsGroupCurrent = first ? first.value : 'ui';
+  }
+  document.querySelectorAll('#subtab-sys-settings .settings-card[data-sgroup]').forEach(card => {
+    card.classList.toggle('sgroup-hidden', card.dataset.sgroup !== settingsGroupCurrent || !settingsCardAllowed(card));
+  });
   if(gSel) gSel.value = settingsGroupCurrent;
 }
 function switchSettingsGroup(g){

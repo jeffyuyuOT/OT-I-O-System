@@ -9,8 +9,6 @@
 //   要不要顯示售價;批次頁的 margin / Sell price 不受這個開關影響。
 // 依賴:batch-tracking.js(批次資料與分配預覽)。
 // ============================================================
-// Sell price 顯示方式(系統設置):'none' 不顯示 / 'export' 僅已完成訂單的匯出檔案顯示 / 'all' 訂單畫面與匯出都顯示
-let spSellPriceMode = 'none';
 let spDefaultMarginPct = 0;
 // Sell price 依據(系統設置,app_data 'sellPriceBasis'):'batch' = 依批次成本 + 批次 margin 計算(預設)/ 'setting' = 用 Price Setting 頁面設定的價格
 let spSellBasis = 'batch';
@@ -22,15 +20,6 @@ let spPriceMap = {};
 let spManualMargins = {};
 
 async function loadSellPriceSettings(){
-  try{
-    const r = await dbGet('sellPriceMode');
-    if(r && ['none', 'export', 'all'].includes(String(r.value))) spSellPriceMode = String(r.value);
-    else {
-      // 舊版的勾選開關(showSellPrice = true)等於「訂單跟匯出都顯示」
-      const old = await dbGet('showSellPrice');
-      if(old && String(old.value) === 'true') spSellPriceMode = 'all';
-    }
-  } catch(e){}
   try{
     const r = await dbGet('batchDefaultMargin');
     const n = r && r.value !== undefined && r.value !== null ? Number(r.value) : NaN;
@@ -75,10 +64,10 @@ function spPriceable(pid){
   if(spIsSettingBasis()) return spSettingPrice(pid) !== null || (typeof batchIsTracked === 'function' && batchIsTracked(pid));
   return typeof batchIsTracked === 'function' && batchIsTracked(pid);
 }
-// 要不要在訂單畫面顯示售價(開關打開、而且批次追蹤可用)
-function spEnabled(){ return spSellPriceMode === 'all' && typeof batchActive === 'function' && batchActive(); }
-// 已完成訂單的匯出檔案要不要多一欄 Sell price('export' 或 'all')
-function spExportEnabled(){ return (spSellPriceMode === 'export' || spSellPriceMode === 'all') && typeof batchActive === 'function' && batchActive(); }
+// 要不要在訂單畫面顯示售價:看使用者有沒有「訂單顯示價錢」權限(身分預設:管理者、會計有,其他沒有),而且批次追蹤可用
+function spEnabled(){ return typeof canViewPrice === 'function' && canViewPrice() && typeof batchActive === 'function' && batchActive(); }
+// 匯出檔案一律有 Sell price 欄(批次追蹤可用時)
+function spExportEnabled(){ return typeof batchActive === 'function' && batchActive(); }
 
 function spRound2(n){ return Math.round((Number(n) + Number.EPSILON) * 100) / 100; }
 // 批次的 margin:依批次成本計價時,沒設定過就用系統預設 margin;依 Price Setting 計價時,沒手動輸入過就是 null(顯示空白)
@@ -155,7 +144,6 @@ function spShowPricePopup(itemId){
 
 // ---- 系統設置:Sell price(顯示方式 / 依據 / Margin 設置,同一個區塊)----
 function renderSellPriceSetting(){
-  document.querySelectorAll('input[name="sellPriceMode"]').forEach(r => { r.checked = (r.value === spSellPriceMode); });
   document.querySelectorAll('input[name="sellPriceBasis"]').forEach(r => { r.checked = (r.value === spSellBasis); });
   const dm = document.getElementById('spDefaultMarginSetting'); if(dm && document.activeElement !== dm) dm.value = String(spDefaultMarginPct);
   const wm = document.getElementById('spWarnMarginSetting'); if(wm && document.activeElement !== wm) wm.value = String(spWarnMarginPct);
@@ -164,14 +152,8 @@ function renderSellPriceSetting(){
 }
 // 選項說明太長,不直接顯示,點旁邊的 ⓘ 才跳出視窗
 function spShowModeHelp(mode){
-  const key = { export: 'sellPriceModeExportHelp', all: 'sellPriceModeAllHelp', none: 'sellPriceModeNoneHelp', basisBatch: 'sellBasisBatchHelp', basisSetting: 'sellBasisSettingHelp' }[mode];
+  const key = { basisBatch: 'sellBasisBatchHelp', basisSetting: 'sellBasisSettingHelp' }[mode];
   if(key) showInfoModal(t(key));
-}
-async function applySellPriceMode(mode){
-  if(!['none', 'export', 'all'].includes(mode)) return;
-  spSellPriceMode = mode;
-  try{ await dbSet('sellPriceMode', mode); } catch(e){ console.error('儲存失敗', e); }
-  try{ if(typeof renderAll === 'function') renderAll(); }catch(e){}
 }
 // Sell price 依據:batch(批次成本 + margin)/ setting(Price Setting)。切換前先確認。
 function applySellBasis(basis){
@@ -267,27 +249,27 @@ function spOpenOrderPricePopup(orderId, productId){
   spCloseOrderPopup();
   const pr = spPriceOrderItem(order, it);
   const unit = batchEsc(it.unit || batchProductUnit(productId));
-  // 已完成(已固定售價)的訂單不能改;已簽收的訂單也不能改;沒有「編輯價錢」權限只能看
-  const canEdit = !pr.frozen && !pr.legacy && !order.signedAt && !order.deleted && canEditPrice();
+  // 待處理訂單、還沒簽收的已完成訂單可以手動改價;已簽收的訂單不能改;沒有「編輯價錢」權限只能看
+  const canEdit = !order.signedAt && !order.deleted && canEditPrice();
+  const manualBox = (curVal, withReset) => canEdit ? `<div style="margin-top:10px;display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
+        <span>${t('spManualPrice')}</span><input id="spManualPriceInput" type="number" min="0" step="0.01" value="${curVal === null || curVal === undefined ? '' : curVal}" style="width:110px;" />
+        <button class="btn" onclick="spSaveManualPrice('${orderId}','${productId}')">${t('btnSave')}</button>
+        ${withReset ? `<button class="btn ghost" onclick="spResetManualPrice('${orderId}','${productId}')">${t('spResetAuto')}</button>` : ''}
+      </div>` : '';
   let body = '';
   if(pr.frozen){
     body = `<p style="margin:0 0 6px;">Sell price: <strong>${spMoney(pr.unit)}</strong> / ${unit}</p>
       ${pr.discountPct ? `<p style="margin:0;font-size:12px;color:var(--ink-soft);">Discount ${pr.discountPct}%</p>` : ''}
-      <p style="margin:8px 0 0;font-size:11.5px;color:var(--ink-soft);">${t('spFrozenNote')}</p>`;
+      <p style="margin:8px 0 0;font-size:11.5px;color:var(--ink-soft);">${t('spFrozenNote')}</p>${manualBox(pr.unit, false)}`;
   } else if(pr.legacy){
-    body = `<p style="margin:0;font-size:12.5px;color:var(--ink-soft);">${t('spLegacyNote')}</p>`;
+    body = `<p style="margin:0;font-size:12.5px;color:var(--ink-soft);">${t('spLegacyNote')}</p>${manualBox(null, false)}`;
   } else {
     const calc = pr.manual ? spPriceCalc(productId, it.qty, it.batchPicks, pr.discountPct) : pr;
     const rows = calc.lines.map(l => `<tr><td>${batchEsc(l.batchNo)}${l.isOpening ? ' (' + t('batchOpening') + ')' : ''}</td><td class="num">${batchFmtQty(l.qty)}</td><td class="num">${Math.round(l.ratio * 1000) / 10}%</td><td class="num">${spMoney(l.sell)}</td></tr>`).join('');
     body = `${(calc.lines.length || spIsSettingBasis()) ? (calc.lines.length ? `<table class="stock-table"><thead><tr><th>${t('batchColBatch')}</th><th class="num">${t('colQty')}</th><th class="num">${t('spRatio')}</th><th class="num">Sell price</th></tr></thead><tbody>${rows}</tbody></table>` : '') : `<div class="empty-note">${t('spNoBatchCost')}</div>`}
       ${calc.untracked > 0 ? `<p style="font-size:11.5px;color:var(--warn-dark,#b45309);margin:6px 0 0;">${t('batchUntracked')}: ${batchFmtQty(calc.untracked)}</p>` : ''}
       ${calc.base !== null ? `<p style="margin:8px 0 2px;font-size:12.5px;">${t('spWeighted')}: <strong>${spMoney(calc.base)}</strong>${calc.discountPct ? ` · Discount ${calc.discountPct}% → <strong>${spMoney(calc.unit)}</strong>` : ''}</p>` : ''}
-      ${pr.manual ? `<p style="margin:6px 0 0;font-size:12.5px;color:var(--warn-dark,#b45309);">${t('spManualNow')}: <strong>${spMoney(pr.unit)}</strong></p>` : ''}
-      ${canEdit ? `<div style="margin-top:10px;display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
-        <span>${t('spManualPrice')}</span><input id="spManualPriceInput" type="number" min="0" step="0.01" value="${pr.unit === null ? '' : pr.unit}" style="width:110px;" />
-        <button class="btn" onclick="spSaveManualPrice('${orderId}','${productId}')">${t('btnSave')}</button>
-        ${pr.manual ? `<button class="btn ghost" onclick="spResetManualPrice('${orderId}','${productId}')">${t('spResetAuto')}</button>` : ''}
-      </div>` : ''}`;
+      ${pr.manual ? `<p style="margin:6px 0 0;font-size:12.5px;color:var(--warn-dark,#b45309);">${t('spManualNow')}: <strong>${spMoney(pr.unit)}</strong></p>` : ''}${manualBox(pr.unit, pr.manual)}`;
   }
   const ov = document.createElement('div');
   ov.id = 'spOrderPriceOverlay'; ov.className = 'modal-overlay'; ov.style.display = 'flex'; ov.style.zIndex = '1150';
@@ -313,6 +295,7 @@ async function spSaveManualPrice(orderId, productId){
   const n = Number(el.value);
   if(el.value.trim() === '' || !Number.isFinite(n) || n < 0){ showInfoModal(t('spPriceInvalid')); return; }
   it.sellPrice = spRound2(n); it.sellPriceManual = true;
+  if(!isPreVerificationStatus(order)){ it.sellFrozen = true; if(it.sellDiscount === undefined) it.sellDiscount = 0; }   // 已完成訂單:手動價就是固定的售價
   try{ await upsertOrders([order]); } catch(e){ console.error('儲存售價失敗', e); showInfoModal(t('spMarginSaveFailed')); return; }
   spCloseOrderPopup(); spRefreshOrderViews();
 }
@@ -468,28 +451,35 @@ function spColsHeaderHtml(withActions){
   </div>`;
 }
 // 一張訂單的總金額(沒有價格的品項不算進去,有的話旁邊註明)
+// 這個商品是否含 GST(商品主檔勾選);含 GST 的商品,訂單金額另外算 10% GST(價格都是 Ex. GST)
+const SP_GST_RATE = 0.10;
+function spProductHasGst(pid){ const p = (typeof products !== 'undefined') ? products.find(x => x.id === pid) : null; return !!(p && p.gst); }
 function spOrderTotal(order, overrides){
-  let sum = 0, missing = 0;
+  let sum = 0, missing = 0, taxable = 0;
   (order.items || []).forEach(it => {
     if(it.deleted) return;
     const ov = overrides ? overrides(it) : undefined;     // undefined = 用原本;false = 不計(例如暫存刪除);數字 = 暫存的新數量
     if(ov === false) return;
     if(!(it.qty > 0)) return;
     const v = spItemTotal(order, it, typeof ov === 'number' ? ov : undefined);
-    if(v === null) missing++; else sum += v;
+    if(v === null) missing++; else { sum += v; if(spProductHasGst(it.productId)) taxable += v; }
   });
-  return { sum: spRound2(sum), missing };
+  return { sum: spRound2(sum), gst: spRound2(taxable * SP_GST_RATE), missing };
 }
-function spTotalRowHtml(sum, missing, withActions, label){
+// 訂單底下的三行合計:Sale Amt(Ex. GST)/ GST / Total Amt(Inc. GST)
+function spTotalRowHtml(sum, missing, withActions, label, gst){
   if(!spEnabled()) return '';
-  return `<div class="sp-total-row" style="display:flex;gap:10px;justify-content:flex-end;align-items:center;padding:6px 0 2px;border-bottom:none;font-weight:700;">
-    <span style="flex:1;text-align:right;">${label || t('spOrderTotal')}${missing ? ` <span style="font-weight:400;font-size:11px;color:var(--ink-soft);">(${tf('spTotalMissing', { n: missing })})</span>` : ''}</span>
-    <span style="${SP_TOTAL_W}"><span style="${SP_TOTAL_PILL}">${spMoney(sum)}</span></span>${withActions ? `<span style="${SP_ACTIONS_W}"></span>` : ''}
+  const g = Number(gst) || 0;
+  const row = (lab, val, strong, note) => `<div class="sp-total-row" style="display:flex;gap:10px;justify-content:flex-end;align-items:center;padding:${strong ? '6px' : '4px'} 0 2px;border-bottom:none;font-weight:${strong ? 700 : 600};">
+    <span style="flex:1;text-align:right;">${lab}${note || ''}</span>
+    <span style="${SP_TOTAL_W}"><span style="${SP_TOTAL_PILL}">${spMoney(val)}</span></span>${withActions ? `<span style="${SP_ACTIONS_W}"></span>` : ''}
   </div>`;
+  const miss = missing ? ` <span style="font-weight:400;font-size:11px;color:var(--ink-soft);">(${tf('spTotalMissing', { n: missing })})</span>` : '';
+  return row(label || t('spSaleAmt'), sum, false, miss) + row(t('spGstAmt'), g, false) + row(t('spTotalAmt'), spRound2(sum + g), true);
 }
 function spOrderTotalRowHtml(order, withActions, overrides){
   const r = spOrderTotal(order, overrides);
-  return spTotalRowHtml(r.sum, r.missing, withActions);
+  return spTotalRowHtml(r.sum, r.missing, withActions, null, r.gst);
 }
 
 // 登記進出貨清單(還沒建立訂單的新品項):單項總價與整份清單的總金額
@@ -499,13 +489,13 @@ function spTxItemTotalHtml(it, partyId){
   return u === null ? '–' : spMoney(spRound2(u * it.qty));
 }
 function spTxItemsTotal(partyId){
-  let sum = 0, missing = 0;
+  let sum = 0, missing = 0, taxable = 0;
   (txBatchItems || []).forEach(it => {
     if(!(it.qty > 0)) return;
     const u = spTxUnit(it, partyId);
-    if(u === null) missing++; else sum += u * it.qty;
+    if(u === null) missing++; else { const v = spRound2(u * it.qty); sum += v; if(spProductHasGst(it.productId)) taxable += v; }
   });
-  return { sum: spRound2(sum), missing };
+  return { sum: spRound2(sum), gst: spRound2(taxable * SP_GST_RATE), missing };
 }
 
 // 已完成訂單匯出:每個商品的 Sell price(單價),依各訂單核對當下固定的售價,以出貨數量加權平均

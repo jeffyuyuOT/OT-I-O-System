@@ -21,6 +21,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
 <style>
   :root{
     --bg:#EBE8E0;
@@ -1210,6 +1211,7 @@
             <option value="orders" data-i18n="sgroupOrders">訂單與出貨</option>
             <option value="price" data-i18n="sgroupPrice">價格與批次</option>
             <option value="data" data-i18n="sgroupData">資料維護</option>
+            <option value="invoice" data-i18n="sgroupInvoice">Invoice 格式</option>
           </select>
         </div>
 <div class="settings-card" data-sgroup="ui">
@@ -1275,26 +1277,7 @@
         <div class="settings-card" id="sellPriceSettingCard" data-sgroup="price">
           <div class="section-title" data-i18n="secSellPriceBlock">Sell price</div>
 
-          <div style="font-size:12.5px;font-weight:700;margin:0 0 6px;" data-i18n="secSellPrice">Sell price 顯示方式</div>
-          <div style="display:flex;flex-direction:column;gap:8px;font-size:12.5px;">
-            <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
-              <input type="radio" name="sellPriceMode" value="export" onchange="applySellPriceMode(this.value)" />
-              <span data-i18n="sellPriceModeExport">僅匯出檔案顯示</span>
-              <span role="button" tabindex="0" class="info-icon" style="cursor:pointer;color:var(--ink-soft);font-size:14px;" onclick="event.preventDefault();spShowModeHelp('export')">ⓘ</span>
-            </label>
-            <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
-              <input type="radio" name="sellPriceMode" value="all" onchange="applySellPriceMode(this.value)" />
-              <span data-i18n="sellPriceModeAll">訂單跟匯出都顯示</span>
-              <span role="button" tabindex="0" class="info-icon" style="cursor:pointer;color:var(--ink-soft);font-size:14px;" onclick="event.preventDefault();spShowModeHelp('all')">ⓘ</span>
-            </label>
-            <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
-              <input type="radio" name="sellPriceMode" value="none" onchange="applySellPriceMode(this.value)" />
-              <span data-i18n="sellPriceModeNone">不顯示 Sell price</span>
-              <span role="button" tabindex="0" class="info-icon" style="cursor:pointer;color:var(--ink-soft);font-size:14px;" onclick="event.preventDefault();spShowModeHelp('none')">ⓘ</span>
-            </label>
-          </div>
-
-          <div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--line);">
+          <div>
             <div style="font-size:12.5px;font-weight:700;margin:0 0 6px;" data-i18n="secSellBasis">Sell price 依據</div>
             <div style="display:flex;flex-direction:column;gap:8px;font-size:12.5px;">
               <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
@@ -1438,6 +1421,40 @@
           </div>
         </div>
 
+        <div class="settings-card" id="invoiceSettingsCard" data-sgroup="invoice">
+          <div class="section-title" data-i18n="secInvoiceFormat">Invoice 格式</div>
+          <p style="font-size:12.5px;color:var(--ink-soft);margin:0 0 12px;" data-i18n="invoiceFormatDesc">設定 Invoice 左上角顯示的公司資料,以及 Bank Transfer 付款方式下面顯示的銀行資料。公司名稱、地址和 ABN 為必填。</p>
+          <div class="form-grid" style="grid-template-columns:1fr 1fr;gap:10px;">
+            <div class="field"><label><span data-i18n="invFieldCompany">公司名稱</span> *</label><input id="invCompanyName" type="text" /></div>
+            <div class="field"><label><span data-i18n="invFieldAbn">ABN</span> *</label><input id="invAbn" type="text" /></div>
+            <div class="field" style="grid-column:1 / -1;"><label><span data-i18n="invFieldAddress">地址</span> *</label><textarea id="invAddress" rows="3" style="width:100%;"></textarea></div>
+            <div class="field"><label data-i18n="invFieldPhone">電話</label><input id="invPhone" type="text" /></div>
+            <div class="field"><label data-i18n="invFieldEmail">Email</label><input id="invEmail" type="text" /></div>
+            <div class="field" style="grid-column:1 / -1;"><label data-i18n="invFieldWebsite">網址</label><input id="invWebsite" type="text" /></div>
+            <div class="field" style="grid-column:1 / -1;"><label data-i18n="invFieldLogo">Logo(選填)</label>
+              <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+                <img id="invLogoPreview" alt="" style="max-height:60px;max-width:160px;display:none;border:1px solid var(--line);padding:2px;background:#fff;" />
+                <input id="invLogoFile" type="file" accept="image/*" onchange="invOnLogoChosen(this.files)" />
+                <button class="btn ghost" type="button" onclick="invClearLogo()" data-i18n="invBtnRemoveLogo">移除 Logo</button>
+              </div>
+            </div>
+          </div>
+          <div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--line);">
+            <div style="font-size:12.5px;font-weight:700;margin:0 0 6px;" data-i18n="invBankTitle">銀行資料(Bank Transfer 時顯示)</div>
+            <div class="form-grid" style="grid-template-columns:1fr 1fr;gap:10px;">
+              <div class="field"><label data-i18n="invFieldBankName">銀行名稱</label><input id="invBankName" type="text" /></div>
+              <div class="field"><label data-i18n="invFieldBankAccName">戶名 (Account Name)</label><input id="invBankAccName" type="text" /></div>
+              <div class="field"><label>BSB</label><input id="invBsb" type="text" /></div>
+              <div class="field"><label data-i18n="invFieldAccNo">帳號 (Account No.)</label><input id="invAccNo" type="text" /></div>
+            </div>
+          </div>
+          <div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--line);">
+            <div class="field" style="max-width:260px;"><label data-i18n="invFieldNextNo">下一張 Invoice 號碼</label><input id="invNextNo" type="number" min="1" step="1" /></div>
+          </div>
+          <div style="margin-top:12px;"><button class="btn" onclick="invSaveSettings()" data-i18n="btnSave">儲存</button></div>
+          <div id="invSettingsMsg" class="msg"></div>
+        </div>
+
         <div id="emptyDataBanner" class="settings-card settings-card-warn" style="display:none;">
           <div class="section-title" style="color:#8a6d00;" data-i18n="emptyDataBannerTitle">⚠️ 目前沒有任何商品或進出貨資料</div>
           <p style="font-size:12.5px;color:#5c4a00;margin:0 0 12px;" data-i18n="emptyDataBannerDesc">
@@ -1446,7 +1463,7 @@
           <button class="btn ghost" onclick="restoreFromBackupFolder()" data-i18n="emptyDataRestoreBtn">📥 從備份資料夾還原</button>
         </div>
 
-        <div class="settings-card" data-sgroup="data">
+        <div class="settings-card" id="importDataCard" data-sgroup="data">
         <div class="section-title" data-i18n="secImportData">匯入資料</div>
         <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:0 0 4px;">
           <select id="importTemplateSelect" style="min-width:180px;">
@@ -2912,8 +2929,39 @@
       <input type="text" id="partyPhoneInput" style="width:100%;" />
     </div>
     <div class="field-block">
-      <label data-i18n="fieldPartyAddress">送貨住址(選填)</label>
-      <input type="text" id="partyAddressInput" style="width:100%;" />
+      <label data-i18n="fieldPartyCompany">公司名稱(Invoice 顯示;選填)</label>
+      <input type="text" id="partyCompanyInput" style="width:100%;" />
+    </div>
+    <div class="field-block">
+      <label data-i18n="fieldPartyEmail">Email(選填)</label>
+      <input type="text" id="partyEmailInput" style="width:100%;" />
+    </div>
+    <div class="field-block">
+      <label data-i18n="fieldPartyBillTo">Bill To 地址(選填)</label>
+      <textarea id="partyBillToInput" style="width:100%;min-height:54px;font-family:inherit;"></textarea>
+    </div>
+    <div class="field-block">
+      <label data-i18n="fieldPartyShipTo">Ship To 地址(選填)</label>
+      <textarea id="partyShipToInput" style="width:100%;min-height:54px;font-family:inherit;"></textarea>
+    </div>
+    <div class="field-block">
+      <label data-i18n="fieldPartyAbn">Customer ABN(選填)</label>
+      <input type="text" id="partyAbnInput" style="width:100%;" />
+    </div>
+    <div class="field-block">
+      <label data-i18n="fieldPaymentType">Payment type</label>
+      <select id="partyPaymentTypeSelect" style="width:100%;" onchange="onPartyPaymentTypeChange()">
+        <option value="bank">Bank Transfer</option>
+        <option value="cod">COD</option>
+      </select>
+    </div>
+    <div class="field-block">
+      <label data-i18n="fieldPaymentTerm">Payment term</label>
+      <select id="partyPaymentTermSelect" style="width:100%;">
+        <option value="7">7 Days</option><option value="14">14 Days</option><option value="21">21 Days</option>
+        <option value="30">30 Days</option><option value="45">45 Days</option><option value="60">60 Days</option>
+      </select>
+      <div style="font-size:11.5px;color:var(--ink-soft);margin-top:3px;" data-i18n="paymentTermHint">Invoice 的 Due Date = Invoice Date + Payment term。選 COD 時不能設定 Payment term。</div>
     </div>
     <div class="field-block">
       <label data-i18n="fieldOrderNote">備註(選填)</label>
@@ -3114,6 +3162,7 @@
 <script src="batch-tracking.js"></script>
 <script src="sell-price.js"></script>
 <script src="price-setting.js"></script>
+<script src="invoice.js"></script>
 <script src="purchase-costs.js"></script>
 <script src="parties.js"></script>
 <script src="quick-lists.js"></script>
@@ -3681,6 +3730,7 @@ async function loadData(){
   await loadSystemCurrency();
   await loadBatchExpiryWarnDays();
   await loadSellPriceSettings();
+  if(typeof loadInvoiceSettings === 'function') await loadInvoiceSettings();
   await loadForecastRecords();
   populateAllQuickListSelects();
   syncCategoryOrder();
@@ -4051,7 +4101,7 @@ async function startApp(){
   updateAutoBackupStatus();
   updateMultipackSettingsUI();
   const emptyBanner = document.getElementById('emptyDataBanner');
-  if(emptyBanner) emptyBanner.style.display = (products.length === 0 && transactions.length === 0) ? 'block' : 'none';
+  if(emptyBanner) emptyBanner.style.display = (products.length === 0 && transactions.length === 0 && !isAccountantUser()) ? 'block' : 'none';
   initHistoryDateDefaults();
   renderAll();
   startAutoRefresh();
