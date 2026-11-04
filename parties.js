@@ -95,6 +95,13 @@ function partyDiscountOf(sp){
   return Number.isFinite(n) && n > 0 ? n : 0;
 }
 
+// 出貨方名稱預設跟著公司名稱走;使用者手動輸入過名稱就以手動輸入為準(名稱清空後又會恢復跟著公司名稱)
+let partyNameManual = false;
+function onPartyNameInput(){ partyNameManual = document.getElementById('partyNameInput').value.trim() !== ''; }
+function onPartyCompanyInput(){
+  if(partyNameManual) return;
+  document.getElementById('partyNameInput').value = document.getElementById('partyCompanyInput').value;
+}
 function openPartyEditModal(id){
   if(!hasCapability('cap-manage-parties')) return;
   const sp = id ? shippingParties.find(x => x.id === id) : null;
@@ -109,6 +116,8 @@ function openPartyEditModal(id){
   // 舊的「送貨住址」改成 Ship To 地址(沒填過 Ship To 就先帶入舊的住址)
   document.getElementById('partyCompanyInput').value = sp ? (sp.companyName || '') : '';
   document.getElementById('partyEmailInput').value = sp ? (sp.email || '') : '';
+  // 已存在的出貨方:名稱跟公司名稱不一樣就視為手動輸入;名稱等於公司名稱或新增時,名稱跟著公司名稱走
+  partyNameManual = !!(sp && sp.name && sp.name !== (sp.companyName || ''));
   document.getElementById('partyBillToInput').value = sp ? (sp.billTo || '') : '';
   document.getElementById('partyShipToInput').value = sp ? (sp.shipTo !== undefined ? sp.shipTo : (sp.address || '')) : '';
   document.getElementById('partyAbnInput').value = sp ? (sp.abn || '') : '';
