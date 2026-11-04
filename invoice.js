@@ -176,7 +176,7 @@ function invBuildSnapshot(order){
     customer: { name, billTo: (sp && sp.billTo) || '', email: (sp && sp.email) || '', abn: (sp && sp.abn) || '' },
     ship: { name, address: (sp && (sp.shipTo !== undefined ? sp.shipTo : sp.address)) || '', contact: (sp && sp.contactPerson) || '' },
     note: order.note || '', orderNo: order.orderNo || '',
-    lines, beforeTax, tax, total: Math.round((beforeTax + tax) * 100) / 100, paid: 0,
+    lines, beforeTax, tax, total: Math.round((beforeTax + tax) * 100) / 100, paid: 0, filtered: true,
     currency: (typeof getSystemCurrency === 'function') ? getSystemCurrency() : 'AUD'
   };
   return { ok: true, snap };
@@ -184,6 +184,7 @@ function invBuildSnapshot(order){
 
 // ---------- Invoice 版面(HTML)----------
 function invDocHtml(snap, logoDataUrl){
+  snap = invNormalizeSnap(snap);
   const c = snap.company || {};
   const termText = snap.paymentType === 'cod' ? 'COD' : `${snap.term} Days`;
   const bk = snap.bank || {};
@@ -525,9 +526,21 @@ function invAccountantHiddenSkus(){
   });
   return set;
 }
+// 舊版開出的 Invoice(快照沒有 filtered 標記)可能還含有「會計匯出不顯示」的商品:顯示/列印/匯出時
+// 依 SKU 過濾掉,並用剩下的品項重算 Before Tax / Tax / Total。新開的 Invoice 在建立時就已經過濾。
+function invNormalizeSnap(snap){
+  if(!snap || snap.filtered) return snap;
+  const hidden = invAccountantHiddenSkus();
+  const lines = (snap.lines || []).filter(l => !(l.sku && hidden.has(l.sku)));
+  if(lines.length === (snap.lines || []).length) return snap;
+  const out = Object.assign({}, snap, { lines: lines.map((l, i) => Object.assign({}, l, { n: i + 1 })) });
+  out.beforeTax = Math.round(out.lines.reduce((a, l) => a + Number(l.amount || 0), 0) * 100) / 100;
+  out.tax = Math.round(out.lines.reduce((a, l) => a + Number(l.tax || 0), 0) * 100) / 100;
+  out.total = Math.round((out.beforeTax + out.tax) * 100) / 100;
+  return out;
+}
 function invMyobText(snap, fallbackNo){
-  const hiddenSkus = invAccountantHiddenSkus();
-  snap = Object.assign({}, snap, { lines: (snap.lines || []).filter(l => !(l.sku && hiddenSkus.has(l.sku))) });
+  snap = invNormalizeSnap(snap);
   const idx = {}; INV_MYOB_COLS.forEach((c, i) => { idx[c.trim()] = i; });
   const idx2 = {}; // 有重複名稱的欄位(縮排的 Line 2~4 等)用位置取
   const blank = () => INV_MYOB_COLS.map(() => '');
