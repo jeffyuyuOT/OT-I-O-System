@@ -540,6 +540,7 @@ function switchAccountingSubTab(subtabId){
     if(typeof renderSystemCurrencySetting === 'function') renderSystemCurrencySetting();
     if(typeof renderSellPriceSetting === 'function') renderSellPriceSetting();
     if(typeof invRenderSettings === 'function') invRenderSettings();
+    if(typeof renderAccountingEmailList === 'function') renderAccountingEmailList();
   }
 }
 function refreshAccountingSubTab(){

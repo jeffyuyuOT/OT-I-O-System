@@ -1210,7 +1210,6 @@
           <select id="settingsGroupSelect" onchange="switchSettingsGroup(this.value)" style="font-size:16px;font-weight:700;padding:10px 14px;min-width:240px;border:2px solid var(--ink);border-radius:6px;background:#fff;color:var(--ink);cursor:pointer;">
             <option value="ui" data-i18n="sgroupUi">介面與排序</option>
             <option value="orders" data-i18n="sgroupOrders">訂單與出貨</option>
-            <option value="price" data-i18n="sgroupPrice">價格與批次</option>
             <option value="data" data-i18n="sgroupData">資料維護</option>
           </select>
         </div>
@@ -1257,7 +1256,7 @@
 
 
 
-        <div class="settings-card" id="batchExpirySettingCard" data-sgroup="price">
+        <div class="settings-card" id="batchExpirySettingCard" data-sgroup="orders">
           <div class="section-title" data-i18n="secBatchExpiry">批次到期提醒</div>
           <p style="font-size:11.5px;color:var(--ink-soft);margin:0 0 8px;" data-i18n="batchExpiryHint">還有庫存的批次,有效期在這個天數內會在庫存總覽顯示 🟠「快到期」,已過有效期顯示 🔴「已過期」。預設 30 天。</p>
           <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
@@ -1281,15 +1280,6 @@
               <option value="12" data-i18n="historyRange12">最近 12 個月</option>
             </select>
           </div>
-        </div>
-
-        <div class="settings-card" data-sgroup="orders">
-          <div class="section-title" data-i18n="secAccountingEmail">會計 Email</div>
-          <p style="font-size:11.5px;color:var(--ink-soft);margin:0 0 12px;" data-i18n="accountingEmailHint">
-            進貨單勾選「寄送給會計」時,預設帶入的收件人地址(送出前還是可以改成別的地址)。可以加多個地址,標記「主要」的那個會放在收件人(To),其他的會放在副本(CC)一起寄出。
-          </p>
-          <div id="accountingEmailList" style="display:flex;flex-direction:column;gap:8px;margin-bottom:10px;"></div>
-          <button class="btn ghost" onclick="addAccountingEmailRow()" data-i18n="btnAddEmail">+ 新增地址</button>
         </div>
 
         <div class="settings-card" data-sgroup="orders">
@@ -2290,6 +2280,14 @@
         <div id="masterFileList" class="file-chip-list"></div>
         <div id="importMsg" class="msg"></div>
         <div id="priceImportMsg" class="msg"></div>
+        </div>
+        <div class="settings-card">
+          <div class="section-title" data-i18n="secAccountingEmail">會計 Email</div>
+          <p style="font-size:11.5px;color:var(--ink-soft);margin:0 0 12px;" data-i18n="accountingEmailHint">
+            進貨單勾選「寄送給會計」時,預設帶入的收件人地址(送出前還是可以改成別的地址)。可以加多個地址,標記「主要」的那個會放在收件人(To),其他的會放在副本(CC)一起寄出。
+          </p>
+          <div id="accountingEmailList" style="display:flex;flex-direction:column;gap:8px;margin-bottom:10px;"></div>
+          <button class="btn ghost" onclick="addAccountingEmailRow()" data-i18n="btnAddEmail">+ 新增地址</button>
         </div>
     </div>
 
