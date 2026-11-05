@@ -597,6 +597,7 @@ async function icEnsureCreatedCn(){
 // ---------- Credit Note 清單 ----------
 let icCnRows = null, icCnErr = '';
 const icCnF = { q: '', from: '', to: '', st: '' };
+let icCnUsedOn = {};   // credit_note id → [{id, no}](這張單獨 Credit Note 抵扣過的 Invoice)
 async function icCnOpenList(force){
   if(!icOk()) return;
   const root = document.getElementById('creditNoteListRoot'); if(!root) return;
@@ -609,6 +610,20 @@ async function icCnOpenList(force){
       if(error && error.code === '42703') ({ data, error } = await q(cols0));   // 還沒執行客戶額度的 SQL:沒有 applied 欄
       if(error) throw error;
       icCnRows = data || []; icCnErr = '';
+      // 單獨的 Credit Note:找出它的額度抵扣到哪些 Invoice(Invoice 欄顯示 linked INV…)
+      icCnUsedOn = {};
+      try{
+        const ids = icCnRows.filter(r => !r.invoice_id).map(r => r.id);
+        if(ids.length){
+          const pr = await sb.from('invoice_payments').select('invoice_id,credit_cn_id').in('credit_cn_id', ids);
+          const pays = pr.error ? [] : (pr.data || []);
+          if(pays.length){
+            const ir = await sb.from('invoices').select('id,invoice_no').in('id', [...new Set(pays.map(x => x.invoice_id))]);
+            const nm = {}; (ir.data || []).forEach(x => { nm[x.id] = x.invoice_no; });
+            pays.forEach(x => { const a = (icCnUsedOn[x.credit_cn_id] = icCnUsedOn[x.credit_cn_id] || []); if(!a.some(y => y.id === x.invoice_id)) a.push({ id: x.invoice_id, no: nm[x.invoice_id] }); });
+          }
+        }
+      }catch(e){}
     }catch(e){ icCnRows = []; icCnErr = invIsMissingFn(e) || (e && e.code === '42P01') ? 'sql' : 'error'; if(icCnErr === 'error') console.error('讀取 Credit Note 清單失敗', e); }
   }
   icCnRender();
@@ -630,7 +645,7 @@ function icCnRender(){
   const body = list.map(r => `<tr>
       <td style="white-space:nowrap;cursor:pointer;" onclick="icCnView('${invEsc(r.id)}')"><span class="batch-link">${invEsc(r.cn_no)}</span></td>
       <td style="white-space:nowrap;">${invEsc(invIsoToDmy(r.cn_date))}</td><td>${invEsc(invCustLabel(r))}</td>
-      <td>${r.invoice_no ? (r.invoice_id ? `<span class="batch-link" onclick="invOpenDetails('${invEsc(r.invoice_id)}')">INV${invEsc(r.invoice_no)}</span>` : 'INV' + invEsc(r.invoice_no)) : '–'}</td>
+      <td>${r.invoice_id ? `<span style="font-size:11.5px;color:var(--ink-soft);">${invEsc(t('invLinkedLabel'))}</span> <span class="batch-link" onclick="invOpenDetails('${invEsc(r.invoice_id)}')">INV${invEsc(r.invoice_no || '')}</span>` : ((icCnUsedOn[r.id] || []).length ? (icCnUsedOn[r.id]).map(x => `<div style="white-space:nowrap;"><span style="font-size:11.5px;color:var(--ink-soft);">${invEsc(t('invLinkedLabel'))}</span> <span class="batch-link" onclick="invOpenDetails('${invEsc(x.id)}')">INV${invEsc(x.no || '')}</span></div>`).join('') : '–')}</td>
       <td class="num"><b>(${invMoney2(r.total)})</b></td>
       <td class="num">${r.invoice_id ? '–' : invMoney2(Number(r.total) - Number(r.applied || 0))}</td>
       <td style="white-space:nowrap;">${icRsBadge(r.return_status)}</td>

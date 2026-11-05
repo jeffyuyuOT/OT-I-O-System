@@ -17,7 +17,12 @@ let invLogoDraft = null;   // 設定頁剛選好還沒儲存的 Logo(dataURL);''
 
 const invEsc = s => String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 // 會計清單的客戶名稱:同一個出貨方統一顯示公司名(沒有公司名才用出貨方名稱);搜尋時出貨方名稱、公司名、編號都找得到
-function invPartyOf(r){ return (r && r.party_id && typeof shippingParties !== 'undefined') ? shippingParties.find(x => x.id === r.party_id) : null; }
+function invPartyOf(r){
+  if(!r || typeof shippingParties === 'undefined') return null;
+  if(r.party_id) return shippingParties.find(x => x.id === r.party_id) || null;
+  const n = invNormName(r.customer);   // 沒有出貨方編號的舊資料:用名稱對應
+  return n ? (shippingParties.find(x => invNormName(x.name) === n || invNormName(x.companyName) === n) || null) : null;
+}
 function invCustLabel(r){ const sp = invPartyOf(r); return (sp && (sp.companyName || sp.name)) || (r && r.customer) || ''; }
 function invCustSearch(r){ const sp = invPartyOf(r); return [r && r.customer, sp && sp.name, sp && sp.companyName, sp && sp.code].filter(Boolean).join(' '); }
 const invNl2br = s => invEsc(s).replace(/\r?\n/g, '<br>');
