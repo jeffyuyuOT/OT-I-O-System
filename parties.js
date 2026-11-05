@@ -152,6 +152,7 @@ async function savePartyEdit(){
   if(!sp) return;
   const name = document.getElementById('partyNameInput').value.trim();
   if(!name){ msg.className = 'msg error'; msg.textContent = t('errPartyNameEmpty'); return; }
+  if(!document.getElementById('partyBillToInput').value.trim()){ msg.className = 'msg error'; msg.textContent = t('errPartyBillToEmpty'); document.getElementById('partyBillToInput').focus(); return; }
   const discRaw = document.getElementById('partyDiscountInput').value.trim();
   let discount = 0;
   if(discRaw !== ''){
