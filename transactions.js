@@ -886,9 +886,9 @@ function renderTxBatchList(){
         </td>
         ${showSellCol ? `<td class="row-num tx-sell">${spTxItemPriceHtml(it, sellPartyId)}</td>` : ''}
         ${showSellCol ? `<td class="row-num tx-sell"><span style="${SP_TOTAL_PILL}">${spTxItemTotalHtml(it, sellPartyId)}</span></td>` : ''}
-        ${showBatchCols ? `<td class="row-num tx-exp" data-label="${t('batchColExpiry')}"><input type="date" class="order-qty-input" style="width:140px;" value="${it.expiry || ''}" onchange="updateTxBatchItemExpiry('${it.batchItemId}', this.value)" onblur="commitTxBatchItemExpiry('${it.batchItemId}')" /></td>
+        ${showBatchCols ? (!batchProductTracked(it.productId) ? '<td></td><td></td>' : `<td class="row-num tx-exp" data-label="${t('batchColExpiry')}"><input type="date" class="order-qty-input" style="width:140px;" value="${it.expiry || ''}" onchange="updateTxBatchItemExpiry('${it.batchItemId}', this.value)" onblur="commitTxBatchItemExpiry('${it.batchItemId}')" /></td>
         
-        ${(typeof batchLocCellHtml === 'function') ? batchLocCellHtml(it) : '<td></td>'}` : ''}
+        ${(typeof batchLocCellHtml === 'function') ? batchLocCellHtml(it) : '<td></td>'}`) : ''}
         ${showAmountCol ? `<td class="row-num tx-amt" data-label="${t('colAmount')}"><input type="number" class="order-qty-input" step="0.01" min="0" value="${(it.amount !== undefined && it.amount !== null) ? it.amount : ''}" placeholder="–" ${canEditPrice() ? '' : 'readonly'} onchange="updateTxBatchItemAmount('${it.batchItemId}', this.value)" /></td>` : ''}
         ${showGstCol ? `<td class="row-num tx-gst" data-label="GST">${paProductOffBooks(it.productId) ? `<span style="font-size:11.5px;color:var(--ink-soft);">${t('paOffBooksShort')}</span>` : paGstSelectHtml(it.gst, "paSetTxItemGst('" + it.batchItemId + "', this.value)")}</td>` : ''}
         <td class="row-action">
@@ -1933,12 +1933,8 @@ async function submitTxBatchSimple(date, msg){
   if(hasFeature('receiptScanModule')) await syncOcrMemoryToFinalParty(party);
 
   // 批次追蹤:進貨沒勾選「進入批次追蹤」、但清單裡有商品「之前已有批次紀錄」→ 先警示,確認才繼續
-  const batchTrackThis = currentTxType === 'in' && typeof batchFormTrackChecked === 'function' && batchFormTrackChecked();
-  if(currentTxType === 'in' && typeof batchActive === 'function' && batchActive() && !batchTrackThis){
-    try{ await ensureBatchDataLoaded(); }catch(e){}
-    const trackedNames = batchTrackedNamesInTxList();
-    if(trackedNames.length > 0 && !(await batchConfirmUntracked(trackedNames))) return;
-  }
+  // 批次追蹤由商品設定決定:清單裡有任何「批次追蹤」商品就建批次;沒開批次追蹤的商品不進批次(品項記 noBatch)
+  const batchTrackThis = currentTxType === 'in' && typeof batchActive === 'function' && batchActive() && txBatchItems.some(it => batchProductTracked(it.productId));
 
   // 進貨帳務:有價錢的品項要有 GST;沒勾「入會計紀錄」卻有價錢 → 先確認
   if(currentTxType === 'in' && typeof paPreSubmit === 'function' && !(await paPreSubmit(msg))) return;
@@ -2053,13 +2049,17 @@ async function submitTxBatchSimple(date, msg){
           if(it.amount) item.amount = it.amount;
           if(it.docType) item.docType = it.docType;
           if(it.sourceFilename) item.sourceFilename = it.sourceFilename;
-          if(batchTrackThis && it.expiry) item.expiry = it.expiry;
-          if(batchTrackThis && it.supplierLot) item.supplierLot = it.supplierLot;
+          const trk = batchTrackThis && batchProductTracked(it.productId);
+          if(batchTrackThis && !trk) item.noBatch = true;
+          if(trk && it.expiry) item.expiry = it.expiry;
+          if(trk && it.supplierLot) item.supplierLot = it.supplierLot;
           return item;
         }
         const item = { productId: it.productId, sku: it.sku || '', name: it.name, unit: it.unit, qty: it.qty };
-        if(batchTrackThis && it.expiry) item.expiry = it.expiry;
-        if(batchTrackThis && it.supplierLot) item.supplierLot = it.supplierLot;
+        const trk = batchTrackThis && batchProductTracked(it.productId);
+        if(batchTrackThis && !trk) item.noBatch = true;
+        if(trk && it.expiry) item.expiry = it.expiry;
+        if(trk && it.supplierLot) item.supplierLot = it.supplierLot;
         if(it.amount) item.amount = it.amount;
         if(it.docType) item.docType = it.docType;
         if(it.sourceFilename) item.sourceFilename = it.sourceFilename;

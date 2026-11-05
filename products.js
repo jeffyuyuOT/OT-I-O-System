@@ -311,6 +311,12 @@ function renderProductEditModalBody(p, opts){
       </label>
     </div>
     ` : ''}
+    ${(typeof batchActive === 'function' && batchActive()) ? `<div class="field-block">
+      <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-weight:400;">
+        <input type="checkbox" id="editProdBatchTrack" ${p.batchTrack === false ? '' : 'checked'} />
+        <span>${t('fieldProductBatchTrack')}<span style="color:var(--ink-soft);font-weight:400;"> ${t('fieldProductBatchTrackHint')}</span></span>
+      </label>
+    </div>` : ''}
     ${(typeof paOn === 'function' && paOn()) ? `<div class="field-block">
       <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-weight:400;">
         <input type="checkbox" id="editProdNoAcct" ${p.noAccounting === true ? 'checked' : ''} onchange="onProdNoAcctToggle(this)" />
@@ -516,6 +522,8 @@ async function saveProductEditModal(){
     if(hiddenEl) p.hidden = hiddenEl.checked;
     const gstEl = document.getElementById('editProdGst');
     if(gstEl) p.gst = gstEl.checked;
+    const batchTrkEl = document.getElementById('editProdBatchTrack');
+    if(batchTrkEl){ if(batchTrkEl.checked) delete p.batchTrack; else p.batchTrack = false; }
     const noAcctEl = document.getElementById('editProdNoAcct');
     if(noAcctEl){ if(noAcctEl.checked) p.noAccounting = true; else delete p.noAccounting; }
     const showInTotalEl = document.getElementById('editProdShowInTotal');

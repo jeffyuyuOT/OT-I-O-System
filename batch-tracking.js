@@ -646,7 +646,7 @@ async function batchAddToProductLocations(productId, dest){
 function batchNetPurchaseLines(items){
   const byProduct = {};
   (items || []).forEach(it => {
-    if(it.docType === 'others') return;
+    if(it.docType === 'others' || it.noBatch) return;   // noBatch = 商品設定不做批次追蹤
     const g = byProduct[it.productId] = byProduct[it.productId] || { inc: [], cn: [] };
     (it.docType === 'credit_note' ? g.cn : g.inc).push(it);
   });
@@ -737,7 +737,13 @@ function batchParseInUseError(e){
 // ------------------------------------------------------------
 // 登記進貨表單:「進入批次追蹤」勾選、有效期/供應商批號欄位
 // ------------------------------------------------------------
-function batchFormTrackChecked(){ return batchActive() && txBatchTrackChecked; }
+// 批次追蹤改由「商品」決定(商品編輯視窗的「批次追蹤」開關,預設開啟);進貨單不再手動勾選。
+// 進貨時每個品項各自判斷,並在品項上記 noBatch(快照),之後改商品設定不影響已建立的進貨單。
+function batchProductTracked(productId){
+  const pr = (typeof products !== 'undefined') ? products.find(x => x.id === productId) : null;
+  return !(pr && pr.batchTrack === false);
+}
+function batchFormTrackChecked(){ return batchActive(); }
 function batchRowsShowExpiry(){ return typeof currentTxType !== 'undefined' && currentTxType === 'in' && batchFormTrackChecked(); }
 
 function batchRenderFormExtras(){
@@ -745,16 +751,11 @@ function batchRenderFormExtras(){
   const extraWrap = document.getElementById('txBatchExtraFields');
   if(!trackWrap || !extraWrap) return;
   const isIn = typeof currentTxType !== 'undefined' && currentTxType === 'in' && batchActive();
-  const sig = [lang, isIn, txBatchTrackChecked].join('|');
+  const sig = [lang, isIn].join('|');
   if(sig === batchFormExtrasSig) return;
   batchFormExtrasSig = sig;
   if(!isIn){ trackWrap.style.display = 'none'; trackWrap.innerHTML = ''; extraWrap.style.display = 'none'; extraWrap.innerHTML = ''; return; }
-  trackWrap.style.display = '';
-  trackWrap.innerHTML = `
-    <label style="display:flex;align-items:center;gap:8px;font-size:12.5px;font-weight:600;color:var(--ink);cursor:pointer;white-space:nowrap;" title="${batchEsc(t('batchTrackToggleHint'))}">
-      <input type="checkbox" id="txBatchTrackChk" ${txBatchTrackChecked ? 'checked' : ''} onchange="txBatchTrackChecked=this.checked;renderTxBatchList();" style="width:16px;height:16px;cursor:pointer;" />
-      ${t('batchTrackToggle')}
-    </label>`;
+  trackWrap.style.display = 'none'; trackWrap.innerHTML = '';   // 進貨單上不再有「進入批次追蹤」勾選(改由商品設定決定)
   // 有效期/供應商批號改在清單每一行填寫(有效期欄、📝 詳細資料),新增商品那一排不再有這兩欄
   extraWrap.style.display = 'none'; extraWrap.innerHTML = '';
 }
@@ -1810,7 +1811,7 @@ function batchLocOnQtyChange(it){
   it.locs = it.locs.filter(l => l.qty > 1e-9);
 }
 function batchLocCellHtml(it){
-  if(it.docType === 'credit_note' || it.qty <= 0) return '<td></td>';
+  if(it.docType === 'credit_note' || it.qty <= 0 || !batchProductTracked(it.productId)) return '<td></td>';
   const locs = it.locs || [];
   const un = it.qty - batchLocAssigned(it);
   const summary = locs.length
@@ -1878,7 +1879,7 @@ function batchLocSaveEditor(){
 function batchLocBuildPayload(items){
   const lines = {};
   items.forEach(it => {
-    if(it.docType === 'credit_note' || it.qty <= 0) return;
+    if(it.docType === 'credit_note' || it.qty <= 0 || !batchProductTracked(it.productId)) return;
     const p = products.find(x => x.id === it.productId);
     // 自動切換成主商品的行:批次行是主商品,數量 × 換算比例,批次、有效期、位置都跟著放在同樣的位置(跟庫存總覽切換同一套規則)
     const conv = !!(p && p.parentId && p.autoConvertOnStockIn);

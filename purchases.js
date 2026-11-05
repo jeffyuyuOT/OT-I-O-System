@@ -666,7 +666,7 @@ function renderEditPurchaseItemsList(){
           ${(typeof paOn === 'function' && paOn()) ? (it.noAcct ? '<span style="font-size:11.5px;color:var(--ink-soft);">' + t('paOffBooksShort') + '</span>' : paGstSelectHtml(it.gst, 'paEditSetGst(' + i + ', this.value)')) : ''}
           <span class="del-link" onclick="removeEditPurchaseItem(${i})">${t('btnRemoveItem')}</span>
          </div>
-         ${editPurchaseIsBatchTracked() ? `<div style="display:flex;align-items:center;gap:8px;margin-top:4px;flex-wrap:wrap;">
+         ${(editPurchaseIsBatchTracked() && !it.noBatch) ? `<div style="display:flex;align-items:center;gap:8px;margin-top:4px;flex-wrap:wrap;">
           <span style="font-size:11.5px;color:var(--ink-soft);">${t('batchColExpiry')}</span>
           <input type="date" value="${it.expiry || ''}" title="${t('batchColExpiry')}" style="width:122px;" onchange="updateEditPurchaseItemExpiry(${i}, this.value)" />
           <span style="font-size:11.5px;color:var(--ink-soft);">${t('batchLotLabel')}</span>
@@ -783,6 +783,7 @@ function addEditPurchaseItem(){
     if(amountVal !== undefined) existing.amount = (existing.amount || 0) + amountVal;
   } else {
     const item = { productId, sku: p.sku || '', name: p.name, unit: p.unit, qty };
+    if(typeof batchProductTracked === 'function' && editPurchaseIsBatchTracked() && !batchProductTracked(productId)) item.noBatch = true;
     if(amountVal !== undefined) item.amount = amountVal;
     editPurchaseWorkingItems.push(item);
   }
