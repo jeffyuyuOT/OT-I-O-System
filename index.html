@@ -1345,6 +1345,15 @@
           </p>
         </div>
 
+        <div class="settings-card" id="hideInvoiceCard" data-sgroup="orders">
+          <div class="section-title" data-i18n="secHideInvoice">Invoice 功能</div>
+          <div style="display:flex;align-items:center;gap:8px;margin:0 0 6px;">
+            <input type="checkbox" id="hideInvoiceToggle" onchange="toggleHideInvoice(this.checked)" style="width:16px;height:16px;cursor:pointer;" />
+            <label for="hideInvoiceToggle" style="font-size:12.5px;color:var(--ink);font-weight:600;cursor:pointer;" data-i18n="hideInvoiceLabel">隱藏 Invoice 功能</label>
+          </div>
+          <p style="font-size:11.5px;color:var(--ink-soft);margin:0;" data-i18n="hideInvoiceHint">勾選後,所有 Invoice 相關功能都會隱藏:已完成訂單的 Create Invoice / Invoice、會計分頁的 Invoices 清單與收款記錄、出貨方管理的 Invoice Records,以及會計設定裡的 Invoice 格式。已經建立的 Invoice 資料不會被刪除,取消勾選後會恢復顯示。</p>
+        </div>
+
         <div class="settings-card" id="completedExportFormatCard" style="display:none;" data-sgroup="orders">
           <div class="section-title" data-i18n="secCompletedExportFormat">已完成訂單匯出格式</div>
           <p style="font-size:11.5px;color:var(--ink-soft);margin:0 0 8px;" data-i18n="completedExportFormatHint">
@@ -2128,7 +2137,7 @@
 
       <div id="subtab-order-completed" class="subtab-content">
         <div class="section-title" style="margin:0 0 6px;" data-i18n="subtabCompletedOrders">已完成訂單</div>
-        <p style="font-size:12.5px;color:var(--ink-soft);margin:0 0 10px;" data-i18n="completedOrders30DayNote">此頁面僅顯示最近 30 天的紀錄,如果要看之前的紀錄,請到「歷史紀錄」→「已完成訂單」查閱。</p>
+        <p data-hint-always="1" style="font-size:12.5px;color:var(--ink-soft);margin:0 0 10px;" data-i18n="completedOrders30DayNote">此頁面僅顯示最近 30 天的紀錄,如果要看之前的紀錄,請到「歷史紀錄」→「已完成訂單」查閱。</p>
         <div class="form-grid" style="grid-template-columns:1fr auto;margin-bottom:14px;">
           <div class="field">
             <label data-i18n="fieldShippingParty">出貨方</label>
@@ -2223,39 +2232,6 @@
             <div id="spMarginSettingMsg" class="msg"></div>
           </div>
         </div>
-        <div class="settings-card" id="invoiceSettingsCard">
-          <div class="section-title" data-i18n="secInvoiceFormat">Invoice 格式</div>
-          <p style="font-size:12.5px;color:var(--ink-soft);margin:0 0 12px;" data-i18n="invoiceFormatDesc">設定 Invoice 左上角顯示的公司資料,以及 Bank Transfer 付款方式下面顯示的銀行資料。公司名稱、地址和 ABN 為必填。</p>
-          <div class="form-grid" style="grid-template-columns:1fr 1fr;gap:10px;">
-            <div class="field"><label><span data-i18n="invFieldCompany">公司名稱</span> *</label><input id="invCompanyName" type="text" /></div>
-            <div class="field"><label><span data-i18n="invFieldAbn">ABN</span> *</label><input id="invAbn" type="text" /></div>
-            <div class="field" style="grid-column:1 / -1;"><label><span data-i18n="invFieldAddress">地址</span> *</label><textarea id="invAddress" rows="3" style="width:100%;"></textarea></div>
-            <div class="field"><label data-i18n="invFieldPhone">電話</label><input id="invPhone" type="text" /></div>
-            <div class="field"><label data-i18n="invFieldEmail">Email</label><input id="invEmail" type="text" /></div>
-            <div class="field" style="grid-column:1 / -1;"><label data-i18n="invFieldWebsite">網址</label><input id="invWebsite" type="text" /></div>
-            <div class="field" style="grid-column:1 / -1;"><label data-i18n="invFieldLogo">Logo(選填)</label>
-              <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
-                <img id="invLogoPreview" alt="" style="max-height:60px;max-width:160px;display:none;border:1px solid var(--line);padding:2px;background:#fff;" />
-                <input id="invLogoFile" type="file" accept="image/*" onchange="invOnLogoChosen(this.files)" />
-                <button class="btn ghost" type="button" onclick="invClearLogo()" data-i18n="invBtnRemoveLogo">移除 Logo</button>
-              </div>
-            </div>
-          </div>
-          <div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--line);">
-            <div style="font-size:12.5px;font-weight:700;margin:0 0 6px;" data-i18n="invBankTitle">銀行資料(Bank Transfer 時顯示)</div>
-            <div class="form-grid" style="grid-template-columns:1fr 1fr;gap:10px;">
-              <div class="field"><label data-i18n="invFieldBankName">銀行名稱</label><input id="invBankName" type="text" /></div>
-              <div class="field"><label data-i18n="invFieldBankAccName">戶名 (Account Name)</label><input id="invBankAccName" type="text" /></div>
-              <div class="field"><label>BSB</label><input id="invBsb" type="text" /></div>
-              <div class="field"><label data-i18n="invFieldAccNo">帳號 (Account No.)</label><input id="invAccNo" type="text" /></div>
-            </div>
-          </div>
-          <div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--line);">
-            <div class="field" style="max-width:260px;"><label data-i18n="invFieldNextNo">下一張 Invoice 號碼</label><input id="invNextNo" type="number" min="1" step="1" /></div>
-          </div>
-          <div style="margin-top:12px;"><button class="btn" onclick="invSaveSettings()" data-i18n="btnSave">儲存</button></div>
-          <div id="invSettingsMsg" class="msg"></div>
-        </div>
         <div class="settings-card" id="importDataCard">
         <div class="section-title" data-i18n="secImportData">匯入資料</div>
         <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:0 0 4px;">
@@ -2292,6 +2268,41 @@
           </p>
           <div id="accountingEmailList" style="display:flex;flex-direction:column;gap:8px;margin-bottom:10px;"></div>
           <button class="btn ghost" onclick="addAccountingEmailRow()" data-i18n="btnAddEmail">+ 新增地址</button>
+        </div>
+        <div class="settings-card" id="invoiceSettingsCard">
+          <div class="section-title" data-i18n="secInvoiceFormat">Invoice 格式</div>
+          <p style="font-size:12.5px;color:var(--ink-soft);margin:0 0 12px;" data-i18n="invoiceFormatDesc">設定 Invoice 左上角顯示的公司資料,以及 Bank Transfer 付款方式下面顯示的銀行資料。公司名稱、地址和 ABN 為必填。</p>
+          <div class="form-grid" style="grid-template-columns:1fr 1fr;gap:10px;">
+            <div class="field"><label><span data-i18n="invFieldCompany">公司名稱</span> *</label><input id="invCompanyName" type="text" /></div>
+            <div class="field"><label><span data-i18n="invFieldAbn">ABN</span> *</label><input id="invAbn" type="text" /></div>
+            <div class="field" style="grid-column:1 / -1;"><label><span data-i18n="invFieldAddress">地址</span> *</label><textarea id="invAddress" rows="3" style="width:100%;"></textarea></div>
+            <div class="field"><label data-i18n="invFieldPhone">電話</label><input id="invPhone" type="text" /></div>
+            <div class="field"><label data-i18n="invFieldEmail">Email</label><input id="invEmail" type="text" /></div>
+            <div class="field" style="grid-column:1 / -1;"><label data-i18n="invFieldWebsite">網址</label><input id="invWebsite" type="text" /></div>
+            <div class="field" style="grid-column:1 / -1;"><label data-i18n="invFieldLogo">Logo(選填)</label>
+              <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+                <img id="invLogoPreview" alt="" style="max-height:60px;max-width:160px;display:none;border:1px solid var(--line);padding:2px;background:#fff;" />
+                <input id="invLogoFile" type="file" accept="image/*" onchange="invOnLogoChosen(this.files)" />
+                <button class="btn ghost" type="button" onclick="invClearLogo()" data-i18n="invBtnRemoveLogo">移除 Logo</button>
+              </div>
+            </div>
+          </div>
+          <div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--line);">
+            <div style="font-size:12.5px;font-weight:700;margin:0 0 6px;" data-i18n="invBankTitle">銀行資料(Bank Transfer 時顯示)</div>
+            <div class="form-grid" style="grid-template-columns:1fr 1fr;gap:10px;">
+              <div class="field"><label data-i18n="invFieldBankName">銀行名稱</label><input id="invBankName" type="text" /></div>
+              <div class="field"><label data-i18n="invFieldBankAccName">戶名 (Account Name)</label><input id="invBankAccName" type="text" /></div>
+              <div class="field"><label>BSB</label><input id="invBsb" type="text" /></div>
+              <div class="field"><label data-i18n="invFieldAccNo">帳號 (Account No.)</label><input id="invAccNo" type="text" /></div>
+            </div>
+          </div>
+          <div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--line);">
+            <div class="field" style="max-width:260px;"><label data-i18n="invFieldNextNo">下一張 Invoice 號碼</label><input id="invNextNo" type="number" min="1" step="1" /></div>
+            <div class="field" style="max-width:260px;margin-top:10px;"><label data-i18n="invFieldCodGrace">COD 寬限天數</label><input id="invCodGrace" type="number" min="0" max="365" step="1" /></div>
+            <div style="font-size:11.5px;color:var(--ink-soft);margin-top:3px;max-width:520px;" data-i18n="invCodGraceHint">COD 的 Invoice 視為到貨當天到期,超過寬限天數還沒收完款才會標示逾期(Overdue)。客人收貨後才轉帳的話,可以在這段時間內補記收款。</div>
+          </div>
+          <div style="margin-top:12px;"><button class="btn" onclick="invSaveSettings()" data-i18n="btnSave">儲存</button></div>
+          <div id="invSettingsMsg" class="msg"></div>
         </div>
     </div>
 
@@ -3289,6 +3300,7 @@ let lastAutoBackupAt = null;
 let backupDirHandle = null;
 // 系統設置裡的開關:「訂貨數量達到 multipack 加權數時自動轉換」
 let autoConvertMultipackEnabled = false;
+let hideInvoiceEnabled = false; // 勾選後隱藏所有 Invoice 相關功能(系統設置 → 訂單與出貨)
 let disableDirectVerifyEnabled = false; // 勾選後,「登記進出貨→出貨→載入現有待處理訂單」下面的「直接核對」選項要隱藏
 let accountingEmails = []; // 系統設置裡的「會計 Email」,現在支援多個地址:[{email, isPrimary}]。標記 isPrimary 的那個放收件人(To),其他放副本(CC),進貨單勾選寄送時預設帶入。
 let stockSortField = null; // null = 預設順序(分類順序 + 商品排序設置);其他值:'name' | 'stock' | 'avg' | 'safety' | 'remain'
@@ -3654,7 +3666,7 @@ function findMatchingProduct(cellText){
 async function loadData(){
   // 設定值一次抓回來 + 各資料表同時載入(原本全部是一項接一項依序等),大幅縮短開機時間
   const prefetchP = prefetchAppData(['products','orderCounter','shippingParties','lang','autoBackupEnabled','autoConvertMultipack',
-    'disableDirectVerify','accountingEmails','accountingEmail','stockLocationMode','stockLocationEnabledFields',
+    'disableDirectVerify','hideInvoice','accountingEmails','accountingEmail','stockLocationMode','stockLocationEnabledFields',
     'stockLocationShowOnPickingSlip','productSortMode','productManualRank','completedExportFormat',
     'hideMultipackIconOnOrderPage','categoryOrder','tabOrder','subTabOrder','quickLists','forecastPrefs','forecastRecords','exportEmailLogs',
     'historyRangeMonths']);
@@ -3706,6 +3718,8 @@ async function loadData(){
   try{
     const ddvResult = await dbGet('disableDirectVerify');
     if(ddvResult) disableDirectVerifyEnabled = ddvResult.value === 'true';
+    const hiResult = await dbGet('hideInvoice');
+    if(hiResult) hideInvoiceEnabled = hiResult.value === 'true';
   } catch(e){ /* no stored preference yet, keep default false */ }
   try{
     const acctEmailsResult = await dbGet('accountingEmails');

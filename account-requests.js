@@ -18,7 +18,7 @@ Object.assign(I18N.zh, {
   arConfirmedMsg: '✓ Email 已確認,我們會盡快審核你的申請,通過後會寄信給你設定密碼。',
   arConfirmedAlready: '這個申請已經確認過了,不需要再點一次。',
   arConfirmExpired: '確認連結已過期,請重新申請。', arConfirmInvalid: '這個確認連結無效。', arConfirmError: '確認失敗,請稍後再試。',
-  arBtnPending: '待審申請', arListTitle: '訂貨帳號申請(待審)', arListEmpty: '目前沒有待審的申請。',
+  arTabPending: '待審', arTabDone: '已處理', arDoneEmpty: '還沒有已處理的申請。', arApprovedLabel: '已核准', arRejectedLabel: '已拒絕', arReason: '原因', arReviewedBy: '處理人', arReviewedAt: '處理時間', arKeepNote: '已拒絕的紀錄保留 180 天。', arBtnPending: '待審申請', arListTitle: '訂貨帳號申請(待審)', arListEmpty: '目前沒有待審的申請。',
   arColSubmitted: '申請時間', arFlagDupAbn: '⚠ 已有出貨方使用此 ABN:{name}', arFlagDupName: '⚠ 已有同名出貨方:{name}', arFlagDupEmail: '⚠ 已有出貨方使用此 Email:{name}',
   arBtnApprove: '核准', arBtnReject: '拒絕', arBtnRejectSelected: '拒絕所選', arSelectAll: '全選',
   arApproveTitle: '核准申請', arLinkExisting: '連結到現有出貨方', arCreateNew: '新增出貨方(帶入申請資料)',
@@ -41,7 +41,7 @@ Object.assign(I18N.en, {
   arConfirmedMsg: '✓ Email confirmed. We will review your request soon and email you a link to set your password once approved.',
   arConfirmedAlready: 'This request has already been confirmed — no need to click again.',
   arConfirmExpired: 'This confirmation link has expired. Please apply again.', arConfirmInvalid: 'This confirmation link is not valid.', arConfirmError: 'Confirmation failed. Please try again later.',
-  arBtnPending: 'Pending applications', arListTitle: 'Ordering account applications (pending)', arListEmpty: 'No pending applications.',
+  arTabPending: 'Pending', arTabDone: 'Processed', arDoneEmpty: 'No processed applications yet.', arApprovedLabel: 'Approved', arRejectedLabel: 'Rejected', arReason: 'Reason', arReviewedBy: 'Reviewed by', arReviewedAt: 'Reviewed at', arKeepNote: 'Rejected records are kept for 180 days.', arBtnPending: 'Pending applications', arListTitle: 'Ordering account applications (pending)', arListEmpty: 'No pending applications.',
   arColSubmitted: 'Submitted', arFlagDupAbn: '⚠ A customer already uses this ABN: {name}', arFlagDupName: '⚠ A customer with the same name exists: {name}', arFlagDupEmail: '⚠ A customer already uses this email: {name}',
   arBtnApprove: 'Approve', arBtnReject: 'Reject', arBtnRejectSelected: 'Reject selected', arSelectAll: 'Select all',
   arApproveTitle: 'Approve application', arLinkExisting: 'Link to an existing customer', arCreateNew: 'Create a new customer (prefilled from the application)',
@@ -160,7 +160,7 @@ async function handleConfirmRequestLink(){
 }
 
 // ---------- 3. 審核(出貨方管理) ----------
-let arPending = [], arPendingFetchedAt = 0;
+let arPending = [], arPendingFetchedAt = 0, arView = 'pending';
 function arCanReview(){ return !!currentUser && (currentUser.role === 'admin' || currentUser.role === 'accountant'); }
 async function arFetchPending(){
   const { data, error } = await sb.from('account_requests').select('*').eq('status', 'pending').order('created_at', { ascending: true });
@@ -188,13 +188,42 @@ function arPartyMatches(r){
 }
 async function openAccountRequestList(){
   if(!arCanReview()) return;
-  arOverlay('arListOverlay', `<div class="section-title" style="margin-bottom:10px;">${t('arListTitle')}</div><div id="arListBody"></div>`, 760);
+  arOverlay('arListOverlay', `<div class="section-title" style="margin-bottom:10px;">${t('arListTitle')}</div>
+    <div style="display:flex;gap:8px;margin-bottom:10px;"><button class="btn" id="arTabPending" onclick="arSetView('pending')">${t('arTabPending')}</button><button class="btn ghost" id="arTabDone" onclick="arSetView('done')">${t('arTabDone')}</button></div>
+    <div id="arListBody"></div>`, 760);
+  arView = 'pending';
   try{ sb.rpc('account_request_cleanup').then(() => {}, () => {}); }catch(e){}
   await arRenderList(true);
+}
+function arSetView(v){
+  arView = v;
+  const a = document.getElementById('arTabPending'), b = document.getElementById('arTabDone');
+  if(a) a.className = 'btn' + (v === 'pending' ? '' : ' ghost');
+  if(b) b.className = 'btn' + (v === 'done' ? '' : ' ghost');
+  arRenderList(true);
+}
+async function arRenderDone(body){
+  const { data, error } = await sb.from('account_requests').select('*').in('status', ['approved', 'rejected']).order('reviewed_at', { ascending: false }).limit(100);
+  if(error){ body.innerHTML = `<div class="msg error">${AR_E(error.message)}</div>`; return; }
+  const rows = (data || []).map(r => {
+    const rej = r.status === 'rejected';
+    const when = r.reviewed_at ? new Date(r.reviewed_at).toLocaleString(lang === 'zh' ? 'zh-TW' : 'en-AU') : '';
+    return `<div style="border:1px solid var(--line,#ddd);border-radius:8px;padding:10px 12px;margin-bottom:8px;font-size:13px;">
+      <div><span style="font-weight:600;font-size:14px;">${AR_E(r.company_name)}</span>
+        <span style="margin-left:8px;color:${rej ? 'var(--crit)' : 'var(--ok,#2a7a3b)'};font-weight:600;">${t(rej ? 'arRejectedLabel' : 'arApprovedLabel')}</span></div>
+      <div style="color:var(--ink-soft);">ABN ${AR_E(arFmtAbn(r.abn))} · ${AR_E(r.contact_name)}${r.phone ? ' · ' + AR_E(r.phone) : ''} · ${AR_E(r.email)}</div>
+      <div style="color:var(--ink-soft);font-size:12px;margin-top:4px;">${t('arReviewedBy')}: ${AR_E(r.reviewed_by || '—')} · ${t('arReviewedAt')}: ${AR_E(when || '—')}</div>
+      ${rej ? `<div style="margin-top:4px;">${t('arReason')}: ${AR_E(r.reject_reason || '—')}</div>` : ''}
+    </div>`;
+  }).join('');
+  body.innerHTML = (rows || `<div class="empty-note">${t('arDoneEmpty')}</div>`)
+    + `<div style="font-size:11.5px;color:var(--ink-soft);margin-top:6px;">${t('arKeepNote')}</div>
+    <div class="modal-actions"><button class="btn ghost" onclick="arClose('arListOverlay')">${t('arClose')}</button></div>`;
 }
 async function arRenderList(refetch){
   const body = document.getElementById('arListBody');
   if(!body) return;
+  if(arView === 'done'){ await arRenderDone(body); return; }
   if(refetch){
     const r = await arFetchPending();
     if(r.error){ body.innerHTML = `<div class="msg error">${AR_E(/relation|does not exist|schema cache/i.test(r.error.message || '') ? t('arNeedSql') : r.error.message)}</div><div class="modal-actions"><button class="btn ghost" onclick="arClose('arListOverlay')">${t('arClose')}</button></div>`; return; }

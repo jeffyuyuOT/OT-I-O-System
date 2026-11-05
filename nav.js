@@ -533,6 +533,7 @@ function switchSupplyListPane(paneId){
 function switchAccountingSubTab(subtabId){
   const container = document.getElementById('tab-accounting');
   if(!container) return;
+  if(subtabId === 'subtab-acc-invoices' && typeof hideInvoiceEnabled !== 'undefined' && hideInvoiceEnabled) subtabId = 'subtab-price-setting';   // 隱藏 Invoice 功能時改到定價管理
   document.body.classList.remove('mobile-subtab-menu-active');
   document.body.classList.remove('mobile-subtab-content-active');
   container.querySelectorAll('.subtab-content').forEach(el => el.classList.remove('active-subtab'));
@@ -626,7 +627,7 @@ function switchOrderSubTab(subtabId){
 // ---- 分頁說明:標題旁的 ⓘ,點擊才顯示說明文字(標題下面緊接著的灰色說明段落) ----
 function initTitleHints(){
   document.querySelectorAll('.tab-content p[style*="--ink-soft"]').forEach(p => {
-    if(p.dataset.hintInit || p.id || p.closest('.modal-box')) return;
+    if(p.dataset.hintInit || p.dataset.hintAlways || p.id || p.closest('.modal-box')) return;   // data-hint-always:說明直接顯示,不收進 ⓘ
     const prev = p.previousElementSibling;
     if(!prev) return;
     const title = prev.classList.contains('section-title') ? prev : prev.querySelector(':scope > .section-title');
