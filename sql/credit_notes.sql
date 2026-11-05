@@ -165,6 +165,11 @@ grant execute on function public.credit_note_set_return_status(text, text) to au
 grant execute on function public.credit_notes_restore_all(jsonb, bigint) to authenticated;
 grant execute on function public.credit_notes_clear_all() to authenticated;
 
+-- 收款金額原本限制必須大於 0,退款 / 轉出需要負數,改成「不能是 0」
+alter table public.invoice_payments drop constraint if exists invoice_payments_amount_check;
+alter table public.invoice_payments drop constraint if exists invoice_payments_amount_nonzero;
+alter table public.invoice_payments add constraint invoice_payments_amount_nonzero check (amount <> 0);
+
 -- ============================================================
 -- 多收(已收款 > 扣完 Credit Note 後的應收)的處理:退款
 -- * 收款上限改成「Invoice 總額 - Credit Note」(不再是原總額);已經多收的 Invoice 修改舊收款不受限制(只要不讓多收變更多)。

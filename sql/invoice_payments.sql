@@ -15,7 +15,7 @@ create table if not exists public.invoice_payments (
   id          text primary key,
   invoice_id  text not null references public.invoices(id) on delete cascade,
   pay_date    date not null,
-  amount      numeric not null check (amount > 0),
+  amount      numeric not null check (amount <> 0),   -- 退款 / 轉出是負數(見 credit_notes.sql)
   method      text,
   note        text,
   created_by  text,
