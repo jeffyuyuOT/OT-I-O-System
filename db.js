@@ -377,6 +377,21 @@ async function upsertProductLocation(loc){
   if(error){ console.error('儲存庫存分布失敗', error); throw error; }
   scheduleAutoBackup();
 }
+// 備份 / 還原:庫存分布(product_locations)。舊版備份沒有這份資料,還原舊備份時不動目前的庫存分布。
+async function exportProductLocationsForBackup(){
+  return await fetchAllPages(() => sb.from('product_locations').select('*').order('id', { ascending: true }));
+}
+async function restoreProductLocationsFromBackup(backup){
+  if(!backup || !Array.isArray(backup.productLocations)) return false;
+  await clearAllProductLocations();
+  const rows = backup.productLocations;
+  for(let i = 0; i < rows.length; i += 500){
+    const { error } = await sb.from('product_locations').upsert(rows.slice(i, i + 500));
+    if(error){ console.error('還原庫存分布失敗', error); throw error; }
+  }
+  await loadProductLocations();
+  return true;
+}
 async function deleteProductLocationRow(id){
   const { error } = await sb.from('product_locations').delete().eq('id', id);
   if(error){ console.error('刪除庫存分布紀錄失敗', error); throw error; }
