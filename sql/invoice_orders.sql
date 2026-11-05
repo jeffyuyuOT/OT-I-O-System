@@ -64,7 +64,7 @@ begin
   -- 建立當下已收的金額(Paid Today)記成第一筆收款
   if coalesce(nullif(v_snap->>'paid', '')::numeric, 0) > 0 then
     insert into public.invoice_payments (id, invoice_id, pay_date, amount, method, created_by)
-    values (gen_random_uuid()::text, v_id, (v_snap->>'date')::date, least((v_snap->>'paid')::numeric, (v_snap->>'total')::numeric), 'Paid Today', v_who);
+    values (gen_random_uuid()::text, v_id, (v_snap->>'date')::date, least((v_snap->>'paid')::numeric, (v_snap->>'total')::numeric), coalesce(nullif(v_snap->>'paidMethod', ''), 'Other'), v_who);
   end if;
   perform public.invoice_recalc_paid(v_id);
   return jsonb_build_object('id', v_id, 'invoice_no', v_no);
@@ -85,3 +85,31 @@ begin
 end $$;
 revoke all on function public.invoice_edit_guard(text, numeric) from public, anon;
 grant execute on function public.invoice_edit_guard(text, numeric) to authenticated;
+
+-- 單一訂單開 Invoice:Paid Today 收款改記錄選的付款方式(之前固定記成 Paid Today)
+create or replace function public.invoice_create(p_snapshot jsonb, p_order_id text, p_order_no text, p_party_id text)
+returns jsonb language plpgsql security definer set search_path = public as $$
+declare v_n bigint; v_no text; v_id text := gen_random_uuid()::text; v_snap jsonb; v_who text; v_paid numeric;
+begin
+  if not public.is_accounting_user() then raise exception 'invoice_forbidden'; end if;
+  if p_order_id is not null and exists (select 1 from public.invoices where order_id = p_order_id) then
+    raise exception 'invoice_exists';
+  end if;
+  select next_no into v_n from public.invoice_counter where id = 1 for update;
+  v_no := lpad(v_n::text, 8, '0');
+  update public.invoice_counter set next_no = v_n + 1 where id = 1;
+  v_snap := p_snapshot || jsonb_build_object('no', v_no, 'id', v_id);
+  select username into v_who from public.profiles where id = auth.uid();
+  insert into public.invoices (id, invoice_no, order_id, order_no, party_id, customer, invoice_date, due_date, terms, payment_type, sale_rep,
+                               before_tax, tax, total, currency, snapshot, created_by)
+  values (v_id, v_no, p_order_id, p_order_no, nullif(p_party_id, ''), v_snap #>> '{customer,name}', (v_snap->>'date')::date, nullif(v_snap->>'dueDate', '')::date,
+          v_snap->>'term', v_snap->>'paymentType', v_snap->>'saleRep',
+          (v_snap->>'beforeTax')::numeric, (v_snap->>'tax')::numeric, (v_snap->>'total')::numeric, v_snap->>'currency', v_snap, v_who);
+  v_paid := coalesce(nullif(v_snap->>'paid', '')::numeric, 0);
+  if v_paid > 0 then
+    insert into public.invoice_payments (id, invoice_id, pay_date, amount, method, created_by)
+    values (gen_random_uuid()::text, v_id, (v_snap->>'date')::date, least(v_paid, (v_snap->>'total')::numeric), coalesce(nullif(v_snap->>'paidMethod', ''), 'Other'), v_who);
+  end if;
+  perform public.invoice_recalc_paid(v_id);
+  return jsonb_build_object('id', v_id, 'invoice_no', v_no);
+end $$;

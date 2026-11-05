@@ -343,6 +343,8 @@ function invOpenPaidPrompt(){
     <div class="section-title" style="margin-top:0;">${t('invBtnPaidToday')}</div>
     <p style="font-size:12px;color:var(--ink-soft);margin:0 0 8px;">Total Amt: <b>${invMoney2(snap.total)}</b></p>
     <input id="invPaidInput" type="number" min="0" step="0.01" value="${Number(snap.paid) > 0 ? invMoney2(snap.paid) : ''}" style="width:100%;box-sizing:border-box;" placeholder="0.00" />
+    <label style="font-size:12px;display:block;margin-top:8px;">${t('invPayMethod')}</label>
+    <select id="invPaidMethod" style="width:100%;box-sizing:border-box;">${INV_PAY_METHODS.map(m => `<option value="${m}" ${(snap.paidMethod || 'Bank Transfer') === m ? 'selected' : ''}>${m}</option>`).join('')}</select>
     <div id="invPaidMsg" class="msg"></div>
     <div class="modal-actions"><button class="btn ghost" onclick="document.getElementById('invPaidOverlay').remove()">${t('btnCancel')}</button><button class="btn" onclick="invSavePaid()">${t('btnSave')}</button></div>
   </div>`;
@@ -375,6 +377,7 @@ async function invSavePaid(){
     }
   }
   invModal.snap.paid = v;
+  const pm = document.getElementById('invPaidMethod'); if(pm) invModal.snap.paidMethod = pm.value;
   const po = document.getElementById('invPaidOverlay'); if(po) po.remove();
   const host = document.getElementById('invPreviewHost');
   if(host){

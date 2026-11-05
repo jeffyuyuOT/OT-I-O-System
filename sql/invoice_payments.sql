@@ -100,7 +100,7 @@ begin
   v_paid := coalesce(nullif(v_snap->>'paid', '')::numeric, 0);
   if v_paid > 0 then
     insert into public.invoice_payments (id, invoice_id, pay_date, amount, method, created_by)
-    values (gen_random_uuid()::text, v_id, (v_snap->>'date')::date, least(v_paid, (v_snap->>'total')::numeric), 'Paid Today', v_who);
+    values (gen_random_uuid()::text, v_id, (v_snap->>'date')::date, least(v_paid, (v_snap->>'total')::numeric), coalesce(nullif(v_snap->>'paidMethod', ''), 'Other'), v_who);
   end if;
   perform public.invoice_recalc_paid(v_id);
   return jsonb_build_object('id', v_id, 'invoice_no', v_no);
