@@ -2246,6 +2246,7 @@ async function submitLoadPendingFlow(action, msg){
   const noteInput = document.getElementById('txNote');
   const newNote = noteInput ? noteInput.value.trim() : (order.note || '');
   const { pendingQtyChanges, pendingDeletes } = collectPendingItemChanges(order);
+  if(!(await invGuardOrderEdit(order, { qty: Object.fromEntries(pendingQtyChanges.map(c => [c.item.productId, c.newQty])), del: pendingDeletes.map(it => it.productId) }))) return;
 
   const changes = [];
   if(newDate && newDate !== order.date) changes.push(tf('changeSummaryDate', { old: order.date || '', new: newDate }));
@@ -2381,6 +2382,8 @@ async function submitLoadCompletedFlow(date, msg){
     if(ch.newQty === 0){ pendingQtyChanges.splice(i, 1); pendingDeletes.push(ch.item); continue; }
     if(ch.newQty < 0 && ch.item.qty > 0){ msg.className = 'msg error'; msg.textContent = `⚠ ${tf('errReduceBelowZero', { name: ch.item.name })}`; return; }
   }
+
+  if(!(await invGuardOrderEdit(order, { qty: Object.fromEntries(pendingQtyChanges.map(c => [c.item.productId, c.newQty])), del: pendingDeletes.map(it => it.productId) }))) return;
 
   // 批次追蹤:減少數量的品項如果用了兩個以上的批次,先問要從哪個批次扣(退回)
   if(typeof batchAskReturnPicks === 'function'){

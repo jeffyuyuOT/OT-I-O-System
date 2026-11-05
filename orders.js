@@ -925,6 +925,7 @@ function deleteOrderItem(orderId, productId){
   const item = order.items.find(it => it.productId === productId && !it.deleted);
   if(!item) return;
   showConfirmModal(tf('confirmDeleteOrderItem', {name: item.name, qty: Math.abs(item.qty), unit: item.unit}), async () => {
+    if(!(await invGuardOrderEdit(order, {del: [productId]}))) return;
     const now = new Date().toISOString();
     try{
       const txId = genId();
@@ -1006,6 +1007,8 @@ async function saveOrderItemQty(context, orderId, productId){
     showConfirmModal(t('confirmZeroQtyIsDelete'), () => deleteOrderItem(orderId, productId));
     return;
   }
+
+  if(!(await invGuardOrderEdit(order, {qty: { [productId]: newQty }}))) return;
 
   const oldQty = item.qty;
 
@@ -1536,6 +1539,7 @@ function deletePendingOrderItem(orderId, productId){
   const item = order.items.find(it => it.productId === productId && !it.deleted);
   if(!item) return;
   showConfirmModal(tf('confirmDeleteOrderItem', {name: item.name, qty: item.qty, unit: item.unit}), async () => {
+    if(!(await invGuardOrderEdit(order, {del: [productId]}))) return;
     const now = new Date().toISOString();
     item.deleted = true;
     item.deletedAt = now;
@@ -1662,6 +1666,7 @@ async function savePendingOrderItemQty(context, orderId, productId){
     }
   }
 
+  if(!(await invGuardOrderEdit(order, {qty: { [productId]: newQty }}))) return;
   showConfirmModal(tf('confirmChangeOrderItemQty', { name: item.name, from: item.qty, to: newQty, unit: item.unit }), async () => {
     const oldQty = item.qty;
     item.qty = newQty;

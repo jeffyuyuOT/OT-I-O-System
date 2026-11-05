@@ -533,7 +533,7 @@ function switchSupplyListPane(paneId){
 function switchAccountingSubTab(subtabId){
   const container = document.getElementById('tab-accounting');
   if(!container) return;
-  if(subtabId === 'subtab-acc-invoices' && typeof hideInvoiceEnabled !== 'undefined' && hideInvoiceEnabled) subtabId = 'subtab-price-setting';   // 隱藏 Invoice 功能時改到定價管理
+  if((subtabId === 'subtab-acc-invoices' || subtabId === 'subtab-acc-create-invoice') && typeof hideInvoiceEnabled !== 'undefined' && hideInvoiceEnabled) subtabId = 'subtab-price-setting';   // 隱藏 Invoice 功能時改到定價管理
   document.body.classList.remove('mobile-subtab-menu-active');
   document.body.classList.remove('mobile-subtab-content-active');
   container.querySelectorAll('.subtab-content').forEach(el => el.classList.remove('active-subtab'));
@@ -541,6 +541,7 @@ function switchAccountingSubTab(subtabId){
   if(sel && sel.value !== subtabId) sel.value = subtabId;
   document.getElementById(subtabId).classList.add('active-subtab');
   if(subtabId === 'subtab-acc-invoices' && typeof invOpenListPage === 'function') invOpenListPage();
+  if(subtabId === 'subtab-acc-create-invoice' && typeof icOpenPage === 'function') icOpenPage();
   if(subtabId === 'subtab-price-setting' && typeof psOpenPage === 'function') psOpenPage();
   if(subtabId === 'subtab-log-pricerec' && typeof psOpenRecordList === 'function') psOpenRecordList();
   if(subtabId === 'subtab-acc-settings'){

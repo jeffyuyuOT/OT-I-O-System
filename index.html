@@ -2157,16 +2157,24 @@
   <div id="tab-accounting" class="tab-content">
     <div class="log-select-bar">
       <select id="accountingSubtabSelect" onchange="switchAccountingSubTab(this.value)">
-        <option value="subtab-acc-invoices" data-i18n="subtabAccInvoices">Invoices</option>
+        <option value="subtab-acc-create-invoice" data-i18n="subtabAccCreateInvoice">Create Invoice</option>
+        <option value="subtab-acc-invoices" data-i18n="subtabAccInvoices">Invoice List</option>
         <option value="subtab-price-setting" data-i18n="subtabPriceSetting">定價管理</option>
         <option value="subtab-log-pricerec" data-i18n="subtabLogPriceRecord">定價管理紀錄</option>
         <option value="subtab-acc-settings" data-i18n="subtabAccSettings">會計設定</option>
       </select>
     </div>
 
+    <div id="subtab-acc-create-invoice" class="subtab-content">
+      <div class="section">
+        <div class="toolbar"><div class="section-title" style="margin:0;" data-i18n="subtabAccCreateInvoice">Create Invoice</div></div>
+        <div id="invoiceCreateRoot"></div>
+      </div>
+    </div>
+
     <div id="subtab-acc-invoices" class="subtab-content active-subtab">
       <div class="section">
-        <div class="toolbar"><div class="section-title" style="margin:0;" data-i18n="subtabAccInvoices">Invoices</div></div>
+        <div class="toolbar"><div class="section-title" style="margin:0;" data-i18n="subtabAccInvoices">Invoice List</div></div>
         <div id="invoiceListRoot"></div>
       </div>
     </div>
@@ -3210,6 +3218,7 @@
 <script src="sell-price.js"></script>
 <script src="price-setting.js"></script>
 <script src="invoice.js"></script>
+<script src="invoice-create.js"></script>
 <script src="purchase-costs.js"></script>
 <script src="parties.js"></script>
 <script src="account-requests.js"></script>

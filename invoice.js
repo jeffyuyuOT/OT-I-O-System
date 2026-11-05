@@ -117,8 +117,8 @@ function invMoney2(n){ return (Math.round((Number(n) + Number.EPSILON) * 100) / 
 function invFmtQty(n){ const v = Number(n); return Number.isInteger(v) ? v.toFixed(2) : String(Math.round(v * 1000) / 1000); }
 
 // 從已完成訂單產生 Invoice 內容;回傳 { ok, snap } 或 { ok:false, reason, names }
-function invBuildSnapshot(order){
-  if(!invSettingsComplete()) return { ok: false, reason: 'settings' };
+function invBuildSnapshot(order, opts){
+  if(!(opts && opts.skipSettings) && !invSettingsComplete()) return { ok: false, reason: 'settings' };
   const sp = (typeof shippingParties !== 'undefined') ? shippingParties.find(x => x.id === order.partyId) : null;
   const gstRate = (typeof SP_GST_RATE !== 'undefined') ? SP_GST_RATE : 0.10;
   const noPrice = [];
@@ -307,11 +307,11 @@ function invFitPages(host, mode){
 }
 
 // ---------- 預覽視窗 ----------
-let invModal = null;   // { orderId, snap, created }
+let invModal = null;   // { orderId, snap, created, link }  link = 手動 / 多張訂單合併的 Invoice(見 invoice-create.js)
 function invCloseModal(){ const o = document.getElementById('invoiceOverlay'); if(o) o.remove(); invModal = null; }
-function invShowModal(orderId, snap, created){
+function invShowModal(orderId, snap, created, link){
   invCloseModal();
-  invModal = { orderId, snap, created };
+  invModal = { orderId, snap, created, link: link || null };
   const ov = document.createElement('div');
   ov.id = 'invoiceOverlay'; ov.className = 'modal-overlay'; ov.style.display = 'flex'; ov.style.zIndex = '1150';
   const order = orders.find(o => o.id === orderId);
@@ -414,6 +414,7 @@ async function invOpenView(orderId){
 async function invEnsureCreated(){
   if(!invModal) return null;
   if(invModal.created) return invModal.snap;
+  if(invModal.link) return await invEnsureCreatedMulti();
   const order = orders.find(o => o.id === invModal.orderId);
   if(!order) return null;
   if(order.invoice && order.invoice.lines){ invModal.snap = order.invoice; invModal.created = true; return order.invoice; }
@@ -646,14 +647,28 @@ async function invSyncOrders(orderList){
     const { data, error } = await sb.from('invoices').select('id,snapshot').in('id', list.map(o => o.invoice.id));
     if(error) throw error;
     const snaps = new Map((data || []).map(r => [r.id, r.snapshot]));
+    const done = new Set();
     for(const o of list){
-      const oldS = snaps.get(o.invoice.id); if(!oldS) continue;
-      const r = invBuildSnapshot(o);
+      const invId = o.invoice.id;
+      if(done.has(invId)) continue;      // 多張訂單合併的 Invoice 只處理一次
+      done.add(invId);
+      const oldS = snaps.get(invId); if(!oldS) continue;
+      let r;
+      if(Array.isArray(oldS.orders) && oldS.orders.length > 1){
+        // 多張訂單合併的 Invoice:用所有連結的訂單重新合併
+        const members = oldS.orders.map(x => orders.find(y => y.id === x.id));
+        if(members.some(m => !m || m.deleted)) continue;
+        const parts = members.map(m => invBuildSnapshot(m));
+        if(parts.some(x => !x.ok)) continue;
+        r = { ok: true, snap: icMergeSnaps(parts.map(x => x.snap), members.map(m => m.orderNo || '').filter(Boolean)) };
+      } else {
+        r = invBuildSnapshot(o);
+      }
       if(!r.ok) continue;     // 設定不完整、有品項沒價錢、或整張訂單沒有品項:不動 Invoice
       const newS = Object.assign({}, oldS, { lines: r.snap.lines, beforeTax: r.snap.beforeTax, tax: r.snap.tax, total: r.snap.total, note: r.snap.note, orderNo: r.snap.orderNo });
       const detail = invDiffSnap(oldS, newS);
       if(!detail) continue;
-      const { error: e2 } = await sb.rpc('invoice_sync', { p_invoice_id: o.invoice.id, p_snapshot: newS, p_detail: detail });
+      const { error: e2 } = await sb.rpc('invoice_sync', { p_invoice_id: invId, p_snapshot: newS, p_detail: detail });
       if(e2){ if(!invIsMissingFn(e2)) console.error('更新 Invoice 失敗', e2); continue; }   // 還沒執行 invoice_changes.sql 就不連動
       n++;
       try{ logInventoryAction('order_edit', `Order ${o.orderNo || o.id} - invoice ${oldS.no} updated (${invMoney2(detail.total[0])} → ${invMoney2(detail.total[1])})`, o.orderNo); }catch(e){}
@@ -662,6 +677,34 @@ async function invSyncOrders(orderList){
   finally{ invSyncBusy = false; }
   if(n){ invList = []; try{ invRerenderLists(); }catch(e){} }
   return n;
+}
+// 訂單編輯前的檢查:改完之後 Invoice 新總額如果會低於已收款,不給改(請會計用 Credit Note 處理)。
+// mods = { qty: { 商品id: 新數量 }, del: [商品id] };回傳 true = 可以繼續。沒有 Invoice、已簽收、或還沒執行 SQL 都放行。
+async function invGuardOrderEdit(order, mods){
+  try{
+    if(!order || !order.invoice || !order.invoice.id || order.invoice.lines || order.signedAt) return true;
+    if(typeof invSettings === 'undefined') return true;
+    const before = invBuildSnapshot(order, { skipSettings: true });
+    if(!before.ok) return true;
+    const clone = Object.assign({}, order, { items: (order.items || []).map(it => Object.assign({}, it)) });
+    const m = mods || {};
+    clone.items.forEach(it => {
+      if(m.qty && Object.prototype.hasOwnProperty.call(m.qty, it.productId)) it.qty = Number(m.qty[it.productId]);
+      if(m.del && m.del.indexOf(it.productId) >= 0) it.deleted = true;
+    });
+    const after = invBuildSnapshot(clone, { skipSettings: true });
+    const newTotal = after.ok ? Number(after.snap.total) : (after.reason === 'empty' ? 0 : null);
+    if(newTotal === null) return true;
+    const delta = Math.round((newTotal - Number(before.snap.total)) * 100) / 100;
+    if(delta >= 0) return true;     // 金額只會增加或不變,不可能低於已收款
+    const { data, error } = await sb.rpc('invoice_edit_guard', { p_invoice_id: order.invoice.id, p_delta: delta });
+    if(error){ if(!invIsMissingFn(error)) console.error('Invoice 檢查失敗', error); return true; }
+    if(data === false){
+      showInfoModal(tf('invUnderpaidBlock', { no: order.invoice.no || '' }));
+      return false;
+    }
+  }catch(e){ console.error('Invoice 檢查失敗', e); }
+  return true;
 }
 // 訂單存檔後呼叫(db.js upsertOrders):不擋住存檔,背景同步
 function invAfterOrdersSaved(orderList){
@@ -730,6 +773,7 @@ function applyInvoiceFeatureVisibility(){
     }
   }
   if(off){ try{ invClosePartyRecords(); invClosePayments(); invCloseDetails(); invCloseModal(); }catch(e){} }
+  try{ icApplyVisibility(); }catch(e){}
   try{ if(typeof renderOrders === 'function') renderOrders(); }catch(e){}
 }
 async function invOpenListPage(){
