@@ -1,8 +1,8 @@
 // ============================================================
 // Payment & Collection Schedule(會計 → 付款與收款排程)
 //   收款(Collection)= 未收完的 Invoice,到期日用 Invoice 的到期日(invRowInfo.due,Credit Note 已扣除);
-//   付款(Payment)  = 未付完的進貨單(purchase.dueDate「付款到期日」)/ 進貨相關支出(沿用該進貨單的到期日)。
-//                     沒填到期日的不做到期判定;獨立其他支出目前沒有到期日欄位,一律歸在「未設定到期日」。
+//   付款(Payment)  = 未付完的進貨單 / 進貨相關支出(沿用該進貨單);到期日 = paDue(p):填了「付款到期日」用填的,
+//                     否則 發票日期 + 進貨方 Payment terms;湊不齊就不做到期判定;獨立其他支出目前沒有到期日欄位,一律歸在「未設定到期日」。
 //   「N 天內到期」包含已逾期的。畫面:摘要卡 + 月曆(每天顯示應付/應收合計)+ 單據清單。
 //   不需要新 SQL。
 // ============================================================
@@ -51,11 +51,11 @@ function schBuild(){
   });
   // 進貨單有填「付款到期日」才做到期判定;沒填的放在「未設定到期日」(不算進 N 天內,也不算逾期)。進貨相關支出沿用該進貨單的到期日。
   (purchases || []).filter(p => paCounted(p)).forEach(p => {
-    const i = paInfo(p), due = p.dueDate || '';
-    if(i.balance > 0.004) items.push({ dir: 'pay', due, date: p.date || '', amt: i.balance, who: p.partyName || '', ref: p.invoiceNo || '', open: `paOpenDetails('${schEsc(p.id)}')` });
+    const i = paInfo(p), dd = paDue(p), due = dd.date, est = dd.src === 'terms', dt = p.invoiceDate || p.date || '';
+    if(i.balance > 0.004) items.push({ dir: 'pay', due, est, date: dt, amt: i.balance, who: p.partyName || '', ref: p.invoiceNo || '', open: `paOpenDetails('${schEsc(p.id)}')` });
     paExpList(p).forEach(x => {
       const ei = paExpInfo(p, x);
-      if(ei.balance > 0.004) items.push({ dir: 'pay', due, date: p.date || '', amt: ei.balance, who: x.e.payee || p.partyName || '', ref: x.e.name || '', open: `oeOpenDetails('rel','${schEsc(p.id)}','${schEsc(x.e.id || '')}','${schEsc(x.e.name || '')}')` });
+      if(ei.balance > 0.004) items.push({ dir: 'pay', due, est, date: dt, amt: ei.balance, who: x.e.payee || p.partyName || '', ref: x.e.name || '', open: `oeOpenDetails('rel','${schEsc(p.id)}','${schEsc(x.e.id || '')}','${schEsc(x.e.name || '')}')` });
     });
   });
   (oeRows || []).forEach(e => {
@@ -125,7 +125,7 @@ function schRender(){
     const days = Math.round((new Date(x.due + 'T00:00:00Z') - new Date(today + 'T00:00:00Z')) / 86400000);
     const dueTxt = x.overdue ? `<span style="color:#b42318;font-weight:700;">${E(tf('schOverdueDays', { n: -days }))}</span>` : (days === 0 ? E(t('schDueToday')) : E(tf('schInDays', { n: days })));
     return `<tr><td><span style="display:inline-block;padding:1px 8px;border-radius:10px;font-size:11px;font-weight:700;background:${bg};color:${c};">${E(isPay ? t('schPayment') : t('schCollection'))}</span></td>
-      <td>${E(x.due)}<div style="font-size:11px;">${dueTxt}</div></td>
+      <td>${E(x.due)}${x.est ? ` <span title="${E(t('schEstTip'))}" style="color:var(--ink-soft);font-size:11px;">~</span>` : ''}<div style="font-size:11px;">${dueTxt}</div></td>
       <td>${E(x.who)}</td><td>${E(x.ref)}</td><td>${E(x.date)}</td>
       <td class="num" style="color:${c};font-weight:700;">${isPay ? '−' : '+'}${schM(x.amt)}</td>
       <td><span class="batch-info-icon" onclick="${x.open}" title="${E(t('invBtnDetails'))}">ⓘ</span></td></tr>`;

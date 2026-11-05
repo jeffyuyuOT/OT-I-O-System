@@ -478,7 +478,7 @@ function renderSupplierManagementTable(){
   }
   const sorted = purchaseSuppliers.slice().sort((a, b) => a.name.localeCompare(b.name));
   container.innerHTML = `<table class="stock-table">
-    <thead><tr><th>${t('colCode')}</th><th>${t('fieldSupplierName')}</th><th>${t('fieldSupplierContact')}</th><th>${t('fieldSupplierPhone')}</th><th>${t('fieldSupplierAddress')}</th><th>${t('fieldSupplierNote')}</th><th></th></tr></thead>
+    <thead><tr><th>${t('colCode')}</th><th>${t('fieldSupplierName')}</th><th>${t('fieldSupplierContact')}</th><th>${t('fieldSupplierPhone')}</th><th>${t('fieldSupplierAddress')}</th><th>${t('fieldSupplierTerms')}</th><th>${t('fieldSupplierNote')}</th><th></th></tr></thead>
     <tbody>
       ${sorted.map(s => `
         <tr>
@@ -487,6 +487,7 @@ function renderSupplierManagementTable(){
           <td>${escapeHtmlForPrint(s.contact || '')}</td>
           <td>${escapeHtmlForPrint(s.phone || '')}</td>
           <td>${escapeHtmlForPrint(s.address || '')}</td>
+          <td>${(s.paymentTerms === null || s.paymentTerms === undefined) ? '' : escapeHtmlForPrint(tf('supplierTermsDays', { n: s.paymentTerms }))}</td>
           <td>${escapeHtmlForPrint(s.note || '')}</td>
           <td style="white-space:nowrap;text-align:right;">
             <span class="del-link" onclick="supplierGoPurchaseHistory('${s.id}')">${t('btnSupplierPurchaseHistory')}</span>
@@ -556,6 +557,7 @@ function openSupplierEditModal(supplierId, prefillName){
   document.getElementById('supplierPhoneInput').value = s ? s.phone || '' : '';
   document.getElementById('supplierAddressInput').value = s ? s.address || '' : '';
   document.getElementById('supplierNoteInput').value = s ? s.note || '' : '';
+  document.getElementById('supplierTermsInput').value = (s && s.paymentTerms !== null && s.paymentTerms !== undefined) ? s.paymentTerms : '';
   document.getElementById('supplierEditModalMsg').textContent = '';
   document.getElementById('supplierDeleteBtn').style.display = s ? '' : 'none';
   document.getElementById('supplierEditModalOverlay').style.display = 'flex';
@@ -571,6 +573,9 @@ async function saveSupplierEdit(){
   const phone = document.getElementById('supplierPhoneInput').value.trim();
   const address = document.getElementById('supplierAddressInput').value.trim();
   const note = document.getElementById('supplierNoteInput').value.trim();
+  const termsRaw = document.getElementById('supplierTermsInput').value.trim();
+  const terms = termsRaw === '' ? null : Math.round(Number(termsRaw));
+  if(termsRaw !== '' && (!isFinite(terms) || terms < 0 || terms > 730)){ msgEl.className = 'msg error'; msgEl.textContent = t('errSupplierTerms'); return; }
   if(!name){ msgEl.className = 'msg error'; msgEl.textContent = t('errEnterSupplierName'); return; }
   // 名稱不能跟其他供應商重複(資料庫本身也有唯一索引擋著,這裡先在前端擋一次,錯誤訊息比較
   // 好懂,不用等資料庫回傳一串技術性的錯誤)——編輯自己的話,名稱沒變不算重複。
@@ -579,6 +584,8 @@ async function saveSupplierEdit(){
   const s = editingSupplierId ? purchaseSuppliers.find(x => x.id === editingSupplierId) : { id: genId(), code: nextEntityCode('S', purchaseSuppliers) };
   const oldName = s.name;
   s.name = name; s.contact = contact; s.phone = phone; s.address = address; s.note = note;
+  s.termsCleared = (terms === null && s.paymentTerms !== null && s.paymentTerms !== undefined);
+  s.paymentTerms = terms;
   try{
     await upsertPurchaseSupplier(s);
     if(!editingSupplierId) purchaseSuppliers.push(s);

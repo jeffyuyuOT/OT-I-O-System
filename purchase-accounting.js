@@ -68,6 +68,20 @@ function paTotals(p){
   return { mode, ex: paR2(ex), gst: paR2(gst), total: paR2(total), unset };
 }
 function paPaidOf(purchaseId){ return paR2(paRows.filter(r => r.purchase_id === purchaseId).reduce((s, r) => s + Number(r.amount), 0)); }
+// 付款到期日:進貨單有填就用填的;沒填 → 發票日期 + 進貨方的 Payment terms;兩者都湊不齊 → 沒有到期日(不做到期判定)。
+function paSupplierOf(p){
+  const list = (typeof purchaseSuppliers !== 'undefined') ? purchaseSuppliers : [];
+  return (p.supplierId && list.find(x => x.id === p.supplierId)) || list.find(x => x.name === (p.partyName || p.partyId)) || null;
+}
+function paDue(p){
+  if(p.dueDate) return { date: p.dueDate, src: 'manual' };
+  const s = paSupplierOf(p);
+  if(p.invoiceDate && s && s.paymentTerms !== null && s.paymentTerms !== undefined){
+    const d = new Date(p.invoiceDate + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() + Number(s.paymentTerms));
+    return { date: d.toISOString().slice(0, 10), src: 'terms' };
+  }
+  return { date: '', src: '' };
+}
 function paInfo(p){
   const tt = paTotals(p), paid = paPaidOf(p.id);
   const balance = paR2(tt.total - paid);
@@ -123,6 +137,7 @@ function paFormReset(){
   const c = document.getElementById('purchaseAccToggle'); if(c) c.checked = true;
   const g = document.getElementById('purchaseGstMode'); if(g) g.value = 'ex';
   const d = document.getElementById('purchaseDueDate'); if(d) d.value = '';
+  const iv = document.getElementById('purchaseInvDate'); if(iv) iv.value = '';
 }
 // 是否入會計由商品設定決定(商品主檔「不入公司帳」),進貨單不再手動勾選;全部是不入帳商品的單會自動不出現在 Purchase List
 function paFormInAccounting(){ return true; }
@@ -168,6 +183,7 @@ function paApplyToPurchase(purchase, srcItems){
   purchase.inAccounting = paFormInAccounting();
   purchase.gstMode = paFormGstMode();
   { const d = document.getElementById('purchaseDueDate'); if(d && d.value) purchase.dueDate = d.value; else delete purchase.dueDate; }
+  { const iv = document.getElementById('purchaseInvDate'); if(iv && iv.value) purchase.invoiceDate = iv.value; else delete purchase.invoiceDate; }
   (purchase.items || []).forEach((it, i) => {
     const s = srcItems[i];
     if(paProductOffBooks(it.productId) || (s && paProductOffBooks(s.productId))){ it.noAcct = true; delete it.gst; return; }
@@ -185,6 +201,7 @@ function paEditLoad(p){
   const c = document.getElementById('editPurchaseAccToggle'); if(c) c.checked = paCounted(p);
   const g = document.getElementById('editPurchaseGstMode'); if(g) g.value = p.gstMode === 'inc' ? 'inc' : 'ex';
   const dd = document.getElementById('editPurchaseDueDate'); if(dd) dd.value = p.dueDate || '';
+  const iv = document.getElementById('editPurchaseInvDate'); if(iv) iv.value = p.invoiceDate || '';
   // 舊進貨單的品項沒有 GST 資料:商品資料有設定的自動帶入
   paAutoFillGst(editPurchaseWorkingItems);
 }
@@ -210,6 +227,8 @@ function paEditApply(p){
   p.gstMode = g && g.value === 'inc' ? 'inc' : 'ex';
   const dd = document.getElementById('editPurchaseDueDate');
   if(dd){ if(dd.value) p.dueDate = dd.value; else delete p.dueDate; }
+  const iv = document.getElementById('editPurchaseInvDate');
+  if(iv){ if(iv.value) p.invoiceDate = iv.value; else delete p.invoiceDate; }
 }
 
 // ------------------------------------------------------------

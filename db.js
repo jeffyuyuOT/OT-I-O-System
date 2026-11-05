@@ -422,10 +422,13 @@ function supplierToRow(s){
   if(s.contact) row.contact = s.contact;
   // 編號(purchase_suppliers.code)同樣需要先執行 sql/purchase_suppliers_contact_column.sql;
   if(s.code) row.code = s.code;
+  // 付款天數(purchase_suppliers.payment_terms,需先執行 sql/purchase_suppliers_payment_terms.sql);沒設定時不帶這個欄位
+  if(s.paymentTerms !== undefined && s.paymentTerms !== null && s.paymentTerms !== '') row.payment_terms = Number(s.paymentTerms);
+  else if(s.termsCleared) row.payment_terms = null;
   return row;
 }
 function rowToSupplier(row){
-  return { id: row.id, name: row.name, code: row.code || '', contact: row.contact || '', phone: row.phone || '', address: row.address || '', note: row.note || '' };
+  return { id: row.id, name: row.name, code: row.code || '', contact: row.contact || '', phone: row.phone || '', address: row.address || '', note: row.note || '', paymentTerms: (row.payment_terms === null || row.payment_terms === undefined) ? null : Number(row.payment_terms) };
 }
 async function loadPurchaseSuppliers(){
   try{
@@ -443,6 +446,12 @@ async function upsertPurchaseSupplier(s){
     // 還沒執行 sql/purchase_suppliers_contact_column.sql(缺 contact / code 欄位):先不帶這兩個欄位存,其他資料不受影響
     const row = supplierToRow(s); delete row.contact; delete row.code;
     console.warn('purchase_suppliers 缺少 contact / code 欄位,請執行 sql/purchase_suppliers_contact_column.sql');
+    ({ error } = await sb.from('purchase_suppliers').upsert(row));
+  }
+  if(error && /column/i.test(error.message || '') && /payment_terms/i.test(error.message || '')){
+    // 還沒執行 sql/purchase_suppliers_payment_terms.sql:先不帶付款天數存,其他資料不受影響
+    const row = supplierToRow(s); delete row.payment_terms;
+    console.warn('purchase_suppliers 缺少 payment_terms 欄位,請執行 sql/purchase_suppliers_payment_terms.sql');
     ({ error } = await sb.from('purchase_suppliers').upsert(row));
   }
   if(error){ console.error('儲存進貨方失敗', error); throw error; }
