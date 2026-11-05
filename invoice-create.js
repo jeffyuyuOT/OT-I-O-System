@@ -40,7 +40,7 @@ function icRender(){
   const tab = (m, label, on) => `<button class="btn ${on ? '' : 'ghost'}" onclick="icSetMode('${m}')">${label}</button>`;
   const isCnMode = icIsCn(), md = icState.mode;
   // 第一層:先選 Invoice 或 Credit Note;第二層:新增 / 從訂單(或 Invoice)產生
-  const top = `<select onchange="icSetMode(this.value)" style="min-width:220px;"><option value="${isCnMode ? 'new' : md}" ${!isCnMode ? 'selected' : ''}>${t('icDocInvoice')}</option><option value="${isCnMode ? md : 'cnNew'}" ${isCnMode ? 'selected' : ''}>${t('icDocCn')}</option></select>`;
+  const top = `<select onchange="icSetMode(this.value)" style="min-width:260px;font-size:15px;padding:6px 8px;"><option value="${isCnMode ? 'new' : md}" ${!isCnMode ? 'selected' : ''}>${t('icDocInvoice')}</option><option value="${isCnMode ? md : 'cnNew'}" ${isCnMode ? 'selected' : ''}>${t('icDocCn')}</option></select>`;
   const sub = isCnMode
     ? tab('cnNew', t('icSubNew'), md === 'cnNew') + tab('cnInvoice', t('icModeCnInvoice'), md === 'cnInvoice')
     : tab('new', t('icSubNew'), md === 'new') + tab('order', t('icModeOrder'), md === 'order');
@@ -641,8 +641,7 @@ function icCnRender(){
       <div><div style="font-size:11px;color:var(--ink-soft);">${t('icColReturnStatus')}</div><select onchange="icCnF.st=this.value;icCnRender()">${stOpt('', t('invFltAll'))}${stOpt('pending', t('icRs_pending'))}${stOpt('partial', t('icRs_partial'))}${stOpt('done', t('icRs_done'))}${stOpt('none', t('icRs_none'))}</select></div>
       <div style="flex:1;min-width:160px;"><div style="font-size:11px;color:var(--ink-soft);">${t('invFltSearch')}</div><input type="text" value="${invEsc(f.q)}" placeholder="${invEsc(t('icCnSearchPh'))}" oninput="icCnF.q=this.value;icCnRenderKeepFocus(this)" style="width:100%;box-sizing:border-box;" /></div>
     </div>
-    ${list.length ? `<div style="overflow-x:auto;"><table class="stock-table"><thead><tr><th>Credit Note No</th><th>${t('icColDate')}</th><th>${t('invColCustomer')}</th><th>Invoice</th><th class="num">${t('spTotalAmt')}</th><th class="num">${t('invCreditAvail')}</th><th>${t('icColReturnStatus')}</th><th></th></tr></thead><tbody>${body}</tbody>
-      <tfoot><tr style="font-weight:700;"><td colspan="4" style="text-align:right;">${t('invListTotals')} (${list.length})</td><td class="num">(${invMoney2(sum)})</td><td class="num">${invMoney2(availSum)}</td><td colspan="2"></td></tr></tfoot></table></div>` : `<div class="empty-note">${t('icNoCn')}</div>`}`;
+    ${list.length ? `<div style="overflow-x:auto;"><table class="stock-table"><thead><tr><th>Credit Note No</th><th>${t('icColDate')}</th><th>${t('invColCustomer')}</th><th>Invoice</th><th class="num">${t('spTotalAmt')}</th><th class="num">${t('invCreditAvail')}</th><th>${t('icColReturnStatus')}</th><th></th></tr></thead><tbody>${body}<tr style="font-weight:700;border-top:2px solid var(--line, #ccc);"><td colspan="4" style="text-align:right;">${t('invListTotals')} (${list.length})</td><td class="num">(${invMoney2(sum)})</td><td class="num">${invMoney2(availSum)}</td><td></td><td></td></tr></tbody></table></div>` : `<div class="empty-note">${t('icNoCn')}</div>`}`;
 }
 function icCnRenderKeepFocus(inp){
   const pos = inp.selectionStart; icCnRender();
