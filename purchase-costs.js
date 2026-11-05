@@ -224,6 +224,8 @@ function pcFillFromLast(e, supplier, excludePurchaseId, opts){
   if(!e.name || !e.name.trim() || (e.amount !== '' && e.amount !== undefined && e.amount !== null)) return false;
   const last = pcLastExpenseFor(supplier, e.name, excludePurchaseId);
   if(!last || (opts.strict && !last.sameSupplier)) return false;
+  // 一般(非海外)進貨單:預設維持系統幣種,不要因為上次同名項目用外幣就把幣種跟著改掉
+  if(!opts.overseas && last.exp.currency && last.exp.currency !== (e.currency || pcBase())) return false;
   e.amount = Number(last.exp.amount);
   e.currency = last.exp.currency || pcBase();
   if(opts.overseas && last.sameSupplier){ e.estimated = true; e.estimatedFrom = last.date; }
