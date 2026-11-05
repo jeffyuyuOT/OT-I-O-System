@@ -74,6 +74,34 @@ function paInfo(p){
   const status = paid <= 0.004 ? 'unpaid' : (balance > 0.004 ? 'partial' : (balance < -0.004 ? 'overpaid' : 'paid'));
   return Object.assign({ paid, balance, status }, tt);
 }
+// ---- 跟進貨單相關的其他支出(運費、關稅…):各自一列,各自記付款(purchase_payments.purchase_id = 進貨單ID#支出ID) ----
+function paExpKey(p, e, idx){ return p.id + '#' + (e.id || ('i' + idx)); }
+function paExpList(p){
+  if(!paOn() || !p || !p.costs) return [];
+  return (p.costs.expenses || []).map((e, idx) => ({ e, key: paExpKey(p, e, idx) })).filter(x => Number(x.e.aud) > 0);
+}
+function paExpInfo(p, x){
+  const e = x.e, mode = p.gstMode === 'inc' ? 'inc' : 'ex', a = Number(e.aud) || 0;
+  const gstBase = e.gst === true ? a : 0;
+  let gst, total, ex;
+  if(mode === 'ex'){ gst = gstBase * PA_GST_RATE; ex = a; total = a + gst; }
+  else { gst = gstBase * PA_GST_RATE / (1 + PA_GST_RATE); total = a; ex = a - gst; }
+  const paid = paPaidOf(x.key), balance = paR2(total - paid);
+  const status = paid <= 0.004 ? 'unpaid' : (balance > 0.004 ? 'partial' : (balance < -0.004 ? 'overpaid' : 'paid'));
+  return { paid, balance, status, ex: paR2(ex), gst: paR2(gst), total: paR2(total), unset: (e.gst !== true && e.gst !== false) ? 1 : 0 };
+}
+// 外幣支出一律用澳幣(系統幣種)顯示;旁邊的 ⓘ 點開可看原幣金額與當時的匯率
+function paExpFxIcon(p, e){
+  const base = (p.costs && p.costs.baseCurrency) || 'AUD';
+  if(!e.currency || e.currency === base || !e.rate) return '';
+  return ` <span class="batch-info-icon" style="cursor:pointer;" title="${paEsc(t('paFxTitle'))}" onclick="paShowFx('${paEsc(p.id)}','${paEsc(e.id || '')}','${paEsc(e.name || '')}')">ⓘ</span>`;
+}
+function paShowFx(pid, eid, name){
+  const p = purchases.find(x => x.id === pid); if(!p || !p.costs) return;
+  const e = (p.costs.expenses || []).find(x => (eid && x.id === eid) || (!eid && x.name === name)); if(!e) return;
+  const base = p.costs.baseCurrency || 'AUD';
+  showInfoModal(tf('paFxDetail', { name: e.name || '', amt: paM2(e.amount), cur: e.currency, rate: Number(e.rate).toFixed(6).replace(/0+$/, '').replace(/\.$/, ''), aud: paM2(e.aud), base, date: paDmy(p.date) }));
+}
 function paStatusBadge(st){
   const col = { paid: ['#e7f6ec', '#1d7a3c'], partial: ['#fff4dc', '#9a6a00'], unpaid: ['#eef0f3', '#555'], overpaid: ['#efe6fb', '#6b3fa0'] }[st] || ['#eee', '#555'];
   return `<span style="display:inline-block;padding:1px 8px;border-radius:10px;font-size:11px;font-weight:700;background:${col[0]};color:${col[1]};white-space:nowrap;">${paEsc(t('invSt_' + st))}</span>`;
@@ -207,8 +235,8 @@ function paFiltered(){
   return purchases.filter(p => paCounted(p)
     && (!f.from || (p.date || '') >= f.from) && (!f.to || (p.date || '') <= f.to)
     && (!f.sup || (p.partyName || '') === f.sup)
-    && (!f.status || paInfo(p).status === f.status)
-    && (!q || [p.partyName, p.invoiceNo, p.note].join(' ').toLowerCase().includes(q)))
+    && (!f.status || paInfo(p).status === f.status || paExpList(p).some(x => paExpInfo(p, x).status === f.status))
+    && (!q || [p.partyName, p.invoiceNo, p.note].concat(paExpList(p).map(x => (x.e.name || '') + ' ' + (x.e.payee || ''))).join(' ').toLowerCase().includes(q)))
     .sort((a, b) => (b.date || '').localeCompare(a.date || '') || (b.createdAt || '').localeCompare(a.createdAt || ''));
 }
 function paRenderList(){
@@ -222,8 +250,11 @@ function paRenderList(){
   const sum = { t: 0, p: 0, b: 0 };
   const rows = list.map(p => {
     const i = paInfo(p);
-    sum.t += i.total; sum.p += i.paid; sum.b += i.balance;
-    return `<tr>
+    const showMain = !f.status || i.status === f.status;
+    let html = '';
+    if(showMain){
+      sum.t += i.total; sum.p += i.paid; sum.b += i.balance;
+      html += `<tr>
       <td style="white-space:nowrap;">${paEsc(paDmy(p.date))}</td>
       <td>${paEsc(p.partyName || '')}</td>
       <td>${paEsc(p.invoiceNo || '')}</td>
@@ -232,6 +263,22 @@ function paRenderList(){
       <td style="white-space:nowrap;">${paStatusBadge(i.status)}</td>
       <td style="white-space:nowrap;"><span class="del-link" onclick="paOpenPayments('${paEsc(p.id)}')">${t('invBtnPayments')}</span> <span class="batch-info-icon" style="margin-left:6px;" title="${paEsc(t('invBtnDetails'))}" onclick="paOpenDetails('${paEsc(p.id)}')">ⓘ</span></td>
     </tr>`;
+    }
+    paExpList(p).forEach(x => {
+      const ei = paExpInfo(p, x);
+      if(f.status && ei.status !== f.status) return;
+      sum.t += ei.total; sum.p += ei.paid; sum.b += ei.balance;
+      html += `<tr style="background:var(--bg-soft,#f7f7f2);">
+      <td style="white-space:nowrap;color:var(--ink-soft);">${paEsc(paDmy(p.date))}</td>
+      <td style="padding-left:16px;">↳ ${paEsc(x.e.payee || '–')}</td>
+      <td>${paEsc(x.e.name || '')} <span style="font-size:11px;color:var(--ink-soft);">(${paEsc(t('pcExpBadge'))}${p.invoiceNo ? ' · ' + paEsc(p.invoiceNo) : ''})</span>${x.e.estimated ? ' <span style="color:#b45309;font-size:11px;">⚠</span>' : ''}</td>
+      <td class="num"><b>${paM2(ei.total)}</b>${paExpFxIcon(p, x.e)}</td>
+      <td class="num">${paM2(ei.paid)}</td><td class="num"><b>${paM2(ei.balance)}</b></td>
+      <td style="white-space:nowrap;">${paStatusBadge(ei.status)}</td>
+      <td style="white-space:nowrap;"><span class="del-link" onclick="paOpenPayments('${paEsc(p.id)}','${paEsc(x.e.id || '')}','${paEsc(x.e.name || '')}')">${t('invBtnPayments')}</span></td>
+    </tr>`;
+    });
+    return html;
   }).join('');
   const sel = (id, val, opts) => `<select id="${id}" onchange="paOnFilter()">${opts.map(o => `<option value="${paEsc(o[0])}" ${val === o[0] ? 'selected' : ''}>${paEsc(o[1])}</option>`).join('')}</select>`;
   const card = (label, val) => `<div style="flex:1 1 130px;min-width:120px;border:1px solid var(--line);border-radius:8px;padding:8px 10px;"><div style="font-size:11px;color:var(--ink-soft);">${label}</div><div style="font-size:17px;font-weight:700;">${val}</div></div>`;
@@ -328,6 +375,7 @@ function paOpenDetails(id){
       ${row(t('invColPaid'), paM2(i.paid))}
       ${row(t('paColUnpaid'), '<b>' + paM2(i.balance) + '</b>')}
       ${exp > 0 ? row(t('paOtherExpenses'), paM2(exp) + ` <span style="font-size:11px;color:var(--ink-soft);">${paEsc(t('paOtherExpensesNote'))}</span>`) : ''}
+      ${paExpList(p).map(x => { const ei = paExpInfo(p, x); return row('↳ ' + paEsc(x.e.name || ''), `${paM2(ei.total)}${paExpFxIcon(p, x.e)} · ${paEsc(x.e.payee || '–')} · ${x.e.gst === true ? 'GST' : (x.e.gst === false ? paEsc(t('paGstNone')) : '<span style="color:#b26a00;">' + paEsc(t('paGstUnset')) + '</span>')} · ${paStatusBadge(ei.status)}`); }).join('')}
       ${p.note ? row(t('colNote'), paEsc(p.note)) : ''}
     </tbody></table>
     ${i.unset > 0 ? `<div style="margin-top:8px;font-size:12px;color:#b26a00;">${paEsc(tf('paUnsetWarn', { n: i.unset }))}</div>` : ''}
@@ -343,7 +391,7 @@ function paOpenDetails(id){
 }
 function paRemoveFromAccounting(id){
   const p = purchases.find(x => x.id === id); if(!p) return;
-  const hasPay = paRows.some(r => r.purchase_id === id);
+  const hasPay = paRows.some(r => r.purchase_id === id || String(r.purchase_id).startsWith(id + '#'));
   showConfirmModal(t(hasPay ? 'paConfirmRemoveHasPay' : 'paConfirmRemove'), async () => {
     try{
       p.inAccounting = false;
@@ -355,16 +403,17 @@ function paRemoveFromAccounting(id){
 }
 
 // ---- 付款記錄 ----
-function paOpenPayments(id){
-  paPay = { id, editingId: null };
+function paOpenPayments(id, expId, expName){
+  paPay = { id, editingId: null, expId: expId || '', expName: expName || '' };
   paRenderPayments();
 }
 function paClosePayments(){ paCloseOverlay('paPaymentsOverlay'); paPay = null; paRenderList(); }
 function paRenderPayments(){
   if(!paPay) return;
   const p = purchases.find(x => x.id === paPay.id); if(!p){ paClosePayments(); return; }
-  const i = paInfo(p);
-  const pays = paRows.filter(r => r.purchase_id === p.id);
+  const tg = paPayTarget(p);
+  const i = tg.info;
+  const pays = paRows.filter(r => r.purchase_id === tg.key);
   const ed = pays.find(x => x.id === paPay.editingId) || null;
   const dateV = ed ? ed.pay_date : paToday();
   const amtV = ed ? paM2(ed.amount) : (i.balance > 0 ? paM2(i.balance) : '');
@@ -385,7 +434,8 @@ function paRenderPayments(){
     </tr>`).join('');
   ov.innerHTML = `<div class="modal-box" style="max-width:min(640px,96vw);max-height:92vh;overflow:auto;">
     <div class="section-title" style="margin-top:0;">${t('paPayTitle')}</div>
-    <div style="font-size:12.5px;margin:0 0 8px;">${paEsc(p.partyName || '')}${p.invoiceNo ? ' · ' + paEsc(p.invoiceNo) : ''} · ${paStatusBadge(i.status)}</div>
+    <div style="font-size:12.5px;margin:0 0 8px;">${tg.exp ? paEsc((tg.exp.e.name || '') + ' · ' + (tg.exp.e.payee || '–') + ' · ') : ''}${paEsc(p.partyName || '')}${p.invoiceNo ? ' · ' + paEsc(p.invoiceNo) : ''} · ${paStatusBadge(i.status)}${tg.exp ? paExpFxIcon(p, tg.exp.e) : ''}</div>
+    ${tg.exp && tg.exp.e.estimated ? `<div style="font-size:12px;color:#b45309;background:var(--warn-bg,#fff4dc);padding:6px 10px;border-radius:6px;margin-bottom:8px;">⚠ ${paEsc(t('paExpEstimatedWarn'))}</div>` : ''}
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;">${box(t('paColAmount'), paM2(i.total))}${box(t('invColPaid'), paM2(i.paid))}${box(t('paColUnpaid'), paM2(i.balance))}</div>
     ${pays.length === 0 ? `<div class="empty-note" style="margin:6px 0;">${t('invPayEmpty')}</div>` : `<div style="overflow-x:auto;"><table class="stock-table"><thead><tr><th>${t('invPayDate')}</th><th class="num">${t('invPayAmount')}</th><th>${t('invPayMethod')}</th><th>${t('colNote')}</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`}
     <div style="margin-top:12px;padding-top:10px;border-top:1px solid var(--line);">
@@ -405,6 +455,13 @@ function paRenderPayments(){
     </div>
   </div>`;
 }
+function paPayTarget(p){
+  if(paPay && (paPay.expId || paPay.expName)){
+    const x = paExpList(p).find(y => (paPay.expId && y.e.id === paPay.expId) || (!paPay.expId && y.e.name === paPay.expName));
+    if(x) return { key: x.key, exp: x, info: paExpInfo(p, x) };
+  }
+  return { key: p.id, exp: null, info: paInfo(p) };
+}
 function paPayEdit(id){ if(paPay){ paPay.editingId = id; paRenderPayments(); } }
 async function paPaySave(){
   if(!paPay) return;
@@ -417,12 +474,18 @@ async function paPaySave(){
   const fail = k => { msg.className = 'msg error'; msg.textContent = '⚠ ' + t(k); };
   if(!date){ fail('invPayBadDate'); return; }
   if(!Number.isFinite(amt) || amt === 0){ fail('invPayBadAmount'); return; }
-  const total = paTotals(p).total;
-  const other = paR2(paRows.filter(r => r.purchase_id === p.id && r.id !== paPay.editingId).reduce((s, r) => s + Number(r.amount), 0));
+  const tg = paPayTarget(p);
+  const total = tg.info.total;
+  const other = paR2(paRows.filter(r => r.purchase_id === tg.key && r.id !== paPay.editingId).reduce((s, r) => s + Number(r.amount), 0));
   if(other + amt > total + 0.004){ fail('paPayErrOver'); return; }
+  if(tg.exp && tg.exp.e.estimated && !paPay.estOk){
+    const ok = await new Promise(resolve => showConfirmModal(t('paExpEstimatedConfirm'), () => resolve(true), () => resolve(false)));
+    if(!ok) return;
+    paPay.estOk = true;
+  }
   msg.className = 'msg'; msg.textContent = t('savingMsg');
   try{
-    const { error } = await sb.rpc('purchase_payment_save', { p_purchase_id: p.id, p_payment_id: paPay.editingId || null, p_date: date, p_amount: amt, p_method: method, p_note: note });
+    const { error } = await sb.rpc('purchase_payment_save', { p_purchase_id: tg.key, p_payment_id: paPay.editingId || null, p_date: date, p_amount: amt, p_method: method, p_note: note });
     if(error) throw error;
     await paLoadPayments();
     paPay.editingId = null;

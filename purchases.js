@@ -220,7 +220,7 @@ function buildPurchaseWorkbook(p){
   // 跟此進貨單相關的其他支出(運費、報關等,通常付給其他廠商):同樣成列,標示 Related expense
   const relItems = (p.costs && p.costs.expenses) || [];
   const relBase = (p.costs && p.costs.baseCurrency) || 'AUD';
-  relItems.forEach(e => pushExtraRow(`${e.name} (Related expense)`, '', '', Number(e.aud) || 0, e.currency !== relBase ? e.amount : undefined, e.currency !== relBase ? e.currency : '', e.currency !== relBase ? e.rate : ''));
+  relItems.forEach(e => pushExtraRow(`${e.name} (Related expense${e.payee ? " - " + e.payee : ""})`, '', '', Number(e.aud) || 0, e.currency !== relBase ? e.amount : undefined, e.currency !== relBase ? e.currency : '', e.currency !== relBase ? e.rate : ''));
 
   // 第二期:底價 / 其他支出 / 總價 合計(AUD),其他支出逐項列出(含原幣別與匯率)
   if(hasAnyAmount && typeof pcPurchaseTotals === 'function'){

@@ -191,8 +191,31 @@ function pcExpenseSuggestions(supplier, excludePurchaseId){
   pcExpenseNames.forEach(n => { const k = n.toLowerCase(); if(!seen.has(k)) seen.set(k, { name: n, label: '' }); });
   return Array.from(seen.values());
 }
+// 付款對象記憶:進貨單裡填過的付款對象(新的在前)
+function pcPayeeNames(){
+  const out = [], seen = new Set();
+  const rows = [];
+  if(typeof purchases !== 'undefined') purchases.forEach(p => ((p.costs && p.costs.expenses) || []).forEach(e => { if(e.payee) rows.push({ k: (p.date || '') + '|' + (p.createdAt || ''), n: String(e.payee).trim() }); }));
+  rows.sort((a, b) => b.k.localeCompare(a.k));
+  rows.forEach(r => { const k = r.n.toLowerCase(); if(r.n && !seen.has(k)){ seen.add(k); out.push(r.n); } });
+  return out;
+}
+// 選了項目名稱 → 帶入同名項目上次的付款對象與 GST(只補空白的)
+function pcFillMeta(e, supplier, excludePurchaseId){
+  if(!e.name || !e.name.trim()) return false;
+  const last = pcLastExpenseFor(supplier, e.name, excludePurchaseId);
+  if(!last) return false;
+  let ch = false;
+  if(!e.payee && last.exp.payee){ e.payee = last.exp.payee; ch = true; }
+  if(e.gst !== true && e.gst !== false && (last.exp.gst === true || last.exp.gst === false)){ e.gst = last.exp.gst; ch = true; }
+  return ch;
+}
+function pcExpMetaHtml(e, fn){
+  const gstHtml = (typeof paOn === 'function' && paOn() && typeof paGstSelectHtml === 'function') ? paGstSelectHtml(e.gst, `${fn}('${e.id}','gst',this.value==='y'?true:(this.value==='n'?false:''))`) : '';
+  return `<input type="text" list="pcPayeeList" value="${pcEsc(e.payee || '')}" placeholder="${pcEsc(t('pcPayeePh'))}" style="width:130px;" onchange="${fn}('${e.id}','payee',this.value)" />${gstHtml}`;
+}
 function pcNameDatalist(id, supplier, excludePurchaseId){
-  return `<datalist id="${id}">${pcExpenseSuggestions(supplier, excludePurchaseId).map(s => `<option value="${pcEsc(s.name)}" label="${pcEsc(s.label ? s.name + ' (' + s.label + ')' : s.name)}"></option>`).join('')}</datalist>`;
+  return `<datalist id="pcPayeeList">${pcPayeeNames().map(n => `<option value="${pcEsc(n)}"></option>`).join('')}</datalist><datalist id="${id}">${pcExpenseSuggestions(supplier, excludePurchaseId).map(s => `<option value="${pcEsc(s.name)}" label="${pcEsc(s.label ? s.name + ' (' + s.label + ')' : s.name)}"></option>`).join('')}</datalist>`;
 }
 // 填入成功回傳 true。已有金額、找不到歷史都不動。
 // opts.strict:只接受同一供應商的紀錄(送出時沿用用);opts.overseas:海外採購且同供應商 → 標記為「預估」。
@@ -228,6 +251,8 @@ function pcLoadLastSet(){
   last.expenses.forEach(e => {
     if(!e.name || have.has(e.name.trim().toLowerCase())) return;
     const row = { id: genId(), name: e.name, currency: e.currency || pcBase(), amount: Number(e.amount) };
+    if(e.payee) row.payee = e.payee;
+    if(e.gst === true || e.gst === false) row.gst = e.gst;
     if(pcState.overseas){ row.estimated = true; row.estimatedFrom = last.date; }  // 海外採購:沿用上次 = 預估
     pcState.expenses.push(row);
   });
@@ -264,7 +289,9 @@ function pcUpdateExpense(id, field, value){
   if(field === 'amount'){
     const n = parseFloat(value); e.amount = (isFinite(n) && n >= 0) ? n : '';
     delete e.estimated; delete e.estimatedFrom; // 手動輸入 = 正式金額
-  } else e[field] = value;
+  } else if(field === 'gst'){ if(value === true || value === false) e.gst = value; else delete e.gst; }
+  else e[field] = value;
+  if(field === 'name') pcFillMeta(e, pcSupplierName());
   pcRender();
   if(field === 'currency') pcFetchRates(false);
   if(field === 'name' && (e.amount === '' || e.amount === undefined)){
@@ -447,7 +474,7 @@ function pcExpenseRows(){
   return pcState.expenses.map(e => {
     const rate = pcRateOf(e.currency);
     const amt = (e.amount === '' || e.amount === undefined) ? null : Number(e.amount);
-    return { id: e.id, name: (e.name || '').trim(), currency: e.currency || pcBase(), amount: amt, rate, aud: (amt !== null && rate) ? pcRound2(amt * rate) : null, estimated: !!e.estimated, estimatedFrom: e.estimatedFrom || '' };
+    return { id: e.id, name: (e.name || '').trim(), currency: e.currency || pcBase(), amount: amt, rate, payee: (e.payee || '').trim(), gst: (e.gst === true || e.gst === false) ? e.gst : undefined, aud: (amt !== null && rate) ? pcRound2(amt * rate) : null, estimated: !!e.estimated, estimatedFrom: e.estimatedFrom || '' };
   });
 }
 function pcExpensesAudTotal(){
@@ -464,6 +491,7 @@ function pcValidate(){
     if(e.name && e.amount === null && pcState.overseas) return tf('pcErrNoHistory', { name: e.name });
     if(!e.name || e.amount === null || !(e.amount >= 0)) return t('pcErrExpenseInvalid');
     if(!e.rate) return tf('pcErrNoRate', { cur: e.currency });
+    if(typeof paOn === 'function' && paOn() && e.amount > 0 && e.gst !== true && e.gst !== false) return tf('pcErrExpNeedGst', { name: e.name });
   }
   // 商品列的其他支出:名稱和金額要一起填;完全空白的列略過
   const lineRows = pcLineExpRows().filter(l => l.name || l.amount !== null);
@@ -522,7 +550,7 @@ function pcApplyToPurchase(purchase){
   } else delete purchase.lineExpenses;
   purchase.costs = {
     overseas, currency: overseas ? pcState.currency : base, baseCurrency: base, basis: pcState.basis, rates,
-    expenses: exps.map(e => { const o = { id: e.id, name: e.name, currency: e.currency, amount: e.amount, rate: e.rate, aud: e.aud }; if(e.estimated){ o.estimated = true; o.estimatedFrom = e.estimatedFrom; } return o; }),
+    expenses: exps.map(e => { const o = { id: e.id, name: e.name, currency: e.currency, amount: e.amount, rate: e.rate, aud: e.aud }; if(e.payee) o.payee = e.payee; if(e.gst === true || e.gst === false) o.gst = e.gst; if(e.estimated){ o.estimated = true; o.estimatedFrom = e.estimatedFrom; } return o; }),
     expensesAud
   };
   pcRecompute(purchase);
@@ -613,6 +641,7 @@ function pcRender(){
       <input type="text" list="pcExpenseNameList" value="${pcEsc(e.name)}" placeholder="${t('pcExpenseName')}" style="width:190px;" onchange="pcUpdateExpense('${e.id}','name',this.value)" />
       <select onchange="pcUpdateExpense('${e.id}','currency',this.value)">${curOpts(e.currency)}</select>
       <input type="number" step="0.01" min="0" value="${e.amount === '' ? '' : e.amount}" placeholder="${t('pcExpenseAmount')}" style="width:110px;" onchange="pcUpdateExpense('${e.id}','amount',this.value)" />
+      ${pcExpMetaHtml(e, 'pcUpdateExpense')}
       <button class="btn ghost" onclick="pcRemoveExpense('${e.id}')" title="${t('btnDelete')}">✕</button>
       ${e.estimated ? `<span style="color:var(--warn-dark,#b45309);font-size:11.5px;font-weight:600;">⚠ ${tf('pcEstimatedBadge', { date: e.estimatedFrom || '' })}</span>` : ''}
     </div>`).join('');
@@ -707,7 +736,7 @@ function pcEditInit(p){
   pcEd = {
     purchaseId: p.id,
     base: c.baseCurrency || pcBase(),
-    expenses: (c.expenses || []).map(e => ({ id: e.id || genId(), name: e.name, currency: e.currency || c.baseCurrency || 'AUD', amount: e.amount, estimated: !!e.estimated, estimatedFrom: e.estimatedFrom || '' })),
+    expenses: (c.expenses || []).map(e => ({ id: e.id || genId(), name: e.name, currency: e.currency || c.baseCurrency || 'AUD', amount: e.amount, estimated: !!e.estimated, estimatedFrom: e.estimatedFrom || '', payee: e.payee || '', gst: e.gst })),
     lineExpenses: (p.lineExpenses || []).map(l => ({ id: l.id || genId(), name: l.name, amount: l.amount, gst: l.gst, origAmount: l.origAmount, origCurrency: l.origCurrency, fxRate: l.fxRate })),
     nonStock: (p.nonStockItems || []).map(n => ({ id: n.id || genId(), name: n.name, qty: n.qty, unit: n.unit || '', amount: n.amount, gst: n.gst, origAmount: n.origAmount, origCurrency: n.origCurrency, fxRate: n.fxRate })),
     basis: c.basis || 'volume',
@@ -733,7 +762,9 @@ function pcEdUpdate(id, field, value){
   if(field === 'amount'){
     const n = parseFloat(value); e.amount = (isFinite(n) && n >= 0) ? n : '';
     e.estimated = false; e.estimatedFrom = ''; // 重新輸入 = 正式金額
-  } else e[field] = value;
+  } else if(field === 'gst'){ if(value === true || value === false) e.gst = value; else delete e.gst; }
+  else e[field] = value;
+  if(field === 'name'){ const pp = (typeof purchases !== 'undefined') ? purchases.find(x => x.id === pcEd.purchaseId) : null; pcFillMeta(e, pp ? (pp.partyName || pp.partyId || '') : '', pcEd.purchaseId); }
   pcEditRender();
   if(field === 'currency') pcEdFetchRates(false);
   if(field === 'name' && (e.amount === '' || e.amount === undefined)){
@@ -799,6 +830,7 @@ function pcEditRender(){
       <input type="text" list="pcEdExpenseNameList" value="${pcEsc(e.name)}" placeholder="${t('pcExpenseName')}" style="width:170px;" onchange="pcEdUpdate('${e.id}','name',this.value)" />
       <select onchange="pcEdUpdate('${e.id}','currency',this.value)">${curOpts(e.currency)}</select>
       <input type="number" step="0.01" min="0" value="${e.amount === '' || e.amount === undefined ? '' : e.amount}" placeholder="${t('pcExpenseAmount')}" style="width:110px;" onchange="pcEdUpdate('${e.id}','amount',this.value)" />
+      ${pcExpMetaHtml(e, 'pcEdUpdate')}
       <span class="del-link" onclick="pcEdRemove('${e.id}')">✕</span>
       ${e.estimated ? `<span style="color:var(--warn-dark,#b45309);font-size:11.5px;font-weight:600;">⚠ ${tf('pcEstimatedBadge', { date: e.estimatedFrom || '' })}</span>
         <span class="del-link" style="font-size:11.5px;" onclick="pcEdConfirmFinal('${e.id}')">${t('pcMarkFinal')}</span>` : ''}
@@ -869,7 +901,10 @@ function pcEditApply(p, cleanItems){
     if(!e.name || !e.name.trim() || amt === null || !(amt >= 0)) return { error: t('pcErrExpenseInvalid') };
     const rate = pcEdRateOf(e.currency);
     if(!rate) return { error: tf('pcErrNoRate', { cur: e.currency }) };
+    if(typeof paOn === 'function' && paOn() && amt > 0 && e.gst !== true && e.gst !== false) return { error: tf('pcErrExpNeedGst', { name: e.name.trim() }) };
     const o = { id: e.id, name: e.name.trim(), currency: e.currency || pcEd.base, amount: amt, rate, aud: pcRound2(amt * rate) };
+    if((e.payee || '').trim()) o.payee = e.payee.trim();
+    if(e.gst === true || e.gst === false) o.gst = e.gst;
     if(e.estimated){ o.estimated = true; o.estimatedFrom = e.estimatedFrom || ''; }
     exps.push(o);
   }
@@ -954,7 +989,7 @@ function pcOpenOriginalModal(purchaseId){
     </tr>`;
   }).join('');
   const expRows = (p.costs.expenses || []).map(e => `<tr>
-      <td>${pcEsc(e.name)}${e.estimated ? ` <span style="color:var(--warn-dark,#b45309);font-size:11px;">⚠ ${tf('pcEstimatedBadge', { date: e.estimatedFrom || '' })}</span>` : ''}</td>
+      <td>${pcEsc(e.name)}${e.payee ? ` <span style="color:var(--ink-soft);font-size:11px;">· ${pcEsc(e.payee)}</span>` : ''}${e.estimated ? ` <span style="color:var(--warn-dark,#b45309);font-size:11px;">⚠ ${tf('pcEstimatedBadge', { date: e.estimatedFrom || '' })}</span>` : ''}</td>
       <td class="num">${fm(e.amount)} ${pcEsc(e.currency || '')}</td>
       <td class="num">${e.currency && e.currency !== base ? fx(e.rate) : '–'}</td>
       <td class="num">${fm(e.aud)} ${pcEsc(base)}</td>
