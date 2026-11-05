@@ -737,7 +737,7 @@ function invRenderList(key){
       <div class="field"><label>${t('invFltStatus')}</label>${sel('invFlt_' + key + '_status', f.status, [['', t('invFltAll')], ['unpaid', t('invSt_unpaid')], ['partial', t('invSt_partial')], ['paid', t('invSt_paid')], ['overdue', t('invSt_overdue')]])}</div>
       <div class="field"><label>${t('invFltPayType')}</label>${sel('invFlt_' + key + '_pay', f.pay, [['', t('invFltAll')], ['bank', 'Bank Transfer'], ['cod', 'COD']])}</div>
       <div class="field"><label>Sale Rep</label>${sel('invFlt_' + key + '_rep', f.rep, [['', t('invFltAll')]].concat(reps.map(x => [x, x])))}</div>
-      <div class="field" style="min-width:220px;"><label>${t('invFltSearch')}</label><input type="search" id="invFlt_${key}_q" value="${invEsc(f.q)}" oninput="invOnListFilter('${key}',true)" placeholder="${invEsc(t('invListSearchPh'))}" /></div>
+      <div class="field" style="min-width:220px;"><label>${t('invFltSearch')}</label><input type="search" id="invFlt_${key}_q" value="${invEsc(f.q)}" oninput="invOnListFilter('${key}',true)" placeholder="${invEsc(t(key === 'party' ? 'invListSearchPhParty' : 'invListSearchPh'))}" /></div>
       <button class="btn ghost" onclick="invClearListFilter('${key}')" style="align-self:flex-end;">${t('btnClearFilter')}</button>
       <button class="btn ghost" onclick="invExportListXlsx('${key}')" style="align-self:flex-end;">${t('invExportList')}</button>
     </div>
