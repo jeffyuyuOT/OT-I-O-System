@@ -22,7 +22,7 @@ function paToday(){ return (typeof todayISO === 'function') ? todayISO() : new D
 // 商品主檔設為「不入公司帳」的商品(只做庫存管理):進貨時在品項上記 noAcct,不計入會計金額 / GST
 function paProductOffBooks(productId){
   const pr = (typeof products !== 'undefined') ? products.find(x => x.id === productId) : null;
-  return !!(pr && pr.noAccounting === true);
+  return typeof isOffBooksProduct === 'function' ? isOffBooksProduct(pr) : !!(pr && pr.noAccounting === true);
 }
 // 這張進貨單有沒有任何入帳的內容(入帳商品、非入庫商品);全部都是不入帳商品 = 不入會計
 function paHasAccountedContent(p){
@@ -241,6 +241,7 @@ function paRenderList(){
       ${card(t('paSumPaid'), paM2(sum.p))}
       ${card(t('paSumBalance'), paM2(sum.b))}
     </div>
+    ${paLegacyBarHtml()}
     <div class="filter-row" style="margin-bottom:10px;">
       <div class="field"><label>${t('lblFromDate')}</label><input type="date" id="paFlt_from" value="${paEsc(f.from)}" onchange="paOnFilter()" /></div>
       <div class="field"><label>${t('lblToDate')}</label><input type="date" id="paFlt_to" value="${paEsc(f.to)}" onchange="paOnFilter()" /></div>
@@ -252,6 +253,30 @@ function paRenderList(){
     ${list.length === 0 ? `<div class="empty-note">${t('paListEmpty')}</div>` : `<div style="overflow-x:auto;"><table class="stock-table"><thead><tr><th>${t('colDate')}</th><th>${t('paColSupplier')}</th><th>Invoice No</th><th class="num">${t('paColAmount')}</th><th class="num">${t('invColPaid')}</th><th class="num">${t('paColUnpaid')}</th><th>${t('invFltStatus')}</th><th></th></tr></thead>
       <tbody>${rows}<tr style="font-weight:700;border-top:2px solid var(--line, #ccc);"><td colspan="3" style="text-align:right;">${t('invListTotals')} (${list.length})</td><td class="num">${paM2(sum.t)}</td><td class="num">${paM2(sum.p)}</td><td class="num">${paM2(sum.b)}</td><td colspan="2"></td></tr></tbody>
     </table></div>`}`;
+}
+// ---- 舊進貨單整理:還沒有入帳設定的舊進貨單,依「有沒有寄給會計」決定入不入帳 ----
+function paLegacyList(){ return (purchases || []).filter(p => p.inAccounting === undefined || p.inAccounting === null); }
+function paLegacyBarHtml(){
+  const l = paLegacyList();
+  if(!l.length) return '';
+  const a = l.filter(p => p.emailedAt).length, b = l.length - a;
+  return `<div style="border:1px solid #d9a400;background:#fff9e6;border-radius:8px;padding:8px 12px;margin-bottom:10px;font-size:12.5px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+    <span>${paEsc(tf('paLegacyNotice', { n: l.length, a, b }))}</span>
+    <button class="btn ghost" onclick="paLegacyApply()">${paEsc(t('paLegacyBtn'))}</button></div>`;
+}
+function paLegacyApply(){
+  const l = paLegacyList();
+  const a = l.filter(p => p.emailedAt).length, b = l.length - a;
+  showConfirmModal(tf('paLegacyConfirm', { a, b }), async () => {
+    let fail = 0;
+    for(const p of l){
+      const prev = p.inAccounting;
+      p.inAccounting = !!p.emailedAt;
+      try{ await upsertPurchase(p); }catch(e){ console.error(e); p.inAccounting = prev; fail++; }
+    }
+    paRenderList();
+    showInfoModal(fail ? tf('paLegacyFail', { n: fail }) : t('paLegacyDone'));
+  });
 }
 function paOnFilter(keepFocus){
   paFilter = {

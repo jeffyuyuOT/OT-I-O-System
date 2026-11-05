@@ -151,7 +151,7 @@ function invBuildSnapshot(order, opts){
   (order.items || []).filter(it => !it.deleted && it.qty > 0).forEach(it => {
     const p = productsAll.find(x => x.id === it.productId) || null;
     if(wholeFamilyHidden.has(it.productId)) return;
-    if(p && p.noAccounting === true) return;   // 商品設為「不入公司帳」(只做庫存管理):不列入 Invoice
+    if(p && typeof isOffBooksProduct === 'function' && isOffBooksProduct(p)) return;   // 商品設為「不入公司帳」(只做庫存管理):不列入 Invoice
     const pr = spPriceOrderItem(order, it);
     if(p && p.hideFromCompletedOrderExport && !p.parentId){
       // 主商品本身不列入;切換出去的批量商品改列在批量商品自己的行

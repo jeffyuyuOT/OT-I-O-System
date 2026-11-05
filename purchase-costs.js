@@ -424,7 +424,7 @@ function pcBasisLabel(b){
 // 目前畫面上的待送出清單 → 分攤用的行(跟送出時的自動切換換算一致:自動切換的批量商品算成主商品)
 function pcOffBooks(productId){
   const pr = (typeof products !== 'undefined') ? products.find(x => x.id === productId) : null;
-  return !!(pr && pr.noAccounting === true);
+  return typeof isOffBooksProduct === 'function' ? isOffBooksProduct(pr) : !!(pr && pr.noAccounting === true);
 }
 function pcMapTxItems(){
   const overseas = pcState.overseas && pcState.currency !== pcBase();

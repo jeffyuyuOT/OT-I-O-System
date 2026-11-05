@@ -313,7 +313,7 @@ function renderProductEditModalBody(p, opts){
     ` : ''}
     ${(typeof paOn === 'function' && paOn()) ? `<div class="field-block">
       <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-weight:400;">
-        <input type="checkbox" id="editProdNoAcct" ${p.noAccounting === true ? 'checked' : ''} />
+        <input type="checkbox" id="editProdNoAcct" ${p.noAccounting === true ? 'checked' : ''} onchange="onProdNoAcctToggle(this)" />
         <span>${t('fieldProductNoAcct')}<span style="color:var(--ink-soft);font-weight:400;"> ${t('fieldProductNoAcctHint')}</span></span>
       </label>
     </div>` : ''}
@@ -326,15 +326,16 @@ function renderProductEditModalBody(p, opts){
     ${showHideFromExportToggle ? `
     <div class="field-block">
       <label style="display:flex;align-items:center;gap:6px;cursor:${childExportCheckboxLocked ? 'not-allowed' : 'pointer'};font-weight:400;">
-        <input type="checkbox" id="editProdHideFromExport" ${(p.hideFromCompletedOrderExport || childExportCheckboxForceChecked) ? 'checked' : ''} ${childExportCheckboxLocked ? 'disabled' : ''} onchange="toggleHideFromExportModeVisibility(this)" />
+        <input type="checkbox" id="editProdHideFromExport" ${(p.hideFromCompletedOrderExport || childExportCheckboxForceChecked || p.noAccounting === true) ? 'checked' : ''} ${(childExportCheckboxLocked || p.noAccounting === true) ? 'disabled' : ''} onchange="toggleHideFromExportModeVisibility(this)" />
         <span>${t('fieldHideFromCompletedExport')}</span>
       </label>
+      <p id="hideFromExportNoAcctHint" style="display:${p.noAccounting === true ? 'block' : 'none'};font-size:11.5px;color:var(--ink-soft);margin:4px 0 0 22px;">${t('hideExportNoAcctHint')}</p>
       ${childExportCheckboxLocked ? `<p style="font-size:11.5px;color:var(--ink-soft);margin:4px 0 0 22px;">${childExportCheckboxForceChecked ? t('hideExportChildForcedHint') : t('hideExportChildLockedHint')}</p>` : ''}
       ${hasChildrenForExportMode ? `
-      <div id="hideFromExportModeWrap" style="display:${p.hideFromCompletedOrderExport ? 'block' : 'none'};margin:8px 0 0 22px;">
-        <select id="editProdHideFromExportMode" onchange="toggleHideFromExportHintVisibility(this)">
+      <div id="hideFromExportModeWrap" style="display:${(p.hideFromCompletedOrderExport || p.noAccounting === true) ? 'block' : 'none'};margin:8px 0 0 22px;">
+        <select id="editProdHideFromExportMode" ${p.noAccounting === true ? 'disabled' : ''} onchange="toggleHideFromExportHintVisibility(this)">
           <option value="switchOnly" ${(!p.hideFromCompletedOrderExportMode || p.hideFromCompletedOrderExportMode === 'switchOnly') ? 'selected' : ''}>${t('hideExportModeSwitchOnly')}</option>
-          <option value="wholeFamily" ${p.hideFromCompletedOrderExportMode === 'wholeFamily' ? 'selected' : ''}>${t('hideExportModeWholeFamily')}</option>
+          <option value="wholeFamily" ${(p.hideFromCompletedOrderExportMode === 'wholeFamily' || p.noAccounting === true) ? 'selected' : ''}>${t('hideExportModeWholeFamily')}</option>
         </select>
         <p id="hideFromExportHint" style="display:${(!p.hideFromCompletedOrderExportMode || p.hideFromCompletedOrderExportMode === 'switchOnly') ? 'block' : 'none'};font-size:11.5px;color:var(--ink-soft);margin:6px 0 0;">${t('fieldHideFromCompletedExportHint')}</p>
       </div>
@@ -528,6 +529,14 @@ async function saveProductEditModal(){
       // 子商品自己的編輯畫面那個勾選框會被鎖住不能改,存檔的時候也要確保資料本身是一致的,
       // 不能出現「畫面上鎖住勾選,但資料庫裡其實沒存成勾選」這種不一致。
       if(!p.parentId && p.hideFromCompletedOrderExport && p.hideFromCompletedOrderExportMode === 'wholeFamily'){
+        getChildProducts(p.id).forEach(c => { c.hideFromCompletedOrderExport = true; });
+      }
+    }
+    // 「不入公司帳」連鎖:會計匯出自動不顯示,而且是「整個家族都不顯示」(底下的批量商品一起隱藏)
+    if(p.noAccounting === true){
+      p.hideFromCompletedOrderExport = true;
+      if(!p.parentId){
+        p.hideFromCompletedOrderExportMode = 'wholeFamily';
         getChildProducts(p.id).forEach(c => { c.hideFromCompletedOrderExport = true; });
       }
     }
@@ -1301,6 +1310,30 @@ function handleShowInTotalToggle(checkboxEl, productId){
   openShowInTotalPickerModal(checkboxEl, visibleCandidates);
 }
 
+// 商品視窗勾「不入公司帳」→ 「會計匯出不顯示」跟著勾選並鎖住,模式固定「整個家族都不顯示」;取消勾選則解鎖(不自動取消會計不匯出)
+function onProdNoAcctToggle(el){
+  const hide = document.getElementById('editProdHideFromExport');
+  const mode = document.getElementById('editProdHideFromExportMode');
+  const wrap = document.getElementById('hideFromExportModeWrap');
+  const hint = document.getElementById('hideFromExportNoAcctHint');
+  if(el.checked){
+    if(hide){ hide.checked = true; hide.disabled = true; }
+    if(mode){ mode.value = 'wholeFamily'; mode.disabled = true; toggleHideFromExportHintVisibility(mode); }
+    if(wrap) wrap.style.display = 'block';
+    if(hint) hint.style.display = 'block';
+  } else {
+    if(hide) hide.disabled = false;
+    if(mode) mode.disabled = false;
+    if(hint) hint.style.display = 'none';
+  }
+}
+// 商品是否不入公司帳:自己勾選,或主商品勾選(批量商品跟著主商品)
+function isOffBooksProduct(p){
+  if(!p) return false;
+  if(p.noAccounting === true) return true;
+  if(p.parentId){ const par = products.find(x => x.id === p.parentId); return !!(par && par.noAccounting === true); }
+  return false;
+}
 function toggleHideFromExportModeVisibility(checkboxEl){
   const wrap = document.getElementById('hideFromExportModeWrap');
   if(wrap) wrap.style.display = checkboxEl.checked ? 'block' : 'none';

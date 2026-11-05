@@ -152,22 +152,25 @@ function getPurchaseReceiptFileList(p){
 }
 
 function buildPurchaseWorkbook(p){
+  // 不入公司帳的商品(商品主檔設定)不列入會計用的進貨單檔案;非入庫商品與收據上的其他支出另外成列
+  const exportItems = (p.items || []).filter(it => !it.noAcct);
+  const nsItems = p.nonStockItems || [], lineItems = p.lineExpenses || [];
   const productMap = Object.fromEntries(products.map(pp => [pp.id, pp]));
   const supplier = p.partyName || p.partyId || '';
-  const hasAnyAmount = (p.items || []).some(it => it.amount);
-  const hasAnyDocType = (p.items || []).some(it => it.docType);
+  const hasAnyAmount = exportItems.some(it => it.amount) || nsItems.length > 0 || lineItems.length > 0;
+  const hasAnyDocType = exportItems.some(it => it.docType);
 
   const aoa = [];
   aoa.push([`Supplier: ${supplier}`, `Invoice No.: ${p.invoiceNo || ''}`]);
   aoa.push([`Date: ${p.date || ''}`]);
-  const hasOrig = (p.items || []).some(it => it.origCurrency);
+  const hasOrig = exportItems.some(it => it.origCurrency) || nsItems.some(n => n.origCurrency) || lineItems.some(l => l.origCurrency);
   const headerRow = ['SKU', 'Name', 'Qty', 'Unit'];
   // 第二期:Base Price = 發票商品本身的金額(AUD);Total Price = Base Price + 分攤到的其他支出。沒有其他支出時兩者相同。
   if(hasAnyAmount) headerRow.push('Base Price', 'Base Unit Price', 'Other Expenses (allocated)', 'Total Price', 'Total Unit Price');
   if(hasAnyAmount && hasOrig) headerRow.push('Invoice Amount (orig.)', 'Invoice Currency', `FX Rate (to ${(p.costs && p.costs.baseCurrency) || 'AUD'})`);
   if(hasAnyDocType) headerRow.push('Document');
   aoa.push(headerRow);
-  (p.items || []).forEach(it => {
+  exportItems.forEach(it => {
     const prod = productMap[it.productId];
     const isCreditNote = it.docType === 'credit_note';
     // Credit Note 這筆在匯出報表裡顯示成負數——存進資料裡的 qty/amount 本身是正數(對應收據上
@@ -201,17 +204,26 @@ function buildPurchaseWorkbook(p){
     aoa.push(row);
   });
 
+  // 非入庫商品、收據上的其他支出:跟商品一樣成列(金額已含在發票金額裡),標示類別
+  const r2x = x => Math.round(x * 100) / 100;
+  const pushExtraRow = (name, qty, unit, amount, origAmount, origCur, fx) => {
+    const row = ['', name, qty, unit];
+    if(hasAnyAmount){
+      row.push(r2x(amount), qty ? r2x(amount / qty) : '', 0, r2x(amount), qty ? r2x(amount / qty) : '');
+      if(hasOrig){ row.push(origAmount !== undefined ? origAmount : '', origCur || '', fx || ''); }
+    }
+    if(hasAnyDocType) row.push('');
+    aoa.push(row);
+  };
+  nsItems.forEach(n => pushExtraRow(`${n.name} (Non-stock)`, n.qty, n.unit || '', Number(n.amount) || 0, n.origAmount, n.origCurrency, n.fxRate));
+  lineItems.forEach(l => pushExtraRow(`${l.name} (Other expense)`, '', '', Number(l.amount) || 0, l.origAmount, l.origCurrency, l.fxRate));
+
   // 第二期:底價 / 其他支出 / 總價 合計(AUD),其他支出逐項列出(含原幣別與匯率)
   if(hasAnyAmount && typeof pcPurchaseTotals === 'function'){
     const tt = pcPurchaseTotals(p);
     aoa.push([]);
     aoa.push(['Invoice Items (Base Price)', '', '', '', tt.base]);
-    (p.nonStockItems || []).forEach(n => {
-      aoa.push([`Non-stock item: ${n.name} (${n.qty} ${n.unit || ''})`, '', '', '', n.amount, n.origAmount !== undefined ? `${n.origAmount} ${n.origCurrency} @ ${n.fxRate}` : '']);
-    });
-    (p.lineExpenses || []).forEach(l => {
-      aoa.push([`Invoice Expense: ${l.name}`, '', '', '', l.amount, l.origAmount !== undefined ? `${l.origAmount} ${l.origCurrency} @ ${l.fxRate}` : '']);
-    });
+    if(tt.lineExpenses > 0) aoa.push(['Invoice Expenses (on receipt)', '', '', '', tt.lineExpenses]);
     if(p.costs && p.costs.expenses && p.costs.expenses.length){
       p.costs.expenses.forEach(e => {
         aoa.push([`Other Expense: ${e.name}`, '', '', '', e.aud, `${e.amount} ${e.currency}${e.currency !== ((p.costs && p.costs.baseCurrency) || 'AUD') ? ' @ ' + e.rate : ''}`]);
@@ -231,7 +243,7 @@ function buildPurchaseWorkbook(p){
   // 額外附加的加總視圖,方便只想看最終結果的人一眼看到淨值,不用自己拿計算機把發票跟退貨的
   // 數字兜起來。
   const byProduct = {};
-  (p.items || []).forEach(it => { (byProduct[it.productId] = byProduct[it.productId] || []).push(it); });
+  exportItems.forEach(it => { (byProduct[it.productId] = byProduct[it.productId] || []).push(it); });
   const multiLineProductIds = Object.keys(byProduct).filter(pid => byProduct[pid].length > 1);
   if(multiLineProductIds.length > 0){
     aoa.push([]);
