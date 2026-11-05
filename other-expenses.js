@@ -147,7 +147,7 @@ function oeFillFromName(){
   }
   const pe = document.getElementById('oeFPayee'), ge = document.getElementById('oeFGst'), me = document.getElementById('oeFMode');
   if(pe && !pe.value && payee) pe.value = payee;
-  if(ge && !ge.value && (gst === true || gst === false)) ge.value = gst ? 'y' : 'n';
+  if(ge && ge.dataset.touched !== '1' && (gst === true || gst === false)) ge.value = gst ? 'y' : 'n';
   if(me && mode && me.dataset.touched !== '1') me.value = mode;
 }
 function oeOpenForm(id){
@@ -157,7 +157,7 @@ function oeOpenForm(id){
   const ov = document.createElement('div');
   ov.id = 'oeFormOverlay'; ov.className = 'modal-overlay'; ov.style.display = 'flex'; ov.style.zIndex = '1250';
   ov.onclick = ev => { if(ev.target === ov) oeCloseForm(); };
-  const gv = e ? (e.gst === true ? 'y' : (e.gst === false ? 'n' : '')) : '';
+  const gv = e ? (e.gst === false ? 'n' : 'y') : 'y';   // 新增時一定要決定有沒有 GST(預設 GST);沒有「GST?」未設定選項
   ov.innerHTML = `<div class="modal-box" style="max-width:min(520px,96vw);max-height:92vh;overflow:auto;">
     <div class="section-title" style="margin-top:0;">${t(e ? 'oeFormEdit' : 'oeFormAdd')}</div>
     <datalist id="oeNameList">${oeNames().map(n => `<option value="${oeEsc(n)}"></option>`).join('')}</datalist>
@@ -167,7 +167,7 @@ function oeOpenForm(id){
       <div class="field"><label>${t('oeColItem')}</label><input type="text" id="oeFName" list="oeNameList" value="${oeEsc(e ? e.name : '')}" onchange="oeFillFromName()" /></div>
       <div class="field"><label>${t('oeFldPayee')}</label><input type="text" id="oeFPayee" list="oePayeeList" value="${oeEsc(e ? (e.payee || '') : '')}" /></div>
       <div class="field"><label>${t('invPayAmount')}</label><input type="number" step="0.01" min="0" id="oeFAmount" value="${e ? oeEsc(e.amount) : ''}" placeholder="0.00" /></div>
-      <div class="field"><label>GST</label><select id="oeFGst"><option value="" ${gv === '' ? 'selected' : ''}>${oeEsc(t('paGstUnset'))}</option><option value="y" ${gv === 'y' ? 'selected' : ''}>GST</option><option value="n" ${gv === 'n' ? 'selected' : ''}>${oeEsc(t('paGstNone'))}</option></select></div>
+      <div class="field"><label>GST</label><select id="oeFGst" onchange="this.dataset.touched='1'"><option value="y" ${gv === 'y' ? 'selected' : ''}>GST</option><option value="n" ${gv === 'n' ? 'selected' : ''}>${oeEsc(t('paGstNone'))}</option></select></div>
       <div class="field"><label>${t('paGstModeLabel')}</label><select id="oeFMode" onchange="this.dataset.touched='1'"><option value="ex" ${(!e || e.gst_mode !== 'inc') ? 'selected' : ''}>${oeEsc(t('paGstModeEx'))}</option><option value="inc" ${(e && e.gst_mode === 'inc') ? 'selected' : ''}>${oeEsc(t('paGstModeInc'))}</option></select></div>
       <div class="field" style="grid-column:1 / -1;"><label>${t('colNote')}</label><input type="text" id="oeFNote" value="${oeEsc(e ? (e.note || '') : '')}" /></div>
     </div>
@@ -190,7 +190,6 @@ async function oeSave(){
   if(!date){ fail('invPayBadDate'); return; }
   if(!name){ fail('oeErrName'); return; }
   if(!Number.isFinite(amt) || amt < 0){ fail('invPayBadAmount'); return; }
-  if(gv !== 'y' && gv !== 'n'){ fail('oeErrGst'); return; }
   msg.className = 'msg'; msg.textContent = t('savingMsg');
   try{
     const { error } = await sb.rpc('other_expense_save', { p_id: oeEdit.id || null, p_date: date, p_name: name, p_payee: payee, p_amount: paR2(amt), p_gst: gv === 'y', p_gst_mode: mode, p_note: note });
