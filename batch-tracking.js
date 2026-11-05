@@ -1577,7 +1577,7 @@ async function batchShowPurchaseModal(purchaseId, item){
   const canPrice = typeof canEditPrice === 'function' && canEditPrice();
   const items = (p.items || []).filter(it => it.docType !== 'others');
   const showAmt = canPrice && items.some(it => it.amount);
-  const hasExp = canPrice && p.costs && (p.costs.expensesAud > 0);
+  const hasExp = canPrice && p.costs && typeof pcPurchaseTotals === 'function' && pcPurchaseTotals(p).expenses > 0;
   const nos = [...new Set(batchData.items.filter(x => x.purchaseId === p.id).map(x => x.batchNo))];
   const fm = n => (n === null || n === undefined) ? '–' : Number(n).toFixed(2);
   const rows = items.map(it => {
@@ -1588,7 +1588,7 @@ async function batchShowPurchaseModal(purchaseId, item){
       <td class="num">${isCn ? -it.qty : it.qty} ${batchEsc(it.unit || '')}</td>
       <td>${it.expiry ? batchEsc(it.expiry) : '–'}</td>
       ${showAmt ? `<td class="num">${fm(pr.base)}</td>${hasExp ? `<td class="num"><strong>${fm(pr.total)}</strong></td>` : ''}` : ''}</tr>`;
-  }).join('');
+  }).join('') + (p.lineExpenses || []).map(l => `<tr style="background:var(--bg-soft,#f5f5f0);"><td>${batchEsc(l.name || '')} <span style="color:var(--ink-soft);font-size:11px;">(${t('pcLineExpBadge')})</span></td><td class="num"></td><td></td>${showAmt ? `<td class="num">${fm(l.amount)}</td>${hasExp ? '<td class="num">–</td>' : ''}` : ''}</tr>`).join('');
   let totals = '';
   if(showAmt && typeof pcPurchaseTotals === 'function'){
     const tt = pcPurchaseTotals(p);

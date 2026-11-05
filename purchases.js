@@ -110,7 +110,7 @@ function renderPurchaseLog(){
           <tr>
             <td colspan="${showBatchCol ? 5 : 4}" style="background:#fff;">
               ${orderBlockHtml('items', 'orderBlockItems', `<table class="stock-table" style="margin:2px 0;background:transparent;">
-                <thead><tr><th>${t('colProduct')}</th><th class="num">${t('colQty')}</th>${(p.items || []).some(it => it.amount) ? `<th class="num">${(p.costs && p.costs.expensesAud > 0) ? t('colBasePrice') : t('colAmount')}</th>` : ''}${(p.costs && p.costs.expensesAud > 0) ? `<th class="num">${t('colTotalPrice')}</th>` : ''}</tr></thead>
+                <thead><tr><th>${t('colProduct')}</th><th class="num">${t('colQty')}</th>${(p.items || []).some(it => it.amount) ? `<th class="num">${(typeof pcPurchaseTotals === 'function' && p.costs && pcPurchaseTotals(p).expenses > 0) ? t('colBasePrice') : t('colAmount')}</th>` : ''}${(typeof pcPurchaseTotals === 'function' && p.costs && pcPurchaseTotals(p).expenses > 0) ? `<th class="num">${t('colTotalPrice')}</th>` : ''}</tr></thead>
                 <tbody>
                   ${(p.items || []).map(it => {
                     const isCreditNote = it.docType === 'credit_note';
@@ -118,10 +118,10 @@ function renderPurchaseLog(){
                     const badge = isCreditNote ? ` <span style="color:var(--crit);font-weight:600;font-size:11px;">(${t('docTypeCreditNoteBadge')})</span>` : '';
                     const amountCell = (p.items || []).some(x => x.amount)
                       ? `<td class="num">${it.amount ? Number(isCreditNote ? -it.amount : it.amount).toFixed(2) : '–'}</td>` : '';
-                    const totalCell = (p.costs && p.costs.expensesAud > 0)
+                    const totalCell = (typeof pcPurchaseTotals === 'function' && p.costs && pcPurchaseTotals(p).expenses > 0)
                       ? `<td class="num"><strong>${(typeof pcItemPrices === 'function' && pcItemPrices(it).total !== null) ? pcItemPrices(it).total.toFixed(2) : '–'}</strong></td>` : '';
                     return `<tr><td>${escapeHtmlForPrint(it.name)}${badge}</td><td class="num">${displayQty} ${escapeHtmlForPrint(it.unit || '')}</td>${amountCell}${totalCell}</tr>`;
-                  }).join('')}
+                  }).join('')}${(p.lineExpenses || []).map(l => `<tr style="background:var(--bg-soft,#f5f5f0);"><td>${escapeHtmlForPrint(l.name || '')} <span style="color:var(--ink-soft);font-size:11px;">(${t('pcLineExpBadge')})</span></td><td class="num"></td>${(p.items || []).some(x => x.amount) ? `<td class="num">${Number(l.amount || 0).toFixed(2)}</td>` : ''}${(typeof pcPurchaseTotals === 'function' && p.costs && pcPurchaseTotals(p).expenses > 0) ? '<td class="num">–</td>' : ''}</tr>`).join('')}
                 </tbody>
               </table>${(p.costs && typeof pcPurchaseTotals === 'function') ? (() => { const tt = pcPurchaseTotals(p); return `<div style="font-size:12.5px;margin-top:4px;display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;"><span>${t('lblInvoiceSubtotal')}: <strong>${tt.base.toFixed(2)}</strong>${tt.expenses > 0 ? ` + ${t('lblOtherExpensesTotal')}: <strong>${tt.expenses.toFixed(2)}</strong> = ${t('lblPurchaseGrandTotal')}: <strong>${tt.total.toFixed(2)}</strong>` : ''} ${p.costs.baseCurrency || 'AUD'}${p.costs.overseas ? ` (${tf('pcInvoiceCurrencyShort', { cur: p.costs.currency })})` : ''}</span>${(typeof pcHasOriginalData === 'function' && pcHasOriginalData(p)) ? `<button class="btn ghost" style="font-size:12px;" onclick="pcOpenOriginalModal('${p.id}')">${t('pcViewOriginal')}</button>` : ''}</div>`; })() : ''}`)}
               ${p.note ? orderBlockHtml('remark', 'orderBlockRemark', `<p style="font-size:12.5px;color:var(--ink);margin:0;">${tf('purchaseNoteLabel', { note: escapeHtmlForPrint(p.note) })}</p>`) : ''}
@@ -206,6 +206,9 @@ function buildPurchaseWorkbook(p){
     const tt = pcPurchaseTotals(p);
     aoa.push([]);
     aoa.push(['Invoice Items (Base Price)', '', '', '', tt.base]);
+    (p.lineExpenses || []).forEach(l => {
+      aoa.push([`Invoice Expense: ${l.name}`, '', '', '', l.amount, l.origAmount !== undefined ? `${l.origAmount} ${l.origCurrency} @ ${l.fxRate}` : '']);
+    });
     if(p.costs && p.costs.expenses && p.costs.expenses.length){
       p.costs.expenses.forEach(e => {
         aoa.push([`Other Expense: ${e.name}`, '', '', '', e.aud, `${e.amount} ${e.currency}${e.currency !== ((p.costs && p.costs.baseCurrency) || 'AUD') ? ' @ ' + e.rate : ''}`]);

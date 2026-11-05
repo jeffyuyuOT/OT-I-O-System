@@ -859,6 +859,7 @@ function renderTxBatchList(){
   // 出貨(新增訂單 / 載入待處理訂單加品項):顯示 Sell price(依出貨方 Discount 與預計批次),受系統設置開關控制
   const showGstCol = showAmountCol && typeof paOn === 'function' && paOn();   // 進貨帳務:每個品項的 GST
   if(showGstCol) paAutoFillGst(txBatchItems);
+  const lineExpCols = { batch: showBatchCols, amount: showAmountCol, gst: showGstCol };
   const showSellCol = typeof spEnabled === 'function' && spEnabled() && currentTxType === 'out' && (registerOutFlowType === 'new-order' || registerOutFlowType === 'load-pending' || registerOutFlowType === 'load-completed');
   const sellPartyId = showSellCol ? ((document.getElementById('txPartySelect') || {}).value || '') : '';
   // 同一個商品在清單裡出現不只一筆(常見情境:發票登記了5箱,後來因為缺貨開的 Credit Note
@@ -921,12 +922,14 @@ function renderTxBatchList(){
       `;
     }
   });
+  const lineExpRowsHtml = (showAmountCol && typeof pcLineExpenseRowsHtml === 'function') ? pcLineExpenseRowsHtml(lineExpCols) : '';
+  const lineExpAddBtn = (showAmountCol && typeof pcLineExpenseAddButtonHtml === 'function') ? pcLineExpenseAddButtonHtml() : '';
   container.innerHTML = `
     <table class="stock-table">
       <thead><tr><th>${t('colProduct')}</th><th class="num">${t('colQty')}</th>${showSellCol ? `<th class="num">${t('spColUnitPrice')}</th><th class="num">${t('spColTotalPrice')}</th>` : ''}${showBatchCols ? `<th class="num">${t('batchColExpiry')}</th><th style="min-width:220px;padding-left:18px;">${t('batchLocTitle')}</th>` : ''}${showAmountCol ? `<th class="num">${t('colAmount')}${(typeof pcAmountColSuffix === 'function') ? pcAmountColSuffix() : ''}</th>` : ''}${showGstCol ? '<th>GST</th>' : ''}<th></th></tr></thead>
-      <tbody>${rowsHtml}</tbody>
+      <tbody>${rowsHtml}${lineExpRowsHtml}</tbody>
       ${showSellCol ? (() => { const tt = spTxItemsTotal(sellPartyId); const miss = tt.missing ? ` <span style="font-weight:400;font-size:11px;color:var(--ink-soft);">(${tf('spTotalMissing', { n: tt.missing })})</span>` : ''; const lead = (registerOutFlowType === 'load-pending' || registerOutFlowType === 'load-completed') ? t('spAddedItemsTotal') + ' · ' : ''; const tail = `<td colspan="${(showBatchCols ? 2 : 0) + (showAmountCol ? 1 : 0) + 1}"></td>`; const r = (lab, v, strong) => `<tr style="font-weight:${strong ? 700 : 600};"><td class="row-name" colspan="3" style="text-align:right;">${lab}</td><td class="row-num"><span style="${SP_TOTAL_PILL}">${spMoney(v)}</span></td>${tail}</tr>`; return `<tfoot>${r(lead + t('spSaleAmt') + miss, tt.sum, false)}${r(t('spGstAmt'), tt.gst, false)}${r(t('spTotalAmt'), spRound2(tt.sum + tt.gst), true)}</tfoot>`; })() : ''}
-    </table>
+    </table>${lineExpAddBtn}
   `;
 }
 
@@ -2082,7 +2085,7 @@ async function submitTxBatchSimple(date, msg){
         catch(e){ console.error('記錄批次位置失敗', e); showInfoModal(t('batchLocSaveFailed')); }
       }
     }
-    if(typeof pcRememberExpenseNames === 'function' && purchase.costs) pcRememberExpenseNames(purchase.costs.expenses.map(e => e.name));
+    if(typeof pcRememberExpenseNames === 'function' && purchase.costs) pcRememberExpenseNames(purchase.costs.expenses.map(e => e.name).concat((purchase.lineExpenses || []).map(l => l.name)));
     if(typeof pcReset === 'function') pcReset();
     if(typeof paFormReset === 'function') paFormReset();
     removePurchaseReceipt();

@@ -4,6 +4,8 @@
 // 資料放在進貨單(purchases.payload):
 //   purchase.costs = { overseas, currency, basis, rates:{USD:1.52}, expenses:[{id,name,currency,amount,rate,aud}],
 //                      expensesAud, invoiceAud, totalAud }
+//   purchase.lineExpenses = [{id,name,amount(AUD),gst,origAmount?,origCurrency?,fxRate?}]  ← 收據(發票)上本來就有的其他支出(例如 fuel levy),
+//                      算在供應商發票金額裡;金額併入分攤池一起分攤到商品,但自己不被分攤。costs.lineExpensesAud = 合計
 //   purchase.items[i]: amount(AUD 底價總額)、totalAmount(AUD 總價總額 = 底價 + 分攤支出)、
 //                      海外時另有 origAmount / origCurrency / fxRate
 // 所有金額一律以 AUD 計。沒有其他支出的進貨單,總價 = 底價。
@@ -22,7 +24,7 @@ let pcState = pcNewState();
 function pcNewState(){
   // 換算幣種固定跟隨「系統預設幣種」(見 settings.js getSystemCurrency,預設 AUD),這裡不能另外選。
   // currency = 發票幣種;rates[cur] = 1 單位 cur 等於多少系統幣種;ratesBase = 這些匯率是對哪個幣種取的
-  return { overseas: false, currency: '', rates: {}, ratesBase: '', manual: {}, expenses: [], basis: 'volume' };
+  return { overseas: false, currency: '', rates: {}, ratesBase: '', manual: {}, expenses: [], lineExpenses: [], basis: 'volume' };
 }
 function pcActive(){
   return typeof batchActive === 'function' && batchActive() && typeof canEditPrice === 'function' && canEditPrice();
@@ -273,6 +275,58 @@ function pcUpdateExpense(id, field, value){
 function pcSetBasis(b){ pcState.basis = b; pcRender(); }
 function pcReset(){ pcState = pcNewState(); pcRender(); }
 
+// ---------- 商品列的其他支出(收據上本來就有的,例如 fuel levy)----------
+// 放在進貨單商品清單裡、標示「其他支出」;金額跟商品一樣用發票幣種輸入,送出時換算成系統幣種。
+// 它們併入分攤池,和下面「跟此進貨單相關的其他支出」加起來一起分攤到商品上,自己不被分攤。
+function pcLineExpOn(){ return pcActive(); }
+function pcLineExpenseNames(){
+  const set = new Set(pcExpenseNames.slice());
+  try{ (purchases || []).forEach(p => (p.lineExpenses || []).forEach(l => { if(l.name) set.add(l.name); })); }catch(e){}
+  return Array.from(set).sort((a, b) => a.localeCompare(b));
+}
+function pcAddLineExpense(){
+  pcState.lineExpenses.push({ id: genId(), name: '', amount: '' });
+  renderTxBatchList();
+}
+function pcRemoveLineExpense(id){ pcState.lineExpenses = pcState.lineExpenses.filter(l => l.id !== id); renderTxBatchList(); }
+function pcUpdateLineExpense(id, field, value){
+  const l = pcState.lineExpenses.find(x => x.id === id);
+  if(!l) return;
+  if(field === 'amount'){ const n = parseFloat(value); l.amount = (isFinite(n) && n >= 0) ? n : ''; }
+  else if(field === 'gst'){ if(value === 'y') l.gst = true; else if(value === 'n') l.gst = false; else delete l.gst; }
+  else l[field] = value;
+  renderTxBatchList();
+}
+// 金額換算:跟商品列同一個發票幣種與匯率
+function pcLineExpRows(){
+  const overseas = pcState.overseas && pcState.currency !== pcBase();
+  const rate = overseas ? pcRateOf(pcState.currency) : 1;
+  return (pcState.lineExpenses || []).map(l => {
+    const amt = (l.amount === '' || l.amount === undefined) ? null : Number(l.amount);
+    return { id: l.id, name: (l.name || '').trim(), amount: amt, gst: l.gst, aud: (amt !== null && rate) ? pcRound2(amt * rate) : null };
+  });
+}
+function pcLineExpAudTotal(){ return pcLineExpRows().reduce((s, l) => s + (l.aud || 0), 0); }
+// 進貨清單表格裡的「其他支出」列。cols = { batch:是否有有效期+位置兩欄, amount, gst }
+function pcLineExpenseRowsHtml(cols){
+  if(!pcLineExpOn() || !cols.amount) return '';
+  const dl = `<datalist id="pcLineExpNameList">${pcLineExpenseNames().map(n => `<option value="${pcEsc(n)}"></option>`).join('')}</datalist>`;
+  const rows = (pcState.lineExpenses || []).map(l => `
+      <tr style="background:var(--bg-soft,#f5f5f0);">
+        <td class="row-name"><input type="text" list="pcLineExpNameList" value="${pcEsc(l.name)}" placeholder="${t('pcLineExpName')}" style="width:min(200px,60vw);" onchange="pcUpdateLineExpense('${l.id}','name',this.value)" /> <span style="color:var(--ink-soft);font-weight:600;font-size:11px;">(${t('pcLineExpBadge')})</span></td>
+        <td class="row-num"></td>
+        ${cols.batch ? '<td></td><td></td>' : ''}
+        <td class="row-num tx-amt" data-label="${t('colAmount')}"><input type="number" class="order-qty-input" step="0.01" min="0" value="${l.amount === '' || l.amount === undefined ? '' : l.amount}" placeholder="–" onchange="pcUpdateLineExpense('${l.id}','amount',this.value)" /></td>
+        ${cols.gst ? `<td class="row-num tx-gst" data-label="GST">${paGstSelectHtml(l.gst, "pcUpdateLineExpense('" + l.id + "','gst',this.value)")}</td>` : ''}
+        <td class="row-action"><button onclick="pcRemoveLineExpense('${l.id}')" title="${t('btnDelete')}">✕</button></td>
+      </tr>`).join('');
+  return dl + rows;
+}
+function pcLineExpenseAddButtonHtml(){
+  if(!pcLineExpOn()) return '';
+  return `<div style="margin-top:6px;"><button type="button" class="btn ghost" style="font-size:12.5px;" onclick="pcAddLineExpense()">${t('pcAddLineExpense')}</button> <span style="font-size:11.5px;color:var(--ink-soft);">${t('pcLineExpHint')}</span></div>`;
+}
+
 // ---------- 分攤計算 ----------
 // 箱數:沿用進貨預估的換算規則(進貨單位是 CTN 直接用;否則用 multipack 加權數換算成「一箱」)。
 // 這裡的單位商品就是進貨單這一行的商品本身,不使用進貨預估頁面上的單位選擇。
@@ -359,7 +413,12 @@ function pcValidate(){
     if(!e.name || e.amount === null || !(e.amount >= 0)) return t('pcErrExpenseInvalid');
     if(!e.rate) return tf('pcErrNoRate', { cur: e.currency });
   }
-  const total = rows.reduce((s, e) => s + (e.aud || 0), 0);
+  // 商品列的其他支出:名稱和金額要一起填;完全空白的列略過
+  const lineRows = pcLineExpRows().filter(l => l.name || l.amount !== null);
+  for(const l of lineRows){
+    if(!l.name || l.amount === null || !(l.amount >= 0)) return t('pcErrLineExpInvalid');
+  }
+  const total = rows.reduce((s, e) => s + (e.aud || 0), 0) + lineRows.reduce((s, l) => s + (l.aud || 0), 0);
   if(total > 0){
     const items = pcMapTxItems();
     if(!items.some(r => !r.skip)) return t('pcErrNoInvoiceRows');
@@ -387,6 +446,15 @@ function pcApplyToPurchase(purchase){
   const expensesAud = pcRound2(exps.reduce((s, e) => s + e.aud, 0));
   const rates = {};
   pcUsedForeignCurrencies().forEach(c => { const r = pcRateOf(c); if(r) rates[c] = r; });
+  const lines = pcLineExpRows().filter(l => l.name && l.aud !== null);
+  if(lines.length){
+    purchase.lineExpenses = lines.map(l => {
+      const o = { id: l.id, name: l.name, amount: l.aud };
+      if(l.gst === true || l.gst === false) o.gst = l.gst;
+      if(overseas){ o.origAmount = l.amount; o.origCurrency = pcState.currency; o.fxRate = rate; }
+      return o;
+    });
+  } else delete purchase.lineExpenses;
   purchase.costs = {
     overseas, currency: overseas ? pcState.currency : base, baseCurrency: base, basis: pcState.basis, rates,
     expenses: exps.map(e => { const o = { id: e.id, name: e.name, currency: e.currency, amount: e.amount, rate: e.rate, aud: e.aud }; if(e.estimated){ o.estimated = true; o.estimatedFrom = e.estimatedFrom; } return o; }),
@@ -402,7 +470,10 @@ function pcRecompute(purchase){
     key: 'r' + i, product: products.find(p => p.id === it.productId), name: it.name, qty: Number(it.qty) || 0,
     amountAud: Number(it.amount) || 0, skip: it.docType === 'credit_note' || it.docType === 'others'
   }));
-  const expensesAud = Number(costs.expensesAud) || 0;
+  const lineAud = pcRound2((purchase.lineExpenses || []).reduce((s, l) => s + (Number(l.amount) || 0), 0));
+  costs.lineExpensesAud = lineAud;
+  // 分攤池 = 商品列的其他支出 + 跟此進貨單相關的其他支出;兩者加起來一起分攤到發票商品
+  const expensesAud = pcRound2((Number(costs.expensesAud) || 0) + lineAud);
   const res = pcAllocate(rows, costs.basis || 'volume', expensesAud);
   if(res.missing.length) return { error: tf('pcErrMissingBasis', { basis: pcBasisLabel(costs.basis || 'volume'), names: res.missing.join('、') }) };
   (purchase.items || []).forEach((it, i) => {
@@ -429,8 +500,10 @@ function pcPurchaseTotals(p){
     const a = Number(it.amount) || 0;
     base += (it.docType === 'credit_note') ? -a : a;
   });
-  const exp = (p.costs && Number(p.costs.expensesAud)) || 0;
-  return { base: pcRound2(base), expenses: pcRound2(exp), total: pcRound2(base + exp) };
+  const rel = (p.costs && Number(p.costs.expensesAud)) || 0;
+  const line = (p.lineExpenses || []).reduce((s, l) => s + (Number(l.amount) || 0), 0);
+  // expenses = 兩種其他支出合計(給只要看「其他支出」總數的畫面用);另附分開的數字
+  return { base: pcRound2(base), lineExpenses: pcRound2(line), relatedExpenses: pcRound2(rel), expenses: pcRound2(rel + line), total: pcRound2(base + rel + line) };
 }
 // 單一品項的底價/總價(AUD),給匯出用:沒有 totalAmount 就等於底價
 function pcItemPrices(it){
@@ -493,7 +566,9 @@ function pcRender(){
 
   // 成本預覽
   let preview = '';
-  const expTotal = exps.reduce((s, e) => s + (e.aud || 0), 0);
+  const relTotal = exps.reduce((s, e) => s + (e.aud || 0), 0);
+  const lineTotal = pcLineExpAudTotal();
+  const expTotal = pcRound2(relTotal + lineTotal);   // 分攤池 = 商品列其他支出 + 相關其他支出
   if(txBatchItems.length > 0 && (expTotal > 0 || (pcState.overseas && pcState.currency !== pcBase()))){
     const items = pcMapTxItems();
     const res = pcAllocate(items, pcState.basis, expTotal);
@@ -511,7 +586,8 @@ function pcRender(){
         <div style="font-size:12.5px;font-weight:700;margin-bottom:4px;">${tf('pcPreviewTitle', { base })}</div>
         ${res.missing.length ? `<div style="font-size:12px;color:var(--warn);margin-bottom:4px;">${tf('pcErrMissingBasis', { basis: pcBasisLabel(pcState.basis), names: res.missing.map(pcEsc).join('、') })}</div>` : ''}
         <table class="stock-table"><thead><tr><th>${t('colProduct')}</th><th class="num">${t('pcColBase')}</th><th class="num">${t('pcColAlloc')}</th><th class="num">${t('pcColTotal')}</th></tr></thead><tbody>${lines}</tbody></table>
-        <div style="font-size:12.5px;margin-top:4px;">${t('pcInvoiceTotal')}: <strong>${pcFmt(baseSum)}</strong> + ${t('pcExpenseTotal')}: <strong>${pcFmt(expTotal)}</strong> = ${t('pcGrandTotal')}: <strong>${pcFmt(baseSum + expTotal)}</strong> ${base}</div>
+        <div style="font-size:12.5px;margin-top:4px;">${t('pcInvoiceTotal')}: <strong>${pcFmt(baseSum)}</strong>${lineTotal > 0 ? ` + ${t('pcLineExpTotal')}: <strong>${pcFmt(lineTotal)}</strong>` : ''} + ${t('pcExpenseTotal')}: <strong>${pcFmt(relTotal)}</strong> = ${t('pcGrandTotal')}: <strong>${pcFmt(baseSum + expTotal)}</strong> ${base}</div>
+        <div style="font-size:11.5px;color:var(--ink-soft);margin-top:2px;">${t('pcPoolNote')}</div>
       </div>`;
   }
 
@@ -536,7 +612,7 @@ function pcRender(){
       <button class="btn ghost" onclick="pcAddExpense()" style="margin-top:2px;">${t('pcAddExpense')}</button>
       ${lastSet ? `<button class="btn ghost" onclick="pcLoadLastSet()" style="margin-top:2px;">${tf('pcLoadLastSet', { supplier: pcEsc(supplierNow), date: lastSet.date })}</button>` : ''}
 
-      ${pcState.expenses.length ? `
+      ${(pcState.expenses.length || (pcState.lineExpenses || []).length) ? `
       <div style="display:flex;gap:8px;align-items:center;margin-top:8px;flex-wrap:wrap;">
         <span style="font-size:12.5px;">${t('pcBasis')}</span>
         <select onchange="pcSetBasis(this.value)">
@@ -566,6 +642,7 @@ function pcEditInit(p){
     purchaseId: p.id,
     base: c.baseCurrency || pcBase(),
     expenses: (c.expenses || []).map(e => ({ id: e.id || genId(), name: e.name, currency: e.currency || c.baseCurrency || 'AUD', amount: e.amount, estimated: !!e.estimated, estimatedFrom: e.estimatedFrom || '' })),
+    lineExpenses: (p.lineExpenses || []).map(l => ({ id: l.id || genId(), name: l.name, amount: l.amount, gst: l.gst, origAmount: l.origAmount, origCurrency: l.origCurrency, fxRate: l.fxRate })),
     basis: c.basis || 'volume',
     rates: Object.assign({}, c.rates || {}),
     overseas: !!c.overseas,
@@ -601,6 +678,16 @@ function pcEdUpdate(id, field, value){
 function pcEdConfirmFinal(id){
   const e = pcEd.expenses.find(x => x.id === id);
   if(e){ e.estimated = false; e.estimatedFrom = ''; }
+  pcEditRender();
+}
+function pcEdAddLine(){ pcEd.lineExpenses.push({ id: genId(), name: '', amount: '' }); pcEditRender(); }
+function pcEdRemoveLine(id){ pcEd.lineExpenses = pcEd.lineExpenses.filter(l => l.id !== id); pcEditRender(); }
+function pcEdUpdateLine(id, field, value){
+  const l = pcEd.lineExpenses.find(x => x.id === id);
+  if(!l) return;
+  if(field === 'amount'){ const n = parseFloat(value); l.amount = (isFinite(n) && n >= 0) ? n : ''; }
+  else if(field === 'gst'){ if(value === 'y') l.gst = true; else if(value === 'n') l.gst = false; else delete l.gst; }
+  else l[field] = value;
   pcEditRender();
 }
 function pcEdSetBasis(b){ pcEd.basis = b; pcEditRender(); }
@@ -645,12 +732,23 @@ function pcEditRender(){
       <input type="number" step="0.000001" min="0" value="${pcEd.rates[cur] || ''}" style="width:120px;" onchange="pcEdSetRate('${cur}',this.value)" />
       <span>${pcEd.base}</span>
     </div>`).join('');
+  const lineRowsEd = (pcEd.lineExpenses || []).map(l => `
+    <div style="display:flex;gap:6px;align-items:center;margin:4px 0;flex-wrap:wrap;">
+      <input type="text" value="${pcEsc(l.name)}" placeholder="${t('pcLineExpName')}" style="width:170px;" onchange="pcEdUpdateLine('${l.id}','name',this.value)" />
+      <input type="number" step="0.01" min="0" value="${l.amount === '' || l.amount === undefined ? '' : l.amount}" placeholder="${t('pcExpenseAmount')}" style="width:110px;" onchange="pcEdUpdateLine('${l.id}','amount',this.value)" />
+      <span style="font-size:12px;">${pcEsc(pcEd.base)}</span>
+      ${(typeof paGstSelectHtml === 'function') ? paGstSelectHtml(l.gst, "pcEdUpdateLine('" + l.id + "','gst',this.value)") : ''}
+      <span class="del-link" onclick="pcEdRemoveLine('${l.id}')">✕</span>
+    </div>`).join('');
   wrap.innerHTML = `
     <div class="field-block" style="border:1px solid var(--line,#ddd);border-radius:8px;padding:8px 10px;">
-      <label>${t('pcExpenses')} <span role="button" tabindex="0" title="${t('pcInfoIconTitle')}" aria-label="${t('pcInfoIconTitle')}" style="cursor:pointer;color:var(--ink-soft);font-size:14px;margin-left:4px;user-select:none;" onclick="showInfoModal(t('pcEditHint'))" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();showInfoModal(t('pcEditHint'));}">ⓘ</span></label>
+      <label>${t('pcLineExpTitle')}</label>
+      ${lineRowsEd}
+      <button type="button" class="btn ghost" style="font-size:12px;margin-bottom:10px;" onclick="pcEdAddLine()">${t('pcAddLineExpense')}</button>
+      <label style="display:block;">${t('pcExpenses')} <span role="button" tabindex="0" title="${t('pcInfoIconTitle')}" aria-label="${t('pcInfoIconTitle')}" style="cursor:pointer;color:var(--ink-soft);font-size:14px;margin-left:4px;user-select:none;" onclick="showInfoModal(t('pcEditHint'))" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();showInfoModal(t('pcEditHint'));}">ⓘ</span></label>
       ${dl}${rows}
       <button type="button" class="btn ghost" style="font-size:12px;" onclick="pcEdAdd()">${t('pcAddExpense')}</button>
-      ${pcEd.expenses.length ? `
+      ${(pcEd.expenses.length || (pcEd.lineExpenses || []).length) ? `
       <div style="display:flex;gap:8px;align-items:center;margin-top:8px;flex-wrap:wrap;">
         <span style="font-size:12.5px;">${t('pcBasis')}</span>
         <select onchange="pcEdSetBasis(this.value)">${['volume', 'weight', 'boxes', 'amount'].map(b => `<option value="${b}" ${pcEd.basis === b ? 'selected' : ''}>${pcBasisLabel(b)}</option>`).join('')}</select>
@@ -665,10 +763,11 @@ function pcEditRender(){
 // 回傳 { error, changed }。沒有支出也沒有舊的 costs → 什麼都不做。
 function pcEditApply(p, cleanItems){
   const oldCosts = p.costs ? JSON.stringify(p.costs) : '';
+  const oldLines = JSON.stringify(p.lineExpenses || []);
   const oldTotals = JSON.stringify((p.items || []).map(i => i.totalAmount === undefined ? null : i.totalAmount));
   if(!pcEd || pcEd.purchaseId !== p.id){
     if(!p.costs) return { changed: false };
-    const r = pcRecompute({ items: cleanItems, costs: p.costs });
+    const r = pcRecompute({ items: cleanItems, costs: p.costs, lineExpenses: p.lineExpenses });
     return r.error ? r : { changed: JSON.stringify(cleanItems.map(i => i.totalAmount === undefined ? null : i.totalAmount)) !== oldTotals };
   }
   const rows = pcEd.expenses.filter(e => (e.name && e.name.trim()) || (e.amount !== '' && e.amount !== undefined));
@@ -682,7 +781,17 @@ function pcEditApply(p, cleanItems){
     if(e.estimated){ o.estimated = true; o.estimatedFrom = e.estimatedFrom || ''; }
     exps.push(o);
   }
-  if(!exps.length && !p.costs) return { changed: false };
+  const lineRowsIn = (pcEd.lineExpenses || []).filter(l => (l.name && l.name.trim()) || (l.amount !== '' && l.amount !== undefined));
+  const lines = [];
+  for(const l of lineRowsIn){
+    const amt = (l.amount === '' || l.amount === undefined) ? null : Number(l.amount);
+    if(!l.name || !l.name.trim() || amt === null || !(amt >= 0)) return { error: t('pcErrLineExpInvalid') };
+    const o = { id: l.id, name: l.name.trim(), amount: pcRound2(amt) };
+    if(l.gst === true || l.gst === false) o.gst = l.gst;
+    if(l.origCurrency && l.fxRate){ o.origCurrency = l.origCurrency; o.fxRate = l.fxRate; o.origAmount = pcRound2(amt / l.fxRate); }
+    lines.push(o);
+  }
+  if(!exps.length && !lines.length && !p.costs && !p.lineExpenses) return { changed: false };
   const rates = {};
   exps.forEach(e => { if(e.currency !== pcEd.base) rates[e.currency] = e.rate; });
   const base = p.costs || { overseas: false, currency: pcEd.base, baseCurrency: pcEd.base };
@@ -692,11 +801,12 @@ function pcEditApply(p, cleanItems){
     expenses: exps,
     expensesAud: pcRound2(exps.reduce((s, e) => s + e.aud, 0))
   });
-  const r = pcRecompute({ items: cleanItems, costs: newCosts });
+  const r = pcRecompute({ items: cleanItems, costs: newCosts, lineExpenses: lines });
   if(r.error) return r;
   p.costs = newCosts;
+  if(lines.length) p.lineExpenses = lines; else delete p.lineExpenses;
   const newTotals = JSON.stringify(cleanItems.map(i => i.totalAmount === undefined ? null : i.totalAmount));
-  return { changed: JSON.stringify(newCosts) !== oldCosts || newTotals !== oldTotals };
+  return { changed: JSON.stringify(newCosts) !== oldCosts || newTotals !== oldTotals || JSON.stringify(lines) !== oldLines };
 }
 // 進貨紀錄清單上的小標記:這張單有「預估」的其他支出,還沒換成正式金額
 function pcEstimateBadge(p){
@@ -712,7 +822,8 @@ function pcHasOriginalData(p){
   const base = p.costs.baseCurrency || 'AUD';
   return !!p.costs.overseas
     || (p.costs.expenses || []).some(e => e.currency && e.currency !== base)
-    || (p.items || []).some(it => it.origCurrency);
+    || (p.items || []).some(it => it.origCurrency)
+    || (p.lineExpenses || []).some(l => l.origCurrency);
 }
 function pcCloseOriginalModal(){ const ov = document.getElementById('pcOriginalOverlay'); if(ov) ov.remove(); }
 function pcOpenOriginalModal(purchaseId){
@@ -743,6 +854,12 @@ function pcOpenOriginalModal(purchaseId){
       <td class="num">${e.currency && e.currency !== base ? fx(e.rate) : '–'}</td>
       <td class="num">${fm(e.aud)} ${pcEsc(base)}</td>
     </tr>`).join('');
+  const lineRows = (p.lineExpenses || []).map(l => `<tr>
+      <td>${pcEsc(l.name)} <span style="color:var(--ink-soft);font-size:11px;">(${t('pcLineExpBadge')})</span></td>
+      <td class="num">${l.origAmount !== undefined && l.origAmount !== null ? `${fm(l.origAmount)} ${pcEsc(l.origCurrency || '')}` : `${fm(l.amount)} ${pcEsc(base)}`}</td>
+      <td class="num">${l.origAmount !== undefined && l.origAmount !== null ? fx(l.fxRate) : '–'}</td>
+      <td class="num">${fm(l.amount)} ${pcEsc(base)}</td>
+    </tr>`).join('');
   const rateLine = Object.keys(p.costs.rates || {}).map(c => `1 ${pcEsc(c)} = ${fx(p.costs.rates[c])} ${pcEsc(base)}`).join(' · ');
   const tt = pcPurchaseTotals(p);
   const html = `
@@ -751,9 +868,11 @@ function pcOpenOriginalModal(purchaseId){
     <div style="font-size:12.5px;font-weight:700;margin:6px 0 4px;">${t('pcOriginalItems')}</div>
     <table class="stock-table"><thead><tr><th>${t('colProduct')}</th><th class="num">${t('colQty')}</th><th class="num">${t('pcColOrigAmount')}</th><th class="num">${t('pcColFxRate')}</th><th class="num">${t('pcColConverted')}</th></tr></thead><tbody>${itemRows}</tbody></table>
     ${origAny ? `<div style="font-size:12.5px;margin-top:4px;">${t('pcOriginalInvoiceTotal')}: <strong>${fm(origSum)} ${pcEsc(origCur)}</strong> → <strong>${fm(tt.base)} ${pcEsc(base)}</strong></div>` : ''}
+    ${lineRows ? `<div style="font-size:12.5px;font-weight:700;margin:10px 0 4px;">${t('pcLineExpTitle')}</div>
+    <table class="stock-table"><thead><tr><th>${t('pcExpenseName')}</th><th class="num">${t('pcColOrigAmount')}</th><th class="num">${t('pcColFxRate')}</th><th class="num">${t('pcColConverted')}</th></tr></thead><tbody>${lineRows}</tbody></table>` : ''}
     ${expRows ? `<div style="font-size:12.5px;font-weight:700;margin:10px 0 4px;">${t('pcExpenses')}</div>
     <table class="stock-table"><thead><tr><th>${t('pcExpenseName')}</th><th class="num">${t('pcColOrigAmount')}</th><th class="num">${t('pcColFxRate')}</th><th class="num">${t('pcColConverted')}</th></tr></thead><tbody>${expRows}</tbody></table>
-    <div style="font-size:12.5px;margin-top:4px;">${t('pcExpenseTotal')}: <strong>${fm(tt.expenses)} ${pcEsc(base)}</strong></div>` : ''}
+    <div style="font-size:12.5px;margin-top:4px;">${t('pcExpenseTotal')}: <strong>${fm(tt.relatedExpenses)} ${pcEsc(base)}</strong></div>` : ''}
     <div style="font-size:12.5px;margin-top:8px;">${t('pcGrandTotal')}: <strong>${fm(tt.total)} ${pcEsc(base)}</strong></div>`;
   const ov = document.createElement('div');
   ov.id = 'pcOriginalOverlay';

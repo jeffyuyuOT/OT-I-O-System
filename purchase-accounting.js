@@ -38,6 +38,13 @@ function paTotals(p){
     if(it.gst === true) gstBase += a;
     else if(it.gst !== false && Number(it.amount) > 0) unset++;
   });
+  // 商品列的其他支出(收據上的 fuel levy 等)也是供應商發票的一部分,各自有 GST 設定
+  ((p && p.lineExpenses) || []).forEach(l => {
+    const a = Number(l.amount) || 0;
+    base += a;
+    if(l.gst === true) gstBase += a;
+    else if(l.gst !== false && a > 0) unset++;
+  });
   let gst, total, ex;
   if(mode === 'ex'){ gst = gstBase * PA_GST_RATE; ex = base; total = base + gst; }
   else { gst = gstBase * PA_GST_RATE / (1 + PA_GST_RATE); total = base; ex = base - gst; }
@@ -92,7 +99,8 @@ function paSetTxItemGst(batchItemId, v){
 // 送出進貨前:有價格的品項要有 GST;沒勾「入會計紀錄」但有價錢 → 跳窗確認。回傳 false = 中止送出。
 async function paPreSubmit(msg){
   if(!paOn()) return true;
-  const priced = txBatchItems.filter(it => Number(it.amount) > 0);
+  const lineExps = (typeof pcState !== 'undefined' && pcState.lineExpenses ? pcState.lineExpenses : []).filter(l => Number(l.amount) > 0).map(l => Object.assign({ name: l.name || '(其他支出)' }, l));
+  const priced = txBatchItems.filter(it => Number(it.amount) > 0).concat(lineExps);
   if(paFormInAccounting()){
     paAutoFillGst(txBatchItems);
     const miss = priced.filter(it => it.gst !== true && it.gst !== false);
@@ -139,7 +147,8 @@ function paEditCheck(items){
   if(!paOn()) return '';
   const c = document.getElementById('editPurchaseAccToggle');
   if(!c || !c.checked) return '';
-  const miss = items.filter(it => it.docType !== 'others' && Number(it.amount) > 0 && it.gst !== true && it.gst !== false);
+  const lineMiss = (typeof pcEd !== 'undefined' && pcEd && pcEd.lineExpenses ? pcEd.lineExpenses : []).filter(l => Number(l.amount) > 0 && l.gst !== true && l.gst !== false);
+  const miss = items.filter(it => it.docType !== 'others' && Number(it.amount) > 0 && it.gst !== true && it.gst !== false).concat(lineMiss.map(l => ({ name: l.name || '(其他支出)' })));
   return miss.length ? tf('paErrNeedGst', { names: miss.map(x => x.name).join('、') }) : '';
 }
 function paEditApply(p){
@@ -246,6 +255,10 @@ function paOpenDetails(id){
     const g = it.gst === true ? 'GST' : (it.gst === false ? t('paGstNone') : '<span style="color:#b26a00;">' + paEsc(t('paGstUnset')) + '</span>');
     return `<tr><td>${paEsc(it.name || '')}${it.docType === 'credit_note' ? ` <span style="color:var(--crit);font-size:11px;">(${t('docTypeCreditNoteBadge')})</span>` : ''}</td><td class="num">${paEsc(it.qty)} ${paEsc(it.unit || '')}</td><td class="num">${it.amount !== undefined && it.amount !== null ? paM2(sign * Number(it.amount)) : '–'}</td><td>${g}</td></tr>`;
   }).join('');
+  const lineItems = (p.lineExpenses || []).map(l => {
+    const g = l.gst === true ? 'GST' : (l.gst === false ? t('paGstNone') : '<span style="color:#b26a00;">' + paEsc(t('paGstUnset')) + '</span>');
+    return `<tr style="background:var(--bg-soft,#f5f5f0);"><td>${paEsc(l.name || '')} <span style="color:var(--ink-soft);font-size:11px;">(${t('pcLineExpBadge')})</span></td><td class="num"></td><td class="num">${paM2(Number(l.amount) || 0)}</td><td>${g}</td></tr>`;
+  }).join('');
   const exp = (p.costs && Number(p.costs.expensesAud)) || 0;
   paCloseOverlay('paDetailsOverlay');
   const ov = document.createElement('div');
@@ -267,7 +280,7 @@ function paOpenDetails(id){
       ${p.note ? row(t('colNote'), paEsc(p.note)) : ''}
     </tbody></table>
     ${i.unset > 0 ? `<div style="margin-top:8px;font-size:12px;color:#b26a00;">${paEsc(tf('paUnsetWarn', { n: i.unset }))}</div>` : ''}
-    <div style="margin-top:12px;overflow-x:auto;"><table class="stock-table"><thead><tr><th>${t('colProduct')}</th><th class="num">${t('colQty')}</th><th class="num">${t('colAmount')}</th><th>GST</th></tr></thead><tbody>${items}</tbody></table></div>
+    <div style="margin-top:12px;overflow-x:auto;"><table class="stock-table"><thead><tr><th>${t('colProduct')}</th><th class="num">${t('colQty')}</th><th class="num">${t('colAmount')}</th><th>GST</th></tr></thead><tbody>${items}${lineItems}</tbody></table></div>
     <div class="modal-actions">
       <button class="btn ghost" onclick="paCloseOverlay('paDetailsOverlay')">${t('btnClose')}</button>
       <button class="btn ghost" onclick="paCloseOverlay('paDetailsOverlay');openEditPurchaseModal('${paEsc(p.id)}')">${t('btnEdit')}</button>
