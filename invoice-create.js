@@ -123,11 +123,10 @@ function icRenderItems(){
       <td>${invEsc(it.desc)}${it.sku ? `<div style="font-size:11px;color:var(--ink-soft);">${invEsc(it.sku)}</div>` : ''}</td>
       <td><input type="number" min="0" step="any" value="${invEsc(it.qty)}" style="width:70px;" oninput="icEditItem(${i},'qty',this.value)" /> ${invEsc(it.unit || '')}</td>
       <td><input type="number" min="0" step="0.01" value="${it.price === '' ? '' : invEsc(it.price)}" placeholder="0.00" style="width:90px;" oninput="icEditItem(${i},'price',this.value)" /></td>
-      <td style="text-align:center;"><input type="checkbox" ${it.gst ? 'checked' : ''} onchange="icEditItem(${i},'gst',this.checked)" /></td>
       <td class="num" id="icAmt${i}">${invMoney2(amt)}</td>
       <td><span class="del-link" onclick="icRemoveItem(${i})">✕</span></td></tr>`;
   }).join('');
-  box.innerHTML = `<div style="overflow-x:auto;"><table class="stock-table"><thead><tr><th>${t('icColItem')}</th><th>${t('icColQty')}</th><th>${t('icColPrice')}</th><th>GST</th><th class="num">${t('icColAmount')}</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>
+  box.innerHTML = `<div style="overflow-x:auto;"><table class="stock-table"><thead><tr><th>${t('icColItem')}</th><th>${t('icColQty')}</th><th>${t('icColPrice')}</th><th class="num">${t('icColAmount')}</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>
     <div id="icTotals" style="text-align:right;font-size:13px;margin-top:6px;"></div>`;
   icRenderTotals();
 }
