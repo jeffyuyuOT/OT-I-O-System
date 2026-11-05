@@ -627,7 +627,7 @@ async function invExportMyob(orderId){
 // 訂單卡片狀態欄左邊的「linked INV00000001」(只有看得到 Invoice 的人看得到;點下去開 Invoice)
 function invLinkedBadgeHtml(o){
   if(!o || !o.invoice || !o.invoice.no || typeof canCreateInvoice !== 'function' || !canCreateInvoice()) return '';
-  return `<span class="inv-linked-badge" title="${invEsc(t('invLinkedTip'))}" style="font-size:11.5px;color:var(--ink-soft);margin-right:6px;cursor:pointer;white-space:nowrap;" onclick="event.stopPropagation();invOpenView('${invEsc(o.id)}')">${invEsc(t('invLinkedLabel'))} <span style="text-decoration:underline;font-weight:600;">INV${invEsc(o.invoice.no)}</span></span>`;
+  return `<span class="inv-linked-badge" title="${invEsc(t('invLinkedTip'))}" style="font-size:11.5px;color:var(--ink-soft);margin-right:6px;cursor:pointer;white-space:nowrap;" onclick="event.stopPropagation();invOpenView('${invEsc(o.id)}')">${invEsc(t('invLinkedLabel'))} <span style="text-decoration:underline;font-weight:600;">INV${invEsc(o.invoice.no)}</span><span title="Copy" style="margin-left:4px;cursor:pointer;" onclick="event.stopPropagation();invCopyText('INV${invEsc(o.invoice.no)}',this)">⧉</span></span>`;
 }
 const INV_LINE_KEYS = ['desc', 'sku', 'comment', 'qty', 'unit', 'price', 'disc', 'amount', 'tax'];
 function invLineKey(l){ return (l.sku || '') + '|' + (l.desc || ''); }
@@ -1324,4 +1324,11 @@ function invGotoOrder(orderId){
     const old = el.style.boxShadow; el.style.boxShadow = '0 0 0 3px var(--yellow, #e5a02f)';
     setTimeout(() => { el.style.boxShadow = old; }, 2500);
   }, 150);
+}
+
+// 複製文字到剪貼簿,圖示暫時變成 ✓
+function invCopyText(text, el){
+  const done = () => { if(!el) return; const o = el.textContent; el.textContent = '✓'; setTimeout(() => { el.textContent = o; }, 1200); };
+  const fallback = () => { const ta = document.createElement('textarea'); ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0'; document.body.appendChild(ta); ta.select(); try{ document.execCommand('copy'); }catch(e){} ta.remove(); done(); };
+  if(navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(done, fallback); else fallback();
 }
