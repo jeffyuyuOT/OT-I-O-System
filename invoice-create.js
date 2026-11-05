@@ -468,7 +468,7 @@ async function icOnInvSearch(v){
   const q = (v || '').trim().toLowerCase();
   if(!q){ box.innerHTML = ''; return; }
   await invLoadList();
-  const m = (invList || []).filter(r => [r.invoice_no, r.customer, r.order_no].join(' ').toLowerCase().includes(q)).slice(0, 12);
+  const m = (invList || []).filter(r => ['INV' + (r.invoice_no || ''), r.invoice_no, r.customer, r.order_no].join(' ').toLowerCase().includes(q)).slice(0, 12);
   box.innerHTML = m.length
     ? m.map(r => `<div class="batch-link" style="padding:6px 4px;border-bottom:1px solid var(--line);cursor:pointer;" onclick="icPickInvoice('${invEsc(r.id)}')">INV${invEsc(r.invoice_no)} · ${invEsc(r.customer)} · ${invEsc(invIsoToDmy(r.invoice_date))} · ${invMoney2(r.total)}</div>`).join('')
     : `<div class="empty-note">${t('icNoInvoice')}</div>`;
@@ -623,7 +623,7 @@ function icCnRender(){
   if(icCnErr){ root.innerHTML = `<div class="empty-note">${t('invLoadFailed')}</div>`; return; }
   const f = icCnF, q = f.q.trim().toLowerCase();
   const list = (icCnRows || []).filter(r => (!f.from || r.cn_date >= f.from) && (!f.to || r.cn_date <= f.to) && (!f.st || (r.return_status || 'none') === f.st)
-    && (!q || [r.cn_no, r.customer, r.invoice_no].join(' ').toLowerCase().includes(q)));
+    && (!q || [r.cn_no, r.customer, 'INV' + (r.invoice_no || ''), r.invoice_no].join(' ').toLowerCase().includes(q)));
   const sum = list.reduce((a, r) => a + (Number(r.total) || 0), 0);
   const availSum = list.reduce((a, r) => a + (r.invoice_id ? 0 : (Number(r.total) || 0) - (Number(r.applied) || 0)), 0);   // 單獨 Credit Note 的可用額度合計
   const stOpt = (v, l) => `<option value="${v}" ${f.st === v ? 'selected' : ''}>${l}</option>`;

@@ -805,7 +805,7 @@ function invFilteredList(key){
     && (!f.pay || (f.pay === 'cod' ? r.payment_type === 'cod' : r.payment_type !== 'cod'))
     && (!f.rep || (r.sale_rep || '') === f.rep)
     && (!f.status || invRowInfo(r).status === f.status)
-    && (!q || [r.invoice_no, r.customer, r.order_no, r.sale_rep].join(' ').toLowerCase().includes(q)));
+    && (!q || ['INV' + (r.invoice_no || ''), r.invoice_no, r.customer, r.order_no, r.sale_rep].join(' ').toLowerCase().includes(q)));
 }
 function invRenderList(key){
   key = key || 'main';
