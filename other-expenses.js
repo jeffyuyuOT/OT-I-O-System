@@ -108,9 +108,17 @@ function oeRender(){
       <div class="field" style="min-width:220px;"><label>${t('invFltSearch')}</label><input type="search" id="oeFlt_q" value="${oeEsc(f.q)}" oninput="oeOnFilter(true)" placeholder="${oeEsc(t('oeSearchPh'))}" /></div>
       <button class="btn ghost" onclick="oeClearFilter()" style="align-self:flex-end;">${t('btnClearFilter')}</button>
     </div>
+    <div style="font-size:11px;color:var(--ink-soft);margin:-4px 0 8px;">${oeEsc(oeDiagText())}</div>
     ${list.length === 0 ? `<div class="empty-note">${t('oeEmpty')}</div>` : `<div style="overflow-x:auto;"><table class="stock-table"><thead><tr><th>${t('colDate')}</th><th>${t('oeColItem')}</th><th>${t('oeColPayee')}</th><th>Linked INV</th><th class="num">${t('paColAmount')}</th><th class="num">${t('paColPaid')}</th><th class="num">${t('paColUnpaid')}</th><th>${t('invFltStatus')}</th><th></th></tr></thead>
       <tbody>${rows}<tr style="font-weight:700;border-top:2px solid var(--line, #ccc);"><td colspan="4" style="text-align:right;">${t('invListTotals')} (${list.length})</td><td class="num">${paM2(sum.t)}</td><td class="num">${paM2(sum.p)}</td><td class="num">${paM2(sum.b)}</td><td colspan="2"></td></tr></tbody>
     </table></div>`}`;
+}
+// 診斷用:顯示載入了幾張進貨單、幾張有相關支出、幾張計入會計
+function oeDiagText(){
+  const ps = (typeof purchases !== 'undefined' && Array.isArray(purchases)) ? purchases : [];
+  const withExp = ps.filter(p => p && p.costs && (p.costs.expenses || []).length);
+  const counted = withExp.filter(p => paCounted(p));
+  return `[diag] purchases=${ps.length}, withRelatedExp=${withExp.length}, counted=${counted.length}, entries=${oeAllEntries().length}, standalone=${oeRows.length}, paOn=${paOn()}, loaded=${typeof purchasesLoaded !== 'undefined' ? purchasesLoaded : '?'}`;
 }
 function oeOnFilter(keepFocus){
   oeFilter = {
