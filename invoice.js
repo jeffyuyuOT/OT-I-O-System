@@ -386,7 +386,7 @@ async function invSavePaid(){
 function invOpenCreate(orderId){
   if(!canCreateInvoice()) return;
   const order = orders.find(o => o.id === orderId);
-  if(!order || order.deleted || orderStatus(order) !== 'confirmed') return;
+  if(!order || order.deleted) return;   // 待處理 / 處理中 / 已完成的訂單都可以開 Invoice(一張訂單只能開一次)
   if(order.invoice){ invOpenView(orderId); return; }
   const r = invBuildSnapshot(order);
   if(!r.ok){
@@ -405,6 +405,7 @@ async function invFetchSnapshot(invoiceId){
 async function invOpenView(orderId){
   const order = orders.find(o => o.id === orderId);
   if(!order || !order.invoice) return;
+  if(invOrderSyncable(order)) await invSyncOrders([order]);
   if(order.invoice.lines){ invShowModal(orderId, order.invoice, true); return; }
   try{ invShowModal(orderId, await invFetchSnapshot(order.invoice.id), true); }
   catch(e){ console.error('讀取 Invoice 失敗', e); showInfoModal(t('invLoadFailed')); }
@@ -609,6 +610,65 @@ async function invExportMyob(orderId){
 
 
 // ============================================================
+// 訂單 ↔ Invoice 連動:訂單(待處理 / 已完成)改了內容,Invoice 的明細與總額跟著更新並留下變更紀錄;
+// 訂單簽收之後訂單不能再改,Invoice 也就不再變。Invoice 號碼、日期、已收款不隨訂單變動。
+// ============================================================
+// 訂單卡片狀態欄左邊的「linked INV00000001」(只有看得到 Invoice 的人看得到;點下去開 Invoice)
+function invLinkedBadgeHtml(o){
+  if(!o || !o.invoice || !o.invoice.no || typeof canCreateInvoice !== 'function' || !canCreateInvoice()) return '';
+  return `<span class="inv-linked-badge" title="${invEsc(t('invLinkedTip'))}" style="font-size:11.5px;color:var(--ink-soft);margin-right:6px;cursor:pointer;white-space:nowrap;" onclick="event.stopPropagation();invOpenView('${invEsc(o.id)}')">${invEsc(t('invLinkedLabel'))} <span style="text-decoration:underline;font-weight:600;">INV${invEsc(o.invoice.no)}</span></span>`;
+}
+const INV_LINE_KEYS = ['desc', 'sku', 'comment', 'qty', 'unit', 'price', 'disc', 'amount', 'tax'];
+function invLineKey(l){ return (l.sku || '') + '|' + (l.desc || ''); }
+// 比對新舊兩份快照,回傳變更內容(沒變回傳 null)
+function invDiffSnap(oldS, newS){
+  const oldL = oldS.lines || [], newL = newS.lines || [];
+  const same = oldL.length === newL.length && oldL.every((l, i) => INV_LINE_KEYS.every(k => String(l[k] === undefined ? '' : l[k]) === String(newL[i][k] === undefined ? '' : newL[i][k])));
+  const noteChanged = (oldS.note || '') !== (newS.note || '');
+  if(same && !noteChanged && Number(oldS.total) === Number(newS.total)) return null;
+  const om = new Map(oldL.map(l => [invLineKey(l), l])), nm = new Map(newL.map(l => [invLineKey(l), l]));
+  const d = { added: [], removed: [], changed: [], total: [Number(oldS.total), Number(newS.total)] };
+  newL.forEach(l => { const o = om.get(invLineKey(l)); if(!o) d.added.push({ desc: l.desc, qty: l.qty, unit: l.unit, price: l.price }); else if(Number(o.qty) !== Number(l.qty) || Number(o.price) !== Number(l.price) || Number(o.amount) !== Number(l.amount)) d.changed.push({ desc: l.desc, unit: l.unit, qty: [o.qty, l.qty], price: [o.price, l.price] }); });
+  oldL.forEach(l => { if(!nm.has(invLineKey(l))) d.removed.push({ desc: l.desc, qty: l.qty, unit: l.unit, price: l.price }); });
+  if(noteChanged) d.note = [oldS.note || '', newS.note || ''];
+  return d;
+}
+function invOrderSyncable(o){ return !!(o && o.invoice && o.invoice.id && !o.invoice.lines && !o.deleted && !o.signedAt); }
+let invSyncBusy = false;
+// 把一批訂單(或全部)跟各自的 Invoice 對一次,有差異就更新。回傳更新了幾張。
+async function invSyncOrders(orderList){
+  if(invSyncBusy || typeof canCreateInvoice !== 'function' || !canCreateInvoice() || invDbMode === 'legacy') return 0;
+  const list = (orderList || orders || []).filter(invOrderSyncable);
+  if(!list.length) return 0;
+  invSyncBusy = true; let n = 0;
+  try{
+    await loadInvoiceSettings();
+    const { data, error } = await sb.from('invoices').select('id,snapshot').in('id', list.map(o => o.invoice.id));
+    if(error) throw error;
+    const snaps = new Map((data || []).map(r => [r.id, r.snapshot]));
+    for(const o of list){
+      const oldS = snaps.get(o.invoice.id); if(!oldS) continue;
+      const r = invBuildSnapshot(o);
+      if(!r.ok) continue;     // 設定不完整、有品項沒價錢、或整張訂單沒有品項:不動 Invoice
+      const newS = Object.assign({}, oldS, { lines: r.snap.lines, beforeTax: r.snap.beforeTax, tax: r.snap.tax, total: r.snap.total, note: r.snap.note, orderNo: r.snap.orderNo });
+      const detail = invDiffSnap(oldS, newS);
+      if(!detail) continue;
+      const { error: e2 } = await sb.rpc('invoice_sync', { p_invoice_id: o.invoice.id, p_snapshot: newS, p_detail: detail });
+      if(e2){ if(!invIsMissingFn(e2)) console.error('更新 Invoice 失敗', e2); continue; }   // 還沒執行 invoice_changes.sql 就不連動
+      n++;
+      try{ logInventoryAction('order_edit', `Order ${o.orderNo || o.id} - invoice ${oldS.no} updated (${invMoney2(detail.total[0])} → ${invMoney2(detail.total[1])})`, o.orderNo); }catch(e){}
+    }
+  }catch(e){ console.error('同步 Invoice 失敗', e); }
+  finally{ invSyncBusy = false; }
+  if(n){ invList = []; try{ invRerenderLists(); }catch(e){} }
+  return n;
+}
+// 訂單存檔後呼叫(db.js upsertOrders):不擋住存檔,背景同步
+function invAfterOrdersSaved(orderList){
+  try{ if(typeof canCreateInvoice === 'function' && canCreateInvoice()) invSyncOrders(orderList); }catch(e){}
+}
+
+// ============================================================
 // 會計分頁 → Invoices 清單(含收款狀態)、收款記錄、出貨方的 Invoice 記錄
 // ============================================================
 let invList = [];            // 從 invoices 資料表讀到的清單(不含完整快照)
@@ -641,10 +701,12 @@ function invStatusBadge(st){
 async function invLoadList(force){
   if(!force && invList.length && !invListError) return;
   invListError = '';
+  const base = 'id,invoice_no,order_id,order_no,party_id,customer,invoice_date,due_date,terms,payment_type,sale_rep,before_tax,tax,total,paid,currency';
+  const run = cols => sb.from('invoices').select(cols).order('invoice_date', { ascending: false }).order('invoice_no', { ascending: false }).limit(5000);
   try{
-    const { data, error } = await sb.from('invoices')
-      .select('id,invoice_no,order_id,order_no,party_id,customer,invoice_date,due_date,terms,payment_type,sale_rep,before_tax,tax,total,paid,currency')
-      .order('invoice_date', { ascending: false }).order('invoice_no', { ascending: false }).limit(5000);
+    // change_count(Invoice 變更過幾次)需要先執行 sql/invoice_changes.sql;還沒執行就退回不帶這欄
+    let { data, error } = await run(base + ',change_count');
+    if(error && (error.code === '42703' || /change_count/.test(error.message || ''))) ({ data, error } = await run(base));
     if(error) throw error;
     invList = data || [];
   }catch(e){
@@ -667,13 +729,14 @@ function applyInvoiceFeatureVisibility(){
       else sel.value = 'subtab-price-setting';
     }
   }
-  if(off){ try{ invClosePartyRecords(); invClosePayments(); invCloseModal(); }catch(e){} }
+  if(off){ try{ invClosePartyRecords(); invClosePayments(); invCloseDetails(); invCloseModal(); }catch(e){} }
   try{ if(typeof renderOrders === 'function') renderOrders(); }catch(e){}
 }
 async function invOpenListPage(){
   if(!canCreateInvoice()) return;
   const root = document.getElementById(invCtx.main.rootId);
   if(root) root.innerHTML = `<div class="empty-note">${t('batchLoading')}</div>`;
+  await invSyncOrders();   // 先把「別人改了訂單、Invoice 還沒跟上」的補上(例如倉庫管理員改的)
   await invLoadList(true);
   invRenderList('main');
 }
@@ -703,20 +766,19 @@ function invRenderList(key){
     if(i.status === 'overdue'){ a.od += i.balance; a.odN++; }
     return a;
   }, { b: 0, t: 0, g: 0, p: 0, bal: 0, od: 0, odN: 0 });
+  const showCust = key !== 'party';   // 出貨方的 Invoice 記錄整頁都是同一個客戶,不用再列客戶欄
   const rows = list.map(r => {
     const i = invRowInfo(r);
-    const dueTxt = r.payment_type === 'cod' ? 'COD' : (r.terms ? r.terms + ' Days' : '');
+    const changed = Number(r.change_count) > 0;
     return `<tr>
       <td style="white-space:nowrap;cursor:pointer;" onclick="invOpenFromList('${invEsc(r.id)}')"><span class="batch-link">${invEsc(r.invoice_no)}</span></td>
       <td style="white-space:nowrap;">${invEsc(invIsoToDmy(r.invoice_date))}</td>
-      <td>${invEsc(r.customer)}</td>
+      ${showCust ? `<td>${invEsc(r.customer)}</td>` : ''}
       <td>${invEsc(r.order_no)}</td>
-      <td style="white-space:nowrap;">${invEsc(dueTxt)}<div style="font-size:10.5px;color:var(--ink-soft);">${invEsc(invIsoToDmy(r.payment_type === 'cod' ? '' : r.due_date))}</div></td>
-      <td>${invEsc(r.sale_rep)}</td>
-      <td class="num">${invMoney2(r.before_tax)}</td><td class="num">${invMoney2(r.tax)}</td><td class="num"><b>${invMoney2(i.total)}</b></td>
+      <td class="num"><b>${invMoney2(i.total)}</b></td>
       <td class="num">${invMoney2(i.paid)}</td><td class="num"><b>${invMoney2(i.balance)}</b></td>
       <td style="white-space:nowrap;">${invStatusBadge(i.status)}</td>
-      <td style="white-space:nowrap;"><span class="del-link" onclick="invOpenPayments('${invEsc(r.id)}')">${t('invBtnPayments')}</span></td>
+      <td style="white-space:nowrap;">${changed ? `<span class="batch-info-icon" title="${invEsc(t('invChangedTip'))}" style="color:#b45309;font-size:15px;margin-right:6px;" onclick="invOpenDetails('${invEsc(r.id)}')">✎</span>` : ''}<span class="del-link" onclick="invOpenPayments('${invEsc(r.id)}')">${t('invBtnPayments')}</span> <span class="batch-info-icon" style="margin-left:6px;" title="${invEsc(t('invBtnDetails'))}" onclick="invOpenDetails('${invEsc(r.id)}')">ⓘ</span></td>
     </tr>`;
   }).join('');
   const sel = (id, val, opts) => `<select id="${id}" onchange="invOnListFilter('${key}')">${opts.map(o => `<option value="${invEsc(o[0])}" ${val === o[0] ? 'selected' : ''}>${invEsc(o[1])}</option>`).join('')}</select>`;
@@ -739,9 +801,9 @@ function invRenderList(key){
       <button class="btn ghost" onclick="invExportListXlsx('${key}')" style="align-self:flex-end;">${t('invExportList')}</button>
     </div>
     ${list.length === 0 ? `<div class="empty-note">${t('invListEmpty')}</div>` : `<div style="font-size:11.5px;color:var(--ink-soft);margin-bottom:6px;">${t('invListClickHint')}</div>
-    <div style="overflow-x:auto;"><table class="stock-table"><thead><tr><th>Invoice No</th><th>Invoice Date</th><th>${t('invColCustomer')}</th><th>${t('invColOrder')}</th><th>Terms / Due</th><th>Sale Rep</th><th class="num">${t('spSaleAmt')}</th><th class="num">${t('spGstAmt')}</th><th class="num">${t('spTotalAmt')}</th><th class="num">${t('invColPaid')}</th><th class="num">${t('invColBalance')}</th><th>${t('invFltStatus')}</th><th></th></tr></thead>
+    <div style="overflow-x:auto;"><table class="stock-table"><thead><tr><th>Invoice No</th><th>Invoice Date</th>${showCust ? `<th>${t('invColCustomer')}</th>` : ''}<th>${t('invColOrder')}</th><th class="num">${t('spTotalAmt')}</th><th class="num">${t('invColPaid')}</th><th class="num">${t('invColBalance')}</th><th>${t('invFltStatus')}</th><th></th></tr></thead>
       <tbody>${rows}</tbody>
-      <tfoot><tr style="font-weight:700;"><td colspan="6" style="text-align:right;">${t('invListTotals')} (${list.length})</td><td class="num">${invMoney2(sum.b)}</td><td class="num">${invMoney2(sum.t)}</td><td class="num">${invMoney2(sum.g)}</td><td class="num">${invMoney2(sum.p)}</td><td class="num">${invMoney2(sum.bal)}</td><td colspan="2"></td></tr></tfoot></table></div>`}`;
+      <tfoot><tr style="font-weight:700;"><td colspan="${showCust ? 4 : 3}" style="text-align:right;">${t('invListTotals')} (${list.length})</td><td class="num">${invMoney2(sum.g)}</td><td class="num">${invMoney2(sum.p)}</td><td class="num">${invMoney2(sum.bal)}</td><td colspan="2"></td></tr></tfoot></table></div>`}`;
 }
 function invClearListFilter(key){
   invCtx[key].filter = { from: '', to: '', q: '', status: '', pay: '', rep: '' };
@@ -778,6 +840,70 @@ function invExportListXlsx(key){
   ws['!cols'] = [{ wch: 12 }, { wch: 12 }, { wch: 30 }, { wch: 12 }, { wch: 10 }, { wch: 12 }, { wch: 16 }, { wch: 16 }, { wch: 10 }, { wch: 18 }, { wch: 12 }, { wch: 12 }, { wch: 10 }, { wch: 8 }];
   const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, 'Invoices');
   XLSX.writeFile(wb, `invoices_${invToday()}.xlsx`);
+}
+
+// ---------- 詳細資料視窗(清單上放不下的欄位 + 變更紀錄)----------
+function invCloseDetails(){ const o = document.getElementById('invDetailsOverlay'); if(o) o.remove(); }
+function invChangeDetailHtml(d){
+  if(!d) return '';
+  const q = n => (Number.isInteger(Number(n)) ? String(Number(n)) : invMoney2(n));
+  const li = [];
+  (d.added || []).forEach(x => li.push(`<li>${invEsc(t('invChAdded'))}: ${invEsc(x.desc)} × ${q(x.qty)} ${invEsc(x.unit || '')} @ ${invMoney2(x.price)}</li>`));
+  (d.removed || []).forEach(x => li.push(`<li>${invEsc(t('invChRemoved'))}: ${invEsc(x.desc)} × ${q(x.qty)} ${invEsc(x.unit || '')}</li>`));
+  (d.changed || []).forEach(x => {
+    const parts = [];
+    if(Number(x.qty[0]) !== Number(x.qty[1])) parts.push(`${invEsc(t('invChQty'))} ${q(x.qty[0])} → ${q(x.qty[1])}`);
+    if(Number(x.price[0]) !== Number(x.price[1])) parts.push(`${invEsc(t('invChPrice'))} ${invMoney2(x.price[0])} → ${invMoney2(x.price[1])}`);
+    li.push(`<li>${invEsc(x.desc)}: ${parts.join(', ') || invEsc(t('invChAmount'))}</li>`);
+  });
+  if(d.note) li.push(`<li>${invEsc(t('invChNote'))}: "${invEsc(d.note[0])}" → "${invEsc(d.note[1])}"</li>`);
+  return li.length ? `<ul style="margin:3px 0 0 16px;padding:0;font-size:12px;">${li.join('')}</ul>` : '';
+}
+async function invOpenDetails(invoiceId){
+  if(!canCreateInvoice()) return;
+  try{
+    const [{ data: inv, error: e1 }, cr] = await Promise.all([
+      sb.from('invoices').select('*').eq('id', invoiceId).maybeSingle(),
+      sb.from('invoice_changes').select('*').eq('invoice_id', invoiceId).order('changed_at', { ascending: false })
+    ]);
+    if(e1 || !inv) throw e1 || new Error('not found');
+    const changes = cr.error ? [] : (cr.data || []);   // 變更紀錄表還沒建立就當作沒有
+    const i = invRowInfo(inv);
+    const row = (k, v) => `<tr><td style="color:var(--ink-soft);white-space:nowrap;vertical-align:top;">${k}</td><td>${v === '' || v === null || v === undefined ? '–' : v}</td></tr>`;
+    const terms = inv.payment_type === 'cod' ? `COD (${invEsc(tf('invDtCodGrace', { n: invCodGrace() }))})` : (inv.terms ? invEsc(inv.terms) + ' Days' : '');
+    const when = iso => { try{ return new Date(iso).toLocaleString(); }catch(e){ return iso || ''; } };
+    const ov = document.createElement('div');
+    ov.id = 'invDetailsOverlay'; ov.className = 'modal-overlay'; ov.style.display = 'flex'; ov.style.zIndex = '1250';
+    ov.onclick = e => { if(e.target === ov) invCloseDetails(); };
+    ov.innerHTML = `<div class="modal-box" style="max-width:min(640px,96vw);max-height:92vh;overflow:auto;">
+      <div class="section-title" style="margin-top:0;">${invEsc(t('invDetailTitle'))} · ${invEsc(inv.invoice_no)}</div>
+      <div style="font-size:12.5px;margin:0 0 8px;">${invEsc(inv.customer)} · ${invStatusBadge(i.status)}</div>
+      <table class="stock-table"><tbody>
+        ${row('Invoice Date', invEsc(invIsoToDmy(inv.invoice_date)))}
+        ${row('Terms', terms)}
+        ${row('Due Date', inv.payment_type === 'cod' ? '' : invEsc(invIsoToDmy(inv.due_date)))}
+        ${row(t('invDtPayType'), inv.payment_type === 'cod' ? 'COD' : 'Bank Transfer')}
+        ${row('Sale Rep', invEsc(inv.sale_rep))}
+        ${row(t('invColOrder'), invEsc(inv.order_no))}
+        ${row(t('spSaleAmt'), invMoney2(inv.before_tax))}
+        ${row(t('spGstAmt'), invMoney2(inv.tax))}
+        ${row(t('spTotalAmt'), '<b>' + invMoney2(i.total) + '</b>')}
+        ${row(t('invColPaid'), invMoney2(i.paid))}
+        ${row(t('invColBalance'), '<b>' + invMoney2(i.balance) + '</b>')}
+        ${row(t('invDtCreated'), invEsc((inv.created_by || '') + (inv.created_at ? ' · ' + when(inv.created_at) : '')))}
+      </tbody></table>
+      <div style="margin-top:12px;font-size:12.5px;font-weight:700;">${invEsc(t('invChangeTitle'))}</div>
+      ${changes.length === 0 ? `<div class="empty-note" style="margin:4px 0;">${invEsc(t('invChangeNone'))}</div>` : changes.map(c => `<div style="padding:6px 0;border-top:1px solid var(--line);">
+          <div style="font-size:12px;"><b>${invEsc(when(c.changed_at))}</b> · ${invEsc(c.changed_by || '')} · ${invEsc(t('invChTotal'))} ${invMoney2(c.before_total)} → <b>${invMoney2(c.after_total)}</b></div>
+          ${invChangeDetailHtml(c.detail)}
+        </div>`).join('')}
+      <div class="modal-actions"><button class="btn ghost" onclick="invCloseDetails()">${t('btnClose')}</button></div>
+    </div>`;
+    document.body.appendChild(ov);
+  }catch(e){
+    console.error('讀取 Invoice 詳細資料失敗', e);
+    showInfoModal(t('invLoadFailed'));
+  }
 }
 
 // ---------- 收款記錄視窗 ----------
@@ -947,7 +1073,9 @@ async function invExportForBackup(){
     if(error) throw error;
     const pr = await sb.from('invoice_payments').select('*').order('created_at', { ascending: true }).limit(200000);
     const payments = pr.error ? [] : (pr.data || []);   // 收款表還沒建立(沒執行 invoice_payments.sql)時,備份裡就沒有收款
-    return { invoices: data || [], payments, next: await invGetNextNo() };
+    const cr = await sb.from('invoice_changes').select('*').order('id', { ascending: true }).limit(200000);
+    const changes = cr.error ? [] : (cr.data || []);    // 變更紀錄表還沒建立(沒執行 invoice_changes.sql)時,備份裡就沒有變更紀錄
+    return { invoices: data || [], payments, changes, next: await invGetNextNo() };
   }catch(e){
     if(invIsMissingFn(e)) return null;
     throw e;
@@ -956,7 +1084,9 @@ async function invExportForBackup(){
 async function invRestoreFromBackup(backup){
   const d = backup && backup.invoiceData;
   if(!d || !Array.isArray(d.invoices)) return;
-  const { error } = await sb.rpc('invoice_restore_all', { p_rows: d.invoices, p_next: d.next || 1, p_payments: Array.isArray(d.payments) ? d.payments : [] });
+  const args = { p_rows: d.invoices, p_next: d.next || 1, p_payments: Array.isArray(d.payments) ? d.payments : [] };
+  let { error } = await sb.rpc('invoice_restore_all', Object.assign({ p_changes: Array.isArray(d.changes) ? d.changes : [] }, args));
+  if(error && invIsMissingFn(error)) ({ error } = await sb.rpc('invoice_restore_all', args));   // 還沒執行 invoice_changes.sql:用舊版函式還原(不含變更紀錄)
   if(error && !invIsMissingFn(error)) throw error;
 }
 async function invClearAll(){

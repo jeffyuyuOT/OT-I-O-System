@@ -296,6 +296,7 @@ async function upsertOrders(orderList){
   const { error } = await sb.from('orders').upsert(rows);
   if(error){ console.error('儲存訂單失敗', error); throw error; }
   scheduleAutoBackup();
+  if(typeof invAfterOrdersSaved === 'function') invAfterOrdersSaved(orderList);   // 已開 Invoice 的訂單改了內容 → Invoice 跟著更新
 }
 
 async function loadDeliveryNotes(){
