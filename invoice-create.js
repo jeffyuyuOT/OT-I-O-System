@@ -691,7 +691,8 @@ async function icCnOpenDetails(id){
     const ov = document.createElement('div');
     ov.id = 'icCnDetailsOverlay'; ov.className = 'modal-overlay'; ov.style.display = 'flex'; ov.style.zIndex = '1250';
     ov.onclick = e => { if(e.target === ov) icCloseOverlay('icCnDetailsOverlay'); };
-    const linkInv = cn.invoice_id ? `<span class="batch-link" onclick="icCloseOverlay('icCnDetailsOverlay');invOpenDetails('${invEsc(cn.invoice_id)}')">INV${invEsc(cn.invoice_no || '')}</span>` : '';
+    const lk = (id, no) => `<div style="white-space:nowrap;"><span style="font-size:11.5px;color:var(--ink-soft);">${invEsc(t('invLinkedLabel'))}</span> <span class="batch-link" onclick="icCloseOverlay('icCnDetailsOverlay');invOpenDetails('${invEsc(id)}')">INV${invEsc(no || '')}</span></div>`;
+    const linkInv = cn.invoice_id ? lk(cn.invoice_id, cn.invoice_no) : [...new Map(uses.map(x => [x.invoice_id, x])).values()].map(x => lk(x.invoice_id, x.invoice_no)).join('');
     ov.innerHTML = `<div class="modal-box" style="max-width:min(560px,96vw);max-height:92vh;overflow:auto;">
       <div class="section-title" style="margin-top:0;">${t('icCnDetailTitle')} · ${invEsc(cn.cn_no)}</div>
       <div style="font-size:12.5px;margin:0 0 8px;">${invEsc(invCustLabel(cn))} · ${icRsBadge(cn.return_status)}</div>
@@ -705,7 +706,7 @@ async function icCnOpenDetails(id){
         ${cn.invoice_id ? '' : row(t('invCreditAvail'), '<b>' + invMoney2(Math.max(0, total - used)) + '</b>')}
         ${row(t('invDtCreated'), invEsc((cn.created_by || '') + (cn.created_at ? ' · ' + when(cn.created_at) : '')))}
       </tbody></table>
-      ${cn.invoice_id ? `<div style="margin-top:12px;font-size:12px;color:var(--ink-soft);">${invEsc(t('icCnAppliedToInv'))} INV${invEsc(cn.invoice_no || '')}</div>` : `
+      ${cn.invoice_id ? '' : `
         <div style="margin-top:12px;font-size:12.5px;font-weight:700;">${invEsc(t('icCnUseHistory'))}</div>
         ${uses.length ? uses.map(x => `<div style="padding:5px 0;border-top:1px solid var(--line);font-size:12px;"><span class="batch-link" onclick="icCloseOverlay('icCnDetailsOverlay');invOpenDetails('${invEsc(x.invoice_id)}')">INV${invEsc(x.invoice_no || '')}</span> · ${invEsc(invIsoToDmy(x.pay_date))} · <b>${invMoney2(x.amount)}</b>${x.created_by ? ' · ' + invEsc(x.created_by) : ''}</div>`).join('') : `<div class="empty-note" style="margin:4px 0;">${invEsc(t('icCnNoUse'))}</div>`}`}
       <div class="modal-actions"><button class="btn ghost" onclick="icCloseOverlay('icCnDetailsOverlay')">${t('btnClose')}</button><button class="btn ghost" onclick="icCloseOverlay('icCnDetailsOverlay');icCnView('${invEsc(cn.id)}')">${invEsc(t('icCnViewDoc'))}</button></div>
