@@ -8,7 +8,7 @@
 // ============================================================
 const PA_GST_RATE = 0.10;
 const PA_METHODS = ['Bank Transfer', 'Cash', 'Card', 'Cheque', 'Other'];
-let paFilter = { from: '', to: '', status: '', sup: '', q: '' };
+let paFilter = { from: '', to: '', status: '', sup: '', q: '', type: '' };
 let paRows = [];            // purchase_payments 全部資料
 let paErr = '';             // '' | 'sql' | 'error'
 let paPay = null;           // 付款記錄視窗狀態 { id, editingId }
@@ -233,6 +233,7 @@ async function paOpenPage(){
 function paFiltered(){
   const f = paFilter, q = (f.q || '').trim().toLowerCase();
   return purchases.filter(p => paCounted(p)
+    && (f.type !== 'expense' || paExpList(p).length > 0)
     && (!f.from || (p.date || '') >= f.from) && (!f.to || (p.date || '') <= f.to)
     && (!f.sup || (p.partyName || '') === f.sup)
     && (!f.status || paInfo(p).status === f.status || paExpList(p).some(x => paExpInfo(p, x).status === f.status))
@@ -248,12 +249,14 @@ function paRenderList(){
   const sups = Array.from(new Set(all.map(p => p.partyName).filter(Boolean))).sort((a, b) => a.localeCompare(b));
   const list = paFiltered();
   const sum = { t: 0, p: 0, b: 0 };
+  let rowCount = 0;
   const rows = list.map(p => {
     const i = paInfo(p);
-    const showMain = !f.status || i.status === f.status;
+    const showMain = f.type !== 'expense' && (!f.status || i.status === f.status);
+    const showExp = f.type !== 'receipt';
     let html = '';
     if(showMain){
-      sum.t += i.total; sum.p += i.paid; sum.b += i.balance;
+      sum.t += i.total; sum.p += i.paid; sum.b += i.balance; rowCount++;
       html += `<tr>
       <td style="white-space:nowrap;">${paEsc(paDmy(p.date))}</td>
       <td>${paEsc(p.partyName || '')}</td>
@@ -261,21 +264,22 @@ function paRenderList(){
       <td class="num"><b>${paM2(i.total)}</b></td>
       <td class="num">${paM2(i.paid)}</td><td class="num"><b>${paM2(i.balance)}</b></td>
       <td style="white-space:nowrap;">${paStatusBadge(i.status)}</td>
-      <td style="white-space:nowrap;"><span class="del-link" onclick="paOpenPayments('${paEsc(p.id)}')">${t('invBtnPayments')}</span> <span class="batch-info-icon" style="margin-left:6px;" title="${paEsc(t('invBtnDetails'))}" onclick="paOpenDetails('${paEsc(p.id)}')">ⓘ</span></td>
+      <td style="white-space:nowrap;"><span class="del-link" onclick="paOpenPayments('${paEsc(p.id)}')">${t('paBtnPayments')}</span> <span class="batch-info-icon" style="margin-left:6px;" title="${paEsc(t('invBtnDetails'))}" onclick="paOpenDetails('${paEsc(p.id)}')">ⓘ</span></td>
     </tr>`;
     }
-    paExpList(p).forEach(x => {
+    if(showExp) paExpList(p).forEach(x => {
       const ei = paExpInfo(p, x);
       if(f.status && ei.status !== f.status) return;
+      rowCount++;
       sum.t += ei.total; sum.p += ei.paid; sum.b += ei.balance;
       html += `<tr style="background:var(--bg-soft,#f7f7f2);">
       <td style="white-space:nowrap;color:var(--ink-soft);">${paEsc(paDmy(p.date))}</td>
-      <td style="padding-left:16px;">↳ ${paEsc(x.e.payee || '–')}</td>
-      <td>${paEsc(x.e.name || '')} <span style="font-size:11px;color:var(--ink-soft);">(${paEsc(t('pcExpBadge'))}${p.invoiceNo ? ' · ' + paEsc(p.invoiceNo) : ''})</span>${x.e.estimated ? ' <span style="color:#b45309;font-size:11px;">⚠</span>' : ''}</td>
+      <td style="padding-left:16px;">↳ ${paEsc(x.e.name || '')} <span style="font-size:11px;color:var(--ink-soft);">(${paEsc(t('pcExpBadge'))})</span>${x.e.estimated ? ' <span style="color:#b45309;font-size:11px;" title="'+paEsc(t('paExpEstimatedWarn'))+'">⚠</span>' : ''}<div style="font-size:11px;color:var(--ink-soft);">${paEsc(t('pcPayeePh'))}: ${x.e.payee ? paEsc(x.e.payee) : '<span style="color:#b26a00;">' + paEsc(t('paPayeeUnset')) + '</span>'}</div></td>
+      <td style="color:var(--ink-soft);">${paEsc(p.invoiceNo || '')}</td>
       <td class="num"><b>${paM2(ei.total)}</b>${paExpFxIcon(p, x.e)}</td>
       <td class="num">${paM2(ei.paid)}</td><td class="num"><b>${paM2(ei.balance)}</b></td>
       <td style="white-space:nowrap;">${paStatusBadge(ei.status)}</td>
-      <td style="white-space:nowrap;"><span class="del-link" onclick="paOpenPayments('${paEsc(p.id)}','${paEsc(x.e.id || '')}','${paEsc(x.e.name || '')}')">${t('invBtnPayments')}</span></td>
+      <td style="white-space:nowrap;"><span class="del-link" onclick="paOpenPayments('${paEsc(p.id)}','${paEsc(x.e.id || '')}','${paEsc(x.e.name || '')}')">${t('paBtnPayments')}</span></td>
     </tr>`;
     });
     return html;
@@ -284,7 +288,7 @@ function paRenderList(){
   const card = (label, val) => `<div style="flex:1 1 130px;min-width:120px;border:1px solid var(--line);border-radius:8px;padding:8px 10px;"><div style="font-size:11px;color:var(--ink-soft);">${label}</div><div style="font-size:17px;font-weight:700;">${val}</div></div>`;
   root.innerHTML = `
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;">
-      ${card(t('paSumTotal') + ' (' + list.length + ')', paM2(sum.t))}
+      ${card(t('paSumTotal') + ' (' + rowCount + ')', paM2(sum.t))}
       ${card(t('paSumPaid'), paM2(sum.p))}
       ${card(t('paSumBalance'), paM2(sum.b))}
     </div>
@@ -293,11 +297,12 @@ function paRenderList(){
       <div class="field"><label>${t('lblFromDate')}</label><input type="date" id="paFlt_from" value="${paEsc(f.from)}" onchange="paOnFilter()" /></div>
       <div class="field"><label>${t('lblToDate')}</label><input type="date" id="paFlt_to" value="${paEsc(f.to)}" onchange="paOnFilter()" /></div>
       <div class="field"><label>${t('paColSupplier')}</label>${sel('paFlt_sup', f.sup, [['', t('invFltAll')]].concat(sups.map(x => [x, x])))}</div>
+      <div class="field"><label>${t('paFltType')}</label>${sel('paFlt_type', f.type, [['', t('invFltAll')], ['receipt', t('paTypeReceipt')], ['expense', t('paTypeExpense')]])}</div>
       <div class="field"><label>${t('invFltStatus')}</label>${sel('paFlt_status', f.status, [['', t('invFltAll')], ['unpaid', t('invSt_unpaid')], ['partial', t('invSt_partial')], ['paid', t('invSt_paid')], ['overpaid', t('invSt_overpaid')]])}</div>
       <div class="field" style="min-width:220px;"><label>${t('invFltSearch')}</label><input type="search" id="paFlt_q" value="${paEsc(f.q)}" oninput="paOnFilter(true)" placeholder="${paEsc(t('paSearchPh'))}" /></div>
       <button class="btn ghost" onclick="paClearFilter()" style="align-self:flex-end;">${t('btnClearFilter')}</button>
     </div>
-    ${list.length === 0 ? `<div class="empty-note">${t('paListEmpty')}</div>` : `<div style="overflow-x:auto;"><table class="stock-table"><thead><tr><th>${t('colDate')}</th><th>${t('paColSupplier')}</th><th>Invoice No</th><th class="num">${t('paColAmount')}</th><th class="num">${t('invColPaid')}</th><th class="num">${t('paColUnpaid')}</th><th>${t('invFltStatus')}</th><th></th></tr></thead>
+    ${list.length === 0 ? `<div class="empty-note">${t('paListEmpty')}</div>` : `<div style="overflow-x:auto;"><table class="stock-table"><thead><tr><th>${t('colDate')}</th><th>${t('paColSupplier')}</th><th>Invoice No</th><th class="num">${t('paColAmount')}</th><th class="num">${t('paColPaid')}</th><th class="num">${t('paColUnpaid')}</th><th>${t('invFltStatus')}</th><th></th></tr></thead>
       <tbody>${rows}<tr style="font-weight:700;border-top:2px solid var(--line, #ccc);"><td colspan="3" style="text-align:right;">${t('invListTotals')} (${list.length})</td><td class="num">${paM2(sum.t)}</td><td class="num">${paM2(sum.p)}</td><td class="num">${paM2(sum.b)}</td><td colspan="2"></td></tr></tbody>
     </table></div>`}`;
 }
@@ -329,13 +334,13 @@ function paOnFilter(keepFocus){
   paFilter = {
     from: (document.getElementById('paFlt_from') || {}).value || '', to: (document.getElementById('paFlt_to') || {}).value || '',
     sup: (document.getElementById('paFlt_sup') || {}).value || '', status: (document.getElementById('paFlt_status') || {}).value || '',
-    q: (document.getElementById('paFlt_q') || {}).value || ''
+    q: (document.getElementById('paFlt_q') || {}).value || '', type: (document.getElementById('paFlt_type') || {}).value || ''
   };
   const pos = keepFocus ? ((document.getElementById('paFlt_q') || {}).selectionStart || 0) : 0;
   paRenderList();
   if(keepFocus){ const el = document.getElementById('paFlt_q'); if(el){ el.focus(); try{ el.setSelectionRange(pos, pos); }catch(e){} } }
 }
-function paClearFilter(){ paFilter = { from: '', to: '', status: '', sup: '', q: '' }; paRenderList(); }
+function paClearFilter(){ paFilter = { from: '', to: '', status: '', sup: '', q: '', type: '' }; paRenderList(); }
 function paCloseOverlay(id){ const o = document.getElementById(id); if(o) o.remove(); }
 
 // ---- 詳細資料 ----
@@ -372,7 +377,7 @@ function paOpenDetails(id){
       ${row(t('paAmtExGst'), paM2(i.ex))}
       ${row('GST', paM2(i.gst))}
       ${row(t('paColAmount'), '<b>' + paM2(i.total) + '</b>')}
-      ${row(t('invColPaid'), paM2(i.paid))}
+      ${row(t('paColPaid'), paM2(i.paid))}
       ${row(t('paColUnpaid'), '<b>' + paM2(i.balance) + '</b>')}
       ${exp > 0 ? row(t('paOtherExpenses'), paM2(exp) + ` <span style="font-size:11px;color:var(--ink-soft);">${paEsc(t('paOtherExpensesNote'))}</span>`) : ''}
       ${paExpList(p).map(x => { const ei = paExpInfo(p, x); return row('↳ ' + paEsc(x.e.name || ''), `${paM2(ei.total)}${paExpFxIcon(p, x.e)} · ${paEsc(x.e.payee || '–')} · ${x.e.gst === true ? 'GST' : (x.e.gst === false ? paEsc(t('paGstNone')) : '<span style="color:#b26a00;">' + paEsc(t('paGstUnset')) + '</span>')} · ${paStatusBadge(ei.status)}`); }).join('')}
@@ -436,12 +441,12 @@ function paRenderPayments(){
     <div class="section-title" style="margin-top:0;">${t('paPayTitle')}</div>
     <div style="font-size:12.5px;margin:0 0 8px;">${tg.exp ? paEsc((tg.exp.e.name || '') + ' · ' + (tg.exp.e.payee || '–') + ' · ') : ''}${paEsc(p.partyName || '')}${p.invoiceNo ? ' · ' + paEsc(p.invoiceNo) : ''} · ${paStatusBadge(i.status)}${tg.exp ? paExpFxIcon(p, tg.exp.e) : ''}</div>
     ${tg.exp && tg.exp.e.estimated ? `<div style="font-size:12px;color:#b45309;background:var(--warn-bg,#fff4dc);padding:6px 10px;border-radius:6px;margin-bottom:8px;">⚠ ${paEsc(t('paExpEstimatedWarn'))}</div>` : ''}
-    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;">${box(t('paColAmount'), paM2(i.total))}${box(t('invColPaid'), paM2(i.paid))}${box(t('paColUnpaid'), paM2(i.balance))}</div>
-    ${pays.length === 0 ? `<div class="empty-note" style="margin:6px 0;">${t('invPayEmpty')}</div>` : `<div style="overflow-x:auto;"><table class="stock-table"><thead><tr><th>${t('invPayDate')}</th><th class="num">${t('invPayAmount')}</th><th>${t('invPayMethod')}</th><th>${t('colNote')}</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`}
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;">${box(t('paColAmount'), paM2(i.total))}${box(t('paColPaid'), paM2(i.paid))}${box(t('paColUnpaid'), paM2(i.balance))}</div>
+    ${pays.length === 0 ? `<div class="empty-note" style="margin:6px 0;">${t('paPayEmpty')}</div>` : `<div style="overflow-x:auto;"><table class="stock-table"><thead><tr><th>${t('paPayDate')}</th><th class="num">${t('invPayAmount')}</th><th>${t('invPayMethod')}</th><th>${t('colNote')}</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`}
     <div style="margin-top:12px;padding-top:10px;border-top:1px solid var(--line);">
-      <div style="font-size:12.5px;font-weight:700;margin-bottom:6px;">${ed ? t('invPayEditTitle') : t('invPayAddTitle')}</div>
+      <div style="font-size:12.5px;font-weight:700;margin-bottom:6px;">${ed ? t('paPayEditTitle') : t('paPayAddTitle')}</div>
       <div class="form-grid" style="grid-template-columns:1fr 1fr;gap:8px;">
-        <div class="field"><label>${t('invPayDate')}</label><input type="date" id="paPayDate" value="${paEsc(dateV)}" /></div>
+        <div class="field"><label>${t('paPayDate')}</label><input type="date" id="paPayDate" value="${paEsc(dateV)}" /></div>
         <div class="field"><label>${t('invPayAmount')}</label><input type="number" id="paPayAmount" step="0.01" value="${paEsc(amtV)}" placeholder="0.00" /></div>
         <div class="field"><label>${t('invPayMethod')}</label><select id="paPayMethod">${methods.map(m => `<option value="${paEsc(m)}" ${m === methodV ? 'selected' : ''}>${paEsc(m)}</option>`).join('')}</select></div>
         <div class="field"><label>${t('colNote')}</label><input type="text" id="paPayNote" value="${paEsc(ed ? (ed.note || '') : '')}" /></div>
@@ -451,7 +456,7 @@ function paRenderPayments(){
     <div class="modal-actions">
       <button class="btn ghost" onclick="paClosePayments()">${t('btnClose')}</button>
       ${ed ? `<button class="btn ghost" onclick="paPay.editingId=null;paRenderPayments()">${t('btnCancel')}</button>` : ''}
-      <button class="btn" onclick="paPaySave()">${ed ? t('btnSave') : t('invPayAddBtn')}</button>
+      <button class="btn" onclick="paPaySave()">${ed ? t('btnSave') : t('paPayAddBtn')}</button>
     </div>
   </div>`;
 }
@@ -472,7 +477,7 @@ async function paPaySave(){
   const method = (document.getElementById('paPayMethod') || {}).value || '';
   const note = ((document.getElementById('paPayNote') || {}).value || '').trim();
   const fail = k => { msg.className = 'msg error'; msg.textContent = '⚠ ' + t(k); };
-  if(!date){ fail('invPayBadDate'); return; }
+  if(!date){ fail('paPayBadDate'); return; }
   if(!Number.isFinite(amt) || amt === 0){ fail('invPayBadAmount'); return; }
   const tg = paPayTarget(p);
   const total = tg.info.total;
@@ -496,7 +501,7 @@ async function paPaySave(){
   }
 }
 function paPayDelete(id){
-  showConfirmModal(t('invPayDeleteConfirm'), async () => {
+  showConfirmModal(t('paPayDeleteConfirm'), async () => {
     try{
       const { error } = await sb.rpc('purchase_payment_delete', { p_payment_id: id });
       if(error) throw error;
