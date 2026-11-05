@@ -41,7 +41,7 @@ function icRender(){
 function icPartyMatches(q){
   q = (q || '').trim().toLowerCase();
   const all = (typeof shippingParties !== 'undefined' ? shippingParties : []).filter(p => !p.deleted);
-  return all.filter(p => !q || [p.name, p.companyName, p.code, p.abn].join(' ').toLowerCase().includes(q)).slice(0, 30);
+  return all.filter(p => !q || [p.name, p.companyName, p.code, p.abn].join(' ').toLowerCase().includes(q)).slice(0, 12);
 }
 function icRenderNew(){
   const host = document.getElementById('icBody'); if(!host) return;
@@ -78,6 +78,7 @@ function icRenderNew(){
 function icOnPartySearch(v){
   icState.partySearch = v;
   const box = document.getElementById('icPartyList'); if(!box) return;
+  if(!(v || '').trim()){ box.innerHTML = ''; return; }   // 還沒輸入就不列出來,輸入後才搜尋
   const m = icPartyMatches(v);
   box.innerHTML = m.length
     ? m.map(p => `<div class="batch-link" style="padding:6px 4px;border-bottom:1px solid var(--line);cursor:pointer;" onclick="icPickParty('${invEsc(p.id)}')">${invEsc(icPartyLabel(p))}</div>`).join('')
