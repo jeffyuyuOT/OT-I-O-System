@@ -209,6 +209,32 @@ function partyGoNewOrder(partyId){
   setTxOutFlowType('new-order');
   if(ps) ps.value = partyId;
 }
+// 「新增訂單/收據」:看得到 Invoice 的人先選要新增訂單還是收據(Invoice);其他人直接新增訂單
+function partyNewEntry(partyId){
+  if(!(typeof canCreateInvoice === 'function' && canCreateInvoice())){ partyGoNewOrder(partyId); return; }
+  const old = document.getElementById('partyNewEntryOverlay'); if(old) old.remove();
+  const sp = shippingParties.find(x => x.id === partyId);
+  const ov = document.createElement('div');
+  ov.id = 'partyNewEntryOverlay'; ov.className = 'modal-overlay'; ov.style.display = 'flex'; ov.style.zIndex = '1150';
+  ov.onclick = e => { if(e.target === ov) ov.remove(); };
+  const esc = x => String(x == null ? '' : x).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  ov.innerHTML = `<div class="modal-box" style="max-width:min(420px,92vw);">
+    <div class="section-title" style="margin-top:0;">${esc(sp ? sp.name : '')} · ${t('btnPartyNewOrderInv')}</div>
+    <div style="display:flex;flex-direction:column;gap:10px;margin-top:6px;">
+      <button class="btn" onclick="document.getElementById('partyNewEntryOverlay').remove();partyGoNewOrder('${esc(partyId)}')">${t('partyNewEntryOrder')}</button>
+      <button class="btn" onclick="document.getElementById('partyNewEntryOverlay').remove();partyGoNewInvoice('${esc(partyId)}')">${t('partyNewEntryInvoice')}</button>
+    </div>
+    <div class="modal-actions"><button class="btn ghost" onclick="document.getElementById('partyNewEntryOverlay').remove()">${t('btnCancel')}</button></div>
+  </div>`;
+  document.body.appendChild(ov);
+}
+// 收據:跳到 會計 → 開立發票 → New Invoice,出貨方自動帶入
+function partyGoNewInvoice(partyId){
+  if(!partyTabAllowed('tab-accounting')) return;
+  if(typeof icState !== 'undefined'){ icState.mode = 'new'; icState.partyId = partyId; icState.partySearch = ''; }
+  switchTab('tab-accounting');
+  switchAccountingSubTab('subtab-acc-create-invoice');
+}
 // 「訂購紀錄」:先選 By Invoice(跳到 歷史紀錄 → 已完成訂單)或 By Item(跳到 歷史紀錄 → 進出貨紀錄),
 // 兩邊都自動篩選這個出貨方
 function partyGoOrderHistory(partyId){
@@ -304,7 +330,7 @@ function renderPartiesTable(){
         <td class="row-note"><span class="mini-label">${t('colNote')}</span>${esc(sp.note || '') || '—'}</td>
         <td><span class="mini-label">${t('colOrderFrequency')}</span>${t(sp.orderFrequency === 'fortnight' ? 'freqFortnight' : (sp.orderFrequency === 'monthly' ? 'freqMonthly' : 'freqWeekly'))}</td>
         <td class="row-action" style="white-space:nowrap;text-align:right;">
-          <span class="del-link" onclick="partyGoNewOrder('${sp.id}')" style="margin-right:6px;">${t('btnPartyNewOrder')}</span>
+          <span class="del-link" onclick="partyNewEntry('${sp.id}')" style="margin-right:6px;">${(typeof canCreateInvoice === 'function' && canCreateInvoice()) ? t('btnPartyNewOrderInv') : t('btnPartyNewOrder')}</span>
           <span class="del-link" onclick="partyGoOrderHistory('${sp.id}')" style="margin-right:6px;">${t('btnPartyOrderHistory')}</span>
           <span class="del-link" onclick="togglePartyProductPanel('${sp.id}')">${openPartyProductPanelId === sp.id ? t('btnCollapseProductList') : t('btnSetOrderableProducts')}</span>
         </td>
