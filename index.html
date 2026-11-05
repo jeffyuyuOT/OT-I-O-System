@@ -623,7 +623,7 @@
      z-index,誰疊在上面純粹看 DOM 順序,這個共用的提示視窗剛好排在比較前面,會被後面開的
      modal(例如商品編輯視窗)蓋住,使用者當下完全看不到,要關掉那個視窗才會「突然」看到提示。
      這裡給它一個更高的 z-index,確保這個共用提示視窗永遠疊在最上面,不管當下還有哪個 modal 開著。 */
-  #confirmModalOverlay{ z-index:1200; }
+  #confirmModalOverlay{ z-index:1260; }
   /* 問「要從哪個位置扣」的這個小視窗(promptLocationChoice),常常是在「另一個 modal 還開著」
      的當下被跳出來問(例如切換批量商品數量時,轉換視窗本身就是一個 modal)——理由跟上面
      confirmModalOverlay 一樣,如果跟其他 modal 共用同一個 z-index,誰疊在上面純粹看 DOM
@@ -2177,6 +2177,7 @@
         <option value="subtab-acc-invoices" data-i18n="subtabAccInvoices">Invoice List</option>
         <option value="subtab-acc-credit-notes" data-i18n="subtabAccCreditNotes">Credit Note List</option>
         <option value="subtab-acc-purchases" data-i18n="subtabAccPurchases">Purchase List</option>
+        <option value="subtab-acc-expenses" data-i18n="subtabAccExpenses">其他支出</option>
         <option value="subtab-price-setting" data-i18n="subtabPriceSetting">定價管理</option>
         <option value="subtab-log-pricerec" data-i18n="subtabLogPriceRecord">定價管理紀錄</option>
         <option value="subtab-acc-settings" data-i18n="subtabAccSettings">會計設定</option>
@@ -2194,6 +2195,13 @@
       <div class="section">
         <div class="toolbar"><div class="section-title" style="margin:0;" data-i18n="subtabAccInvoices">Invoice List</div></div>
         <div id="invoiceListRoot"></div>
+      </div>
+    </div>
+
+    <div id="subtab-acc-expenses" class="subtab-content">
+      <div class="section">
+        <div class="toolbar"><div class="section-title" style="margin:0;" data-i18n="subtabAccExpenses">其他支出</div><button class="btn" onclick="oeOpenForm()" data-i18n="oeBtnAdd">新增其他支出</button></div>
+        <div id="otherExpensesRoot"></div>
       </div>
     </div>
 
@@ -3260,6 +3268,7 @@
 <script src="invoice.js"></script>
 <script src="invoice-create.js"></script>
 <script src="purchase-accounting.js"></script>
+<script src="other-expenses.js"></script>
 <script src="purchase-costs.js"></script>
 <script src="parties.js"></script>
 <script src="account-requests.js"></script>

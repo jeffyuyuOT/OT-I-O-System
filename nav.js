@@ -544,6 +544,7 @@ function switchAccountingSubTab(subtabId){
   if(subtabId === 'subtab-acc-create-invoice' && typeof icOpenPage === 'function') icOpenPage();
   if(subtabId === 'subtab-acc-credit-notes' && typeof icCnOpenList === 'function') icCnOpenList(true);
   if(subtabId === 'subtab-acc-purchases' && typeof paOpenPage === 'function') paOpenPage();
+  if(subtabId === 'subtab-acc-expenses' && typeof oeOpenPage === 'function') oeOpenPage();
   if(subtabId === 'subtab-price-setting' && typeof psOpenPage === 'function') psOpenPage();
   if(subtabId === 'subtab-log-pricerec' && typeof psOpenRecordList === 'function') psOpenRecordList();
   if(subtabId === 'subtab-acc-settings'){

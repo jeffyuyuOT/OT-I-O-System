@@ -1282,7 +1282,9 @@ async function invExportForBackup(){
     try{ const sr = await dbGet('invoiceSettings'); settings = sr && sr.value ? sr.value : null; }catch(e){}
     let purchasePayments = null;   // 進貨付款記錄(OT custom 進貨帳務)
     try{ if(typeof paBackupExport === 'function') purchasePayments = await paBackupExport(); }catch(e){}
-    return { invoices: data || [], payments, changes, creditNotes, settings, purchasePayments, next: await invGetNextNo() };
+    let otherExpenses = null;   // 其他支出(獨立支出)
+    try{ if(typeof oeBackupExport === 'function') otherExpenses = await oeBackupExport(); }catch(e){}
+    return { invoices: data || [], payments, changes, creditNotes, settings, purchasePayments, otherExpenses, next: await invGetNextNo() };
   }catch(e){
     if(invIsMissingFn(e)) return null;
     throw e;
@@ -1303,6 +1305,10 @@ async function invRestoreFromBackup(backup){
     if(Array.isArray(d.purchasePayments)) await paBackupRestore(d.purchasePayments);
     else if(typeof d.purchasePayments === 'undefined' && typeof paBackupClear === 'function') await paBackupClear();   // 舊備份(功能上線前)沒有進貨付款記錄:跟備份當時一樣,清掉
   }
+  if(typeof oeBackupRestore === 'function'){
+    if(Array.isArray(d.otherExpenses)) await oeBackupRestore(d.otherExpenses);
+    else if(typeof d.otherExpenses === 'undefined' && typeof oeBackupClear === 'function') await oeBackupClear();
+  }
   if(typeof d.settings === 'string' && d.settings){
     try{ await dbSet('invoiceSettings', d.settings); await loadInvoiceSettings(); }catch(e){ console.error(e); }
   }
@@ -1312,6 +1318,7 @@ async function invClearAll(){
   if(error && !invIsMissingFn(error)) throw error;
   if(typeof icCnClearAll === 'function') await icCnClearAll();
   if(typeof paBackupClear === 'function') await paBackupClear();
+  if(typeof oeBackupClear === 'function') await oeBackupClear();
 }
 
 
