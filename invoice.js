@@ -286,10 +286,7 @@ function invDocHtml(snap, logoDataUrl){
       </td></tr></table>
 
     <div style="margin-top:16px;font-size:10px;page-break-inside:avoid;">
-      <div>I agree to the following statements and acknowledge the associated responsibilities:</div>
-      <div>I agree to complete the signing process, confirming that the quantity and items listed on this invoice are correct.</div>
-      <div>Signing indicates the completion of the delivery process, and I accept that no further replenishments will be made thereafter.</div>
-      <div style="margin-top:22px;font-size:12px;">Full Name: ____________________________ &nbsp;&nbsp; Signature: ____________________________</div>
+      <div><b>Terms:</b> Signing confirms receipt and finalizes the order. Returns of standard products incur a 30% restocking fee. Due to health and hygiene reasons, all food products are strictly non-returnable and non-exchangeable.</div>
     </div>
    </div>
   </div>`;
