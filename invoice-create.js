@@ -37,8 +37,14 @@ function icRender(){
   const root = document.getElementById('invoiceCreateRoot');
   if(!root) return;
   if(!icOk()){ root.innerHTML = ''; return; }
-  const tab = (m, label) => `<button class="btn ${icState.mode === m ? '' : 'ghost'}" onclick="icSetMode('${m}')">${label}</button>`;
-  root.innerHTML = `<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px;">${tab('new', t('icModeNew'))}${tab('order', t('icModeOrder'))}${tab('cnNew', t('icModeCnNew'))}${tab('cnInvoice', t('icModeCnInvoice'))}</div><div id="icBody"></div>`;
+  const tab = (m, label, on) => `<button class="btn ${on ? '' : 'ghost'}" onclick="icSetMode('${m}')">${label}</button>`;
+  const isCnMode = icIsCn(), md = icState.mode;
+  // 第一層:先選 Invoice 或 Credit Note;第二層:新增 / 從訂單(或 Invoice)產生
+  const top = tab(isCnMode ? 'new' : md, t('icDocInvoice'), !isCnMode) + tab(isCnMode ? md : 'cnNew', t('icDocCn'), isCnMode);
+  const sub = isCnMode
+    ? tab('cnNew', t('icSubNew'), md === 'cnNew') + tab('cnInvoice', t('icModeCnInvoice'), md === 'cnInvoice')
+    : tab('new', t('icSubNew'), md === 'new') + tab('order', t('icModeOrder'), md === 'order');
+  root.innerHTML = `<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px;">${top}</div><div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px;padding-left:10px;border-left:3px solid var(--line);">${sub}</div><div id="icBody"></div>`;
   if(icState.mode === 'order') icRenderOrder(); else icRenderNew();
 }
 
