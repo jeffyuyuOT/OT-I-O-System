@@ -668,7 +668,7 @@ function icCnOpenStatus(id){
 async function icCnSaveStatus(id){
   const v = document.getElementById('icCnStatusSel').value;
   const { error } = await sb.rpc('credit_note_set_return_status', { p_id: id, p_status: v });
-  if(error){ const m = document.getElementById('icCnStatusMsg'); if(m){ m.className = 'msg error'; m.textContent = t('invLoadFailed'); } console.error(error); return; }
+  if(error){ const m = document.getElementById('icCnStatusMsg'); if(m){ m.className = 'msg error'; m.textContent = /return_recorded/.test(error.message || '') ? t('icReturnRecorded') : t('invLoadFailed'); } if(!/return_recorded/.test(error.message || '')) console.error(error); return; }
   icCloseOverlay('icCnStatusOverlay');
   await icCnOpenList(true);
 }

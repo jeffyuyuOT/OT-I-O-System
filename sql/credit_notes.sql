@@ -105,9 +105,19 @@ end $$;
 -- 會計 / 管理員手動改入庫狀態(例如入庫時忘了選 Credit Note,事後確認已入庫;或選錯想退回待入庫)
 create or replace function public.credit_note_set_return_status(p_id text, p_status text)
 returns void language plpgsql security definer set search_path = public as $$
+declare v_snap jsonb; v_any boolean; v_all boolean;
 begin
   if not public.is_accounting_user() then raise exception 'invoice_forbidden'; end if;
   if p_status not in ('pending', 'partial', 'done', 'none') then raise exception 'bad_status'; end if;
+  select snapshot into v_snap from public.credit_notes where id = p_id for update;
+  if not found then raise exception 'credit_note_not_found'; end if;
+  -- 已經透過登記進出貨記錄過入庫數量的,不能手動改回比實際入庫更少的狀態(庫存那筆入庫還在,要先到登記進出貨處理)
+  select coalesce(bool_or(coalesce((v_snap->'returned'->>(l->>'productId'))::numeric, 0) > 0), false),
+         coalesce(bool_and(coalesce((v_snap->'returned'->>(l->>'productId'))::numeric, 0) >= (l->>'qty')::numeric), false)
+    into v_any, v_all
+    from jsonb_array_elements(coalesce(v_snap->'lines', '[]'::jsonb)) l where coalesce((l->>'ret')::boolean, false);
+  if v_all and p_status <> 'done' then raise exception 'return_recorded'; end if;
+  if v_any and p_status in ('pending', 'none') then raise exception 'return_recorded'; end if;
   update public.credit_notes set return_status = p_status where id = p_id;
 end $$;
 
