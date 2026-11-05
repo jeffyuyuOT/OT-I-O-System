@@ -438,7 +438,7 @@ function icApplyVisibility(){
     const o2 = Array.from(sel.options).find(x => x.value === 'subtab-acc-credit-notes');
     if(o2) o2.hidden = off, o2.disabled = off;
   }
-  if(off){ try{ icCloseOverlay('icPickOverlay'); icCloseOverlay('icCustomOverlay'); }catch(e){} }
+  if(off){ try{ icCloseOverlay('icPickOverlay'); icCloseOverlay('icCustomOverlay'); icCloseOverlay('icInvItemsOverlay'); icCloseOverlay('icCnStatusOverlay'); const w = document.getElementById('txCnWrap'); if(w) w.style.display = 'none'; }catch(e){} }
 }
 
 // ============================================================
@@ -678,4 +678,67 @@ async function icCnRestoreFromBackup(d){
 async function icCnClearAll(){
   const { error } = await sb.rpc('credit_notes_clear_all');
   if(error && !invIsMissingFn(error)) console.error(error);
+}
+
+// ============================================================
+// 登記進出貨 → 入庫:選對應的 Credit Note(下拉選單,只列「待入庫 / 部分入庫」的)
+// 選了就把還沒入庫的退貨品項帶進清單;送出後記下已入庫的數量,全部入庫就變「已入庫」。
+// ============================================================
+let icTxCnList = [];
+async function icTxCnRefresh(type){
+  const wrap = document.getElementById('txCnWrap'); if(!wrap) return;
+  const off = typeof hideInvoiceEnabled !== 'undefined' && hideInvoiceEnabled;
+  if(type !== 'restock' || off){ wrap.style.display = 'none'; return; }
+  let list = [];
+  try{ const { data, error } = await sb.rpc('credit_notes_pending', { p_party_id: null }); if(!error) list = data || []; }catch(e){}
+  icTxCnList = list;
+  if(!list.length){ wrap.style.display = 'none'; return; }   // 沒有待入庫的 Credit Note 就不顯示
+  wrap.style.display = '';
+  const sel = document.getElementById('txCnSelect');
+  const keep = sel.value;
+  sel.innerHTML = `<option value="">${invEsc(t('icTxCnNone'))}</option>` + list.map(c => {
+    const names = (c.items || []).filter(x => Number(x.qty) - Number(x.returned) > 0).map(x => x.name).join(', ');
+    return `<option value="${invEsc(c.id)}">${invEsc(c.cn_no)} · ${invEsc(c.customer || '')} · ${invEsc(invIsoToDmy(c.cn_date))} · ${invEsc(names.length > 60 ? names.slice(0, 60) + '…' : names)}</option>`;
+  }).join('');
+  if(keep && list.some(c => c.id === keep)) sel.value = keep;
+  icTxCnHint();
+}
+function icTxCnHint(){
+  const h = document.getElementById('txCnHint'); if(!h) return;
+  const c = icTxCnList.find(x => x.id === (document.getElementById('txCnSelect') || {}).value);
+  h.textContent = c ? (c.items || []).map(x => `${x.name}: ${Math.max(0, Number(x.qty) - Number(x.returned))} ${x.unit || ''}`).join(' · ') : t('icTxCnHint');
+}
+function icTxCnPick(){
+  icTxCnHint();
+  const c = icTxCnList.find(x => x.id === document.getElementById('txCnSelect').value);
+  txBatchItems = txBatchItems.filter(it => !it.fromCn);
+  if(c){
+    (c.items || []).forEach(x => {
+      const remain = Math.max(0, Number(x.qty) - Number(x.returned));
+      const p = (typeof products !== 'undefined' ? products : []).find(pp => pp.id === x.productId);
+      if(!p || remain <= 0) return;
+      const ex = txBatchItems.find(it => it.productId === p.id && !(it.expiry || ''));
+      if(ex) ex.qty += remain;
+      else txBatchItems.push({ batchItemId: genId(), productId: p.id, sku: p.sku || '', name: p.name, unit: p.unit, qty: remain, expiry: '', supplierLot: '', fromCn: true });
+    });
+  }
+  try{ renderTxBatchList(); }catch(e){}
+}
+async function icTxCnAfterSubmit(items){
+  const sel = document.getElementById('txCnSelect');
+  const id = sel ? sel.value : '';
+  if(!id) return;
+  const c = icTxCnList.find(x => x.id === id);
+  const cnIds = new Set(((c && c.items) || []).map(x => x.productId));
+  const sums = {};
+  (items || []).forEach(it => { if(cnIds.has(it.productId)) sums[it.productId] = (sums[it.productId] || 0) + Number(it.qty); });
+  const arr = Object.keys(sums).map(k => ({ productId: k, qty: sums[k] }));
+  if(sel) sel.value = '';
+  if(!arr.length){ icTxCnRefresh('restock'); return; }
+  try{
+    const { error } = await sb.rpc('credit_note_mark_returned', { p_id: id, p_items: arr });
+    if(error) throw error;
+  }catch(e){ console.error('更新 Credit Note 入庫狀態失敗', e); showInfoModal(t('icTxCnMarkFail')); }
+  icCnRows = null;
+  icTxCnRefresh('restock');
 }

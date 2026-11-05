@@ -37,6 +37,7 @@ function setTxType(type){
   const receiptWrap = document.getElementById('purchaseReceiptWrap');
   if(receiptWrap && type !== 'in') receiptWrap.style.display = 'none';
   if(typeof batchRenderFormExtras === 'function') batchRenderFormExtras();
+  if(typeof icTxCnRefresh === 'function') icTxCnRefresh(type);   // 入庫:可選對應的 Credit Note
   if(type !== 'in') removePurchaseReceipt(); // 切走「進貨」類型的話,暫存的收據附件狀態一併清掉,避免殘留到下次填別種類型的表單
   if(type !== 'in'){
     const emailToggle = document.getElementById('purchaseEmailToggle');
@@ -2070,6 +2071,7 @@ async function submitTxBatchSimple(date, msg){
   const LOG_ACTION_EN_LABEL = { tx_in: 'Stock In', tx_restock: 'Restock' };
   const logDesc = `Logged ${LOG_ACTION_EN_LABEL[logActionType] || logActionType}: ${count} item(s)${party ? ', party ' + party : ''}`;
   logInventoryAction(logActionType, logDesc, null);
+  if(currentTxType === 'restock' && typeof icTxCnAfterSubmit === 'function') await icTxCnAfterSubmit(txBatchItems);   // 記下這張 Credit Note 已入庫的數量
   txBatchItems = [];
   if(typeof batchResetFormAfterSubmit === 'function') batchResetFormAfterSubmit();
   renderTxBatchList();
