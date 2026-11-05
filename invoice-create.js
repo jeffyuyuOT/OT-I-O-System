@@ -40,7 +40,7 @@ function icRender(){
   const tab = (m, label, on) => `<button class="btn ${on ? '' : 'ghost'}" onclick="icSetMode('${m}')">${label}</button>`;
   const isCnMode = icIsCn(), md = icState.mode;
   // 第一層:先選 Invoice 或 Credit Note;第二層:新增 / 從訂單(或 Invoice)產生
-  const top = tab(isCnMode ? 'new' : md, t('icDocInvoice'), !isCnMode) + tab(isCnMode ? md : 'cnNew', t('icDocCn'), isCnMode);
+  const top = `<select onchange="icSetMode(this.value)" style="min-width:220px;"><option value="${isCnMode ? 'new' : md}" ${!isCnMode ? 'selected' : ''}>${t('icDocInvoice')}</option><option value="${isCnMode ? md : 'cnNew'}" ${isCnMode ? 'selected' : ''}>${t('icDocCn')}</option></select>`;
   const sub = isCnMode
     ? tab('cnNew', t('icSubNew'), md === 'cnNew') + tab('cnInvoice', t('icModeCnInvoice'), md === 'cnInvoice')
     : tab('new', t('icSubNew'), md === 'new') + tab('order', t('icModeOrder'), md === 'order');
