@@ -54,7 +54,9 @@ function txToRow(tx){
     conversion: !!tx.conversion,
     conversion_id: tx.conversionId || null,
     master_import_adjustment: !!tx.masterImportAdjustment,
-    purchase_id: tx.purchaseId || null
+    purchase_id: tx.purchaseId || null,
+    // 庫存調整原因代碼:只有庫存調整才有;沒有時不送這個欄位,SQL 還沒執行也不影響其他交易寫入。
+    ...(tx.adjReason ? { adj_reason: tx.adjReason } : {})
   };
 }
 function rowToTx(row){
@@ -66,6 +68,7 @@ function rowToTx(row){
   if(row.conversion_id) tx.conversionId = row.conversion_id;
   if(row.master_import_adjustment) tx.masterImportAdjustment = true;
   if(row.purchase_id) tx.purchaseId = row.purchase_id;
+  if(row.adj_reason) tx.adjReason = row.adj_reason;
   return tx;
 }
 function txStockDelta(tx){ return tx.type === 'out' ? -tx.qty : tx.qty; }

@@ -122,8 +122,9 @@ function setTxType(type){
     const existingSection = document.getElementById('txExistingItemsSection');
     const postVerifySection = document.getElementById('txPostVerifyChangesSection');
     if(partyFieldWrap) partyFieldWrap.style.display = 'none';
-    if(mainGrid) mainGrid.style.gridTemplateColumns = '1fr 1.4fr';
-    if(noteLabel) noteLabel.textContent = t('txNoteRequiredLabel');
+    if(mainGrid) mainGrid.style.gridTemplateColumns = '1fr 1fr 1.4fr';
+    if(noteLabel) noteLabel.textContent = t('adjNoteOptionalLabel');
+    renderAdjReasonSelect();
     if(existingSection) existingSection.style.display = 'none';
     if(postVerifySection) postVerifySection.style.display = 'none';
     registerOutFlowType = '';
@@ -155,6 +156,46 @@ function setTxType(type){
   // 這兩個函式才會消失,造成使用者以為畫面卡住、要等一段時間才會更新。
   renderTxSubmitArea();
   renderTxBatchList();
+  const adjWrap = document.getElementById('txAdjReasonWrap');
+  if(adjWrap) adjWrap.style.display = type === 'adjustment' ? '' : 'none';
+}
+
+// ===== 庫存調整原因 =====
+// dir:'out' 只能減少庫存、'in' 只能增加庫存、'any' 不限。group 給會計報表(階段三)歸類用:
+// wastage=耗損、sample=樣品、internal=內部使用、stocktake=盤點差異、supplier_return=退供應商、other=其他。
+const ADJ_REASONS = [
+  { code: 'wastage_expired',   dir: 'out', group: 'wastage' },
+  { code: 'wastage_damaged',   dir: 'out', group: 'wastage' },
+  { code: 'donation_writeoff', dir: 'out', group: 'wastage' },
+  { code: 'sample',            dir: 'out', group: 'sample' },
+  { code: 'internal_use',      dir: 'out', group: 'internal' },
+  { code: 'return_supplier',   dir: 'out', group: 'supplier_return' },
+  { code: 'stocktake_loss',    dir: 'out', group: 'stocktake' },
+  { code: 'stocktake_gain',    dir: 'in',  group: 'stocktake' },
+  { code: 'other',             dir: 'any', group: 'other' }
+];
+function adjReasonInfo(code){ return ADJ_REASONS.find(r => r.code === code) || null; }
+function adjReasonLabel(code){ return code ? t('adjReason_' + code) : ''; }
+function renderAdjReasonSelect(){
+  const sel = document.getElementById('txAdjReason');
+  if(!sel) return;
+  const cur = sel.value;
+  sel.innerHTML = `<option value="">${t('adjReasonPick')}</option>` + ADJ_REASONS.map(r => `<option value="${r.code}">${adjReasonLabel(r.code)}</option>`).join('');
+  sel.value = cur && adjReasonInfo(cur) ? cur : '';
+  onAdjReasonChange();
+}
+function onAdjReasonChange(){
+  const sel = document.getElementById('txAdjReason');
+  const other = document.getElementById('txAdjReasonOther');
+  const hint = document.getElementById('txAdjReasonHint');
+  const info = sel ? adjReasonInfo(sel.value) : null;
+  if(other) other.style.display = info && info.code === 'other' ? '' : 'none';
+  if(hint) hint.textContent = info ? (info.dir === 'out' ? t('adjHint_decrease') : info.dir === 'in' ? t('adjHint_increase') : '') : '';
+}
+function adjReasonReset(){
+  const sel = document.getElementById('txAdjReason'); if(sel) sel.value = '';
+  const other = document.getElementById('txAdjReasonOther'); if(other) other.value = '';
+  onAdjReasonChange();
 }
 
 function showTxMainFormArea(visible){
@@ -2599,8 +2640,17 @@ async function submitLoadCompletedFlow(date, msg){
 // 再次確認(因為會直接扣/加庫存,沒有訂單流程當中間的緩衝)。
 async function submitAdjustmentFlow(date, msg){
   if(txBatchItems.length === 0){ msg.className='msg error'; msg.textContent=t('errAddAtLeastOneItem'); return; }
-  const note = document.getElementById('txNote').value.trim();
-  if(!note){ msg.className='msg error'; msg.textContent=t('errNoteRequiredForAdjustment'); return; }
+  const reasonCode = (document.getElementById('txAdjReason') || {}).value || '';
+  const reasonInfo = adjReasonInfo(reasonCode);
+  if(!reasonInfo){ msg.className='msg error'; msg.textContent=t('errAdjReasonRequired'); return; }
+  const reasonOther = ((document.getElementById('txAdjReasonOther') || {}).value || '').trim();
+  if(reasonCode === 'other' && !reasonOther){ msg.className='msg error'; msg.textContent=t('errAdjReasonOtherRequired'); return; }
+  if(reasonInfo.dir === 'out' && txBatchItems.some(it => it.qty < 0)){ msg.className='msg error'; msg.textContent=t('errAdjReasonDecreaseOnly'); return; }
+  if(reasonInfo.dir === 'in' && txBatchItems.some(it => it.qty > 0)){ msg.className='msg error'; msg.textContent=t('errAdjReasonIncreaseOnly'); return; }
+  const extraNote = document.getElementById('txNote').value.trim();
+  // 備註文字 = 原因(其他則用手動輸入的文字)+ 選填附註;結構化的原因代碼另存在 adjReason。
+  const reasonText = reasonCode === 'other' ? `${adjReasonLabel('other').replace(/[((].*$/, '').trim()} - ${reasonOther}` : adjReasonLabel(reasonCode);
+  const note = extraNote ? `${reasonText} - ${extraNote}` : reasonText;
 
   showConfirmModal(t('confirmStockAdjustment'), async () => {
     // 庫存調整裡「減少」的品項(qty > 0,實際是 type='out')扣庫存之前,一樣先問清楚要從哪個
@@ -2616,7 +2666,7 @@ async function submitAdjustmentFlow(date, msg){
     }
 
     const newTxs = txBatchItems.map(it => ({
-      id: genId(), productId: it.productId, type: it.qty > 0 ? 'out' : 'restock', qty: Math.abs(it.qty), date, party: '', note: `${t('adjustmentNotePrefix')}${note}`
+      id: genId(), productId: it.productId, type: it.qty > 0 ? 'out' : 'restock', qty: Math.abs(it.qty), date, party: '', note: `${t('adjustmentNotePrefix')}${note}`, adjReason: reasonCode
     }));
     transactions.push(...newTxs);
     txBatchItems.forEach(it => { productStockMap[it.productId] = (productStockMap[it.productId]||0) - it.qty; });
@@ -2624,7 +2674,9 @@ async function submitAdjustmentFlow(date, msg){
     catch(e){
       newTxs.forEach(tx => { const i = transactions.indexOf(tx); if(i>=0) transactions.splice(i,1); });
       txBatchItems.forEach(it => { productStockMap[it.productId] = (productStockMap[it.productId]||0) + it.qty; });
-      msg.className='msg error'; msg.textContent='⚠ 提交失敗,請重新整理頁面再試一次。'; return;
+      msg.className='msg error';
+      msg.textContent = /adj_reason/.test(String((e && (e.message || e.details)) || '')) ? `⚠ ${t('errAdjNeedSql')}` : '⚠ 提交失敗,請重新整理頁面再試一次。';
+      return;
     }
     // 交易確定成功之後才處理位置扣除,避免庫存扣了/位置卻沒對應更新的不一致。
     if(adjustmentLocationChoices){
@@ -2638,6 +2690,7 @@ async function submitAdjustmentFlow(date, msg){
     // 本身就會重新渲染 txSubmitArea/txBatchList/productSelect,不用在這裡另外呼叫。
     txBatchItems = [];
     document.getElementById('txNote').value = '';
+    adjReasonReset();
     msg.className='msg ok'; msg.textContent = `✓ 已提交庫存調整,共 ${count} 項商品`;
     renderAll();
   });
