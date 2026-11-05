@@ -603,7 +603,10 @@ async function icCnOpenList(force){
   if(force || icCnRows === null){
     root.innerHTML = `<div class="empty-note">${t('batchLoading')}</div>`;
     try{
-      const { data, error } = await sb.from('credit_notes').select('id,cn_no,invoice_id,invoice_no,party_id,customer,cn_date,total,return_status,created_by').order('cn_date', { ascending: false }).order('cn_no', { ascending: false }).limit(5000);
+      const q = cols => sb.from('credit_notes').select(cols).order('cn_date', { ascending: false }).order('cn_no', { ascending: false }).limit(5000);
+      const cols0 = 'id,cn_no,invoice_id,invoice_no,party_id,customer,cn_date,total,return_status,created_by';
+      let { data, error } = await q(cols0 + ',applied');
+      if(error && error.code === '42703') ({ data, error } = await q(cols0));   // 還沒執行客戶額度的 SQL:沒有 applied 欄
       if(error) throw error;
       icCnRows = data || []; icCnErr = '';
     }catch(e){ icCnRows = []; icCnErr = invIsMissingFn(e) || (e && e.code === '42P01') ? 'sql' : 'error'; if(icCnErr === 'error') console.error('讀取 Credit Note 清單失敗', e); }
@@ -628,6 +631,7 @@ function icCnRender(){
       <td style="white-space:nowrap;">${invEsc(invIsoToDmy(r.cn_date))}</td><td>${invEsc(r.customer)}</td>
       <td>${r.invoice_no ? (r.invoice_id ? `<span class="batch-link" onclick="invOpenDetails('${invEsc(r.invoice_id)}')">INV${invEsc(r.invoice_no)}</span>` : 'INV' + invEsc(r.invoice_no)) : '–'}</td>
       <td class="num"><b>(${invMoney2(r.total)})</b></td>
+      <td class="num">${r.invoice_id ? '–' : invMoney2(Number(r.total) - Number(r.applied || 0))}</td>
       <td style="white-space:nowrap;">${icRsBadge(r.return_status)}</td>
       <td style="white-space:nowrap;"><span class="del-link" onclick="icCnView('${invEsc(r.id)}')">${t('invBtnDetails')}</span>${(r.return_status || 'none') !== 'none' ? ` <span class="del-link" style="margin-left:6px;" onclick="icCnOpenStatus('${invEsc(r.id)}')">${t('icBtnReturnStatus')}</span>` : ''}</td></tr>`).join('');
   root.innerHTML = `<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin-bottom:8px;">
@@ -636,8 +640,8 @@ function icCnRender(){
       <div><div style="font-size:11px;color:var(--ink-soft);">${t('icColReturnStatus')}</div><select onchange="icCnF.st=this.value;icCnRender()">${stOpt('', t('invFltAll'))}${stOpt('pending', t('icRs_pending'))}${stOpt('partial', t('icRs_partial'))}${stOpt('done', t('icRs_done'))}${stOpt('none', t('icRs_none'))}</select></div>
       <div style="flex:1;min-width:160px;"><div style="font-size:11px;color:var(--ink-soft);">${t('invFltSearch')}</div><input type="text" value="${invEsc(f.q)}" placeholder="${invEsc(t('icCnSearchPh'))}" oninput="icCnF.q=this.value;icCnRenderKeepFocus(this)" style="width:100%;box-sizing:border-box;" /></div>
     </div>
-    ${list.length ? `<div style="overflow-x:auto;"><table class="stock-table"><thead><tr><th>Credit Note No</th><th>${t('icColDate')}</th><th>${t('invColCustomer')}</th><th>Invoice</th><th class="num">${t('spTotalAmt')}</th><th>${t('icColReturnStatus')}</th><th></th></tr></thead><tbody>${body}</tbody>
-      <tfoot><tr style="font-weight:700;"><td colspan="4" style="text-align:right;">${t('invListTotals')} (${list.length})</td><td class="num">(${invMoney2(sum)})</td><td colspan="2"></td></tr></tfoot></table></div>` : `<div class="empty-note">${t('icNoCn')}</div>`}`;
+    ${list.length ? `<div style="overflow-x:auto;"><table class="stock-table"><thead><tr><th>Credit Note No</th><th>${t('icColDate')}</th><th>${t('invColCustomer')}</th><th>Invoice</th><th class="num">${t('spTotalAmt')}</th><th class="num">${t('invCreditAvail')}</th><th>${t('icColReturnStatus')}</th><th></th></tr></thead><tbody>${body}</tbody>
+      <tfoot><tr style="font-weight:700;"><td colspan="4" style="text-align:right;">${t('invListTotals')} (${list.length})</td><td class="num">(${invMoney2(sum)})</td><td colspan="3"></td></tr></tfoot></table></div>` : `<div class="empty-note">${t('icNoCn')}</div>`}`;
 }
 function icCnRenderKeepFocus(inp){
   const pos = inp.selectionStart; icCnRender();

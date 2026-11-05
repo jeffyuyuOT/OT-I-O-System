@@ -974,6 +974,74 @@ async function invOpenDetails(invoiceId){
   }
 }
 
+// ---------- 客戶額度:用單獨的 Credit Note / 其他 Invoice 的多收金額,抵扣這張 Invoice 的未收 ----------
+async function invCreditSources(row){
+  const out = [];
+  const same = (a) => (row.party_id && a.party_id === row.party_id) || (row.customer && a.customer === row.customer);
+  try{
+    let r = await sb.from('credit_notes').select('id,cn_no,total,applied,party_id,customer').is('invoice_id', null);
+    if(r.error && r.error.code === '42703') r = await sb.from('credit_notes').select('id,cn_no,total,party_id,customer').is('invoice_id', null);
+    (r.data || []).filter(same).forEach(c => { const av = Math.round((Number(c.total) - Number(c.applied || 0)) * 100) / 100; if(av > 0.004) out.push({ type: 'cn', id: c.id, label: `${c.cn_no} · ${t('invCreditAvail')} ${invMoney2(av)}`, avail: av }); });
+  }catch(e){}
+  await invLoadList(true);
+  (invList || []).filter(x => x.id !== row.id && same(x)).forEach(x => {
+    const i = invRowInfo(x);
+    if(i.balance < -0.004) out.push({ type: 'invoice', id: x.id, label: `INV${x.invoice_no} · ${t('invOverAmount')} ${invMoney2(-i.balance)}`, avail: Math.round(-i.balance * 100) / 100 });
+  });
+  return out;
+}
+async function invOpenApplyCredit(){
+  if(!invPay) return;
+  const row = invPay.row;
+  const paid = Math.round(invPay.payments.reduce((s, p) => s + Number(p.amount), 0) * 100) / 100;
+  const info = invRowInfo(Object.assign({}, row, { paid }));
+  const srcs = await invCreditSources(row);
+  if(!srcs.length){ showInfoModal(t('invNoCredit')); return; }
+  window.invCreditCtx = { srcs, balance: info.balance };
+  const old = document.getElementById('invApplyOverlay'); if(old) old.remove();
+  const ov = document.createElement('div');
+  ov.id = 'invApplyOverlay'; ov.className = 'modal-overlay'; ov.style.display = 'flex'; ov.style.zIndex = '1350';
+  ov.innerHTML = `<div class="modal-box" style="max-width:400px;">
+    <div class="section-title" style="margin-top:0;">${invEsc(t('invBtnApplyCredit'))} · ${invEsc(row.invoice_no)}</div>
+    <p style="font-size:12px;color:var(--ink-soft);margin:0 0 8px;">${invEsc(t('invApplyHint'))}</p>
+    <label style="font-size:12px;">${invEsc(t('invCreditSource'))}</label>
+    <select id="invApSrc" onchange="invApplySrcChange()" style="width:100%;box-sizing:border-box;margin-bottom:8px;">${srcs.map((s, i) => `<option value="${i}">${invEsc(s.label)}</option>`).join('')}</select>
+    <label style="font-size:12px;">${invEsc(t('invPayDate'))}</label><input id="invApDate" type="date" value="${invToday()}" style="width:100%;box-sizing:border-box;margin-bottom:8px;" />
+    <label style="font-size:12px;">${invEsc(t('invPayAmount'))}</label><input id="invApAmt" type="number" min="0" step="0.01" style="width:100%;box-sizing:border-box;" />
+    <div id="invApMsg" class="msg"></div>
+    <div class="modal-actions"><button class="btn ghost" onclick="document.getElementById('invApplyOverlay').remove()">${t('btnCancel')}</button><button class="btn" onclick="invApplyCreditDo()">${invEsc(t('invBtnApplyCredit'))}</button></div>
+  </div>`;
+  document.body.appendChild(ov);
+  invApplySrcChange();
+}
+function invApplySrcChange(){
+  const c = window.invCreditCtx; if(!c) return;
+  const s = c.srcs[Number(document.getElementById('invApSrc').value)];
+  const el = document.getElementById('invApAmt'); if(el && s) el.value = invMoney2(Math.min(s.avail, c.balance));
+}
+async function invApplyCreditDo(){
+  const c = window.invCreditCtx; if(!c || !invPay) return;
+  const msg = document.getElementById('invApMsg');
+  const s = c.srcs[Number(document.getElementById('invApSrc').value)];
+  const amt = Math.round(Number(document.getElementById('invApAmt').value) * 100) / 100;
+  const date = document.getElementById('invApDate').value;
+  if(!date){ msg.className = 'msg error'; msg.textContent = t('invPayBadDate'); return; }
+  if(!s || !Number.isFinite(amt) || amt <= 0 || amt > s.avail + 0.004 || amt > c.balance + 0.004){ msg.className = 'msg error'; msg.textContent = t('invApplyBad'); return; }
+  try{
+    const { error } = await sb.rpc('invoice_apply_credit', { p_invoice_id: invPay.id, p_source_type: s.type, p_source_id: s.id, p_amount: amt, p_date: date });
+    if(error) throw error;
+    try{ logInventoryAction('order_edit', `Invoice ${invPay.row.invoice_no} - credit applied: ${invMoney2(amt)} (${s.label})`, invPay.row.invoice_no); }catch(e){}
+    document.getElementById('invApplyOverlay').remove();
+    invList = []; if(typeof icCnRows !== 'undefined') icCnRows = null;
+    await invPayReload();
+    try{ await invLoadList(true); invRerenderLists(); }catch(e){}
+  }catch(e){
+    console.error('額度抵扣失敗', e);
+    msg.className = 'msg error';
+    msg.textContent = invIsMissingFn(e) ? t('invPayNeedSql') : (/credit_exceeds|credit_source/.test((e && e.message) || '') ? t('invApplyBad') : t('invPaidFailed'));
+  }
+}
+
 // ---------- 多收 → 退款(在收款記錄裡記一筆負數收款)----------
 function invOpenRefund(invoiceId){
   
@@ -1031,7 +1099,7 @@ async function invOpenPayments(invoiceId){
   try{
     const selInv = cols => sb.from('invoices').select(cols).eq('id', invoiceId).maybeSingle();
     const [{ data: inv, error: e1 }, { data: pays, error: e2 }] = await Promise.all([
-      selInv('id,invoice_no,customer,invoice_date,due_date,payment_type,terms,total,paid,credited').then(r => (r.error && r.error.code === '42703') ? selInv('id,invoice_no,customer,invoice_date,due_date,payment_type,terms,total,paid') : r),
+      selInv('id,invoice_no,customer,party_id,invoice_date,due_date,payment_type,terms,total,paid,credited').then(r => (r.error && r.error.code === '42703') ? selInv('id,invoice_no,customer,party_id,invoice_date,due_date,payment_type,terms,total,paid') : r),
       sb.from('invoice_payments').select('*').eq('invoice_id', invoiceId).order('pay_date', { ascending: true }).order('created_at', { ascending: true })
     ]);
     if(e1 || e2 || !inv) throw e1 || e2 || new Error('not found');
@@ -1066,7 +1134,7 @@ function invRenderPayments(){
       <td class="num">${invMoney2(p.amount)}</td>
       <td>${invEsc(p.method || '')}</td>
       <td>${invEsc(p.note || '')}<div style="font-size:10.5px;color:var(--ink-soft);">${invEsc(p.created_by || '')}</div></td>
-      <td style="white-space:nowrap;text-align:right;">${Number(p.amount) < 0 ? '' : `<span class="del-link" onclick="invPayEdit('${invEsc(p.id)}')" style="margin-right:6px;">${t('btnEdit')}</span>`}<span class="del-link" onclick="invPayDelete('${invEsc(p.id)}')">${t('btnDelete')}</span></td>
+      <td style="white-space:nowrap;text-align:right;">${(Number(p.amount) < 0 || p.credit_cn_id || p.pair_payment_id) ? '' : `<span class="del-link" onclick="invPayEdit('${invEsc(p.id)}')" style="margin-right:6px;">${t('btnEdit')}</span>`}<span class="del-link" onclick="invPayDelete('${invEsc(p.id)}')">${t('btnDelete')}</span></td>
     </tr>`).join('');
   ov.innerHTML = `<div class="modal-box" style="max-width:min(640px,96vw);max-height:92vh;overflow:auto;">
     <div class="section-title" style="margin-top:0;">${t('invPayTitle')} · ${invEsc(r.invoice_no)}</div>
@@ -1078,7 +1146,7 @@ function invRenderPayments(){
     </div>
     ${invPay.payments.length === 0 ? `<div class="empty-note" style="margin:6px 0;">${t('invPayEmpty')}</div>` : `<div style="overflow-x:auto;"><table class="stock-table"><thead><tr><th>${t('invPayDate')}</th><th class="num">${t('invPayAmount')}</th><th>${t('invPayMethod')}</th><th>${t('colNote')}</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`}
     <div style="margin-top:12px;padding-top:10px;border-top:1px solid var(--line);">
-      <div style="font-size:12.5px;font-weight:700;margin-bottom:6px;">${ed ? t('invPayEditTitle') : t('invPayAddTitle')}</div>
+      <div style="font-size:12.5px;font-weight:700;margin-bottom:6px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;">${ed ? t('invPayEditTitle') : t('invPayAddTitle')}${!ed && info.balance > 0.004 ? `<button class="btn ghost" style="font-weight:400;" onclick="invOpenApplyCredit()">${invEsc(t('invBtnApplyCredit'))}</button>` : ''}</div>
       <div class="form-grid" style="grid-template-columns:1fr 1fr;gap:8px;">
         <div class="field"><label>${t('invPayDate')}</label><input type="date" id="invPayDate" value="${invEsc(dateV)}" /></div>
         <div class="field"><label>${t('invPayAmount')}</label><input type="number" id="invPayAmount" min="0.01" step="0.01" value="${invEsc(amtV)}" placeholder="0.00" /></div>
@@ -1153,6 +1221,7 @@ async function invPayDeleteDo(paymentId){
     const { error } = await sb.rpc('invoice_payment_delete', { p_payment_id: paymentId });
     if(error) throw error;
     try{ logInventoryAction('order_edit', `Invoice ${invPay.row.invoice_no} - payment deleted: ${invMoney2(p.amount)}`, invPay.row.invoice_no); }catch(e){}
+    invList = [];   // 轉入 / 轉出的收款會連動另一張 Invoice,清單重新讀取
     await invPayReload();
   }catch(e){
     console.error('刪除收款失敗', e);

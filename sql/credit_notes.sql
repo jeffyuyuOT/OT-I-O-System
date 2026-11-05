@@ -220,3 +220,116 @@ revoke all on function public.invoice_payment_save(text, text, date, numeric, te
 revoke all on function public.invoice_refund(text, date, numeric, text, text) from public, anon;
 grant execute on function public.invoice_payment_save(text, text, date, numeric, text, text) to authenticated;
 grant execute on function public.invoice_refund(text, date, numeric, text, text) to authenticated;
+
+-- ============================================================
+-- 客戶額度:用「單獨的 Credit Note」或「其他 Invoice 的多收金額」抵扣另一張 Invoice 的未收
+-- * credit_notes.applied:這張(單獨的)Credit Note 已經抵扣掉多少。
+-- * 抵扣是在目標 Invoice 的收款記錄裡記一筆收款(方式 Credit / Transfer in),來源那邊同步記錄:
+--   Credit Note → applied 增加;其他 Invoice → 記一筆負數的 Transfer out。
+-- * 這些收款不能編輯;刪除時會自動還原來源(Credit Note 的 applied 減回去、Transfer 的另一半一起刪除)。
+-- ============================================================
+alter table public.credit_notes add column if not exists applied numeric default 0;
+alter table public.invoice_payments add column if not exists credit_cn_id text;
+alter table public.invoice_payments add column if not exists pair_payment_id text;
+
+create or replace function public.invoice_apply_credit(p_invoice_id text, p_source_type text, p_source_id text, p_amount numeric, p_date date)
+returns jsonb language plpgsql security definer set search_path = public as $$
+declare v_t public.invoices%rowtype; v_tpaid numeric; v_who text; v_pid text := gen_random_uuid()::text; v_cn public.credit_notes%rowtype; v_s public.invoices%rowtype; v_spaid numeric; v_pid2 text := gen_random_uuid()::text;
+begin
+  if not public.is_accounting_user() then raise exception 'invoice_forbidden'; end if;
+  if p_amount is null or p_amount <= 0 then raise exception 'invoice_bad_paid'; end if;
+  if p_date is null then raise exception 'invoice_bad_date'; end if;
+  select * into v_t from public.invoices where id = p_invoice_id for update;
+  if not found then raise exception 'invoice_not_found'; end if;
+  select coalesce(sum(amount), 0) into v_tpaid from public.invoice_payments where invoice_id = p_invoice_id;
+  if p_amount > (v_t.total - coalesce(v_t.credited, 0) - v_tpaid) + 0.004 then raise exception 'credit_exceeds_balance'; end if;
+  select username into v_who from public.profiles where id = auth.uid();
+
+  if p_source_type = 'cn' then
+    select * into v_cn from public.credit_notes where id = p_source_id for update;
+    if not found or v_cn.invoice_id is not null then raise exception 'credit_source_invalid'; end if;
+    if not ((v_cn.party_id is not null and v_cn.party_id = v_t.party_id) or (coalesce(v_cn.customer, '') <> '' and v_cn.customer = v_t.customer)) then raise exception 'credit_source_invalid'; end if;
+    if p_amount > (v_cn.total - coalesce(v_cn.applied, 0)) + 0.004 then raise exception 'credit_exceeds_available'; end if;
+    insert into public.invoice_payments (id, invoice_id, pay_date, amount, method, note, created_by, credit_cn_id)
+    values (v_pid, p_invoice_id, p_date, p_amount, 'Credit', v_cn.cn_no, v_who, v_cn.id);
+    update public.credit_notes set applied = coalesce(applied, 0) + p_amount where id = v_cn.id;
+  elsif p_source_type = 'invoice' then
+    select * into v_s from public.invoices where id = p_source_id for update;
+    if not found or v_s.id = v_t.id then raise exception 'credit_source_invalid'; end if;
+    if not ((v_s.party_id is not null and v_s.party_id = v_t.party_id) or (coalesce(v_s.customer, '') <> '' and v_s.customer = v_t.customer)) then raise exception 'credit_source_invalid'; end if;
+    select coalesce(sum(amount), 0) into v_spaid from public.invoice_payments where invoice_id = v_s.id;
+    if p_amount > (v_spaid - (v_s.total - coalesce(v_s.credited, 0))) + 0.004 then raise exception 'credit_exceeds_available'; end if;
+    insert into public.invoice_payments (id, invoice_id, pay_date, amount, method, note, created_by, pair_payment_id)
+    values (v_pid, p_invoice_id, p_date, p_amount, 'Transfer in', 'from INV' || v_s.invoice_no, v_who, v_pid2);
+    insert into public.invoice_payments (id, invoice_id, pay_date, amount, method, note, created_by, pair_payment_id)
+    values (v_pid2, v_s.id, p_date, -p_amount, 'Transfer out', 'to INV' || v_t.invoice_no, v_who, v_pid);
+    perform public.invoice_recalc_paid(v_s.id);
+  else
+    raise exception 'credit_source_invalid';
+  end if;
+  perform public.invoice_recalc_paid(p_invoice_id);
+  return jsonb_build_object('id', v_pid);
+end $$;
+
+-- 收款不能編輯:額度抵扣 / 轉入轉出的收款要刪除再重做
+create or replace function public.invoice_payment_save(p_invoice_id text, p_payment_id text, p_date date, p_amount numeric, p_method text, p_note text)
+returns jsonb language plpgsql security definer set search_path = public as $$
+declare v_total numeric; v_cr numeric; v_other numeric; v_all numeric; v_who text; v_id text; v_paid numeric; v_lock record;
+begin
+  if not public.is_accounting_user() then raise exception 'invoice_forbidden'; end if;
+  select total, coalesce(credited, 0) into v_total, v_cr from public.invoices where id = p_invoice_id for update;
+  if not found then raise exception 'invoice_not_found'; end if;
+  if p_amount is null or p_amount <= 0 then raise exception 'invoice_bad_paid'; end if;
+  if p_date is null then raise exception 'invoice_bad_date'; end if;
+  if p_payment_id is not null then
+    select credit_cn_id, pair_payment_id into v_lock from public.invoice_payments where id = p_payment_id;
+    if v_lock.credit_cn_id is not null or v_lock.pair_payment_id is not null then raise exception 'payment_locked'; end if;
+  end if;
+  select coalesce(sum(amount), 0) into v_all from public.invoice_payments where invoice_id = p_invoice_id;
+  select coalesce(sum(amount), 0) into v_other from public.invoice_payments
+   where invoice_id = p_invoice_id and (p_payment_id is null or id <> p_payment_id);
+  if v_other + p_amount > greatest(v_total - v_cr, v_all) + 0.004 then raise exception 'invoice_bad_paid'; end if;
+  select username into v_who from public.profiles where id = auth.uid();
+  if p_payment_id is null then
+    v_id := gen_random_uuid()::text;
+    insert into public.invoice_payments (id, invoice_id, pay_date, amount, method, note, created_by)
+    values (v_id, p_invoice_id, p_date, p_amount, nullif(p_method, ''), nullif(p_note, ''), v_who);
+  else
+    v_id := p_payment_id;
+    update public.invoice_payments
+       set pay_date = p_date, amount = p_amount, method = nullif(p_method, ''), note = nullif(p_note, '')
+     where id = p_payment_id and invoice_id = p_invoice_id;
+    if not found then raise exception 'invoice_payment_not_found'; end if;
+  end if;
+  v_paid := public.invoice_recalc_paid(p_invoice_id);
+  return jsonb_build_object('id', v_id, 'paid', v_paid);
+end $$;
+
+create or replace function public.invoice_payment_delete(p_payment_id text)
+returns numeric language plpgsql security definer set search_path = public as $$
+declare v_p public.invoice_payments%rowtype; v_pair public.invoice_payments%rowtype; v_res numeric;
+begin
+  if not public.is_accounting_user() then raise exception 'invoice_forbidden'; end if;
+  select * into v_p from public.invoice_payments where id = p_payment_id for update;
+  if not found then raise exception 'invoice_payment_not_found'; end if;
+  if v_p.credit_cn_id is not null then
+    update public.credit_notes set applied = greatest(coalesce(applied, 0) - v_p.amount, 0) where id = v_p.credit_cn_id;
+  end if;
+  if v_p.pair_payment_id is not null then
+    select * into v_pair from public.invoice_payments where id = v_p.pair_payment_id;
+    if found then
+      delete from public.invoice_payments where id = v_pair.id;
+      perform public.invoice_recalc_paid(v_pair.invoice_id);
+    end if;
+  end if;
+  delete from public.invoice_payments where id = p_payment_id;
+  v_res := public.invoice_recalc_paid(v_p.invoice_id);
+  return v_res;
+end $$;
+
+revoke all on function public.invoice_apply_credit(text, text, text, numeric, date) from public, anon;
+revoke all on function public.invoice_payment_save(text, text, date, numeric, text, text) from public, anon;
+revoke all on function public.invoice_payment_delete(text) from public, anon;
+grant execute on function public.invoice_apply_credit(text, text, text, numeric, date) to authenticated;
+grant execute on function public.invoice_payment_save(text, text, date, numeric, text, text) to authenticated;
+grant execute on function public.invoice_payment_delete(text) to authenticated;
