@@ -1513,6 +1513,8 @@ function confirmOrderActionModal(){
     else if(action === 'verify') openOrderInVerifyPage(orderId);
     else if(action === 'edit') editOrderViaRegister(orderId, 'pending');
     else if(action === 'cancel') cancelPendingOrder(orderId);
+    else if(action === 'create-invoice') invOpenCreate(orderId);
+    else if(action === 'invoice') invOpenView(orderId);
   } else {
     const modeSel = document.getElementById('orderActionModeSelect');
     const exportMode = modeSel ? modeSel.value : 'general';
