@@ -869,8 +869,8 @@ function invRenderList(key){
     </div>
     ${list.length === 0 ? `<div class="empty-note">${t('invListEmpty')}</div>` : `<div style="font-size:11.5px;color:var(--ink-soft);margin-bottom:6px;">${t('invListClickHint')}</div>
     <div style="overflow-x:auto;"><table class="stock-table"><thead><tr><th>Invoice No</th><th>Invoice Date</th>${showCust ? `<th>${t('invColCustomer')}</th>` : ''}<th>${t('invColOrder')}</th><th class="num">${t('spTotalAmt')}</th><th class="num">${t('invColPaid')}</th><th class="num">${t('invColBalance')}</th><th>${t('invFltStatus')}</th><th></th></tr></thead>
-      <tbody>${rows}</tbody>
-      <tfoot><tr style="font-weight:700;"><td colspan="${showCust ? 4 : 3}" style="text-align:right;">${t('invListTotals')} (${list.length})</td><td class="num">${invMoney2(sum.g)}</td><td class="num">${invMoney2(sum.p)}</td><td class="num">${invMoney2(sum.bal)}</td><td colspan="2"></td></tr></tfoot></table></div>`}`;
+      <tbody>${rows}<tr style="font-weight:700;border-top:2px solid var(--line, #ccc);"><td colspan="${showCust ? 4 : 3}" style="text-align:right;">${t('invListTotals')} (${list.length})</td><td class="num">${invMoney2(sum.g)}</td><td class="num">${invMoney2(sum.p)}</td><td class="num">${invMoney2(sum.bal)}</td><td colspan="2"></td></tr></tbody>
+</table></div>`}`;
 }
 function invClearListFilter(key){
   invCtx[key].filter = { from: '', to: '', q: '', status: '', pay: '', rep: '' };
