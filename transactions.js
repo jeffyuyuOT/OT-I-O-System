@@ -1534,7 +1534,11 @@ async function runStockImportCore(items, skippedRows, clearBlanksMode, dryRun){
         gst: item.gst === true,
         hidden: item.hidden === true,
         orderPageRemark: item.orderPageRemark || undefined,
-        barcode: item.barcode || undefined
+        barcode: item.barcode || undefined,
+        ...(item.noAccounting === true ? { noAccounting: true } : {}),
+        ...(item.batchTrack === false ? { batchTrack: false } : {}),
+        ...(item.noAccounting === true || item.hideAcctExport === true ? { hideFromCompletedOrderExport: true } : {}),
+        ...(item.noAccounting === true || (item.hideAcctExport === true && item.hideAcctMode) ? { hideFromCompletedOrderExportMode: item.noAccounting === true ? 'wholeFamily' : item.hideAcctMode } : {})
       });
       if(item.qty > 0){
         const tx = {
@@ -1582,6 +1586,19 @@ async function runStockImportCore(items, skippedRows, clearBlanksMode, dryRun){
     else if(clearBlanksMode && (item.weightKg === null || item.weightKg === undefined) && existing.weightKg !== null && existing.weightKg !== undefined){ changedFields.push(tf('importFieldChangeLine', {field: t('fieldWeightKg'), from: existing.weightKg, to: '(空白)'})); existing.weightKg = undefined; changed = true; }
     if(item.gst !== null && item.gst !== undefined && !!existing.gst !== item.gst){ changedFields.push(tf('importFieldChangeLine', {field: 'GST', from: !!existing.gst, to: item.gst})); existing.gst = item.gst; changed = true; }
     if(item.hidden !== null && item.hidden !== undefined && existing.hidden !== item.hidden){ changedFields.push(tf('importFieldChangeLine', {field: t('hideAction'), from: existing.hidden, to: item.hidden})); existing.hidden = item.hidden; changed = true; }
+    if(item.batchTrack !== null && item.batchTrack !== undefined && (existing.batchTrack !== false) !== item.batchTrack){ changedFields.push(tf('importFieldChangeLine', {field: 'Batch Tracking', from: existing.batchTrack !== false, to: item.batchTrack})); if(item.batchTrack) delete existing.batchTrack; else existing.batchTrack = false; changed = true; }
+    if(item.noAccounting !== null && item.noAccounting !== undefined && (existing.noAccounting === true) !== item.noAccounting){ changedFields.push(tf('importFieldChangeLine', {field: 'Not On Books', from: existing.noAccounting === true, to: item.noAccounting})); if(item.noAccounting) existing.noAccounting = true; else delete existing.noAccounting; changed = true; }
+    if(item.hideAcctExport !== null && item.hideAcctExport !== undefined && !!existing.hideFromCompletedOrderExport !== item.hideAcctExport && !(existing.noAccounting === true && !item.hideAcctExport)){ changedFields.push(tf('importFieldChangeLine', {field: 'Hide From Accounting Export', from: !!existing.hideFromCompletedOrderExport, to: item.hideAcctExport})); existing.hideFromCompletedOrderExport = item.hideAcctExport; changed = true; }
+    if(item.hideAcctMode && item.hideAcctMode !== existing.hideFromCompletedOrderExportMode && existing.noAccounting !== true && !existing.parentId){ existing.hideFromCompletedOrderExportMode = item.hideAcctMode; changed = true; }
+    if(existing.noAccounting === true){
+      existing.hideFromCompletedOrderExport = true;
+      if(!existing.parentId){
+        existing.hideFromCompletedOrderExportMode = 'wholeFamily';
+        products.forEach(c => { if(c.parentId === existing.id) c.hideFromCompletedOrderExport = true; });
+      }
+    } else if(!existing.parentId && existing.hideFromCompletedOrderExport && existing.hideFromCompletedOrderExportMode === 'wholeFamily'){
+      products.forEach(c => { if(c.parentId === existing.id) c.hideFromCompletedOrderExport = true; });
+    }
     if(item.autoConvertOnStockIn !== null && item.autoConvertOnStockIn !== undefined && existing.autoConvertOnStockIn !== item.autoConvertOnStockIn){ changedFields.push(tf('importFieldChangeLine', {field: t('fieldAutoConvertStockIn'), from: existing.autoConvertOnStockIn, to: item.autoConvertOnStockIn})); existing.autoConvertOnStockIn = item.autoConvertOnStockIn; changed = true; }
     if(item.orderPageRemark !== null && item.orderPageRemark !== undefined && existing.orderPageRemark !== item.orderPageRemark){ changedFields.push(tf('importFieldChangeLine', {field: t('fieldOrderPageRemark'), from: existing.orderPageRemark || '(空白)', to: item.orderPageRemark})); existing.orderPageRemark = item.orderPageRemark; changed = true; }
     else if(clearBlanksMode && (item.orderPageRemark === null || item.orderPageRemark === undefined) && existing.orderPageRemark){ changedFields.push(tf('importFieldChangeLine', {field: t('fieldOrderPageRemark'), from: existing.orderPageRemark, to: '(空白)'})); existing.orderPageRemark = undefined; changed = true; }
