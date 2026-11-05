@@ -53,6 +53,8 @@ begin
   if p_invoice_id is not null then
     select * into v_inv from public.invoices where id = p_invoice_id;
     if not found then raise exception 'invoice_not_found'; end if;
+    -- 這張 Invoice 的 Credit Note 合計不能超過 Invoice 總額
+    if coalesce(v_inv.credited, 0) + coalesce((p_snapshot->>'total')::numeric, 0) > v_inv.total + 0.004 then raise exception 'credit_exceeds'; end if;
   end if;
   select next_no into v_n from public.credit_note_counter where id = 1 for update;
   v_no := 'CN' || lpad(v_n::text, 8, '0');

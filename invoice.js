@@ -329,6 +329,7 @@ function invShowModal(orderId, snap, created, link){
     <div id="invModalMsg" class="msg"></div>
     <div class="modal-actions">
       <button class="btn ghost" onclick="invCloseModal()">${created ? t('btnClose') : t('btnCancel')}</button>
+      ${isCn && created && snap.invoiceId ? `<button class="btn ghost" onclick="var i='${invEsc(snap.invoiceId)}';invCloseModal();invOpenDetails(i)">Invoice ${invEsc(snap.invoiceNo || '')}</button>` : ''}
       ${isCn ? '' : (created ? (invModal.snap.id ? `<button class="btn ghost" onclick="invOpenPayments(invModal.snap.id)">${t('invBtnPayments')}</button>` : '') : `<button class="btn ghost" onclick="invOpenPaidPrompt()">${t('invBtnPaidToday')}</button>`)}
       <button class="btn ghost" onclick="invDoPrint()">${t('invBtnPrint')}</button>
       <button class="btn" onclick="invDoSavePdf()">${created ? t('invBtnExport') : t('invBtnSavePdf')}</button>
@@ -739,17 +740,18 @@ function invCodGrace(){ const n = parseInt(invSettings.codGraceDays, 10); return
 function invRowInfo(r){
   const gross = Number(r.total) || 0, credited = Math.min(Number(r.credited) || 0, gross);
   const total = Math.round((gross - credited) * 100) / 100;   // 扣掉 Credit Note 之後的應收金額
-  const paid = Math.min(Number(r.paid) || 0, total);
-  const balance = Math.round((total - paid) * 100) / 100;
+  const paid = Number(r.paid) || 0;                           // 不再截斷:Credit Note 扣完之後如果已收比應收多,就是「多收」
+  const balance = Math.round((total - paid) * 100) / 100;    // 負數 = 多收(待退款)
   const due = r.payment_type === 'cod' ? invAddDays(r.invoice_date, invCodGrace()) : (r.due_date || r.invoice_date);
   let status;
-  if(balance <= 0.004) status = 'paid';
+  if(balance < -0.004) status = 'overpaid';
+  else if(balance <= 0.004) status = 'paid';
   else if(due && invToday() > due) status = 'overdue';
   else status = paid > 0 ? 'partial' : 'unpaid';
   return { total, gross, credited, paid, balance, status, due };
 }
 function invStatusBadge(st){
-  const col = { paid: ['#e7f6ec', '#1d7a3c'], partial: ['#fff4dc', '#9a6a00'], unpaid: ['#eef0f3', '#555'], overdue: ['#fde8e8', '#b42318'] }[st] || ['#eee', '#555'];
+  const col = { paid: ['#e7f6ec', '#1d7a3c'], partial: ['#fff4dc', '#9a6a00'], unpaid: ['#eef0f3', '#555'], overdue: ['#fde8e8', '#b42318'], overpaid: ['#efe6fb', '#6b3fa0'] }[st] || ['#eee', '#555'];
   return `<span style="display:inline-block;padding:1px 8px;border-radius:10px;font-size:11px;font-weight:700;background:${col[0]};color:${col[1]};white-space:nowrap;">${invEsc(t('invSt_' + st))}</span>`;
 }
 async function invLoadList(force){
@@ -849,7 +851,7 @@ function invRenderList(key){
     <div class="filter-row" style="margin-bottom:10px;">
       <div class="field"><label>${t('lblFromDate')}</label><input type="date" id="invFlt_${key}_from" value="${invEsc(f.from)}" onchange="invOnListFilter('${key}')" /></div>
       <div class="field"><label>${t('lblToDate')}</label><input type="date" id="invFlt_${key}_to" value="${invEsc(f.to)}" onchange="invOnListFilter('${key}')" /></div>
-      <div class="field"><label>${t('invFltStatus')}</label>${sel('invFlt_' + key + '_status', f.status, [['', t('invFltAll')], ['unpaid', t('invSt_unpaid')], ['partial', t('invSt_partial')], ['paid', t('invSt_paid')], ['overdue', t('invSt_overdue')]])}</div>
+      <div class="field"><label>${t('invFltStatus')}</label>${sel('invFlt_' + key + '_status', f.status, [['', t('invFltAll')], ['unpaid', t('invSt_unpaid')], ['partial', t('invSt_partial')], ['paid', t('invSt_paid')], ['overdue', t('invSt_overdue')], ['overpaid', t('invSt_overpaid')]])}</div>
       <div class="field"><label>${t('invFltPayType')}</label>${sel('invFlt_' + key + '_pay', f.pay, [['', t('invFltAll')], ['bank', 'Bank Transfer'], ['cod', 'COD']])}</div>
       <div class="field"><label>Sale Rep</label>${sel('invFlt_' + key + '_rep', f.rep, [['', t('invFltAll')]].concat(reps.map(x => [x, x])))}</div>
       <div class="field" style="min-width:220px;"><label>${t('invFltSearch')}</label><input type="search" id="invFlt_${key}_q" value="${invEsc(f.q)}" oninput="invOnListFilter('${key}',true)" placeholder="${invEsc(t(key === 'party' ? 'invListSearchPhParty' : 'invListSearchPh'))}" /></div>
@@ -951,7 +953,7 @@ async function invOpenDetails(invoiceId){
         ${row(t('invColBalance'), '<b>' + invMoney2(i.balance) + '</b>')}
         ${row(t('invDtCreated'), invEsc((inv.created_by || '') + (inv.created_at ? ' · ' + when(inv.created_at) : '')))}
       </tbody></table>
-      ${cnList.length ? `<div style="margin-top:12px;font-size:12.5px;font-weight:700;">Credit Notes</div>${cnList.map(c => `<div style="padding:4px 0;border-top:1px solid var(--line);font-size:12px;"><span class="batch-link" onclick="icCnView('${invEsc(c.id)}')">${invEsc(c.cn_no)}</span> · ${invEsc(invIsoToDmy(c.cn_date))} · <b>(${invMoney2(c.total)})</b> · ${icRsBadge(c.return_status)}</div>`).join('')}` : ''}
+      ${cnList.length ? `<div style="margin-top:12px;font-size:12.5px;font-weight:700;">Credit Notes</div>${cnList.map(c => `<div style="padding:4px 0;border-top:1px solid var(--line);font-size:12px;"><span class="batch-link" onclick="invCloseDetails();icCnView('${invEsc(c.id)}')">${invEsc(c.cn_no)}</span> · ${invEsc(invIsoToDmy(c.cn_date))} · <b>(${invMoney2(c.total)})</b> · ${icRsBadge(c.return_status)}</div>`).join('')}` : ''}
       <div style="margin-top:12px;font-size:12.5px;font-weight:700;">${invEsc(t('invChangeTitle'))}</div>
       ${changes.length === 0 ? `<div class="empty-note" style="margin:4px 0;">${invEsc(t('invChangeNone'))}</div>` : changes.map(c => `<div style="padding:6px 0;border-top:1px solid var(--line);">
           <div style="font-size:12px;"><b>${invEsc(when(c.changed_at))}</b> · ${invEsc(c.changed_by || '')} · ${invEsc(t('invChTotal'))} ${invMoney2(c.before_total)} → <b>${invMoney2(c.after_total)}</b></div>

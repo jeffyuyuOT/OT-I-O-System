@@ -550,6 +550,11 @@ function icPreviewCn(){
     const amount = icR2(price * qty);
     lines.push({ n: lines.length + 1, desc: it.desc, sku: it.sku || '', comment: '', qty, unit: it.unit || '', price, disc: 0, amount, tax: it.gst ? icR2(amount * gstRate) : 0, productId: it.productId || '', ret: !!it.ret });
   }
+  if(ci && ci.row){
+    const remain = icR2(Number(ci.row.total) - Number(ci.row.credited || 0));
+    const thisTotal = icR2(lines.reduce((a, l) => a + l.amount + l.tax, 0));
+    if(thisTotal > remain + 0.004) return bad('icCreditExceeds');   // 不能比這張 Invoice 剩下的金額還多
+  }
   const head = icSnapHeader(sp, ci && ci.snap && ci.snap.customer ? ci.snap.customer.name : '');
   if(ci && ci.snap){ head.customer = ci.snap.customer || head.customer; head.ship = ci.snap.ship || head.ship; }
   const snap = Object.assign(head, { docType: 'credit_note', invoiceNo: ci ? ci.no : '', invoiceId: ci ? ci.id : '', note: icState.note || '', orderNo: '', lines, paymentType: '', term: 0, dueDate: '' });
@@ -577,6 +582,7 @@ async function icEnsureCreatedCn(){
   }catch(e){
     console.error('建立 Credit Note 失敗', e);
     if(/invoice_forbidden/.test((e && e.message) || '')) return fail('invForbidden');
+    if(/credit_exceeds/.test((e && e.message) || '')) return fail('icCreditExceeds');
     if(invIsMissingFn(e)) return fail('icNeedSqlCn');
     return fail('invCreateFailed');
   }
@@ -614,7 +620,7 @@ function icCnRender(){
   const body = list.map(r => `<tr>
       <td style="white-space:nowrap;cursor:pointer;" onclick="icCnView('${invEsc(r.id)}')"><span class="batch-link">${invEsc(r.cn_no)}</span></td>
       <td style="white-space:nowrap;">${invEsc(invIsoToDmy(r.cn_date))}</td><td>${invEsc(r.customer)}</td>
-      <td>${r.invoice_no ? 'INV' + invEsc(r.invoice_no) : '–'}</td>
+      <td>${r.invoice_no ? (r.invoice_id ? `<span class="batch-link" onclick="invOpenDetails('${invEsc(r.invoice_id)}')">INV${invEsc(r.invoice_no)}</span>` : 'INV' + invEsc(r.invoice_no)) : '–'}</td>
       <td class="num"><b>(${invMoney2(r.total)})</b></td>
       <td style="white-space:nowrap;">${icRsBadge(r.return_status)}</td>
       <td style="white-space:nowrap;"><span class="del-link" onclick="icCnView('${invEsc(r.id)}')">${t('invBtnDetails')}</span>${(r.return_status || 'none') !== 'none' ? ` <span class="del-link" style="margin-left:6px;" onclick="icCnOpenStatus('${invEsc(r.id)}')">${t('icBtnReturnStatus')}</span>` : ''}</td></tr>`).join('');
