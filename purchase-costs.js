@@ -869,7 +869,7 @@ function pcEditRender(){
     <div style="display:flex;gap:6px;align-items:center;margin:4px 0;flex-wrap:wrap;">
       <input type="text" value="${pcEsc(l.name)}" placeholder="${t('pcLineExpName')}" style="width:170px;" onchange="pcEdUpdateLine('${l.id}','name',this.value)" />
       <input type="number" step="0.01" min="0" value="${l.amount === '' || l.amount === undefined ? '' : l.amount}" placeholder="${t('pcExpenseAmount')}" style="width:110px;" onchange="pcEdUpdateLine('${l.id}','amount',this.value)" />
-      <span style="font-size:12px;">${pcEsc(pcEd.base)}</span>
+      <span style="font-size:12px;">${pcEsc(cvOn ? pcEd.convert.currency : pcEd.base)}</span>
       ${(typeof paGstSelectHtml === 'function') ? paGstSelectHtml(l.gst, "pcEdUpdateLine('" + l.id + "','gst',this.value)") : ''}
       <span class="del-link" onclick="pcEdRemoveLine('${l.id}')">✕</span>
     </div>`).join('');
@@ -879,7 +879,7 @@ function pcEditRender(){
       <input type="number" step="any" min="0" value="${n.qty === '' || n.qty === undefined ? '' : n.qty}" style="width:70px;" onchange="pcEdUpdateNs('${n.id}','qty',this.value)" />
       <input type="text" value="${pcEsc(n.unit || '')}" placeholder="${t('pcNonStockUnit')}" style="width:56px;" onchange="pcEdUpdateNs('${n.id}','unit',this.value)" />
       <input type="number" step="0.01" min="0" value="${n.amount === '' || n.amount === undefined ? '' : n.amount}" placeholder="${t('pcExpenseAmount')}" style="width:100px;" onchange="pcEdUpdateNs('${n.id}','amount',this.value)" />
-      <span style="font-size:12px;">${pcEsc(pcEd.base)}</span>
+      <span style="font-size:12px;">${pcEsc(cvOn ? pcEd.convert.currency : pcEd.base)}</span>
       ${(typeof paGstSelectHtml === 'function') ? paGstSelectHtml(n.gst, "pcEdUpdateNs('" + n.id + "','gst',this.value)") : ''}
       <span class="del-link" onclick="pcEdRemoveNs('${n.id}')">✕</span>
     </div>`).join('');
