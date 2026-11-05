@@ -645,7 +645,7 @@ function icCnRender(){
   const body = list.map(r => `<tr>
       <td style="white-space:nowrap;cursor:pointer;" onclick="icCnView('${invEsc(r.id)}')"><span class="batch-link">${invEsc(r.cn_no)}</span></td>
       <td style="white-space:nowrap;">${invEsc(invIsoToDmy(r.cn_date))}</td><td>${invEsc(invCustLabel(r))}</td>
-      <td>${r.invoice_id ? `<span style="font-size:11.5px;color:var(--ink-soft);">${invEsc(t('invLinkedLabel'))}</span> <span class="batch-link" onclick="invOpenDetails('${invEsc(r.invoice_id)}')">INV${invEsc(r.invoice_no || '')}</span>` : ((icCnUsedOn[r.id] || []).length ? (icCnUsedOn[r.id]).map(x => `<div style="white-space:nowrap;"><span style="font-size:11.5px;color:var(--ink-soft);">${invEsc(t('invLinkedLabel'))}</span> <span class="batch-link" onclick="invOpenDetails('${invEsc(x.id)}')">INV${invEsc(x.no || '')}</span></div>`).join('') : '–')}</td>
+      <td>${r.invoice_id ? `<span class="batch-link" onclick="invOpenDetails('${invEsc(r.invoice_id)}')">INV${invEsc(r.invoice_no || '')}</span>` : ((icCnUsedOn[r.id] || []).length ? (icCnUsedOn[r.id]).map(x => `<div style="white-space:nowrap;"><span class="batch-link" onclick="invOpenDetails('${invEsc(x.id)}')">INV${invEsc(x.no || '')}</span></div>`).join('') : '–')}</td>
       <td class="num"><b>(${invMoney2(r.total)})</b></td>
       <td class="num">${r.invoice_id ? '–' : invMoney2(Number(r.total) - Number(r.applied || 0))}</td>
       <td style="white-space:nowrap;">${icRsBadge(r.return_status)}</td>
@@ -656,7 +656,7 @@ function icCnRender(){
       <div><div style="font-size:11px;color:var(--ink-soft);">${t('icColReturnStatus')}</div><select onchange="icCnF.st=this.value;icCnRender()">${stOpt('', t('invFltAll'))}${stOpt('pending', t('icRs_pending'))}${stOpt('partial', t('icRs_partial'))}${stOpt('done', t('icRs_done'))}${stOpt('none', t('icRs_none'))}</select></div>
       <div style="flex:1;min-width:160px;"><div style="font-size:11px;color:var(--ink-soft);">${t('invFltSearch')}</div><input type="text" value="${invEsc(f.q)}" placeholder="${invEsc(t('icCnSearchPh'))}" oninput="icCnF.q=this.value;icCnRenderKeepFocus(this)" style="width:100%;box-sizing:border-box;" /></div>
     </div>
-    ${list.length ? `<div style="overflow-x:auto;"><table class="stock-table"><thead><tr><th>Credit Note No</th><th>${t('icColDate')}</th><th>${t('invColCustomer')}</th><th>Invoice</th><th class="num">${t('spTotalAmt')}</th><th class="num">${t('invCreditAvail')}</th><th>${t('icColReturnStatus')}</th><th></th></tr></thead><tbody>${body}<tr style="font-weight:700;border-top:2px solid var(--line, #ccc);"><td colspan="4" style="text-align:right;">${t('invListTotals')} (${list.length})</td><td class="num">(${invMoney2(sum)})</td><td class="num">${invMoney2(availSum)}</td><td></td><td></td></tr></tbody></table></div>` : `<div class="empty-note">${t('icNoCn')}</div>`}`;
+    ${list.length ? `<div style="overflow-x:auto;"><table class="stock-table"><thead><tr><th>Credit Note No</th><th>${t('icColDate')}</th><th>${t('invColCustomer')}</th><th>${t('icLinkedInvoice')}</th><th class="num">${t('spTotalAmt')}</th><th class="num">${t('invCreditAvail')}</th><th>${t('icColReturnStatus')}</th><th></th></tr></thead><tbody>${body}<tr style="font-weight:700;border-top:2px solid var(--line, #ccc);"><td colspan="4" style="text-align:right;">${t('invListTotals')} (${list.length})</td><td class="num">(${invMoney2(sum)})</td><td class="num">${invMoney2(availSum)}</td><td></td><td></td></tr></tbody></table></div>` : `<div class="empty-note">${t('icNoCn')}</div>`}`;
 }
 function icCnRenderKeepFocus(inp){
   const pos = inp.selectionStart; icCnRender();
@@ -691,14 +691,14 @@ async function icCnOpenDetails(id){
     const ov = document.createElement('div');
     ov.id = 'icCnDetailsOverlay'; ov.className = 'modal-overlay'; ov.style.display = 'flex'; ov.style.zIndex = '1250';
     ov.onclick = e => { if(e.target === ov) icCloseOverlay('icCnDetailsOverlay'); };
-    const lk = (id, no) => `<div style="white-space:nowrap;"><span style="font-size:11.5px;color:var(--ink-soft);">${invEsc(t('invLinkedLabel'))}</span> <span class="batch-link" onclick="icCloseOverlay('icCnDetailsOverlay');invOpenDetails('${invEsc(id)}')">INV${invEsc(no || '')}</span></div>`;
+    const lk = (id, no) => `<div style="white-space:nowrap;"><span class="batch-link" onclick="icCloseOverlay('icCnDetailsOverlay');invOpenDetails('${invEsc(id)}')">INV${invEsc(no || '')}</span></div>`;
     const linkInv = cn.invoice_id ? lk(cn.invoice_id, cn.invoice_no) : [...new Map(uses.map(x => [x.invoice_id, x])).values()].map(x => lk(x.invoice_id, x.invoice_no)).join('');
     ov.innerHTML = `<div class="modal-box" style="max-width:min(560px,96vw);max-height:92vh;overflow:auto;">
       <div class="section-title" style="margin-top:0;">${t('icCnDetailTitle')} · ${invEsc(cn.cn_no)}</div>
       <div style="font-size:12.5px;margin:0 0 8px;">${invEsc(invCustLabel(cn))} · ${icRsBadge(cn.return_status)}</div>
       <table style="width:100%;font-size:13px;border-collapse:collapse;"><tbody>
         ${row('Date', invEsc(invIsoToDmy(cn.cn_date)))}
-        ${row('Invoice', linkInv)}
+        ${row(t('icLinkedInvoice'), linkInv)}
         ${row(t('spSaleAmt'), invMoney2(cn.before_tax))}
         ${row(t('spGstAmt'), invMoney2(cn.tax))}
         ${row(t('spTotalAmt'), '<b>(' + invMoney2(total) + ')</b>')}
