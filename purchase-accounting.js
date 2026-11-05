@@ -122,6 +122,7 @@ function paFormInit(type){
 function paFormReset(){
   const c = document.getElementById('purchaseAccToggle'); if(c) c.checked = true;
   const g = document.getElementById('purchaseGstMode'); if(g) g.value = 'ex';
+  const d = document.getElementById('purchaseDueDate'); if(d) d.value = '';
 }
 // 是否入會計由商品設定決定(商品主檔「不入公司帳」),進貨單不再手動勾選;全部是不入帳商品的單會自動不出現在 Purchase List
 function paFormInAccounting(){ return true; }
@@ -166,6 +167,7 @@ function paApplyToPurchase(purchase, srcItems){
   if(!paOn()) return;
   purchase.inAccounting = paFormInAccounting();
   purchase.gstMode = paFormGstMode();
+  { const d = document.getElementById('purchaseDueDate'); if(d && d.value) purchase.dueDate = d.value; else delete purchase.dueDate; }
   (purchase.items || []).forEach((it, i) => {
     const s = srcItems[i];
     if(paProductOffBooks(it.productId) || (s && paProductOffBooks(s.productId))){ it.noAcct = true; delete it.gst; return; }
@@ -182,6 +184,7 @@ function paEditLoad(p){
   w.style.display = paOn() ? 'block' : 'none';
   const c = document.getElementById('editPurchaseAccToggle'); if(c) c.checked = paCounted(p);
   const g = document.getElementById('editPurchaseGstMode'); if(g) g.value = p.gstMode === 'inc' ? 'inc' : 'ex';
+  const dd = document.getElementById('editPurchaseDueDate'); if(dd) dd.value = p.dueDate || '';
   // 舊進貨單的品項沒有 GST 資料:商品資料有設定的自動帶入
   paAutoFillGst(editPurchaseWorkingItems);
 }
@@ -205,6 +208,8 @@ function paEditApply(p){
   const c = document.getElementById('editPurchaseAccToggle'), g = document.getElementById('editPurchaseGstMode');
   p.inAccounting = !c || c.checked;
   p.gstMode = g && g.value === 'inc' ? 'inc' : 'ex';
+  const dd = document.getElementById('editPurchaseDueDate');
+  if(dd){ if(dd.value) p.dueDate = dd.value; else delete p.dueDate; }
 }
 
 // ------------------------------------------------------------
