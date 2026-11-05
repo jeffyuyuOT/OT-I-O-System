@@ -742,7 +742,9 @@ function pcEditInit(p){
     basis: c.basis || 'volume',
     rates: Object.assign({}, c.rates || {}),
     overseas: !!c.overseas,
-    fetchFailed: []
+    fetchFailed: [],
+    // 舊進貨單原本用外幣(例如台幣)輸入、當成澳幣存下來:可以在編輯時轉成海外採購(金額 × 匯率 = 澳幣)
+    convert: { available: !c.overseas && !(p.items || []).some(it => it.origCurrency), on: false, currency: '' }
   };
   (c.expenses || []).forEach(e => { if(e.currency && e.currency !== pcEd.base && e.rate && !pcEd.rates[e.currency]) pcEd.rates[e.currency] = e.rate; });
   if(!pcLoaded) pcEnsureLoaded();
@@ -799,6 +801,13 @@ function pcEdUpdateNs(id, field, value){
   else n[field] = value;
   pcEditRender();
 }
+function pcEdConvToggle(on){
+  const cv = pcEd.convert; cv.on = !!on;
+  if(on && !cv.currency){ const l = pcCurrencyList().filter(c => c !== pcEd.base); cv.currency = l.includes('TWD') ? 'TWD' : (l[0] || ''); }
+  pcEditRender();
+  if(on) pcEdFetchRates(false);
+}
+function pcEdConvCur(cur){ pcEd.convert.currency = cur; pcEditRender(); pcEdFetchRates(false); }
 function pcEdSetBasis(b){ pcEd.basis = b; pcEditRender(); }
 function pcEdSetRate(cur, v){
   const n = parseFloat(v);
@@ -810,6 +819,7 @@ async function pcEdFetchRates(force){
   const dateStr = dateEl ? dateEl.value : '';
   const failed = [];
   const curs = Array.from(new Set(pcEd.expenses.map(e => e.currency).filter(c => c && c !== pcEd.base)));
+  if(pcEd.convert && pcEd.convert.on && pcEd.convert.currency && !curs.includes(pcEd.convert.currency)) curs.push(pcEd.convert.currency);
   for(const cur of curs){
     if(!force && pcEdRateOf(cur)) continue;
     const v = await pcFetchRate(cur, dateStr, pcEd.base);
@@ -835,7 +845,20 @@ function pcEditRender(){
       ${e.estimated ? `<span style="color:var(--warn-dark,#b45309);font-size:11.5px;font-weight:600;">⚠ ${tf('pcEstimatedBadge', { date: e.estimatedFrom || '' })}</span>
         <span class="del-link" style="font-size:11.5px;" onclick="pcEdConfirmFinal('${e.id}')">${t('pcMarkFinal')}</span>` : ''}
     </div>`).join('');
-  const foreign = Array.from(new Set(pcEd.expenses.map(e => e.currency).filter(c => c && c !== pcEd.base)));
+  const cvOn = !!(pcEd.convert && pcEd.convert.on);
+  const foreign = Array.from(new Set(pcEd.expenses.map(e => e.currency).filter(c => c && c !== pcEd.base && !(cvOn && c === pcEd.convert.currency))));
+  const convHtml = (pcEd.convert && pcEd.convert.available) ? `
+    <div style="border-bottom:1px dashed var(--line,#ddd);margin-bottom:8px;padding-bottom:8px;">
+      <label style="display:flex;gap:6px;align-items:center;font-weight:600;"><input type="checkbox" ${cvOn ? 'checked' : ''} onchange="pcEdConvToggle(this.checked)" /> ${t('pcEdConvLabel')}</label>
+      ${cvOn ? `<div style="display:flex;gap:6px;align-items:center;margin:6px 0 2px;flex-wrap:wrap;font-size:12.5px;">
+        <select onchange="pcEdConvCur(this.value)">${pcCurrencyList().filter(c => c !== pcEd.base).map(c => `<option value="${c}" ${c === pcEd.convert.currency ? 'selected' : ''}>${c}</option>`).join('')}</select>
+        <span>1 ${pcEsc(pcEd.convert.currency)} =</span>
+        <input type="number" step="0.000001" min="0" value="${pcEd.rates[pcEd.convert.currency] || ''}" style="width:120px;" onchange="pcEdSetRate('${pcEd.convert.currency}',this.value)" />
+        <span>${pcEsc(pcEd.base)}</span>
+        <button type="button" class="btn ghost" style="font-size:12px;" onclick="pcEdFetchRates(true)">${t('pcFetchRate')}</button>
+      </div>
+      <div style="font-size:11.5px;color:var(--warn-dark,#b45309);">${tf('pcEdConvHint', { cur: pcEsc(pcEd.convert.currency) })}</div>` : `<div style="font-size:11.5px;color:var(--ink-soft);">${t('pcEdConvNote')}</div>`}
+    </div>` : '';
   const rateRows = foreign.map(cur => `
     <div style="display:flex;gap:6px;align-items:center;margin:4px 0;font-size:12.5px;flex-wrap:wrap;">
       <span>1 ${cur} =</span>
@@ -862,6 +885,7 @@ function pcEditRender(){
     </div>`).join('');
   wrap.innerHTML = `
     <div class="field-block" style="border:1px solid var(--line,#ddd);border-radius:8px;padding:8px 10px;">
+      ${convHtml}
       <label>${t('pcNonStockTitle')}</label>
       ${nsRowsEd}
       <button type="button" class="btn ghost" style="font-size:12px;margin-bottom:10px;" onclick="pcEdAddNs()">${t('pcAddNonStock')}</button>
@@ -929,11 +953,20 @@ function pcEditApply(p, cleanItems){
     if(n.origCurrency && n.fxRate){ o.origCurrency = n.origCurrency; o.fxRate = n.fxRate; o.origAmount = pcRound2(amt / n.fxRate); }
     nsItems.push(o);
   }
-  if(!exps.length && !lines.length && !nsItems.length && !p.costs && !p.lineExpenses && !p.nonStockItems) return { changed: false };
+  const cv = pcEd.convert;
+  const convOn = !!(cv && cv.on);
+  if(!exps.length && !lines.length && !nsItems.length && !p.costs && !p.lineExpenses && !p.nonStockItems && !convOn) return { changed: false };
   const rates = {};
   exps.forEach(e => { if(e.currency !== pcEd.base) rates[e.currency] = e.rate; });
+  if(convOn){
+    const crate = parseFloat(pcEd.rates[cv.currency]);
+    if(!cv.currency || !(crate > 0)) return { error: tf('pcErrNoRate', { cur: cv.currency || '?' }) };
+    const conv = o => { if(o.amount !== undefined && o.amount !== null && o.amount !== ''){ o.origAmount = Number(o.amount); o.origCurrency = cv.currency; o.fxRate = crate; o.amount = pcRound2(Number(o.amount) * crate); } };
+    cleanItems.forEach(conv); lines.forEach(conv); nsItems.forEach(conv);
+    rates[cv.currency] = crate;
+  }
   const base = p.costs || { overseas: false, currency: pcEd.base, baseCurrency: pcEd.base };
-  const newCosts = Object.assign({}, base, {
+  const newCosts = Object.assign({}, base, convOn ? { overseas: true, currency: cv.currency } : {}, {
     basis: pcEd.basis,
     rates: Object.assign({}, base.rates || {}, rates),
     expenses: exps,
@@ -945,7 +978,7 @@ function pcEditApply(p, cleanItems){
   if(lines.length) p.lineExpenses = lines; else delete p.lineExpenses;
   if(nsItems.length) p.nonStockItems = nsItems; else delete p.nonStockItems;
   const newTotals = JSON.stringify(cleanItems.map(i => i.totalAmount === undefined ? null : i.totalAmount));
-  return { changed: JSON.stringify(newCosts) !== oldCosts || newTotals !== oldTotals || JSON.stringify(lines) !== oldLines || JSON.stringify(nsItems) !== oldNs };
+  return { converted: convOn, changed: convOn || JSON.stringify(newCosts) !== oldCosts || newTotals !== oldTotals || JSON.stringify(lines) !== oldLines || JSON.stringify(nsItems) !== oldNs };
 }
 // 進貨紀錄清單上的小標記:這張單有「預估」的其他支出,還沒換成正式金額
 function pcEstimateBadge(p){

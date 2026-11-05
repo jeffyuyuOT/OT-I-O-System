@@ -1005,7 +1005,7 @@ async function confirmEditPurchase(){
     expiry: it.expiry || null,
     supplierLot: it.supplierLot || null
   })).sort((a,b) => `${a.productId}|${a.docType}|${a.sourceFilename}|${a.expiry}`.localeCompare(`${b.productId}|${b.docType}|${b.sourceFilename}|${b.expiry}`));
-  const itemsChanged = JSON.stringify(normalizeForCompare(p.items || [])) !== JSON.stringify(normalizeForCompare(cleanItems));
+  let itemsChanged = JSON.stringify(normalizeForCompare(p.items || [])) !== JSON.stringify(normalizeForCompare(cleanItems));
 
   // 批次追蹤:數量不能低於這個批次已經出貨的量(最後以資料庫為準)
   if(p.batchTracked && typeof batchValidatePurchaseEdit === 'function'){
@@ -1020,6 +1020,7 @@ async function confirmEditPurchase(){
     const costRes = pcEditApply(p, cleanItems);
     if(costRes.error){ msgEl.className = 'msg error'; msgEl.textContent = '⚠ ' + costRes.error; return; }
     costsChanged = !!costRes.changed;
+    if(costRes.converted) itemsChanged = true;   // 轉成海外採購:金額換算成澳幣,連帶重建進貨庫存紀錄
   }
 
   msgEl.className = 'msg'; msgEl.textContent = t('savingMsg');
