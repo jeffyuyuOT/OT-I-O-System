@@ -311,6 +311,12 @@ function renderProductEditModalBody(p, opts){
       </label>
     </div>
     ` : ''}
+    ${(typeof paOn === 'function' && paOn()) ? `<div class="field-block">
+      <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-weight:400;">
+        <input type="checkbox" id="editProdNoAcct" ${p.noAccounting === true ? 'checked' : ''} />
+        <span>${t('fieldProductNoAcct')}<span style="color:var(--ink-soft);font-weight:400;"> ${t('fieldProductNoAcctHint')}</span></span>
+      </label>
+    </div>` : ''}
     <div class="field-block">
       <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-weight:400;">
         <input type="checkbox" id="editProdGst" ${p.gst ? 'checked' : ''} />
@@ -509,6 +515,8 @@ async function saveProductEditModal(){
     if(hiddenEl) p.hidden = hiddenEl.checked;
     const gstEl = document.getElementById('editProdGst');
     if(gstEl) p.gst = gstEl.checked;
+    const noAcctEl = document.getElementById('editProdNoAcct');
+    if(noAcctEl){ if(noAcctEl.checked) p.noAccounting = true; else delete p.noAccounting; }
     const showInTotalEl = document.getElementById('editProdShowInTotal');
     if(showInTotalEl) applyTotalStockBasisChoice(p, showInTotalEl.checked);
     const hideFromExportEl = document.getElementById('editProdHideFromExport');

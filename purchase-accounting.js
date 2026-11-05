@@ -19,7 +19,18 @@ function paR2(n){ return Math.round((Number(n) + Number.EPSILON) * 100) / 100; }
 function paM2(n){ return paR2(n).toFixed(2); }
 function paDmy(iso){ return (typeof invIsoToDmy === 'function') ? invIsoToDmy(iso) : (iso || ''); }
 function paToday(){ return (typeof todayISO === 'function') ? todayISO() : new Date().toISOString().slice(0, 10); }
-function paCounted(p){ return !!p && p.inAccounting !== false; }
+// 商品主檔設為「不入公司帳」的商品(只做庫存管理):進貨時在品項上記 noAcct,不計入會計金額 / GST
+function paProductOffBooks(productId){
+  const pr = (typeof products !== 'undefined') ? products.find(x => x.id === productId) : null;
+  return !!(pr && pr.noAccounting === true);
+}
+// 這張進貨單有沒有任何入帳的內容(入帳商品、非入庫商品);全部都是不入帳商品 = 不入會計
+function paHasAccountedContent(p){
+  if((p.nonStockItems || []).length) return true;
+  if((p.lineExpenses || []).length && (p.items || []).every(it => it.noAcct || it.docType === 'others')) return true;
+  return (p.items || []).some(it => it.docType !== 'others' && !it.noAcct);
+}
+function paCounted(p){ return !!p && p.inAccounting !== false && paHasAccountedContent(p); }
 
 // 商品庫存總覽 / 商品資料裡的 GST 設定:true / false;沒有資料 → null(需要手動選)
 function paProductGst(productId){
@@ -31,8 +42,14 @@ function paProductGst(productId){
 function paTotals(p){
   const mode = p && p.gstMode === 'inc' ? 'inc' : 'ex';
   let base = 0, gstBase = 0, unset = 0;
+  ((p && p.nonStockItems) || []).forEach(n => {
+    const a = Number(n.amount) || 0;
+    base += a;
+    if(n.gst === true) gstBase += a;
+    else if(n.gst !== false && a > 0) unset++;
+  });
   ((p && p.items) || []).forEach(it => {
-    if(it.docType === 'others') return;
+    if(it.docType === 'others' || it.noAcct) return;
     const a = (Number(it.amount) || 0) * (it.docType === 'credit_note' ? -1 : 1);
     base += a;
     if(it.gst === true) gstBase += a;
@@ -78,7 +95,8 @@ function paFormReset(){
   const c = document.getElementById('purchaseAccToggle'); if(c) c.checked = true;
   const g = document.getElementById('purchaseGstMode'); if(g) g.value = 'ex';
 }
-function paFormInAccounting(){ const c = document.getElementById('purchaseAccToggle'); return !c || c.checked; }
+// 是否入會計由商品設定決定(商品主檔「不入公司帳」),進貨單不再手動勾選;全部是不入帳商品的單會自動不出現在 Purchase List
+function paFormInAccounting(){ return true; }
 function paFormGstMode(){ const g = document.getElementById('purchaseGstMode'); return g && g.value === 'inc' ? 'inc' : 'ex'; }
 function paGstSelectHtml(val, onchange){
   const v = val === true ? 'y' : (val === false ? 'n' : '');
@@ -89,7 +107,7 @@ function paGstSelectHtml(val, onchange){
 }
 // 登記進貨清單的品項:商品資料有 GST 設定就自動帶入,沒有的要手動選
 function paAutoFillGst(items){
-  (items || []).forEach(it => { if(it.gst === undefined || it.gst === null){ const g = paProductGst(it.productId); if(g !== null) it.gst = g; } });
+  (items || []).forEach(it => { if(it.noAcct || (it.productId && paProductOffBooks(it.productId))) return; if(it.gst === undefined || it.gst === null){ const g = paProductGst(it.productId); if(g !== null) it.gst = g; } });
 }
 function paSetTxItemGst(batchItemId, v){
   const it = txBatchItems.find(x => x.batchItemId === batchItemId); if(!it) return;
@@ -100,7 +118,8 @@ function paSetTxItemGst(batchItemId, v){
 async function paPreSubmit(msg){
   if(!paOn()) return true;
   const lineExps = (typeof pcState !== 'undefined' && pcState.lineExpenses ? pcState.lineExpenses : []).filter(l => Number(l.amount) > 0).map(l => Object.assign({ name: l.name || '(其他支出)' }, l));
-  const priced = txBatchItems.filter(it => Number(it.amount) > 0).concat(lineExps);
+  const nsExps = (typeof pcState !== 'undefined' && pcState.nonStock ? pcState.nonStock : []).filter(n => Number(n.amount) > 0).map(n => Object.assign({}, n, { name: n.name || '(非入庫商品)' }));
+  const priced = txBatchItems.filter(it => Number(it.amount) > 0 && !paProductOffBooks(it.productId)).concat(lineExps, nsExps);
   if(paFormInAccounting()){
     paAutoFillGst(txBatchItems);
     const miss = priced.filter(it => it.gst !== true && it.gst !== false);
@@ -121,6 +140,7 @@ function paApplyToPurchase(purchase, srcItems){
   purchase.gstMode = paFormGstMode();
   (purchase.items || []).forEach((it, i) => {
     const s = srcItems[i];
+    if(paProductOffBooks(it.productId) || (s && paProductOffBooks(s.productId))){ it.noAcct = true; delete it.gst; return; }
     if(s && (s.gst === true || s.gst === false)) it.gst = s.gst;
     else { const g = paProductGst(it.productId); if(g !== null) it.gst = g; }
   });
@@ -148,7 +168,8 @@ function paEditCheck(items){
   const c = document.getElementById('editPurchaseAccToggle');
   if(!c || !c.checked) return '';
   const lineMiss = (typeof pcEd !== 'undefined' && pcEd && pcEd.lineExpenses ? pcEd.lineExpenses : []).filter(l => Number(l.amount) > 0 && l.gst !== true && l.gst !== false);
-  const miss = items.filter(it => it.docType !== 'others' && Number(it.amount) > 0 && it.gst !== true && it.gst !== false).concat(lineMiss.map(l => ({ name: l.name || '(其他支出)' })));
+  const nsMiss = (typeof pcEd !== 'undefined' && pcEd && pcEd.nonStock ? pcEd.nonStock : []).filter(n => Number(n.amount) > 0 && n.gst !== true && n.gst !== false);
+  const miss = items.filter(it => it.docType !== 'others' && !it.noAcct && Number(it.amount) > 0 && it.gst !== true && it.gst !== false).concat(lineMiss.map(l => ({ name: l.name || '(其他支出)' })), nsMiss.map(n => ({ name: n.name || '(非入庫商品)' })));
   return miss.length ? tf('paErrNeedGst', { names: miss.map(x => x.name).join('、') }) : '';
 }
 function paEditApply(p){
@@ -250,11 +271,16 @@ function paOpenDetails(id){
   const p = purchases.find(x => x.id === id); if(!p) return;
   const i = paInfo(p);
   const row = (k, v) => `<tr><td style="color:var(--ink-soft);white-space:nowrap;vertical-align:top;">${k}</td><td>${v === '' || v === null || v === undefined ? '–' : v}</td></tr>`;
-  const items = (p.items || []).filter(it => it.docType !== 'others').map(it => {
+  const items = (p.items || []).filter(it => it.docType !== 'others' && !it.noAcct).map(it => {
     const sign = it.docType === 'credit_note' ? -1 : 1;
     const g = it.gst === true ? 'GST' : (it.gst === false ? t('paGstNone') : '<span style="color:#b26a00;">' + paEsc(t('paGstUnset')) + '</span>');
     return `<tr><td>${paEsc(it.name || '')}${it.docType === 'credit_note' ? ` <span style="color:var(--crit);font-size:11px;">(${t('docTypeCreditNoteBadge')})</span>` : ''}</td><td class="num">${paEsc(it.qty)} ${paEsc(it.unit || '')}</td><td class="num">${it.amount !== undefined && it.amount !== null ? paM2(sign * Number(it.amount)) : '–'}</td><td>${g}</td></tr>`;
   }).join('');
+  const nsDetail = (p.nonStockItems || []).map(n => {
+    const g = n.gst === true ? 'GST' : (n.gst === false ? t('paGstNone') : '<span style="color:#b26a00;">' + paEsc(t('paGstUnset')) + '</span>');
+    return `<tr style="background:var(--bg-soft,#f5f5f0);"><td>${paEsc(n.name || '')} <span style="color:var(--ink-soft);font-size:11px;">(${t('pcNonStockBadge')})</span></td><td class="num">${paEsc(n.qty)} ${paEsc(n.unit || '')}</td><td class="num">${paM2(Number(n.amount) || 0)}</td><td>${g}</td></tr>`;
+  }).join('');
+  const offCnt = (p.items || []).filter(it => it.noAcct).length;
   const lineItems = (p.lineExpenses || []).map(l => {
     const g = l.gst === true ? 'GST' : (l.gst === false ? t('paGstNone') : '<span style="color:#b26a00;">' + paEsc(t('paGstUnset')) + '</span>');
     return `<tr style="background:var(--bg-soft,#f5f5f0);"><td>${paEsc(l.name || '')} <span style="color:var(--ink-soft);font-size:11px;">(${t('pcLineExpBadge')})</span></td><td class="num"></td><td class="num">${paM2(Number(l.amount) || 0)}</td><td>${g}</td></tr>`;
@@ -280,7 +306,8 @@ function paOpenDetails(id){
       ${p.note ? row(t('colNote'), paEsc(p.note)) : ''}
     </tbody></table>
     ${i.unset > 0 ? `<div style="margin-top:8px;font-size:12px;color:#b26a00;">${paEsc(tf('paUnsetWarn', { n: i.unset }))}</div>` : ''}
-    <div style="margin-top:12px;overflow-x:auto;"><table class="stock-table"><thead><tr><th>${t('colProduct')}</th><th class="num">${t('colQty')}</th><th class="num">${t('colAmount')}</th><th>GST</th></tr></thead><tbody>${items}${lineItems}</tbody></table></div>
+    <div style="margin-top:12px;overflow-x:auto;"><table class="stock-table"><thead><tr><th>${t('colProduct')}</th><th class="num">${t('colQty')}</th><th class="num">${t('colAmount')}</th><th>GST</th></tr></thead><tbody>${items}${nsDetail}${lineItems}</tbody></table></div>
+    ${offCnt > 0 ? `<div style="margin-top:6px;font-size:12px;color:var(--ink-soft);">${paEsc(tf('paOffBooksNote', { n: offCnt }))}</div>` : ''}
     <div class="modal-actions">
       <button class="btn ghost" onclick="paCloseOverlay('paDetailsOverlay')">${t('btnClose')}</button>
       <button class="btn ghost" onclick="paCloseOverlay('paDetailsOverlay');openEditPurchaseModal('${paEsc(p.id)}')">${t('btnEdit')}</button>

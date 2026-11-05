@@ -189,7 +189,7 @@ function icOpenProductPicker(){
 function icRenderPickList(){
   const box = document.getElementById('icPickList'); if(!box) return;
   const q = (icPickQ || '').trim().toLowerCase();
-  const list = (typeof products !== 'undefined' ? products : []).filter(p => !p.hidden
+  const list = (typeof products !== 'undefined' ? products : []).filter(p => !p.hidden && p.noAccounting !== true
     && (!icPickCat || (p.category || '未分類') === icPickCat)
     && (!q || [p.name, p.sku].join(' ').toLowerCase().includes(q)))
     .sort((a, b) => (a.name || '').localeCompare(b.name || '')).slice(0, 80);

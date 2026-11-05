@@ -1588,7 +1588,7 @@ async function batchShowPurchaseModal(purchaseId, item){
       <td class="num">${isCn ? -it.qty : it.qty} ${batchEsc(it.unit || '')}</td>
       <td>${it.expiry ? batchEsc(it.expiry) : '–'}</td>
       ${showAmt ? `<td class="num">${fm(pr.base)}</td>${hasExp ? `<td class="num"><strong>${fm(pr.total)}</strong></td>` : ''}` : ''}</tr>`;
-  }).join('') + (p.lineExpenses || []).map(l => `<tr style="background:var(--bg-soft,#f5f5f0);"><td>${batchEsc(l.name || '')} <span style="color:var(--ink-soft);font-size:11px;">(${t('pcLineExpBadge')})</span></td><td class="num"></td><td></td>${showAmt ? `<td class="num">${fm(l.amount)}</td>${hasExp ? '<td class="num">–</td>' : ''}` : ''}</tr>`).join('');
+  }).join('') + (p.nonStockItems || []).map(n => `<tr style="background:var(--bg-soft,#f5f5f0);"><td>${batchEsc(n.name || '')} <span style="color:var(--ink-soft);font-size:11px;">(${t('pcNonStockBadge')})</span></td><td class="num">${n.qty} ${batchEsc(n.unit || '')}</td><td></td>${showAmt ? `<td class="num">${fm(n.amount)}</td>${hasExp ? '<td class="num">–</td>' : ''}` : ''}</tr>`).join('') + (p.lineExpenses || []).map(l => `<tr style="background:var(--bg-soft,#f5f5f0);"><td>${batchEsc(l.name || '')} <span style="color:var(--ink-soft);font-size:11px;">(${t('pcLineExpBadge')})</span></td><td class="num"></td><td></td>${showAmt ? `<td class="num">${fm(l.amount)}</td>${hasExp ? '<td class="num">–</td>' : ''}` : ''}</tr>`).join('');
   let totals = '';
   if(showAmt && typeof pcPurchaseTotals === 'function'){
     const tt = pcPurchaseTotals(p);

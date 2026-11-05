@@ -121,7 +121,7 @@ function renderPurchaseLog(){
                     const totalCell = (typeof pcPurchaseTotals === 'function' && p.costs && pcPurchaseTotals(p).expenses > 0)
                       ? `<td class="num"><strong>${(typeof pcItemPrices === 'function' && pcItemPrices(it).total !== null) ? pcItemPrices(it).total.toFixed(2) : '–'}</strong></td>` : '';
                     return `<tr><td>${escapeHtmlForPrint(it.name)}${badge}</td><td class="num">${displayQty} ${escapeHtmlForPrint(it.unit || '')}</td>${amountCell}${totalCell}</tr>`;
-                  }).join('')}${(p.lineExpenses || []).map(l => `<tr style="background:var(--bg-soft,#f5f5f0);"><td>${escapeHtmlForPrint(l.name || '')} <span style="color:var(--ink-soft);font-size:11px;">(${t('pcLineExpBadge')})</span></td><td class="num"></td>${(p.items || []).some(x => x.amount) ? `<td class="num">${Number(l.amount || 0).toFixed(2)}</td>` : ''}${(typeof pcPurchaseTotals === 'function' && p.costs && pcPurchaseTotals(p).expenses > 0) ? '<td class="num">–</td>' : ''}</tr>`).join('')}
+                  }).join('')}${(p.nonStockItems || []).map(n => `<tr style="background:var(--bg-soft,#f5f5f0);"><td>${escapeHtmlForPrint(n.name || '')} <span style="color:var(--ink-soft);font-size:11px;">(${t('pcNonStockBadge')})</span></td><td class="num">${n.qty} ${escapeHtmlForPrint(n.unit || '')}</td>${(p.items || []).some(x => x.amount) ? `<td class="num">${Number(n.amount || 0).toFixed(2)}</td>` : ''}${(typeof pcPurchaseTotals === 'function' && p.costs && pcPurchaseTotals(p).expenses > 0) ? '<td class="num">–</td>' : ''}</tr>`).join('')}${(p.lineExpenses || []).map(l => `<tr style="background:var(--bg-soft,#f5f5f0);"><td>${escapeHtmlForPrint(l.name || '')} <span style="color:var(--ink-soft);font-size:11px;">(${t('pcLineExpBadge')})</span></td><td class="num"></td>${(p.items || []).some(x => x.amount) ? `<td class="num">${Number(l.amount || 0).toFixed(2)}</td>` : ''}${(typeof pcPurchaseTotals === 'function' && p.costs && pcPurchaseTotals(p).expenses > 0) ? '<td class="num">–</td>' : ''}</tr>`).join('')}
                 </tbody>
               </table>${(p.costs && typeof pcPurchaseTotals === 'function') ? (() => { const tt = pcPurchaseTotals(p); return `<div style="font-size:12.5px;margin-top:4px;display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;"><span>${t('lblInvoiceSubtotal')}: <strong>${tt.base.toFixed(2)}</strong>${tt.expenses > 0 ? ` + ${t('lblOtherExpensesTotal')}: <strong>${tt.expenses.toFixed(2)}</strong> = ${t('lblPurchaseGrandTotal')}: <strong>${tt.total.toFixed(2)}</strong>` : ''} ${p.costs.baseCurrency || 'AUD'}${p.costs.overseas ? ` (${tf('pcInvoiceCurrencyShort', { cur: p.costs.currency })})` : ''}</span>${(typeof pcHasOriginalData === 'function' && pcHasOriginalData(p)) ? `<button class="btn ghost" style="font-size:12px;" onclick="pcOpenOriginalModal('${p.id}')">${t('pcViewOriginal')}</button>` : ''}</div>`; })() : ''}`)}
               ${p.note ? orderBlockHtml('remark', 'orderBlockRemark', `<p style="font-size:12.5px;color:var(--ink);margin:0;">${tf('purchaseNoteLabel', { note: escapeHtmlForPrint(p.note) })}</p>`) : ''}
@@ -206,6 +206,9 @@ function buildPurchaseWorkbook(p){
     const tt = pcPurchaseTotals(p);
     aoa.push([]);
     aoa.push(['Invoice Items (Base Price)', '', '', '', tt.base]);
+    (p.nonStockItems || []).forEach(n => {
+      aoa.push([`Non-stock item: ${n.name} (${n.qty} ${n.unit || ''})`, '', '', '', n.amount, n.origAmount !== undefined ? `${n.origAmount} ${n.origCurrency} @ ${n.fxRate}` : '']);
+    });
     (p.lineExpenses || []).forEach(l => {
       aoa.push([`Invoice Expense: ${l.name}`, '', '', '', l.amount, l.origAmount !== undefined ? `${l.origAmount} ${l.origCurrency} @ ${l.fxRate}` : '']);
     });
@@ -647,7 +650,7 @@ function renderEditPurchaseItemsList(){
           <input type="number" value="${it.qty}" min="0" step="any" style="width:70px;" oninput="updateEditPurchaseItemQty(${i}, this.value)" />
           <span style="font-size:11.5px;color:var(--ink-soft);width:46px;flex:none;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtmlForPrint(it.unit || '')}</span>
           <input type="number" value="${it.amount !== undefined && it.amount !== null ? it.amount : ''}" min="0" step="any" placeholder="$" style="width:90px;" ${canEditPrice() ? '' : 'readonly title="' + t('priceReadOnlyTitle') + '"'} oninput="updateEditPurchaseItemAmount(${i}, this.value)" />
-          ${(typeof paOn === 'function' && paOn()) ? paGstSelectHtml(it.gst, 'paEditSetGst(' + i + ', this.value)') : ''}
+          ${(typeof paOn === 'function' && paOn()) ? (it.noAcct ? '<span style="font-size:11.5px;color:var(--ink-soft);">' + t('paOffBooksShort') + '</span>' : paGstSelectHtml(it.gst, 'paEditSetGst(' + i + ', this.value)')) : ''}
           <span class="del-link" onclick="removeEditPurchaseItem(${i})">${t('btnRemoveItem')}</span>
          </div>
          ${editPurchaseIsBatchTracked() ? `<div style="display:flex;align-items:center;gap:8px;margin-top:4px;flex-wrap:wrap;">
