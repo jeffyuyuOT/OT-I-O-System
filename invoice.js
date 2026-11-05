@@ -194,7 +194,7 @@ function invDocHtml(snap, logoDataUrl){
   const termText = snap.paymentType === 'cod' ? 'COD' : `${snap.term} Days`;
   const bk = snap.bank || {};
   const bankHtml = cnDoc
-    ? `<div style="font-weight:700;">${snap.invoiceNo ? 'Credit applied to Invoice ' + invEsc(snap.invoiceNo) : 'Credit held on customer account'}</div>${(snap.lines || []).some(l => l.ret) ? '<div style="margin-top:4px;">Items marked for return are to be returned to the warehouse.</div>' : ''}`
+    ? `<div style="font-weight:700;">${snap.invoiceNo ? 'Credit applied to the related invoice' : 'Credit held on customer account'}</div>${(snap.lines || []).some(l => l.ret) ? '<div style="margin-top:4px;">Items marked for return are to be returned to the warehouse.</div>' : ''}`
     : snap.paymentType === 'cod'
     ? `<div style="font-weight:700;">Cash on Delivery (COD)</div><div style="margin-top:4px;">Payment is due on delivery.</div>`
     : `<div>Please pay by bank transfer to:</div>
@@ -239,7 +239,7 @@ function invDocHtml(snap, logoDataUrl){
         <table style="margin-left:auto;margin-top:4px;border-collapse:collapse;text-align:left;">
           <tr><td style="padding:1px 14px 1px 0;font-weight:700;">${cnDoc ? 'Credit Note No:' : 'Invoice No:'}</td><td>${invEsc(snap.no)}</td></tr>
           <tr><td style="padding:1px 14px 1px 0;font-weight:700;">${cnDoc ? 'Date:' : 'Invoice Date:'}</td><td>${invEsc(invIsoToDmy(snap.date))}</td></tr>
-          ${cnDoc ? (snap.invoiceNo ? `<tr><td style="padding:1px 14px 1px 0;font-weight:700;">Invoice No:</td><td>${invEsc(snap.invoiceNo)}</td></tr>` : '') : `<tr><td style="padding:1px 14px 1px 0;font-weight:700;">Terms:</td><td>${invEsc(termText)}</td></tr>
+          ${cnDoc ? '' : `<tr><td style="padding:1px 14px 1px 0;font-weight:700;">Terms:</td><td>${invEsc(termText)}</td></tr>
           <tr><td style="padding:1px 14px 1px 0;font-weight:700;">Due Date:</td><td>${invEsc(invIsoToDmy(snap.dueDate))}</td></tr>`}
           <tr><td style="padding:1px 14px 1px 0;font-weight:700;">Sale Rep</td><td>${invEsc(snap.saleRep)}</td></tr>
         </table>
@@ -260,7 +260,7 @@ function invDocHtml(snap, logoDataUrl){
         <div>${invNl2br(sh.address)}</div>
       </td></tr></table>
 
-    <div style="border:1px solid #000;margin-top:16px;padding:6px 8px;min-height:34px;"><b>Notes:</b> ${invNl2br(snap.note)}${snap.orderNo ? `<span style="float:right;">Order ${invEsc(snap.orderNo)}</span>` : ''}</div>
+    <div style="border:1px solid #000;margin-top:16px;padding:6px 8px;min-height:34px;"><b>Notes:</b> ${invNl2br(snap.note)}${cnDoc && snap.invoiceNo ? `${snap.note ? '<br>' : ''}This credit note is related to Invoice ${invEsc(snap.invoiceNo)}.` : ''}${snap.orderNo ? `<span style="float:right;">Order ${invEsc(snap.orderNo)}</span>` : ''}</div>
 
     <table style="width:100%;border-collapse:collapse;margin-top:16px;border-top:1px solid #000;table-layout:fixed;">
       <colgroup><col style="width:30px;" /><col style="width:185px;" /><col /><col style="width:58px;" /><col style="width:56px;" /><col style="width:58px;" /><col style="width:64px;" /><col style="width:50px;" /></colgroup>
