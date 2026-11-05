@@ -836,7 +836,7 @@ function invRenderList(key){
       <td class="num"><b>${invMoney2(i.total)}</b></td>
       <td class="num">${invMoney2(i.paid)}</td><td class="num"><b>${invMoney2(i.balance)}</b></td>
       <td style="white-space:nowrap;">${invStatusBadge(i.status)}</td>
-      <td style="white-space:nowrap;">${changed ? `<span class="batch-info-icon" title="${invEsc(t('invChangedTip'))}" style="color:#b45309;font-size:15px;margin-right:6px;" onclick="invOpenDetails('${invEsc(r.id)}')">✎</span>` : ''}<span class="del-link" onclick="invOpenPayments('${invEsc(r.id)}')">${t('invBtnPayments')}</span> <span class="batch-info-icon" style="margin-left:6px;" title="${invEsc(t('invBtnDetails'))}" onclick="invOpenDetails('${invEsc(r.id)}')">ⓘ</span></td>
+      <td style="white-space:nowrap;"><span class="del-link" onclick="invOpenPayments('${invEsc(r.id)}')">${t('invBtnPayments')}</span> <span class="batch-info-icon" style="margin-left:6px;" title="${invEsc(t('invBtnDetails'))}" onclick="invOpenDetails('${invEsc(r.id)}')">ⓘ</span>${changed ? `<span class="batch-info-icon" title="${invEsc(t('invChangedTip'))}" style="color:#b45309;font-size:15px;margin-left:6px;" onclick="invOpenDetails('${invEsc(r.id)}')">✎</span>` : ''}</td>
     </tr>`;
   }).join('');
   const sel = (id, val, opts) => `<select id="${id}" onchange="invOnListFilter('${key}')">${opts.map(o => `<option value="${invEsc(o[0])}" ${val === o[0] ? 'selected' : ''}>${invEsc(o[1])}</option>`).join('')}</select>`;
