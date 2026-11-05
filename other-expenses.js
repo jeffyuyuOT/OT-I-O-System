@@ -73,12 +73,12 @@ function oeRender(){
     if(en.kind === 'rel'){
       const p = en.p;
       linked = `<span class="del-link" onclick="paOpenDetails('${oeEsc(p.id)}')" title="${oeEsc(t('invBtnDetails'))}">${oeEsc(p.invoiceNo || t('oeNoInvNo'))}</span><div style="font-size:11px;color:var(--ink-soft);">${oeEsc(p.partyName || '')}</div>`;
-      payBtn = `<span class="del-link" onclick="paOpenPayments('${oeEsc(p.id)}','${oeEsc(en.x.e.id || '')}','${oeEsc(en.x.e.name || '')}')">${t('paBtnPayments')}</span>`;
+      payBtn = `<span class="del-link" onclick="paOpenPayments('${oeEsc(p.id)}','${oeEsc(en.x.e.id || '')}','${oeEsc(en.x.e.name || '')}')">${t('paBtnPayments')}</span> <span class="batch-info-icon" style="margin-left:6px;" title="${oeEsc(t('invBtnDetails'))}" onclick="oeOpenDetails('rel','${oeEsc(p.id)}','${oeEsc(en.x.e.id || '')}','${oeEsc(en.x.e.name || '')}')">ⓘ</span>`;
       fx = paExpFxIcon(p, en.x.e);
       extra = ` <span style="font-size:11px;color:var(--ink-soft);">(${oeEsc(t('pcExpBadge'))})</span>${en.x.e.estimated ? ' <span style="color:#b45309;font-size:11px;" title="' + oeEsc(t('paExpEstimatedWarn')) + '">⚠</span>' : ''}`;
     } else {
       linked = '<span style="color:var(--ink-soft);">–</span>';
-      payBtn = `<span class="del-link" onclick="paOpenPayments(null,'','','${oeEsc(en.e.id)}')">${t('paBtnPayments')}</span> <span class="del-link" style="margin-left:6px;" onclick="oeOpenForm('${oeEsc(en.e.id)}')">${t('btnEdit')}</span> <span class="del-link" style="margin-left:6px;" onclick="oeDelete('${oeEsc(en.e.id)}')">${t('btnDelete')}</span>`;
+      payBtn = `<span class="del-link" onclick="paOpenPayments(null,'','','${oeEsc(en.e.id)}')">${t('paBtnPayments')}</span> <span class="batch-info-icon" style="margin-left:6px;" title="${oeEsc(t('invBtnDetails'))}" onclick="oeOpenDetails('sa','${oeEsc(en.e.id)}')">ⓘ</span> <span class="del-link" style="margin-left:6px;" onclick="oeOpenForm('${oeEsc(en.e.id)}')">${t('btnEdit')}</span> <span class="del-link" style="margin-left:6px;" onclick="oeDelete('${oeEsc(en.e.id)}')">${t('btnDelete')}</span>`;
       if(en.e.note) extra = ` <span title="${oeEsc(en.e.note)}" style="color:var(--ink-soft);cursor:help;">ⓘ</span>`;
     }
     return `<tr${en.kind === 'rel' ? ' style="background:var(--bg-soft,#f7f7f2);"' : ''}>
@@ -123,6 +123,56 @@ function oeOnFilter(keepFocus){
   if(keepFocus){ const el = document.getElementById('oeFlt_q'); if(el){ el.focus(); try{ el.setSelectionRange(pos, pos); }catch(e){} } }
 }
 function oeClearFilter(){ oeFilter = { from: '', to: '', status: '', type: '', q: '' }; oeRender(); }
+
+// ---- 詳細資料(含備註、付款記錄) ----
+function oeOpenDetails(kind, id, expId, expName){
+  const row = (k, v) => `<tr><td style="color:var(--ink-soft);white-space:nowrap;vertical-align:top;">${k}</td><td>${v === '' || v === null || v === undefined ? '–' : v}</td></tr>`;
+  const gstTxt = g => g === true ? 'GST' : (g === false ? oeEsc(t('paGstNone')) : '<span style="color:#b26a00;">' + oeEsc(t('paGstUnset')) + '</span>');
+  let title = '', rows = '', key = '', info = null, btns = '';
+  if(kind === 'sa'){
+    const e = oeFind(id); if(!e) return;
+    info = oeInfo(e); key = 'exp:' + e.id; title = e.name;
+    rows = row(t('colDate'), oeEsc(paDmy(e.exp_date))) + row(t('oeColItem'), oeEsc(e.name)) + row(t('oeColPayee'), oeEsc(e.payee || ''))
+      + row('GST', gstTxt(e.gst)) + row(t('paGstModeLabel'), oeEsc(t(e.gst_mode === 'inc' ? 'paGstModeInc' : 'paGstModeEx')))
+      + row(t('colNote'), oeEsc(e.note || '')) + row(t('oeCreatedBy'), oeEsc(e.created_by || ''));
+    btns = `<button class="btn ghost" onclick="paCloseOverlay('oeDetailsOverlay');oeOpenForm('${oeEsc(e.id)}')">${t('btnEdit')}</button>`;
+  } else {
+    const p = purchases.find(x => x.id === id); if(!p) return;
+    const x = paExpList(p).find(y => (expId && y.e.id === expId) || (!expId && y.e.name === expName)); if(!x) return;
+    const e = x.e, base = (p.costs && p.costs.baseCurrency) || 'AUD';
+    info = paExpInfo(p, x); key = x.key; title = e.name;
+    const fx = (e.currency && e.currency !== base && e.rate) ? `${paM2(e.amount)} ${oeEsc(e.currency)} × ${Number(e.rate).toFixed(6).replace(/0+$/, '').replace(/\.$/, '')} = ${paM2(e.aud)} ${oeEsc(base)}` : '';
+    rows = row(t('colDate'), oeEsc(paDmy(p.date))) + row(t('oeColItem'), oeEsc(e.name) + ` <span style="font-size:11px;color:var(--ink-soft);">(${oeEsc(t('pcExpBadge'))})</span>`)
+      + row(t('oeColPayee'), oeEsc(e.payee || '')) + row('GST', gstTxt(e.gst)) + row(t('paGstModeLabel'), oeEsc(t(p.gstMode === 'inc' ? 'paGstModeInc' : 'paGstModeEx')))
+      + (fx ? row(t('oeFxLabel'), fx) : '') + (e.estimated ? row('', `<span style="color:#b45309;">⚠ ${oeEsc(tf('pcEstimatedBadge', { date: e.estimatedFrom || '' }))}</span>`) : '')
+      + row('Linked INV', `<span class="del-link" onclick="paCloseOverlay('oeDetailsOverlay');paOpenDetails('${oeEsc(p.id)}')">${oeEsc(p.invoiceNo || t('oeNoInvNo'))}</span> · ${oeEsc(p.partyName || '')}`)
+      + row(t('oePurchaseNote'), oeEsc(p.note || ''));
+    btns = `<button class="btn ghost" onclick="paCloseOverlay('oeDetailsOverlay');openEditPurchaseModal('${oeEsc(p.id)}')">${t('oeEditPurchase')}</button>`;
+  }
+  const pays = paRows.filter(r => r.purchase_id === key);
+  const payRows = pays.map(r => `<tr><td style="white-space:nowrap;">${oeEsc(paDmy(r.pay_date))}</td><td class="num">${paM2(r.amount)}</td><td>${oeEsc(r.method || '')}</td><td>${oeEsc(r.note || '')}</td></tr>`).join('');
+  paCloseOverlay('oeDetailsOverlay');
+  const ov = document.createElement('div');
+  ov.id = 'oeDetailsOverlay'; ov.className = 'modal-overlay'; ov.style.display = 'flex'; ov.style.zIndex = '1250';
+  ov.onclick = ev => { if(ev.target === ov) paCloseOverlay('oeDetailsOverlay'); };
+  ov.innerHTML = `<div class="modal-box" style="max-width:min(600px,96vw);max-height:92vh;overflow:auto;">
+    <div class="section-title" style="margin-top:0;">${t('oeDetailTitle')} · ${oeEsc(title)}</div>
+    <div style="font-size:12.5px;margin:0 0 8px;">${paStatusBadge(info.status)}</div>
+    <table style="width:100%;font-size:13px;border-collapse:collapse;"><tbody>
+      ${rows}
+      ${row(t('paAmtExGst'), paM2(info.ex))}${row('GST', paM2(info.gst))}${row(t('paColAmount'), '<b>' + paM2(info.total) + '</b>')}
+      ${row(t('paColPaid'), paM2(info.paid))}${row(t('paColUnpaid'), '<b>' + paM2(info.balance) + '</b>')}
+    </tbody></table>
+    <div style="margin-top:12px;font-size:12.5px;font-weight:700;">${t('paPayTitle')}</div>
+    ${pays.length ? `<div style="overflow-x:auto;"><table class="stock-table"><thead><tr><th>${t('paPayDate')}</th><th class="num">${t('invPayAmount')}</th><th>${t('invPayMethod')}</th><th>${t('colNote')}</th></tr></thead><tbody>${payRows}</tbody></table></div>` : `<div class="empty-note" style="margin:6px 0;">${t('paPayEmpty')}</div>`}
+    <div class="modal-actions">
+      <button class="btn ghost" onclick="paCloseOverlay('oeDetailsOverlay')">${t('btnClose')}</button>
+      ${btns}
+      <button class="btn" onclick="paCloseOverlay('oeDetailsOverlay');paOpenPayments(${kind === 'sa' ? `null,'','','${oeEsc(id)}'` : `'${oeEsc(id)}','${oeEsc(expId || '')}','${oeEsc(expName || '')}'`})">${t('paBtnPayments')}</button>
+    </div>
+  </div>`;
+  document.body.appendChild(ov);
+}
 
 // ---- 新增 / 編輯 ----
 function oeNames(){
