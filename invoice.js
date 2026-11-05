@@ -1267,7 +1267,9 @@ async function invExportForBackup(){
     const cr = await sb.from('invoice_changes').select('*').order('id', { ascending: true }).limit(200000);
     const changes = cr.error ? [] : (cr.data || []);    // 變更紀錄表還沒建立(沒執行 invoice_changes.sql)時,備份裡就沒有變更紀錄
     const creditNotes = (typeof icCnExportForBackup === 'function') ? await icCnExportForBackup() : null;   // Credit Note 表還沒建立時為 null
-    return { invoices: data || [], payments, changes, creditNotes, next: await invGetNextNo() };
+    let settings = null;   // Invoice 格式(公司資料、銀行資料、Logo 等)
+    try{ const sr = await dbGet('invoiceSettings'); settings = sr && sr.value ? sr.value : null; }catch(e){}
+    return { invoices: data || [], payments, changes, creditNotes, settings, next: await invGetNextNo() };
   }catch(e){
     if(invIsMissingFn(e)) return null;
     throw e;
@@ -1280,7 +1282,13 @@ async function invRestoreFromBackup(backup){
   let { error } = await sb.rpc('invoice_restore_all', Object.assign({ p_changes: Array.isArray(d.changes) ? d.changes : [] }, args));
   if(error && invIsMissingFn(error)) ({ error } = await sb.rpc('invoice_restore_all', args));   // 還沒執行 invoice_changes.sql:用舊版函式還原(不含變更紀錄)
   if(error && !invIsMissingFn(error)) throw error;
-  if(d.creditNotes && typeof icCnRestoreFromBackup === 'function') await icCnRestoreFromBackup(d.creditNotes);
+  if(typeof icCnRestoreFromBackup === 'function'){
+    // 舊備份沒有 Credit Note 資料時,要把現有的清掉(否則還原 Invoice 後它們會變成沒有對應 Invoice 的獨立 Credit Note)
+    if(d.creditNotes) await icCnRestoreFromBackup(d.creditNotes); else if(typeof icCnClearAll === 'function') await icCnClearAll();
+  }
+  if(typeof d.settings === 'string' && d.settings){
+    try{ await dbSet('invoiceSettings', d.settings); await loadInvoiceSettings(); }catch(e){ console.error(e); }
+  }
 }
 async function invClearAll(){
   const { error } = await sb.rpc('invoice_clear_all');
