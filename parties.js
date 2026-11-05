@@ -220,10 +220,12 @@ function partyGoOrderHistory(partyId){
   ov.innerHTML = `<div class="modal-box" style="max-width:min(420px,92vw);">
     <div class="section-title" style="margin-top:0;">${esc(sp ? sp.name : '')} · ${t('btnPartyOrderHistory')}</div>
     <div style="display:flex;flex-direction:column;gap:10px;margin-top:6px;">
-      <button class="btn" onclick="document.getElementById('partyHistoryChoiceOverlay').remove();partyGoOrderHistoryInvoice('${esc(partyId)}')">By Invoice</button>
+      <button class="btn" onclick="document.getElementById('partyHistoryChoiceOverlay').remove();partyGoOrderHistoryInvoice('${esc(partyId)}')">By Order</button>
       <div style="font-size:11.5px;color:var(--ink-soft);margin:-4px 0 4px;">${t('partyHistoryInvoiceHint')}</div>
       <button class="btn" onclick="document.getElementById('partyHistoryChoiceOverlay').remove();partyGoOrderHistoryItem('${esc(partyId)}')">By Item</button>
       <div style="font-size:11.5px;color:var(--ink-soft);margin:-4px 0 0;">${t('partyHistoryItemHint')}</div>
+      ${(typeof canCreateInvoice === 'function' && canCreateInvoice()) ? `<button class="btn" onclick="document.getElementById('partyHistoryChoiceOverlay').remove();invOpenPartyRecords('${esc(partyId)}')">Invoice Records</button>
+      <div style="font-size:11.5px;color:var(--ink-soft);margin:-4px 0 0;">${t('partyHistoryInvRecHint')}</div>` : ''}
     </div>
     <div class="modal-actions"><button class="btn ghost" onclick="document.getElementById('partyHistoryChoiceOverlay').remove()">${t('btnCancel')}</button></div>
   </div>`;

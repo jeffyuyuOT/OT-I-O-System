@@ -1480,7 +1480,7 @@ function updateOrderActionModeVisibility(fromSub){
   const fmtSel = document.getElementById('orderActionFormatSelect');
   // MYOB 匯入檔需要價格,只有管理者/會計(能開 Invoice 的人)才有這個選項
   const myobOpt = fmtSel ? fmtSel.querySelector('option[value="myob"]') : null;
-  const myobOk = typeof canCreateInvoice === 'function' && canCreateInvoice();
+  const myobOk = typeof isInvoiceRole === 'function' && isInvoiceRole();
   if(myobOpt){ myobOpt.hidden = myobOpt.disabled = !myobOk; if(!myobOk && fmtSel.value === 'myob') fmtSel.value = 'excel'; }
   if(!fromSub){
     if(outSel) outSel.value = 'export';

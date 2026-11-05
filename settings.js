@@ -236,6 +236,9 @@ function updateMultipackSettingsUI(){
   if(box) box.checked = autoConvertMultipackEnabled;
   const ddvBox = document.getElementById('disableDirectVerifyToggle');
   if(ddvBox) ddvBox.checked = disableDirectVerifyEnabled;
+  const hiBox = document.getElementById('hideInvoiceToggle');
+  if(hiBox) hiBox.checked = hideInvoiceEnabled;
+  if(typeof applyInvoiceFeatureVisibility === 'function') applyInvoiceFeatureVisibility();
   const psmSelect = document.getElementById('productSortModeSelect');
   if(psmSelect) psmSelect.value = productSortMode;
   const hrSelect = document.getElementById('historyRangeSelect');
@@ -375,6 +378,13 @@ async function toggleAutoConvertMultipack(checked){
 // 取消直接核對功能:勾選後,「登記進出貨→出貨→載入現有待處理訂單」下面的「直接核對」選項要隱藏,
 // 逼迫使用者一定要走「載入訂單核對頁面」比對實際點貨內容才能核對確認,避免有人為了方便直接核對
 // 而跳過比對這個步驟。
+// 隱藏 Invoice 功能:存在 app_data hideInvoice,勾選後 Invoice 相關入口全部隱藏(資料保留)
+async function toggleHideInvoice(checked){
+  hideInvoiceEnabled = checked;
+  try{ await dbSet('hideInvoice', checked ? 'true' : 'false'); }
+  catch(e){ console.error('儲存隱藏 Invoice 設定失敗', e); }
+  if(typeof applyInvoiceFeatureVisibility === 'function') applyInvoiceFeatureVisibility();
+}
 async function toggleDisableDirectVerify(checked){
   disableDirectVerifyEnabled = checked;
   try{ await dbSet('disableDirectVerify', checked ? 'true' : 'false'); }

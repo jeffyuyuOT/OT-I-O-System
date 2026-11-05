@@ -533,6 +533,7 @@ function switchSupplyListPane(paneId){
 function switchAccountingSubTab(subtabId){
   const container = document.getElementById('tab-accounting');
   if(!container) return;
+  if(subtabId === 'subtab-acc-invoices' && typeof hideInvoiceEnabled !== 'undefined' && hideInvoiceEnabled) subtabId = 'subtab-price-setting';   // 隱藏 Invoice 功能時改到定價管理
   document.body.classList.remove('mobile-subtab-menu-active');
   document.body.classList.remove('mobile-subtab-content-active');
   container.querySelectorAll('.subtab-content').forEach(el => el.classList.remove('active-subtab'));

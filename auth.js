@@ -77,7 +77,9 @@ function canViewPrice(){
 // 會計(accountant)身分:跟管理者差不多,但不預設帶系統管理分頁(幣種、定價設定、Invoice 格式、匯入資料在「會計」分頁的「會計設定」)
 function isAccountantUser(){ return !!currentUser && currentUser.role === 'accountant'; }
 // 開 Invoice 的權限:管理者、會計
-function canCreateInvoice(){ return !!currentUser && (currentUser.role === 'admin' || currentUser.role === 'accountant'); }
+function isInvoiceRole(){ return !!currentUser && (currentUser.role === 'admin' || currentUser.role === 'accountant'); }
+// Invoice 功能的總開關:身分是管理者/會計,而且沒有在系統設置勾選「隱藏 Invoice 功能」
+function canCreateInvoice(){ return isInvoiceRole() && !(typeof hideInvoiceEnabled !== 'undefined' && hideInvoiceEnabled); }
 function canEditPrice(){
   return !!currentUser && canEditPriceFor(currentUser.role, currentUser.restrictedCapabilities);
 }
