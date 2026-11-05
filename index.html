@@ -2179,6 +2179,7 @@
         <option value="subtab-acc-purchases" data-i18n="subtabAccPurchases">Purchase List</option>
         <option value="subtab-acc-expenses" data-i18n="subtabAccExpenses">其他支出</option>
         <option value="subtab-acc-reports" data-i18n="subtabAccReports">會計報表</option>
+        <option value="subtab-acc-schedule" data-i18n="subtabAccSchedule">付款與收款排程</option>
         <option value="subtab-price-setting" data-i18n="subtabPriceSetting">定價管理</option>
         <option value="subtab-log-pricerec" data-i18n="subtabLogPriceRecord">定價管理紀錄</option>
         <option value="subtab-acc-settings" data-i18n="subtabAccSettings">會計設定</option>
@@ -2196,6 +2197,13 @@
       <div class="section">
         <div class="toolbar"><div class="section-title" style="margin:0;" data-i18n="subtabAccInvoices">Invoice List</div></div>
         <div id="invoiceListRoot"></div>
+      </div>
+    </div>
+
+    <div id="subtab-acc-schedule" class="subtab-content">
+      <div class="section">
+        <div class="toolbar"><div class="section-title" style="margin:0;" data-i18n="subtabAccSchedule">付款與收款排程</div></div>
+        <div id="paySchedRoot"></div>
       </div>
     </div>
 
@@ -3278,6 +3286,7 @@
 <script src="purchase-accounting.js"></script>
 <script src="other-expenses.js"></script>
 <script src="accounting-reports.js"></script>
+<script src="payment-schedule.js"></script>
 <script src="purchase-costs.js"></script>
 <script src="parties.js"></script>
 <script src="account-requests.js"></script>

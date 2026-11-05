@@ -10,6 +10,8 @@ let arpRaw = null;          // { cns, adjTx, errs:[] }
 let arpMvCache = {};
 let arpReport = null;       // 最近一次算出的報表(給匯出用)
 let arpRunId = 0;
+let arpAsOf = '';           // 庫存價值「某日當天」;空白 = 現在
+let arpAfterCache = {};
 
 function arpM(n){ return (Math.round((Number(n) + Number.EPSILON) * 100) / 100).toLocaleString('en-AU', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
 function arpR2(n){ return Math.round((Number(n) + Number.EPSILON) * 100) / 100; }
@@ -122,20 +124,8 @@ function arpCompute(movements){
   // 銷貨成本 / 毛利(只含有批次單價快照的出貨)
   const cogs = arpR2(cogsMv.reduce((s, m) => s - arpN(m.qty) * arpN(m.unit_cost), 0));
   R.cogs = cogs; R.marginAmt = arpR2(inc.netEx - cogs); R.marginPct = inc.netEx > 0 ? arpR2(R.marginAmt / inc.netEx * 100) : null;
-  // 庫存價值(截至今天)
-  const invVal = {}; let total = 0, noCost = 0;
-  const items = (typeof batchData !== 'undefined' && batchData.items) ? batchData.items : [];
-  items.forEach(it => {
-    const rem = arpN(it.remaining); if(rem <= 0) return;
-    if(paProductOffBooks(it.productId)) return;
-    const c = (it.unitCostTotal !== null && it.unitCostTotal !== undefined) ? it.unitCostTotal : it.unitCostBase;
-    if(c === null || c === undefined){ noCost++; return; }
-    const v = rem * c; total += v;
-    const p = pById[it.productId] || {};
-    const k = it.productId; (invVal[k] = invVal[k] || { name: p.name || k, sku: p.sku || '', category: p.category || '', unit: p.unit || '', qty: 0, value: 0 });
-    invVal[k].qty += rem; invVal[k].value += v;
-  });
-  R.inv = { total: arpR2(total), noCost, rows: Object.values(invVal).sort((a, b) => b.value - a.value), tracked: items.length > 0 };
+  // 庫存價值(現在)
+  R.inv = arpInvCompute(pById, null);
   // 應收帳齡(截至今天)
   const today = (typeof invToday === 'function') ? invToday() : new Date().toISOString().slice(0, 10);
   const arB = ['cur', 'd30', 'd60', 'd90', 'd90p'];
@@ -167,6 +157,35 @@ function arpCompute(movements){
   return R;
 }
 
+
+// 庫存價值。after = null → 現在;after = { batch_item_id: 該日之後異動合計 } → 還原成「asOf 當天」:
+//   當天餘量 = 現在餘量 − 當天之後的異動合計(異動 qty 出貨為負、退回為正);批次日期晚於 asOf 的批次不計。
+function arpInvCompute(pById, asOf, after){
+  const invVal = {}; let total = 0, noCost = 0;
+  const items = (typeof batchData !== 'undefined' && batchData.items) ? batchData.items : [];
+  items.forEach(it => {
+    if(asOf && it.batchDate && it.batchDate > asOf) return;
+    const rem = asOf ? arpN(it.remaining) - arpN((after || {})[it.id]) : arpN(it.remaining);
+    if(rem <= 0.0000001) return;
+    if(paProductOffBooks(it.productId)) return;
+    const c = (it.unitCostTotal !== null && it.unitCostTotal !== undefined) ? it.unitCostTotal : it.unitCostBase;
+    if(c === null || c === undefined){ noCost++; return; }
+    const v = rem * c; total += v;
+    const p = pById[it.productId] || {};
+    const k = it.productId; (invVal[k] = invVal[k] || { name: p.name || k, sku: p.sku || '', category: p.category || '', unit: p.unit || '', qty: 0, value: 0 });
+    invVal[k].qty += rem; invVal[k].value += v;
+  });
+  return { total: arpR2(total), noCost, rows: Object.values(invVal).sort((a, b) => b.value - a.value), tracked: items.length > 0, asOf: asOf || '' };
+}
+async function arpLoadAfter(asOf){
+  if(arpAfterCache[asOf]) return arpAfterCache[asOf];
+  const m = {};
+  const rows = await fetchAllPages(() => sb.from('batch_movements').select('batch_item_id,qty,mv_date').gt('mv_date', asOf).order('id', { ascending: true }));
+  rows.forEach(r => { m[r.batch_item_id] = (m[r.batch_item_id] || 0) + arpN(r.qty); });
+  arpAfterCache[asOf] = m;
+  return m;
+}
+
 // ---- 畫面 ----
 async function arpOpenPage(){
   const root = document.getElementById('accReportsRoot'); if(!root) return;
@@ -174,7 +193,7 @@ async function arpOpenPage(){
   if(!arpFilter.from && !arpFilter.to && !arpFilter.fy){ arpFilter.fy = String(arpCurrentFyStart()); const r = arpRangeFor(arpFilter.fy, ''); arpFilter.from = r.from; arpFilter.to = r.to; }
   root.innerHTML = `<div class="empty-note">${t('batchLoading')}</div>`;
   await arpLoadRaw();
-  arpMvCache = {};
+  arpMvCache = {}; arpAfterCache = {};
   await arpRefresh();
 }
 async function arpRefresh(){
@@ -183,6 +202,15 @@ async function arpRefresh(){
   const mv = await arpLoadMovements(arpFilter.from, arpFilter.to);
   if(run !== arpRunId) return;
   arpReport = arpCompute(mv);
+  arpReport.invAsOf = null; arpReport.invAsOfErr = false;
+  if(arpAsOf){
+    try{
+      const after = await arpLoadAfter(arpAsOf);
+      if(run !== arpRunId) return;
+      const pById = {}; ((typeof products !== 'undefined') ? products : []).forEach(p => { pById[p.id] = p; });
+      arpReport.invAsOf = arpInvCompute(pById, arpAsOf, after);
+    }catch(e){ arpReport.invAsOfErr = true; }
+  }
   arpRender();
 }
 function arpSetFy(v){
@@ -202,8 +230,9 @@ function arpOnDates(){
   arpFilter.fy = ''; arpFilter.q = '';
   arpRefresh();
 }
-function arpClear(){ arpFilter = { from: '', to: '', fy: '', q: '' }; arpRefresh(); }
-async function arpReload(){ const root = document.getElementById('accReportsRoot'); if(root) root.innerHTML = `<div class="empty-note">${t('batchLoading')}</div>`; await arpLoadRaw(); arpMvCache = {}; await arpRefresh(); }
+function arpClear(){ arpFilter = { from: '', to: '', fy: '', q: '' }; arpAsOf = ''; arpRefresh(); }
+function arpOnAsOf(v){ arpAsOf = v || ''; arpRefresh(); }
+async function arpReload(){ const root = document.getElementById('accReportsRoot'); if(root) root.innerHTML = `<div class="empty-note">${t('batchLoading')}</div>`; await arpLoadRaw(); arpMvCache = {}; arpAfterCache = {}; await arpRefresh(); }
 
 function arpRender(){
   const root = document.getElementById('accReportsRoot'); if(!root || !arpReport) return;
@@ -235,9 +264,10 @@ function arpRender(){
   const marginTbl = tbl([[t('arpColItem')], [t('arpColAmount'), 1]], [
     tr([t('arpNetRevenue') + ' (' + t('arpColEx') + ')', N(arpM(R.income.netEx))]), tr([t('arpCogs'), N('-' + arpM(R.cogs))]),
     tr([`<b>${t('arpMarginAmt')}</b>`, B(arpM(R.marginAmt))]), tr([t('arpMarginPct'), N(R.marginPct === null ? '–' : R.marginPct.toFixed(1) + '%')])].join(''));
+  const IV = R.invAsOf || R.inv;
   const invTbl = tbl([[t('colProduct')], [t('colQty'), 1], [t('arpColValue'), 1]],
-    R.inv.rows.slice(0, 50).map(r => tr([E(r.name) + (r.sku ? ` <span style="color:var(--ink-soft);font-size:11px;">(${E(r.sku)})</span>` : ''), N(arpM(r.qty) + ' ' + E(r.unit)), N(arpM(r.value))])).join(''),
-    tr([`<b>${t('arpTotal')}</b>`, '', B(arpM(R.inv.total))]));
+    IV.rows.slice(0, 50).map(r => tr([E(r.name) + (r.sku ? ` <span style="color:var(--ink-soft);font-size:11px;">(${E(r.sku)})</span>` : ''), N(arpM(r.qty) + ' ' + E(r.unit)), N(arpM(r.value))])).join(''),
+    tr([`<b>${t('arpTotal')}</b>`, '', B(arpM(IV.total))]));
   const wasteTbl = tbl([[t('arpColReason')], [t('arpColCount'), 1], [t('colQty'), 1], [t('arpColCost'), 1]],
     R.reasons.map(r => tr([E(adjName(r.code)) + ` <span style="color:var(--ink-soft);font-size:11px;">[${E(grpLabel(r.group))}]</span>`, N(r.n), N(arpM(r.qty)), N(arpM(r.cost))])).join(''),
     tr([`<b>${t('arpWastageTotal')}</b>`, '', '', B(arpM(R.wastageCost))]));
@@ -264,13 +294,14 @@ function arpRender(){
       ${card(t('arpMarginAmt'), arpM(R.marginAmt), R.marginPct === null ? '' : R.marginPct.toFixed(1) + '%')}
       ${card(t('arpWastageCard'), arpM(R.wastageCost))}
       ${card(t('arpInvValueCard'), arpM(R.inv.total), t('arpAsOfToday'))}
+      ${R.invAsOf ? card(tf('arpInvAsOfCard', { d: arpAsOf }), arpM(R.invAsOf.total), R.invAsOf.total - R.inv.total >= 0 ? '+' + arpM(R.invAsOf.total - R.inv.total) + ' ' + t('arpVsNow') : '−' + arpM(R.inv.total - R.invAsOf.total) + ' ' + t('arpVsNow')) : ''}
       ${card(t('arpGstNet'), arpM(R.gst.net))}
     </div>
     ${sec(t('arpSecIncome'), incTbl)}
     ${sec(t('arpSecPurchase'), purTbl, t('arpPurNote'))}
     ${sec(t('arpSecGst'), gstTbl, t('arpGstHint'))}
     ${sec(t('arpSecMargin'), marginTbl, t('arpMarginNote'))}
-    ${sec(t('arpSecInventory'), invTbl, t('arpInvNote') + (R.inv.noCost ? ' ' + tf('arpInvNoCost', { n: R.inv.noCost }) : '') + (R.inv.rows.length > 50 ? ' ' + t('arpTop50') : ''))}
+    ${sec(t('arpSecInventory') + (R.invAsOf ? ' — ' + arpAsOf : ' — ' + t('arpAsOfToday')), `<div class="filter-row" style="margin-bottom:6px;"><div class="field"><label>${t('arpInvAsOfLbl')}</label><input type="date" id="arpAsOfIn" value="${E(arpAsOf)}" max="${E((typeof invToday === 'function') ? invToday() : '')}" onchange="arpOnAsOf(this.value)" /></div>${arpAsOf ? `<button class="btn ghost" onclick="arpOnAsOf('')" style="align-self:flex-end;">${t('arpInvAsOfNow')}</button>` : ''}</div>${R.invAsOfErr ? `<div class="msg error">⚠ ${t('arpInvAsOfErr')}</div>` : ''}` + invTbl, t('arpInvNote') + (R.invAsOf ? ' ' + t('arpInvAsOfNote') : '') + (IV.noCost ? ' ' + tf('arpInvNoCost', { n: IV.noCost }) : '') + (IV.rows.length > 50 ? ' ' + t('arpTop50') : ''))}
     ${sec(t('arpSecWastage'), wasteTbl, t('arpWastageNote') + (R.adjNoCostQty ? ' ' + tf('arpWastageNoCost', { qty: arpM(R.adjNoCostQty) }) : ''))}
     ${sec(t('arpSecAr'), tbl(ageHead, ageRows(R.ar)), t('arpArNote'))}
     ${sec(t('arpSecAp'), tbl(ageHead.map((h, i) => i >= 1 && i <= 5 ? [t('arpApBk_' + bk[i - 1]), 1] : h), ageRows(R.ap)), t('arpApNote'))}
@@ -291,13 +322,13 @@ function arpExport(){
     ['Purchases (supplier invoices) ex GST', q(R.pur.ex)], ['Related expenses ex GST', q(R.rel.ex)], ['Other expenses (standalone) ex GST', q(R.sa.ex)], ['Total purchases & expenses ex GST', q(tot.ex)], ['GST paid (inputs)', q(tot.gst)], [],
     ['Cost of goods sold (batch cost)', q(R.cogs)], ['Gross margin', q(R.marginAmt)], ['Gross margin %', R.marginPct === null ? '' : R.marginPct], [],
     ['GST net payable / (refundable)', q(R.gst.net)], ['Wastage cost', q(R.wastageCost)], ['Inventory value (as of today)', q(R.inv.total)]
-  ]);
+  ].concat(R.invAsOf ? [['Inventory value (as of ' + arpAsOf + ')', q(R.invAsOf.total)]] : []));
   add('Invoices', [['Invoice No', 'Date', 'Customer', 'Ex GST', 'GST', 'Total', 'Paid']].concat(R.invs.map(r => [r.invoice_no, r.invoice_date, arpInvCustomer(r), q(arpN(r.before_tax)), q(arpN(r.tax)), q(arpN(r.total)), q(arpN(r.paid))])));
   add('Credit Notes', [['CN No', 'Date', 'Customer', 'Ex GST', 'GST', 'Total']].concat(R.cns.map(r => [r.cn_no, r.cn_date, arpInvCustomer(r), q(arpN(r.before_tax)), q(arpN(r.tax)), q(arpN(r.total))])));
   add('Purchases', [['Date', 'Supplier', 'Invoice No', 'Ex GST', 'GST', 'Total', 'Paid', 'Unpaid']].concat(R.purRows.map(p => { const i = paInfo(p); return [p.date, p.partyName || '', p.invoiceNo || '', i.ex, i.gst, i.total, i.paid, i.balance]; })));
   add('Expenses', [['Date', 'Type', 'Item', 'Payee', 'Linked supplier', 'Linked INV', 'Ex GST', 'GST', 'Total', 'Paid', 'Unpaid']].concat(R.expRows.map(en => [en.date, en.kind === 'rel' ? 'Purchase-related' : 'Standalone', en.name, en.payee || '', en.kind === 'rel' ? (en.p.partyName || '') : '', en.kind === 'rel' ? (en.p.invoiceNo || '') : '', en.info.ex, en.info.gst, en.info.total, en.info.paid, en.info.balance])));
   add('Wastage & adjustments', [['Reason', 'Group', 'Count', 'Qty', 'Cost']].concat(R.reasons.map(r => [(typeof adjReasonLabel === 'function' ? adjReasonLabel(r.code) : r.code), r.group, r.n, q(r.qty), q(r.cost)])));
-  add('Inventory value', [['SKU', 'Product', 'Category', 'Qty', 'Unit', 'Value']].concat(R.inv.rows.map(r => [r.sku, r.name, r.category, q(r.qty), r.unit, q(r.value)])));
+  add('Inventory value' + (R.invAsOf ? ' ' + arpAsOf : ''), [['SKU', 'Product', 'Category', 'Qty', 'Unit', 'Value']].concat((R.invAsOf || R.inv).rows.map(r => [r.sku, r.name, r.category, q(r.qty), r.unit, q(r.value)])));
   const bk = ['cur', 'd30', 'd60', 'd90', 'd90p'];
   add('AR aging', [['Customer', 'Not due', '1-30', '31-60', '61-90', '90+', 'Total']].concat(R.ar.rows.map(r => [r.name, ...bk.map(k => q(r[k])), q(r.total)])));
   add('AP unpaid', [['Payee / supplier', '0-30 days', '31-60', '61-90', '91-120', '120+', 'Total']].concat(R.ap.rows.map(r => [r.name, ...bk.map(k => q(r[k])), q(r.total)])));
