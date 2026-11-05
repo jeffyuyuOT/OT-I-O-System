@@ -1058,7 +1058,8 @@ function invRenderPayments(){
   const ed = invPay.payments.find(p => p.id === invPay.editingId) || null;
   const dateV = ed ? ed.pay_date : invToday();
   const amtV = ed ? invMoney2(ed.amount) : (info.balance > 0 ? invMoney2(info.balance) : '');
-  const methodV = ed ? (ed.method || '') : (r.payment_type === 'cod' ? 'Cash' : 'Bank Transfer');
+  const defMethod = r.payment_type === 'cod' ? 'Cash' : 'Bank Transfer';
+  const methodV = ed ? ((ed.method && ed.method !== 'Paid Today') ? ed.method : defMethod) : defMethod;   // 舊記錄的「Paid Today」不再是選項,編輯時請改選實際的付款方式
   const methods = INV_PAY_METHODS.concat(methodV && !INV_PAY_METHODS.includes(methodV) ? [methodV] : []);
   const rows = invPay.payments.map(p => `<tr>
       <td style="white-space:nowrap;">${invEsc(invIsoToDmy(p.pay_date))}</td>
