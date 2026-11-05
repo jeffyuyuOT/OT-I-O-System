@@ -5,7 +5,8 @@
 // 需要先執行 sql/invoice_orders.sql。整頁受「隱藏 Invoice 功能」控制。
 // ============================================================
 const icState = {
-  mode: 'new',                 // 'new' | 'order'
+  mode: 'new',                 // 'new' | 'order' | 'cnNew' | 'cnInvoice'
+  cnInv: null,                 // 從 Invoice 產生 Credit Note 時選到的 Invoice { id, no, snap }
   partyId: '', partySearch: '',
   items: [],                   // { productId, sku, desc, unit, qty, price, gst, custom }
   note: '',
@@ -27,14 +28,18 @@ async function icOpenPage(){
   try{ await loadInvoiceSettings(); }catch(e){}
   icRender();
 }
-function icSetMode(m){ icState.mode = m; icRender(); }
+function icIsCn(){ return icState.mode === 'cnNew' || icState.mode === 'cnInvoice'; }
+function icSetMode(m){
+  if(m !== icState.mode && m !== 'order' && icState.mode !== 'order'){ icState.partyId = ''; icState.partySearch = ''; icState.items = []; icState.note = ''; icState.cnInv = null; }
+  icState.mode = m; icRender();
+}
 function icRender(){
   const root = document.getElementById('invoiceCreateRoot');
   if(!root) return;
   if(!icOk()){ root.innerHTML = ''; return; }
   const tab = (m, label) => `<button class="btn ${icState.mode === m ? '' : 'ghost'}" onclick="icSetMode('${m}')">${label}</button>`;
-  root.innerHTML = `<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px;">${tab('new', t('icModeNew'))}${tab('order', t('icModeOrder'))}</div><div id="icBody"></div>`;
-  if(icState.mode === 'new') icRenderNew(); else icRenderOrder();
+  root.innerHTML = `<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px;">${tab('new', t('icModeNew'))}${tab('order', t('icModeOrder'))}${tab('cnNew', t('icModeCnNew'))}${tab('cnInvoice', t('icModeCnInvoice'))}</div><div id="icBody"></div>`;
+  if(icState.mode === 'order') icRenderOrder(); else icRenderNew();
 }
 
 // ---------- New Invoice ----------
@@ -46,7 +51,8 @@ function icPartyMatches(q){
 function icRenderNew(){
   const host = document.getElementById('icBody'); if(!host) return;
   const sp = icParty(icState.partyId);
-  const partyBlock = sp
+  const cn = icIsCn(), fromInv = icState.mode === 'cnInvoice';
+  const partyBlock = fromInv ? icInvoiceBlock() : sp
     ? `<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;"><b>${invEsc(icPartyLabel(sp))}</b><span class="del-link" onclick="icClearParty()">${t('icChangeParty')}</span></div>`
     : `<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;">
          <input id="icPartyInput" type="text" placeholder="${invEsc(t('icPartySearchPh'))}" value="${invEsc(icState.partySearch)}" oninput="icOnPartySearch(this.value)" style="flex:1;min-width:200px;" autocomplete="off" />
@@ -55,12 +61,13 @@ function icRenderNew(){
        <div id="icPartyList" style="margin-top:6px;max-height:220px;overflow:auto;"></div>`;
   host.innerHTML = `
     <div class="settings-card" style="margin-bottom:10px;">
-      <div class="section-title" style="margin-top:0;">${t('icFieldParty')}</div>
+      <div class="section-title" style="margin-top:0;">${fromInv ? t('icFieldInvoice') : t('icFieldParty')}</div>
       ${partyBlock}
     </div>
     <div class="settings-card" style="margin-bottom:10px;">
       <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:8px;">
         <div class="section-title" style="margin:0;flex:1;">${t('icFieldItems')}</div>
+        ${fromInv && icState.cnInv ? `<button class="btn ghost" onclick="icOpenInvoiceItems()">${t('icPickFromInvoice')}</button>` : ''}
         <button class="btn ghost" onclick="icOpenProductPicker()">＋ ${t('icAddProduct')}</button>
         <button class="btn ghost" onclick="icOpenCustomItem()">＋ ${t('icAddCustom')}</button>
       </div>
@@ -71,8 +78,8 @@ function icRenderNew(){
       <textarea id="icNote" rows="2" style="width:100%;box-sizing:border-box;" oninput="icState.note=this.value">${invEsc(icState.note)}</textarea>
     </div>
     <div id="icMsg" class="msg"></div>
-    <div style="display:flex;gap:6px;flex-wrap:wrap;"><button class="btn" onclick="icPreviewNew()">${t('icBtnPreview')}</button><button class="btn ghost" onclick="icResetNew()">${t('icBtnReset')}</button></div>`;
-  if(!sp) icOnPartySearch(icState.partySearch);
+    <div style="display:flex;gap:6px;flex-wrap:wrap;"><button class="btn" onclick="icPreviewNew()">${cn ? t('icBtnPreviewCn') : t('icBtnPreview')}</button><button class="btn ghost" onclick="icResetNew()">${t('icBtnReset')}</button></div>`;
+  if(!sp && !fromInv) icOnPartySearch(icState.partySearch);
   icRenderItems();
 }
 function icOnPartySearch(v){
@@ -97,7 +104,7 @@ function icOnPartiesChanged(newPartyId){
   if(newPartyId && icState.awaitNewParty !== undefined){ icState.partyId = newPartyId; icState.awaitNewParty = undefined; }
   if(document.getElementById('icBody') && icState.mode === 'new') icRenderNew();
 }
-function icResetNew(){ icState.partyId = ''; icState.partySearch = ''; icState.items = []; icState.note = ''; icRenderNew(); }
+function icResetNew(){ icState.partyId = ''; icState.partySearch = ''; icState.items = []; icState.note = ''; icState.cnInv = null; icRenderNew(); }
 
 // 價格:現在的售價 × 出貨方折扣(跟訂單用同一套計算)
 function icPriceFor(productId, qty){
@@ -121,12 +128,13 @@ function icRenderItems(){
     const amt = icR2((Number(it.price) || 0) * (Number(it.qty) || 0)); sale += amt; if(it.gst) tax += icR2(amt * gstRate);
     return `<tr>
       <td>${invEsc(it.desc)}${it.sku ? `<div style="font-size:11px;color:var(--ink-soft);">${invEsc(it.sku)}</div>` : ''}</td>
-      <td><input type="number" min="0" step="any" value="${invEsc(it.qty)}" style="width:70px;" oninput="icEditItem(${i},'qty',this.value)" /> ${invEsc(it.unit || '')}</td>
+      <td><input type="number" min="0" ${it.maxQty ? `max="${it.maxQty}"` : ''} step="any" value="${invEsc(it.qty)}" style="width:70px;" oninput="icEditItem(${i},'qty',this.value)" /> ${invEsc(it.unit || '')}</td>
       <td><input type="number" min="0" step="0.01" value="${it.price === '' ? '' : invEsc(it.price)}" placeholder="0.00" style="width:90px;" oninput="icEditItem(${i},'price',this.value)" /></td>
+      ${icIsCn() ? `<td style="text-align:center;"><input type="checkbox" ${it.ret ? 'checked' : ''} ${it.custom || it.noRet ? 'disabled' : ''} onchange="icEditItem(${i},'ret',this.checked)" /></td>` : ''}
       <td class="num" id="icAmt${i}">${invMoney2(amt)}</td>
       <td><span class="del-link" onclick="icRemoveItem(${i})">✕</span></td></tr>`;
   }).join('');
-  box.innerHTML = `<div style="overflow-x:auto;"><table class="stock-table"><thead><tr><th>${t('icColItem')}</th><th>${t('icColQty')}</th><th>${t('icColPrice')}</th><th class="num">${t('icColAmount')}</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>
+  box.innerHTML = `<div style="overflow-x:auto;"><table class="stock-table"><thead><tr><th>${t('icColItem')}</th><th>${t('icColQty')}</th><th>${t('icColPrice')}</th>${icIsCn() ? `<th>${t('icColReturn')}</th>` : ''}<th class="num">${t('icColAmount')}</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>
     <div id="icTotals" style="text-align:right;font-size:13px;margin-top:6px;"></div>`;
   icRenderTotals();
 }
@@ -143,6 +151,7 @@ function icRenderTotals(){
 function icEditItem(i, k, v){
   const it = icState.items[i]; if(!it) return;
   if(k === 'gst') it.gst = !!v;
+  else if(k === 'ret') it.ret = !!v;
   else if(k === 'price'){ it.price = v === '' ? '' : Number(v); it.priceEdited = true; }
   else it.qty = v === '' ? '' : Number(v);
   if(k === 'qty' && !it.custom && !it.priceEdited){ const p = icPriceFor(it.productId, it.qty); it.price = p.unit === null ? '' : p.unit; it.disc = p.disc; icRenderItems(); return; }
@@ -193,7 +202,7 @@ function icAddProduct(pid){
   const p = (typeof products !== 'undefined' ? products : []).find(x => x.id === pid); if(!p) return;
   if(icState.items.some(x => x.productId === pid)) return;
   const pr = icPriceFor(pid, 1);
-  icState.items.push({ productId: pid, sku: p.sku || '', desc: p.name, unit: p.unit || '', qty: 1, price: pr.unit === null ? '' : pr.unit, disc: pr.disc, gst: !!p.gst, custom: false });
+  icState.items.push({ productId: pid, sku: p.sku || '', desc: p.name, unit: p.unit || '', qty: 1, price: pr.unit === null ? '' : pr.unit, disc: pr.disc, gst: !!p.gst, custom: false, ret: icIsCn() });
   icRenderPickList(); icRenderItems();
 }
 function icOpenCustomItem(){
@@ -220,7 +229,7 @@ function icSaveCustom(){
   const priceRaw = document.getElementById('icCuPrice').value;
   const msg = document.getElementById('icCuMsg');
   if(!name || !(qty > 0) || priceRaw === '' || !Number.isFinite(Number(priceRaw))){ msg.className = 'msg error'; msg.textContent = t('icCustomBad'); return; }
-  icState.items.push({ productId: '', sku: '', desc: name, unit: '', qty, price: Number(priceRaw), disc: 0, gst: document.getElementById('icCuGst').checked, custom: true });
+  icState.items.push({ productId: '', sku: '', desc: name, unit: '', qty, price: Number(priceRaw), disc: 0, gst: document.getElementById('icCuGst').checked, custom: true, ret: false });
   icCloseOverlay('icCustomOverlay'); icRenderItems();
 }
 
@@ -249,6 +258,7 @@ function icFinishTotals(snap){
   return snap;
 }
 function icPreviewNew(){
+  if(icIsCn()) return icPreviewCn();
   const msg = document.getElementById('icMsg');
   const bad = k => { if(msg){ msg.className = 'msg error'; msg.textContent = t(k); } };
   if(!invSettingsComplete()){ showInfoModal(t('invNeedSettings')); return; }
@@ -382,6 +392,7 @@ function icGenerateFromOrders(){
 // ---------- 真的建立(按下 Save PDF / Print 才建立)----------
 async function invEnsureCreatedMulti(){
   const link = invModal.link;
+  if(link.kind === 'credit_note') return await icEnsureCreatedCn();
   const msg = document.getElementById('invModalMsg');
   const fail = key => { if(msg){ msg.className = 'msg error'; msg.textContent = t(key); } return null; };
   const snap0 = Object.assign({}, invModal.snap);
@@ -424,6 +435,247 @@ function icApplyVisibility(){
   if(sel){
     const o = Array.from(sel.options).find(x => x.value === 'subtab-acc-create-invoice');
     if(o) o.hidden = off, o.disabled = off;
+    const o2 = Array.from(sel.options).find(x => x.value === 'subtab-acc-credit-notes');
+    if(o2) o2.hidden = off, o2.disabled = off;
   }
   if(off){ try{ icCloseOverlay('icPickOverlay'); icCloseOverlay('icCustomOverlay'); }catch(e){} }
+}
+
+// ============================================================
+// Credit Note(貸項通知單)
+//   · New Credit Note:選客戶、挑商品 / 自訂品項,單獨記在該客戶名下(不連 Invoice)
+//   · Generate from Invoice:選一張 Invoice,在視窗裡挑要退 / 調整的品項(數量可改),也可以再加品項;連到原 Invoice 並扣減它的未收金額
+//   · 每個品項可以勾「退貨入庫」:有勾的 Credit Note 帶「待入庫」狀態,在登記進出貨做退貨入庫時選對應的 Credit Note
+// 只是帳務文件,不動庫存。需要先執行 sql/credit_notes.sql。
+// ============================================================
+function icInvoiceBlock(){
+  const ci = icState.cnInv;
+  if(ci){
+    const r = ci.row || {};
+    return `<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;"><b>INV${invEsc(ci.no)}</b><span>${invEsc(r.customer || (ci.snap && ci.snap.customer && ci.snap.customer.name) || '')}</span><span style="color:var(--ink-soft);font-size:12px;">${invEsc(invIsoToDmy(r.invoice_date || ''))} · ${invMoney2(r.total !== undefined ? r.total : (ci.snap && ci.snap.total))}</span><span class="del-link" onclick="icClearInvoice()">${t('icChangeParty')}</span></div>`;
+  }
+  return `<input id="icInvInput" type="text" placeholder="${invEsc(t('icInvSearchPh'))}" oninput="icOnInvSearch(this.value)" style="width:100%;box-sizing:border-box;" autocomplete="off" />
+    <div id="icInvList" style="margin-top:6px;max-height:240px;overflow:auto;"></div>`;
+}
+async function icOnInvSearch(v){
+  const box = document.getElementById('icInvList'); if(!box) return;
+  const q = (v || '').trim().toLowerCase();
+  if(!q){ box.innerHTML = ''; return; }
+  await invLoadList();
+  const m = (invList || []).filter(r => [r.invoice_no, r.customer, r.order_no].join(' ').toLowerCase().includes(q)).slice(0, 12);
+  box.innerHTML = m.length
+    ? m.map(r => `<div class="batch-link" style="padding:6px 4px;border-bottom:1px solid var(--line);cursor:pointer;" onclick="icPickInvoice('${invEsc(r.id)}')">INV${invEsc(r.invoice_no)} · ${invEsc(r.customer)} · ${invEsc(invIsoToDmy(r.invoice_date))} · ${invMoney2(r.total)}</div>`).join('')
+    : `<div class="empty-note">${t('icNoInvoice')}</div>`;
+}
+function icClearInvoice(){ icState.cnInv = null; icState.items = []; icState.partyId = ''; icRenderNew(); }
+async function icPickInvoice(id){
+  try{
+    const row = (invList || []).find(r => r.id === id);
+    const snap = await invFetchSnapshot(id);
+    if(!row || !snap) throw new Error('not found');
+    icState.cnInv = { id, no: row.invoice_no, snap, row };
+    icState.partyId = row.party_id || '';
+    icState.items = [];
+    icRenderNew();
+    icOpenInvoiceItems();
+  }catch(e){ console.error('讀取 Invoice 失敗', e); showInfoModal(t('invLoadFailed')); }
+}
+// 挑品項的視窗:勾選要放進 Credit Note 的品項、改數量、決定要不要「退貨入庫」
+function icOpenInvoiceItems(){
+  const ci = icState.cnInv; if(!ci) return;
+  icCloseOverlay('icInvItemsOverlay');
+  const lines = (ci.snap.lines || []);
+  const have = new Map(icState.items.filter(x => x.fromInv).map(x => [x.srcKey, x]));
+  const ov = document.createElement('div');
+  ov.id = 'icInvItemsOverlay'; ov.className = 'modal-overlay'; ov.style.display = 'flex'; ov.style.zIndex = '1200';
+  const rows = lines.map((l, i) => {
+    const cur = have.get(i);
+    const canRet = !!icFindProduct(l);
+    return `<tr>
+      <td><input type="checkbox" id="icIiSel${i}" ${cur ? 'checked' : ''} /></td>
+      <td>${invEsc(l.desc)}${l.sku ? `<div style="font-size:11px;color:var(--ink-soft);">${invEsc(l.sku)}</div>` : ''}</td>
+      <td class="num">${invFmtQty(l.qty)}</td>
+      <td><input type="number" id="icIiQty${i}" min="0" max="${invEsc(l.qty)}" step="any" value="${invEsc(cur ? cur.qty : l.qty)}" style="width:70px;" /></td>
+      <td class="num">${invMoney2(l.qty > 0 ? l.amount / l.qty : l.price)}</td>
+      <td style="text-align:center;"><input type="checkbox" id="icIiRet${i}" ${cur ? (cur.ret ? 'checked' : '') : (canRet ? 'checked' : '')} ${canRet ? '' : 'disabled'} /></td></tr>`;
+  }).join('');
+  ov.innerHTML = `<div class="modal-box" style="max-width:min(720px,96vw);max-height:92vh;overflow:auto;">
+    <div class="section-title" style="margin-top:0;">${t('icPickFromInvoice')} · INV${invEsc(ci.no)}</div>
+    <p style="font-size:12px;color:var(--ink-soft);margin:0 0 8px;">${t('icInvItemsHint')}</p>
+    <div style="overflow-x:auto;"><table class="stock-table"><thead><tr><th></th><th>${t('icColItem')}</th><th class="num">${t('icColInvQty')}</th><th>${t('icColCnQty')}</th><th class="num">${t('icColPrice')}</th><th>${t('icColReturn')}</th></tr></thead><tbody>${rows}</tbody></table></div>
+    <div id="icIiMsg" class="msg"></div>
+    <div class="modal-actions"><button class="btn ghost" onclick="icCloseOverlay('icInvItemsOverlay')">${t('btnCancel')}</button><button class="btn" onclick="icApplyInvoiceItems()">${t('btnSave')}</button></div>
+  </div>`;
+  document.body.appendChild(ov);
+}
+function icFindProduct(l){
+  const ps = (typeof products !== 'undefined' ? products : []);
+  return (l.sku && ps.find(p => p.sku === l.sku)) || ps.find(p => p.name === l.desc) || null;
+}
+function icApplyInvoiceItems(){
+  const ci = icState.cnInv; if(!ci) return;
+  const msg = document.getElementById('icIiMsg');
+  const picked = [];
+  for(let i = 0; i < (ci.snap.lines || []).length; i++){
+    if(!document.getElementById('icIiSel' + i).checked) continue;
+    const l = ci.snap.lines[i];
+    const qty = Number(document.getElementById('icIiQty' + i).value);
+    if(!(qty > 0) || qty > Number(l.qty) + 0.0001){ msg.className = 'msg error'; msg.textContent = t('icInvItemsBad'); return; }
+    const p = icFindProduct(l);
+    picked.push({ fromInv: true, srcKey: i, productId: p ? p.id : '', sku: l.sku || '', desc: l.desc, unit: l.unit || '', qty, maxQty: Number(l.qty),
+      price: icR2(l.qty > 0 ? l.amount / l.qty : l.price), disc: 0, gst: Number(l.tax) > 0, custom: false, priceEdited: true, noRet: !p,
+      ret: !!(p && document.getElementById('icIiRet' + i).checked) });
+  }
+  icState.items = picked.concat(icState.items.filter(x => !x.fromInv));
+  icCloseOverlay('icInvItemsOverlay');
+  icRenderNew();
+}
+
+function icPreviewCn(){
+  const msg = document.getElementById('icMsg');
+  const bad = k => { if(msg){ msg.className = 'msg error'; msg.textContent = t(k); } };
+  if(!invSettingsComplete()){ showInfoModal(t('invNeedSettings')); return; }
+  const fromInv = icState.mode === 'cnInvoice';
+  const ci = icState.cnInv;
+  if(fromInv && !ci) return bad('icNeedInvoice');
+  const sp = icParty(icState.partyId);
+  if(!fromInv && !sp) return bad('icNeedParty');
+  if(!icState.items.length) return bad('icNeedItems');
+  const gstRate = (typeof SP_GST_RATE !== 'undefined') ? SP_GST_RATE : 0.10;
+  const lines = [];
+  for(const it of icState.items){
+    const qty = Number(it.qty), price = Number(it.price);
+    if(!(qty > 0) || it.price === '' || !Number.isFinite(price) || price < 0) return bad('icBadLine');
+    if(it.maxQty && qty > it.maxQty + 0.0001) return bad('icInvItemsBad');
+    const amount = icR2(price * qty);
+    lines.push({ n: lines.length + 1, desc: it.desc, sku: it.sku || '', comment: '', qty, unit: it.unit || '', price, disc: 0, amount, tax: it.gst ? icR2(amount * gstRate) : 0, productId: it.productId || '', ret: !!it.ret });
+  }
+  const head = icSnapHeader(sp, ci && ci.snap && ci.snap.customer ? ci.snap.customer.name : '');
+  if(ci && ci.snap){ head.customer = ci.snap.customer || head.customer; head.ship = ci.snap.ship || head.ship; }
+  const snap = Object.assign(head, { docType: 'credit_note', invoiceNo: ci ? ci.no : '', invoiceId: ci ? ci.id : '', note: icState.note || '', orderNo: '', lines, paymentType: '', term: 0, dueDate: '' });
+  icFinishTotals(snap);
+  invShowModal(null, snap, false, { kind: 'credit_note', invoiceId: ci ? ci.id : '', partyId: (ci && ci.row && ci.row.party_id) || (sp ? sp.id : '') });
+}
+async function icEnsureCreatedCn(){
+  const link = invModal.link;
+  const msg = document.getElementById('invModalMsg');
+  const fail = key => { if(msg){ msg.className = 'msg error'; msg.textContent = t(key); } return null; };
+  const snap0 = Object.assign({}, invModal.snap);
+  snap0.date = (typeof todayISO === 'function') ? todayISO() : snap0.date;
+  snap0.saleRep = (typeof userDisplayName === 'function' && currentUser) ? userDisplayName(currentUser) : snap0.saleRep;
+  snap0.createdAt = new Date().toISOString();
+  try{
+    const { data, error } = await sb.rpc('credit_note_create', { p_snapshot: snap0, p_invoice_id: link.invoiceId || null, p_party_id: link.partyId || '' });
+    if(error) throw error;
+    const snap = Object.assign({}, snap0, { no: data.cn_no, id: data.id });
+    invModal.snap = snap; invModal.created = true;
+    try{ logInventoryAction('order_edit', `Credit note created: ${snap.no} (${snap.customer && snap.customer.name}${snap.invoiceNo ? ', invoice ' + snap.invoiceNo : ''})`, ''); }catch(e){}
+    invList = []; icCnRows = null;
+    icState.items = []; icState.note = ''; icState.cnInv = null; if(icState.mode === 'cnInvoice') icState.partyId = '';
+    if(document.getElementById('icBody') && icState.mode !== 'order') icRenderNew();
+    return snap;
+  }catch(e){
+    console.error('建立 Credit Note 失敗', e);
+    if(/invoice_forbidden/.test((e && e.message) || '')) return fail('invForbidden');
+    if(invIsMissingFn(e)) return fail('icNeedSqlCn');
+    return fail('invCreateFailed');
+  }
+}
+
+// ---------- Credit Note 清單 ----------
+let icCnRows = null, icCnErr = '';
+const icCnF = { q: '', from: '', to: '', st: '' };
+async function icCnOpenList(force){
+  if(!icOk()) return;
+  const root = document.getElementById('creditNoteListRoot'); if(!root) return;
+  if(force || icCnRows === null){
+    root.innerHTML = `<div class="empty-note">${t('batchLoading')}</div>`;
+    try{
+      const { data, error } = await sb.from('credit_notes').select('id,cn_no,invoice_id,invoice_no,party_id,customer,cn_date,total,return_status,created_by').order('cn_date', { ascending: false }).order('cn_no', { ascending: false }).limit(5000);
+      if(error) throw error;
+      icCnRows = data || []; icCnErr = '';
+    }catch(e){ icCnRows = []; icCnErr = invIsMissingFn(e) || (e && e.code === '42P01') ? 'sql' : 'error'; if(icCnErr === 'error') console.error('讀取 Credit Note 清單失敗', e); }
+  }
+  icCnRender();
+}
+function icRsBadge(st){
+  const col = { none: ['#eef0f3', '#555'], pending: ['#fff4dc', '#9a6a00'], partial: ['#e8f0fe', '#1a56b0'], done: ['#e7f6ec', '#1d7a3c'] }[st] || ['#eee', '#555'];
+  return `<span style="display:inline-block;padding:1px 8px;border-radius:10px;font-size:11px;font-weight:700;background:${col[0]};color:${col[1]};white-space:nowrap;">${invEsc(t('icRs_' + (st || 'none')))}</span>`;
+}
+function icCnRender(){
+  const root = document.getElementById('creditNoteListRoot'); if(!root || !icOk()) return;
+  if(icCnErr === 'sql'){ root.innerHTML = `<div class="empty-note">${t('icNeedSqlCn')}</div>`; return; }
+  if(icCnErr){ root.innerHTML = `<div class="empty-note">${t('invLoadFailed')}</div>`; return; }
+  const f = icCnF, q = f.q.trim().toLowerCase();
+  const list = (icCnRows || []).filter(r => (!f.from || r.cn_date >= f.from) && (!f.to || r.cn_date <= f.to) && (!f.st || (r.return_status || 'none') === f.st)
+    && (!q || [r.cn_no, r.customer, r.invoice_no].join(' ').toLowerCase().includes(q)));
+  const sum = list.reduce((a, r) => a + (Number(r.total) || 0), 0);
+  const stOpt = (v, l) => `<option value="${v}" ${f.st === v ? 'selected' : ''}>${l}</option>`;
+  const body = list.map(r => `<tr>
+      <td style="white-space:nowrap;cursor:pointer;" onclick="icCnView('${invEsc(r.id)}')"><span class="batch-link">${invEsc(r.cn_no)}</span></td>
+      <td style="white-space:nowrap;">${invEsc(invIsoToDmy(r.cn_date))}</td><td>${invEsc(r.customer)}</td>
+      <td>${r.invoice_no ? 'INV' + invEsc(r.invoice_no) : '–'}</td>
+      <td class="num"><b>(${invMoney2(r.total)})</b></td>
+      <td style="white-space:nowrap;">${icRsBadge(r.return_status)}</td>
+      <td style="white-space:nowrap;"><span class="del-link" onclick="icCnView('${invEsc(r.id)}')">${t('invBtnDetails')}</span>${(r.return_status || 'none') !== 'none' ? ` <span class="del-link" style="margin-left:6px;" onclick="icCnOpenStatus('${invEsc(r.id)}')">${t('icBtnReturnStatus')}</span>` : ''}</td></tr>`).join('');
+  root.innerHTML = `<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin-bottom:8px;">
+      <div><div style="font-size:11px;color:var(--ink-soft);">${t('icFrom')}</div><input type="date" value="${invEsc(f.from)}" onchange="icCnF.from=this.value;icCnRender()" /></div>
+      <div><div style="font-size:11px;color:var(--ink-soft);">${t('icTo')}</div><input type="date" value="${invEsc(f.to)}" onchange="icCnF.to=this.value;icCnRender()" /></div>
+      <div><div style="font-size:11px;color:var(--ink-soft);">${t('icColReturnStatus')}</div><select onchange="icCnF.st=this.value;icCnRender()">${stOpt('', t('invFltAll'))}${stOpt('pending', t('icRs_pending'))}${stOpt('partial', t('icRs_partial'))}${stOpt('done', t('icRs_done'))}${stOpt('none', t('icRs_none'))}</select></div>
+      <div style="flex:1;min-width:160px;"><div style="font-size:11px;color:var(--ink-soft);">${t('invFltSearch')}</div><input type="text" value="${invEsc(f.q)}" placeholder="${invEsc(t('icCnSearchPh'))}" oninput="icCnF.q=this.value;icCnRenderKeepFocus(this)" style="width:100%;box-sizing:border-box;" /></div>
+    </div>
+    ${list.length ? `<div style="overflow-x:auto;"><table class="stock-table"><thead><tr><th>Credit Note No</th><th>${t('icColDate')}</th><th>${t('invColCustomer')}</th><th>Invoice</th><th class="num">${t('spTotalAmt')}</th><th>${t('icColReturnStatus')}</th><th></th></tr></thead><tbody>${body}</tbody>
+      <tfoot><tr style="font-weight:700;"><td colspan="4" style="text-align:right;">${t('invListTotals')} (${list.length})</td><td class="num">(${invMoney2(sum)})</td><td colspan="2"></td></tr></tfoot></table></div>` : `<div class="empty-note">${t('icNoCn')}</div>`}`;
+}
+function icCnRenderKeepFocus(inp){
+  const pos = inp.selectionStart; icCnRender();
+  const el = document.querySelector('#creditNoteListRoot input[type=text]'); if(el){ el.focus(); try{ el.setSelectionRange(pos, pos); }catch(e){} }
+}
+async function icCnView(id){
+  try{
+    const { data, error } = await sb.from('credit_notes').select('snapshot').eq('id', id).maybeSingle();
+    if(error || !data) throw error || new Error('not found');
+    try{ await loadInvoiceSettings(); }catch(e){}
+    invShowModal(null, data.snapshot, true, null);
+  }catch(e){ console.error('讀取 Credit Note 失敗', e); showInfoModal(t('invLoadFailed')); }
+}
+function icCnOpenStatus(id){
+  const r = (icCnRows || []).find(x => x.id === id); if(!r) return;
+  icCloseOverlay('icCnStatusOverlay');
+  const ov = document.createElement('div');
+  ov.id = 'icCnStatusOverlay'; ov.className = 'modal-overlay'; ov.style.display = 'flex'; ov.style.zIndex = '1250';
+  ov.innerHTML = `<div class="modal-box" style="max-width:380px;">
+    <div class="section-title" style="margin-top:0;">${invEsc(r.cn_no)} · ${t('icColReturnStatus')}</div>
+    <p style="font-size:12px;color:var(--ink-soft);margin:0 0 8px;">${t('icReturnStatusHint')}</p>
+    <select id="icCnStatusSel" style="width:100%;box-sizing:border-box;">${['pending', 'partial', 'done'].map(v => `<option value="${v}" ${r.return_status === v ? 'selected' : ''}>${t('icRs_' + v)}</option>`).join('')}</select>
+    <div id="icCnStatusMsg" class="msg"></div>
+    <div class="modal-actions"><button class="btn ghost" onclick="icCloseOverlay('icCnStatusOverlay')">${t('btnCancel')}</button><button class="btn" onclick="icCnSaveStatus('${invEsc(id)}')">${t('btnSave')}</button></div>
+  </div>`;
+  document.body.appendChild(ov);
+}
+async function icCnSaveStatus(id){
+  const v = document.getElementById('icCnStatusSel').value;
+  const { error } = await sb.rpc('credit_note_set_return_status', { p_id: id, p_status: v });
+  if(error){ const m = document.getElementById('icCnStatusMsg'); if(m){ m.className = 'msg error'; m.textContent = t('invLoadFailed'); } console.error(error); return; }
+  icCloseOverlay('icCnStatusOverlay');
+  await icCnOpenList(true);
+}
+
+// ---------- 備份 / 還原 / 清除(資料表沒建立時略過)----------
+async function icCnExportForBackup(){
+  try{
+    const { data, error } = await sb.from('credit_notes').select('*').order('cn_no', { ascending: true }).limit(100000);
+    if(error) return null;
+    const { data: c } = await sb.from('credit_note_counter').select('next_no').eq('id', 1).maybeSingle();
+    return { rows: data || [], next: c ? Number(c.next_no) : 1 };
+  }catch(e){ return null; }
+}
+async function icCnRestoreFromBackup(d){
+  if(!d || !Array.isArray(d.rows)) return;
+  const { error } = await sb.rpc('credit_notes_restore_all', { p_rows: d.rows, p_next: d.next || 1 });
+  if(error && !invIsMissingFn(error)) throw error;
+}
+async function icCnClearAll(){
+  const { error } = await sb.rpc('credit_notes_clear_all');
+  if(error && !invIsMissingFn(error)) console.error(error);
 }

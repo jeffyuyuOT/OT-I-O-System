@@ -188,10 +188,14 @@ function invBuildSnapshot(order, opts){
 // ---------- Invoice 版面(HTML)----------
 function invDocHtml(snap, logoDataUrl){
   snap = invNormalizeSnap(snap);
+  const cnDoc = snap.docType === 'credit_note';
+  const mm = n => cnDoc ? '(' + invMoney2(n) + ')' : invMoney2(n);   // Credit Note 的金額用括號表示負數
   const c = snap.company || {};
   const termText = snap.paymentType === 'cod' ? 'COD' : `${snap.term} Days`;
   const bk = snap.bank || {};
-  const bankHtml = snap.paymentType === 'cod'
+  const bankHtml = cnDoc
+    ? `<div style="font-weight:700;">${snap.invoiceNo ? 'Credit applied to Invoice ' + invEsc(snap.invoiceNo) : 'Credit held on customer account'}</div>${(snap.lines || []).some(l => l.ret) ? '<div style="margin-top:4px;">Items marked for return are to be returned to the warehouse.</div>' : ''}`
+    : snap.paymentType === 'cod'
     ? `<div style="font-weight:700;">Cash on Delivery (COD)</div><div style="margin-top:4px;">Payment is due on delivery.</div>`
     : `<div>Please pay by bank transfer to:</div>
        ${bk.bankName ? `<div style="font-weight:700;margin-top:3px;">${invEsc(bk.bankName)}</div>` : ''}
@@ -205,10 +209,10 @@ function invDocHtml(snap, logoDataUrl){
       <td style="${td}">${l.sku ? `<b>${invEsc(l.sku)}</b><br>` : ''}${invEsc(l.desc)}</td>
       <td style="${td}">${invEsc(l.comment)}</td>
       <td style="${td}text-align:right;">${invFmtQty(l.qty)}${l.unit ? '<br><span style="font-size:9px;">' + invEsc(l.unit) + '</span>' : ''}</td>
-      <td style="${td}text-align:right;">${invMoney2(l.price)}</td>
+      <td style="${td}text-align:right;">${mm(l.price)}</td>
       <td style="${td}text-align:right;">${invMoney2(l.disc)}%</td>
-      <td style="${td}text-align:right;">${invMoney2(l.amount)}</td>
-      <td style="${td}text-align:right;">${invMoney2(l.tax)}</td>
+      <td style="${td}text-align:right;">${mm(l.amount)}</td>
+      <td style="${td}text-align:right;">${mm(l.tax)}</td>
     </tr>`).join('');
   const cu = snap.customer || {}, sh = snap.ship || {};
   const paid = Math.max(0, Number(snap.paid) || 0);
@@ -231,12 +235,12 @@ function invDocHtml(snap, logoDataUrl){
         </div>
       </td>
       <td style="vertical-align:top;text-align:right;">
-        <div style="font-size:24px;font-weight:400;letter-spacing:0.5px;">TAX INVOICE</div>
+        <div style="font-size:24px;font-weight:400;letter-spacing:0.5px;">${cnDoc ? 'CREDIT NOTE' : 'TAX INVOICE'}</div>
         <table style="margin-left:auto;margin-top:4px;border-collapse:collapse;text-align:left;">
-          <tr><td style="padding:1px 14px 1px 0;font-weight:700;">Invoice No:</td><td>${invEsc(snap.no)}</td></tr>
-          <tr><td style="padding:1px 14px 1px 0;font-weight:700;">Invoice Date:</td><td>${invEsc(invIsoToDmy(snap.date))}</td></tr>
-          <tr><td style="padding:1px 14px 1px 0;font-weight:700;">Terms:</td><td>${invEsc(termText)}</td></tr>
-          <tr><td style="padding:1px 14px 1px 0;font-weight:700;">Due Date:</td><td>${invEsc(invIsoToDmy(snap.dueDate))}</td></tr>
+          <tr><td style="padding:1px 14px 1px 0;font-weight:700;">${cnDoc ? 'Credit Note No:' : 'Invoice No:'}</td><td>${invEsc(snap.no)}</td></tr>
+          <tr><td style="padding:1px 14px 1px 0;font-weight:700;">${cnDoc ? 'Date:' : 'Invoice Date:'}</td><td>${invEsc(invIsoToDmy(snap.date))}</td></tr>
+          ${cnDoc ? (snap.invoiceNo ? `<tr><td style="padding:1px 14px 1px 0;font-weight:700;">Invoice No:</td><td>${invEsc(snap.invoiceNo)}</td></tr>` : '') : `<tr><td style="padding:1px 14px 1px 0;font-weight:700;">Terms:</td><td>${invEsc(termText)}</td></tr>
+          <tr><td style="padding:1px 14px 1px 0;font-weight:700;">Due Date:</td><td>${invEsc(invIsoToDmy(snap.dueDate))}</td></tr>`}
           <tr><td style="padding:1px 14px 1px 0;font-weight:700;">Sale Rep</td><td>${invEsc(snap.saleRep)}</td></tr>
         </table>
       </td></tr></table>
@@ -272,16 +276,16 @@ function invDocHtml(snap, logoDataUrl){
    <div class="inv-foot" style="margin-top:auto;padding-top:24px;">
     <table style="width:100%;border-collapse:collapse;page-break-inside:avoid;"><tr>
       <td style="vertical-align:top;width:58%;border:1px solid #000;padding:8px 10px;">
-        <div style="font-weight:700;text-decoration:underline;margin-bottom:4px;">Payment Method</div>
+        <div style="font-weight:700;text-decoration:underline;margin-bottom:4px;">${cnDoc ? 'Credit Details' : 'Payment Method'}</div>
         ${bankHtml}
       </td>
       <td style="vertical-align:top;padding:0;border:1px solid #000;border-left:none;">
         <table style="width:100%;border-collapse:collapse;">
-          <tr><td style="${tr}">Before Tax</td><td style="${tr}text-align:right;">${invMoney2(snap.beforeTax)}</td></tr>
-          <tr><td style="${tr}">Tax</td><td style="${tr}text-align:right;">${invMoney2(snap.tax)}</td></tr>
-          <tr style="font-weight:700;"><td style="${tr}">Total Amt</td><td style="${tr}text-align:right;">${invMoney2(snap.total)}</td></tr>
+          <tr><td style="${tr}">Before Tax</td><td style="${tr}text-align:right;">${mm(snap.beforeTax)}</td></tr>
+          <tr><td style="${tr}">Tax</td><td style="${tr}text-align:right;">${mm(snap.tax)}</td></tr>
+          ${cnDoc ? `<tr style="font-weight:700;background:#d9d9d9;"><td style="padding:8px 10px;background:#d9d9d9;">Total Credit</td><td style="padding:8px 10px;text-align:right;background:#d9d9d9;">${mm(snap.total)}</td></tr>` : `<tr style="font-weight:700;"><td style="${tr}">Total Amt</td><td style="${tr}text-align:right;">${invMoney2(snap.total)}</td></tr>
           <tr><td style="${tr}">${snap.id ? 'Paid' : 'Paid Today'}</td><td style="${tr}text-align:right;">${invMoney2(paid)}</td></tr>
-          <tr style="font-weight:700;background:#d9d9d9;"><td style="padding:8px 10px;background:#d9d9d9;">Balance Due</td><td style="padding:8px 10px;text-align:right;background:#d9d9d9;">${invMoney2(balance)}</td></tr>
+          <tr style="font-weight:700;background:#d9d9d9;"><td style="padding:8px 10px;background:#d9d9d9;">Balance Due</td><td style="padding:8px 10px;text-align:right;background:#d9d9d9;">${invMoney2(balance)}</td></tr>`}
         </table>
       </td></tr></table>
 
@@ -315,7 +319,8 @@ function invShowModal(orderId, snap, created, link){
   const ov = document.createElement('div');
   ov.id = 'invoiceOverlay'; ov.className = 'modal-overlay'; ov.style.display = 'flex'; ov.style.zIndex = '1150';
   const order = orders.find(o => o.id === orderId);
-  const title = `${created ? 'Invoice' : 'Create Invoice'}${(order && order.orderNo) || snap.orderNo ? ' · ' + ((order && order.orderNo) || snap.orderNo) : ''}`;
+  const isCn = snap.docType === 'credit_note';
+  const title = isCn ? `${created ? 'Credit Note' : 'Create Credit Note'}${snap.no ? ' · ' + snap.no : ''}` : `${created ? 'Invoice' : 'Create Invoice'}${(order && order.orderNo) || snap.orderNo ? ' · ' + ((order && order.orderNo) || snap.orderNo) : ''}`;
   const shown = created ? snap : Object.assign({}, snap, { no: t('invNoAuto') });
   ov.innerHTML = `<div class="modal-box" style="max-width:min(900px,96vw);max-height:92vh;overflow:auto;">
     <div class="section-title" style="margin-top:0;">${invEsc(title)}</div>
@@ -324,7 +329,7 @@ function invShowModal(orderId, snap, created, link){
     <div id="invModalMsg" class="msg"></div>
     <div class="modal-actions">
       <button class="btn ghost" onclick="invCloseModal()">${created ? t('btnClose') : t('btnCancel')}</button>
-      ${created ? (invModal.snap.id ? `<button class="btn ghost" onclick="invOpenPayments(invModal.snap.id)">${t('invBtnPayments')}</button>` : '') : `<button class="btn ghost" onclick="invOpenPaidPrompt()">${t('invBtnPaidToday')}</button>`}
+      ${isCn ? '' : (created ? (invModal.snap.id ? `<button class="btn ghost" onclick="invOpenPayments(invModal.snap.id)">${t('invBtnPayments')}</button>` : '') : `<button class="btn ghost" onclick="invOpenPaidPrompt()">${t('invBtnPaidToday')}</button>`)}
       <button class="btn ghost" onclick="invDoPrint()">${t('invBtnPrint')}</button>
       <button class="btn" onclick="invDoSavePdf()">${created ? t('invBtnExport') : t('invBtnSavePdf')}</button>
     </div>
@@ -466,11 +471,12 @@ function invRefreshModalAfterCreate(){
   const ov = document.getElementById('invoiceOverlay');
   if(ov && invModal){
     const ttl = ov.querySelector('.section-title'); const order = orders.find(o => o.id === invModal.orderId);
-    if(ttl) ttl.textContent = 'Invoice' + ((order && order.orderNo) || invModal.snap.orderNo ? ' · ' + ((order && order.orderNo) || invModal.snap.orderNo) : '');
+    if(ttl && invModal.snap.docType === 'credit_note') ttl.textContent = 'Credit Note · ' + invModal.snap.no;
+    else if(ttl) ttl.textContent = 'Invoice' + ((order && order.orderNo) || invModal.snap.orderNo ? ' · ' + ((order && order.orderNo) || invModal.snap.orderNo) : '');
     const hint = ov.querySelector('p'); if(hint) hint.remove();
   }
 }
-function invFileName(snap){ return `Invoice_${snap.no}_${String((snap.customer && snap.customer.name) || '').replace(/[^\w\-]+/g, '_').slice(0, 30)}.pdf`; }
+function invFileName(snap){ return `${snap.docType === 'credit_note' ? 'CreditNote' : 'Invoice'}_${snap.no}_${String((snap.customer && snap.customer.name) || '').replace(/[^\w\-]+/g, '_').slice(0, 30)}.pdf`; }
 
 async function invDoSavePdf(){
   const snap = await invEnsureCreated(); if(!snap) return;
@@ -731,14 +737,16 @@ function invCodGrace(){ const n = parseInt(invSettings.codGraceDays, 10); return
 // · 有 Due Date(Bank Transfer):過了 Due Date 且還有餘額 = overdue
 // · COD:視為「到貨當天到期」,但有寬限天數(系統設置 → Invoice 格式,預設 7 天),過了寬限天數還沒收完才算 overdue
 function invRowInfo(r){
-  const total = Number(r.total) || 0, paid = Math.min(Number(r.paid) || 0, total);
+  const gross = Number(r.total) || 0, credited = Math.min(Number(r.credited) || 0, gross);
+  const total = Math.round((gross - credited) * 100) / 100;   // 扣掉 Credit Note 之後的應收金額
+  const paid = Math.min(Number(r.paid) || 0, total);
   const balance = Math.round((total - paid) * 100) / 100;
   const due = r.payment_type === 'cod' ? invAddDays(r.invoice_date, invCodGrace()) : (r.due_date || r.invoice_date);
   let status;
   if(balance <= 0.004) status = 'paid';
   else if(due && invToday() > due) status = 'overdue';
   else status = paid > 0 ? 'partial' : 'unpaid';
-  return { total, paid, balance, status, due };
+  return { total, gross, credited, paid, balance, status, due };
 }
 function invStatusBadge(st){
   const col = { paid: ['#e7f6ec', '#1d7a3c'], partial: ['#fff4dc', '#9a6a00'], unpaid: ['#eef0f3', '#555'], overdue: ['#fde8e8', '#b42318'] }[st] || ['#eee', '#555'];
@@ -751,7 +759,8 @@ async function invLoadList(force){
   const run = cols => sb.from('invoices').select(cols).order('invoice_date', { ascending: false }).order('invoice_no', { ascending: false }).limit(5000);
   try{
     // change_count(Invoice 變更過幾次)需要先執行 sql/invoice_changes.sql;還沒執行就退回不帶這欄
-    let { data, error } = await run(base + ',change_count');
+    let { data, error } = await run(base + ',change_count,credited');
+    if(error && (error.code === '42703' || /change_count|credited/.test(error.message || ''))) ({ data, error } = await run(base + ',change_count'));
     if(error && (error.code === '42703' || /change_count/.test(error.message || ''))) ({ data, error } = await run(base));
     if(error) throw error;
     invList = data || [];
@@ -915,6 +924,8 @@ async function invOpenDetails(invoiceId){
     ]);
     if(e1 || !inv) throw e1 || new Error('not found');
     const changes = cr.error ? [] : (cr.data || []);   // 變更紀錄表還沒建立就當作沒有
+    let cnList = [];
+    try{ const cq = await sb.from('credit_notes').select('id,cn_no,cn_date,total,return_status').eq('invoice_id', invoiceId).order('cn_date', { ascending: false }); cnList = cq.error ? [] : (cq.data || []); }catch(e){}
     const i = invRowInfo(inv);
     const row = (k, v) => `<tr><td style="color:var(--ink-soft);white-space:nowrap;vertical-align:top;">${k}</td><td>${v === '' || v === null || v === undefined ? '–' : v}</td></tr>`;
     const terms = inv.payment_type === 'cod' ? `COD (${invEsc(tf('invDtCodGrace', { n: invCodGrace() }))})` : (inv.terms ? invEsc(inv.terms) + ' Days' : '');
@@ -935,10 +946,12 @@ async function invOpenDetails(invoiceId){
         ${row(t('spSaleAmt'), invMoney2(inv.before_tax))}
         ${row(t('spGstAmt'), invMoney2(inv.tax))}
         ${row(t('spTotalAmt'), '<b>' + invMoney2(i.total) + '</b>')}
+        ${Number(inv.credited) > 0 ? row(t('icCredited'), '(' + invMoney2(inv.credited) + ')') : ''}
         ${row(t('invColPaid'), invMoney2(i.paid))}
         ${row(t('invColBalance'), '<b>' + invMoney2(i.balance) + '</b>')}
         ${row(t('invDtCreated'), invEsc((inv.created_by || '') + (inv.created_at ? ' · ' + when(inv.created_at) : '')))}
       </tbody></table>
+      ${cnList.length ? `<div style="margin-top:12px;font-size:12.5px;font-weight:700;">Credit Notes</div>${cnList.map(c => `<div style="padding:4px 0;border-top:1px solid var(--line);font-size:12px;"><span class="batch-link" onclick="icCnView('${invEsc(c.id)}')">${invEsc(c.cn_no)}</span> · ${invEsc(invIsoToDmy(c.cn_date))} · <b>(${invMoney2(c.total)})</b> · ${icRsBadge(c.return_status)}</div>`).join('')}` : ''}
       <div style="margin-top:12px;font-size:12.5px;font-weight:700;">${invEsc(t('invChangeTitle'))}</div>
       ${changes.length === 0 ? `<div class="empty-note" style="margin:4px 0;">${invEsc(t('invChangeNone'))}</div>` : changes.map(c => `<div style="padding:6px 0;border-top:1px solid var(--line);">
           <div style="font-size:12px;"><b>${invEsc(when(c.changed_at))}</b> · ${invEsc(c.changed_by || '')} · ${invEsc(t('invChTotal'))} ${invMoney2(c.before_total)} → <b>${invMoney2(c.after_total)}</b></div>
@@ -1122,7 +1135,8 @@ async function invExportForBackup(){
     const payments = pr.error ? [] : (pr.data || []);   // 收款表還沒建立(沒執行 invoice_payments.sql)時,備份裡就沒有收款
     const cr = await sb.from('invoice_changes').select('*').order('id', { ascending: true }).limit(200000);
     const changes = cr.error ? [] : (cr.data || []);    // 變更紀錄表還沒建立(沒執行 invoice_changes.sql)時,備份裡就沒有變更紀錄
-    return { invoices: data || [], payments, changes, next: await invGetNextNo() };
+    const creditNotes = (typeof icCnExportForBackup === 'function') ? await icCnExportForBackup() : null;   // Credit Note 表還沒建立時為 null
+    return { invoices: data || [], payments, changes, creditNotes, next: await invGetNextNo() };
   }catch(e){
     if(invIsMissingFn(e)) return null;
     throw e;
@@ -1135,8 +1149,10 @@ async function invRestoreFromBackup(backup){
   let { error } = await sb.rpc('invoice_restore_all', Object.assign({ p_changes: Array.isArray(d.changes) ? d.changes : [] }, args));
   if(error && invIsMissingFn(error)) ({ error } = await sb.rpc('invoice_restore_all', args));   // 還沒執行 invoice_changes.sql:用舊版函式還原(不含變更紀錄)
   if(error && !invIsMissingFn(error)) throw error;
+  if(d.creditNotes && typeof icCnRestoreFromBackup === 'function') await icCnRestoreFromBackup(d.creditNotes);
 }
 async function invClearAll(){
   const { error } = await sb.rpc('invoice_clear_all');
   if(error && !invIsMissingFn(error)) throw error;
+  if(typeof icCnClearAll === 'function') await icCnClearAll();
 }
