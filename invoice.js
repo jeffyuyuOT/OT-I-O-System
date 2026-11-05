@@ -186,7 +186,7 @@ function invBuildSnapshot(order, opts){
     company: { name: invSettings.companyName, abn: invSettings.abn, address: invSettings.address, phone: invSettings.phone, email: invSettings.email, website: invSettings.website },
     bank: { bankName: invSettings.bankName, accName: invSettings.bankAccName, bsb: invSettings.bsb, accNo: invSettings.accNo },
     customer: { name, billTo: (sp && sp.billTo) || '', email: (sp && sp.email) || '', abn: (sp && sp.abn) || '' },
-    ship: { name, address: (sp && (sp.shipTo !== undefined ? sp.shipTo : sp.address)) || '', contact: (sp && sp.contactPerson) || '' },
+    ship: { name, address: (sp && (sp.shipTo !== undefined ? sp.shipTo : sp.address)) || '', contact: (sp && sp.contactPerson) || '', phone: (sp && (sp.phone !== undefined ? sp.phone : (sp.contact || ''))) || '' },
     note: order.note || '', orderNo: order.orderNo || '',
     lines, beforeTax, tax, total: Math.round((beforeTax + tax) * 100) / 100, paid: 0, filtered: true,
     currency: (typeof getSystemCurrency === 'function') ? getSystemCurrency() : 'AUD'
@@ -266,6 +266,7 @@ function invDocHtml(snap, logoDataUrl){
         <div style="font-weight:700;">Ship To:</div>
         <div>${invEsc(sh.name)}</div>
         ${sh.contact ? `<div>${invEsc(sh.contact)}</div>` : ''}
+        ${sh.phone ? `<div>${invEsc(sh.phone)}</div>` : ''}
         <div>${invNl2br(sh.address)}</div>
       </td></tr></table>
 
