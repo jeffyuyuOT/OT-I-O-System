@@ -1928,8 +1928,9 @@ function batchLocSummaryHtml(i){
   const located = buckets.filter(b => b.code);
   const unBucket = buckets.find(b => !b.code);
   let html = located.map(b => `${batchEsc(b.code)} ×${batchFmtQty(b.rem)}`).join('<br>');
-  if(located.length && unBucket) html += `<br><span style="color:var(--ink-soft);">${t('unassignedLocationLabel')} ×${batchFmtQty(unBucket.rem)}</span>`;
-  return html + `${html ? '<br>' : ''}<span class="batch-link" style="font-size:12px;" onclick="batchOpenSetLocations('${i.id}')">${t(located.length ? 'batchSetLocEdit' : 'batchSetLocAdd')}</span>`;
+  // 有位置資料 → 列出各位置,還有沒分到位置的就補一行「未分布」;完全沒位置 → 只顯示「未分布 ×數量」;下面一律是「修改位置」
+  if(unBucket) html += `${html ? '<br>' : ''}<span style="color:var(--ink-soft);">${t('unassignedLocationLabel')} ×${batchFmtQty(unBucket.rem)}</span>`;
+  return html + `${html ? '<br>' : ''}<span class="batch-link" style="font-size:12px;" onclick="batchOpenSetLocations('${i.id}')">${t('batchSetLocEdit')}</span>`;
 }
 
 // ---- 設定批次位置:補登記既有批次(期初批次、進貨時沒記位置的批次)現在放在哪 ----
