@@ -59,7 +59,7 @@ function icRenderNew(){
   const sp = icParty(icState.partyId);
   const cn = icIsCn(), fromInv = icState.mode === 'cnInvoice';
   const partyBlock = fromInv ? icInvoiceBlock() : sp
-    ? `<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;"><b>${invEsc(icPartyLabel(sp))}</b><span class="del-link" onclick="icClearParty()">${t('icChangeParty')}</span></div>`
+    ? `<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">${hasCapability('cap-manage-parties') ? `<b class="batch-link" style="cursor:pointer;" title="${invEsc(t('icEditPartyTip'))}" onclick="openPartyEditModal('${invEsc(sp.id)}')">${invEsc(icPartyLabel(sp))}</b>` : `<b>${invEsc(icPartyLabel(sp))}</b>`}<span class="del-link" onclick="icClearParty()">${t('icChangeParty')}</span></div>`
     : `<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;">
          <input id="icPartyInput" type="text" placeholder="${invEsc(t('icPartySearchPh'))}" value="${invEsc(icState.partySearch)}" oninput="icOnPartySearch(this.value)" style="flex:1;min-width:200px;" autocomplete="off" />
          ${hasCapability('cap-manage-parties') ? `<button class="btn ghost" onclick="icAddParty()">＋ ${t('icAddParty')}</button>` : ''}
@@ -108,7 +108,7 @@ function icAddParty(){ icState.awaitNewParty = (typeof shippingParties !== 'unde
 // parties.js 儲存出貨方之後呼叫:新增的出貨方直接選起來
 function icOnPartiesChanged(newPartyId){
   if(newPartyId && icState.awaitNewParty !== undefined){ icState.partyId = newPartyId; icState.awaitNewParty = undefined; }
-  if(document.getElementById('icBody') && icState.mode === 'new') icRenderNew();
+  if(document.getElementById('icBody') && icState.mode === 'new'){ icReprice(); icRenderNew(); }   // 折扣改了:重新計算沒手動改過價的品項
 }
 function icResetNew(){ icState.partyId = ''; icState.partySearch = ''; icState.items = []; icState.note = ''; icState.cnInv = null; icRenderNew(); }
 
