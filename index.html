@@ -1559,6 +1559,11 @@
           <input id="txNote" type="text" placeholder="例如:客戶訂單 #123" data-i18n-placeholder="txNotePlaceholderExample" />
         </div>
       </div>
+      <div id="txCnWrap" class="field" style="display:none;margin-top:10px;">
+        <label data-i18n="icTxCnLabel">對應的 Credit Note(選填)</label>
+        <select id="txCnSelect" onchange="icTxCnPick()"></select>
+        <div id="txCnHint" style="font-size:11.5px;color:var(--ink-soft);margin-top:4px;"></div>
+      </div>
       <div id="purchaseReceiptWrap" style="display:none;margin-top:10px;">
         <label style="display:block;font-size:12.5px;font-weight:600;color:var(--ink);margin-bottom:4px;" data-i18n="fieldPurchaseReceipt">收據/發票附件(選填,圖片或 PDF,可選取多個檔案)</label>
         <div style="display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px 16px;">
@@ -2157,17 +2162,33 @@
   <div id="tab-accounting" class="tab-content">
     <div class="log-select-bar">
       <select id="accountingSubtabSelect" onchange="switchAccountingSubTab(this.value)">
-        <option value="subtab-acc-invoices" data-i18n="subtabAccInvoices">Invoices</option>
+        <option value="subtab-acc-create-invoice" data-i18n="subtabAccCreateInvoice">Create Document</option>
+        <option value="subtab-acc-invoices" data-i18n="subtabAccInvoices">Invoice List</option>
+        <option value="subtab-acc-credit-notes" data-i18n="subtabAccCreditNotes">Credit Note List</option>
         <option value="subtab-price-setting" data-i18n="subtabPriceSetting">定價管理</option>
         <option value="subtab-log-pricerec" data-i18n="subtabLogPriceRecord">定價管理紀錄</option>
         <option value="subtab-acc-settings" data-i18n="subtabAccSettings">會計設定</option>
       </select>
     </div>
 
+    <div id="subtab-acc-create-invoice" class="subtab-content">
+      <div class="section">
+        <div class="toolbar"><div class="section-title" style="margin:0;" data-i18n="subtabAccCreateInvoice">Create Document</div></div>
+        <div id="invoiceCreateRoot"></div>
+      </div>
+    </div>
+
     <div id="subtab-acc-invoices" class="subtab-content active-subtab">
       <div class="section">
-        <div class="toolbar"><div class="section-title" style="margin:0;" data-i18n="subtabAccInvoices">Invoices</div></div>
+        <div class="toolbar"><div class="section-title" style="margin:0;" data-i18n="subtabAccInvoices">Invoice List</div></div>
         <div id="invoiceListRoot"></div>
+      </div>
+    </div>
+
+    <div id="subtab-acc-credit-notes" class="subtab-content">
+      <div class="section">
+        <div class="toolbar"><div class="section-title" style="margin:0;" data-i18n="subtabAccCreditNotes">Credit Note List</div></div>
+        <div id="creditNoteListRoot"></div>
       </div>
     </div>
 
@@ -3210,6 +3231,7 @@
 <script src="sell-price.js"></script>
 <script src="price-setting.js"></script>
 <script src="invoice.js"></script>
+<script src="invoice-create.js"></script>
 <script src="purchase-costs.js"></script>
 <script src="parties.js"></script>
 <script src="account-requests.js"></script>

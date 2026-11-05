@@ -13,6 +13,7 @@
 // ============================================================
 let psDraft = {};            // 還沒儲存的修改:{ 商品id: 數字 或 null(清空) }
 let psFilters = { type: '', val: '' };   // 篩選方式 type:''(不篩選)/ 'cat' / 'sup' / 'ql',val = 選到的分類/供應商/快捷清單
+let psRoundMode = (function(){ try{ return localStorage.getItem('psRoundMode') || 'none'; }catch(e){ return 'none'; } })();   // Apply margin 的進位方式:none(小數兩位)/ up1(無條件進位到小數第一位)/ up0(無條件進位到整數)
 let psMarginInput = null;    // 頁面上 Apply margin 輸入框的值(字串);null = 用系統預設 margin
 let psPageMsg = '';          // 頁面上方的提示訊息(例如已套用到幾個商品)
 let psPageMsgType = '';
@@ -248,6 +249,11 @@ function psRenderPage(){
     <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:0 0 10px;padding:10px 12px;border:1px solid var(--line);">
       <strong style="font-size:12.5px;">Margin</strong>
       <input id="psMarginInput" type="number" min="0" step="any" value="${psEsc(marginVal)}" oninput="psMarginInput=this.value" style="width:90px;" ${editable ? '' : 'disabled'} /><span>%</span>
+      <select onchange="psRoundMode=this.value;try{localStorage.setItem('psRoundMode',this.value);}catch(e){}" style="font-size:12.5px;" ${editable ? '' : 'disabled'} title="${psEsc(t('psRoundTitle'))}">
+        <option value="none" ${psRoundMode === 'none' ? 'selected' : ''}>${psEsc(t('psRoundNone'))}</option>
+        <option value="up1" ${psRoundMode === 'up1' ? 'selected' : ''}>${psEsc(t('psRoundUp1'))}</option>
+        <option value="up0" ${psRoundMode === 'up0' ? 'selected' : ''}>${psEsc(t('psRoundUp0'))}</option>
+      </select>
       <button class="btn" onclick="psApplyMargin()" ${editable ? '' : 'disabled'}>${t('psBtnApplyMargin')}</button>
       <span style="font-size:11.5px;color:var(--ink-soft);">${tf('psApplyHint', { n: list.length })}</span>
       <span style="flex:1;"></span>
@@ -335,7 +341,10 @@ function psApplyMargin(){
   list.forEach(p => {
     const ci = psCostInfo(p.id);
     if(!ci || ci.isOpening || ci.cost === null || !(ci.cost > 0)){ skipped++; return; }
-    psDraft[p.id] = spRound2(ci.cost * (1 + m / 100));
+    const raw0 = ci.cost * (1 + m / 100);
+    // 先取到小數第 6 位再進位,避免 12.3000000001 這種浮點誤差被多進一位
+    const r6 = Math.round(raw0 * 1e6) / 1e6;
+    psDraft[p.id] = psRoundMode === 'up0' ? Math.ceil(r6) : psRoundMode === 'up1' ? Math.ceil(Math.round(r6 * 10 * 1e6) / 1e6) / 10 : spRound2(raw0);
     done++;
   });
   psSetMsg(tf('psApplied', { n: done, m }) + (skipped ? ' ' + tf('psAppliedSkipped', { n: skipped }) : ''), done > 0 ? 'ok' : 'error');

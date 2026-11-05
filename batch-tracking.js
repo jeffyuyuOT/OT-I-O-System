@@ -1090,7 +1090,7 @@ function batchRenderBatchView(){
       <span style="font-size:12px;color:var(--ink-soft);">${batchEsc(h.isOpening ? t('batchOpening') : h.batchDate)}</span>
     </div>
     <table class="stock-table">
-      <thead><tr><th style="width:30%;">${t('colProduct')}</th><th class="num" style="width:14%;">${t('batchColRemaining')}</th><th style="width:20%;">${t('batchColExpiry')}</th><th class="num" style="width:12%;">${t('batchColCostPrice')}</th><th class="num" style="width:12%;">Sell price</th><th style="width:12%;"></th></tr></thead>
+      <thead><tr><th style="width:30%;">${t('colProduct')}</th><th class="num" style="width:14%;">${t('batchColRemaining')}</th><th style="width:20%;">${t('batchColExpiry')}</th><th class="num" style="width:12%;">${t('batchColCostPrice')}</th><th class="num" style="width:12%;">Sell price</th><th style="width:14%;"></th></tr></thead>
       <tbody>${items.sort((a, b) => batchProductName(a.productId).localeCompare(batchProductName(b.productId))).map(i => `
         <tr>
           <td><span class="batch-link" onclick="batchTrackerOpenProduct('${i.productId}')">${batchEsc(batchProductName(i.productId))}</span></td>
@@ -1098,7 +1098,7 @@ function batchRenderBatchView(){
           <td>${i.expiry ? batchEsc(i.expiry) + batchExpiryBadge(i.expiry, true) : '–'}</td>
           <td class="num">${(typeof spPriceCellHtml === 'function') ? spPriceCellHtml(i) : batchFmtMoney(batchUnitCost(i))}</td>
           <td class="num">${(typeof spSellCellHtml === 'function') ? spSellCellHtml(i) : batchFmtMoney(batchUnitCost(i))}</td>
-          <td><span class="del-link" onclick="batchTrackerOpenHistory('${i.id}')">${t('batchBtnHistory')}</span></td>
+          <td style="white-space:nowrap;"><span class="del-link" onclick="batchTrackerOpenHistory('${i.id}')">${t('batchBtnHistory')}</span> <span class="batch-info-icon" style="margin-left:6px;" title="${batchEsc(t('batchDetailsTitle'))}" onclick="batchOpenItemDetail('${i.id}')">ⓘ</span></td>
         </tr>`).join('')}</tbody>
     </table>`;
 }
@@ -1928,8 +1928,9 @@ function batchLocSummaryHtml(i){
   const located = buckets.filter(b => b.code);
   const unBucket = buckets.find(b => !b.code);
   let html = located.map(b => `${batchEsc(b.code)} ×${batchFmtQty(b.rem)}`).join('<br>');
-  if(located.length && unBucket) html += `<br><span style="color:var(--ink-soft);">${t('unassignedLocationLabel')} ×${batchFmtQty(unBucket.rem)}</span>`;
-  return html + `${html ? '<br>' : ''}<span class="batch-link" style="font-size:12px;" onclick="batchOpenSetLocations('${i.id}')">${t(located.length ? 'batchSetLocEdit' : 'batchSetLocAdd')}</span>`;
+  // 有位置資料 → 列出各位置,還有沒分到位置的就補一行「未分布」;完全沒位置 → 只顯示「未分布 ×數量」;下面一律是「修改位置」
+  if(unBucket) html += `${html ? '<br>' : ''}<span style="color:var(--ink-soft);">${t('unassignedLocationLabel')} ×${batchFmtQty(unBucket.rem)}</span>`;
+  return html + `${html ? '<br>' : ''}<span class="batch-link" style="font-size:12px;" onclick="batchOpenSetLocations('${i.id}')">${t('batchSetLocEdit')}</span>`;
 }
 
 // ---- 設定批次位置:補登記既有批次(期初批次、進貨時沒記位置的批次)現在放在哪 ----

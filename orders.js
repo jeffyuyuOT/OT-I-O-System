@@ -786,7 +786,7 @@ function renderCompletedOrdersInto(container, recentOnly){
       </div>
     `;
     return `
-      <div class="order-card ${o.deleted ? 'order-card-deleted' : ''}">
+      <div data-oid="${o.id}" class="order-card ${o.deleted ? 'order-card-deleted' : ''}">
         <div class="order-card-head" style="cursor:pointer;" onclick="toggleOrderExpand('${o.id}')">
           <span class="order-card-date">
             <span style="display:inline-block;width:14px;">${isExpanded ? '▾' : '▸'}</span>
@@ -794,7 +794,7 @@ function renderCompletedOrdersInto(container, recentOnly){
             ${o.remark ? `<span title="${t('orderHasRemarkTitle')}" style="margin-left:6px;color:var(--yellow-dark);">📝</span>` : ''}
             ${wasModified ? `<span title="${t('orderWasModifiedTitle')}" style="margin-left:6px;color:var(--warn);">✎</span>` : ''}
           </span>
-          <span class="order-card-status" style="display:inline-flex;align-items:center;gap:6px;">${o.emailedAt ? `<span style="color:var(--safe);font-size:12px;" title="${tf('emailedToTitle', { email: o.emailedTo || '', when: o.emailedAt })}">${t('alreadyEmailedBadge')}</span><span style="color:var(--ink-soft);font-size:10.5px;">${formatEmailedTimeShort(o.emailedAt)}</span>` : ''}${o.signedAt ? `<span title="${tf('orderSignedAtTitle', {datetime: formatOrderDateTime(o.signedAt)})}" style="color:var(--safe);">✔ ${t('statusSigned')}</span>` : ''}<span class="order-status-pill ${o.deleted ? 'deleted' : 'confirmed'}">${o.deleted ? t('statusOrderCancelled') : t('statusCompleted')}</span>
+          <span class="order-card-status" style="display:inline-flex;align-items:center;gap:6px;">${o.emailedAt ? `<span style="color:var(--safe);font-size:12px;" title="${tf('emailedToTitle', { email: o.emailedTo || '', when: o.emailedAt })}">${t('alreadyEmailedBadge')}</span><span style="color:var(--ink-soft);font-size:10.5px;">${formatEmailedTimeShort(o.emailedAt)}</span>` : ''}${o.signedAt ? `<span title="${tf('orderSignedAtTitle', {datetime: formatOrderDateTime(o.signedAt)})}" style="color:var(--safe);">✔ ${t('statusSigned')}</span>` : ''}${invLinkedBadgeHtml(o)}<span class="order-status-pill ${o.deleted ? 'deleted' : 'confirmed'}">${o.deleted ? t('statusOrderCancelled') : t('statusCompleted')}</span>
             <span class="order-head-action" onclick="event.stopPropagation()"><button class="btn ghost" onclick="openOrderActionModal('${o.id}', 'completed')">${t('lblAction')} ▾</button></span></span>
         </div>
         ${isExpanded ? `
@@ -925,6 +925,7 @@ function deleteOrderItem(orderId, productId){
   const item = order.items.find(it => it.productId === productId && !it.deleted);
   if(!item) return;
   showConfirmModal(tf('confirmDeleteOrderItem', {name: item.name, qty: Math.abs(item.qty), unit: item.unit}), async () => {
+    if(!(await invGuardOrderEdit(order, {del: [productId]}))) return;
     const now = new Date().toISOString();
     try{
       const txId = genId();
@@ -1006,6 +1007,8 @@ async function saveOrderItemQty(context, orderId, productId){
     showConfirmModal(t('confirmZeroQtyIsDelete'), () => deleteOrderItem(orderId, productId));
     return;
   }
+
+  if(!(await invGuardOrderEdit(order, {qty: { [productId]: newQty }}))) return;
 
   const oldQty = item.qty;
 
@@ -1187,7 +1190,7 @@ function renderPendingOrders(){
     `;
     const activeItemCount = o.items.filter(it => !it.deleted).length;
     return `
-      <div class="order-card ${o.deleted ? 'order-card-deleted' : ''}">
+      <div data-oid="${o.id}" class="order-card ${o.deleted ? 'order-card-deleted' : ''}">
         <div class="order-card-head" style="cursor:pointer;" onclick="toggleOrderExpand('${o.id}')">
           <span class="order-card-date">
             <span style="display:inline-block;width:14px;">${isExpanded ? '▾' : '▸'}</span>
@@ -1196,7 +1199,7 @@ function renderPendingOrders(){
             ${!o.deleted && !o.partyId ? `<span title="${t('orderNoPartyLinkedWarning')}" style="margin-left:6px;color:var(--crit);">⚠</span>${hasCapability('cap-manage-parties') ? ` <span title="${t('btnEditOrderParty')}" style="margin-left:2px;color:var(--warn);cursor:pointer;" onclick="event.stopPropagation();startEditOrderParty('${o.id}')">✎</span>` : ''}` : ''}
           </span>
           <span style="display:inline-flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:flex-end;">
-            <span class="order-status-pill ${o.deleted ? 'deleted' : (o.status === 'processing' ? 'processing' : 'pending')}">${o.deleted ? t('statusOrderCancelled') : (o.status === 'processing' ? t('statusProcessing') : t('statusPending'))}</span>
+            ${invLinkedBadgeHtml(o)}<span class="order-status-pill ${o.deleted ? 'deleted' : (o.status === 'processing' ? 'processing' : 'pending')}">${o.deleted ? t('statusOrderCancelled') : (o.status === 'processing' ? t('statusProcessing') : t('statusPending'))}</span>
             ${o.deleted ? '' : `<span class="order-head-action" onclick="event.stopPropagation()"><button class="btn ghost" onclick="openOrderActionModal('${o.id}', 'pending')">${t('lblAction')} ▾</button></span>`}
           </span>
         </div>
@@ -1452,7 +1455,9 @@ function openOrderActionModal(orderId, kind){
     const activeCount = o.items.filter(it => !it.deleted).length;
     opts = [['print', t('btnPrintPickingSlip'), false]];
     if(typeof canVerifyOrders !== 'function' || canVerifyOrders()) opts.push(['verify', t('btnLoadIntoVerifyPage'), activeCount === 0]);
-    opts.push(['edit', t('btnEdit'), false], ['cancel', t('btnCancelWholeOrder'), false]);
+    opts.push(['edit', t('btnEdit'), false]);
+    if(!o.deleted && typeof canCreateInvoice === 'function' && canCreateInvoice()) opts.push(o.invoice ? ['invoice', t('invActionInvoice'), false] : ['create-invoice', t('invActionCreate'), false]);
+    opts.push(['cancel', t('btnCancelWholeOrder'), false]);
   } else {
     opts = [];
     // 編輯放最上、觀看修改紀錄放第二(跟展開後卡片底下的按鈕同樣的條件:簽收或刪除後不能編輯;沒有任何異動就沒有修改紀錄)
@@ -1508,6 +1513,8 @@ function confirmOrderActionModal(){
     else if(action === 'verify') openOrderInVerifyPage(orderId);
     else if(action === 'edit') editOrderViaRegister(orderId, 'pending');
     else if(action === 'cancel') cancelPendingOrder(orderId);
+    else if(action === 'create-invoice') invOpenCreate(orderId);
+    else if(action === 'invoice') invOpenView(orderId);
   } else {
     const modeSel = document.getElementById('orderActionModeSelect');
     const exportMode = modeSel ? modeSel.value : 'general';
@@ -1534,6 +1541,7 @@ function deletePendingOrderItem(orderId, productId){
   const item = order.items.find(it => it.productId === productId && !it.deleted);
   if(!item) return;
   showConfirmModal(tf('confirmDeleteOrderItem', {name: item.name, qty: item.qty, unit: item.unit}), async () => {
+    if(!(await invGuardOrderEdit(order, {del: [productId]}))) return;
     const now = new Date().toISOString();
     item.deleted = true;
     item.deletedAt = now;
@@ -1660,6 +1668,7 @@ async function savePendingOrderItemQty(context, orderId, productId){
     }
   }
 
+  if(!(await invGuardOrderEdit(order, {qty: { [productId]: newQty }}))) return;
   showConfirmModal(tf('confirmChangeOrderItemQty', { name: item.name, from: item.qty, to: newQty, unit: item.unit }), async () => {
     const oldQty = item.qty;
     item.qty = newQty;
@@ -2093,7 +2102,7 @@ function renderOrderHistory(){
             ${o.orderNo ? `<span style="color:var(--ink-soft);font-weight:400;">${o.orderNo}</span> · ` : ''}${formatOrderDateTime(o.createdAt) || o.date}${o.partyName ? ` <span style="font-weight:400;color:var(--ink-soft);">· ${tf('orderCardPartyLabel', {name: o.partyName})}</span>` : ''}
           </span>
           <span>
-            <span class="order-status-pill ${statusClass}">${statusLabel}</span>${signedBadge}
+            ${invLinkedBadgeHtml(o)}<span class="order-status-pill ${statusClass}">${statusLabel}</span>${signedBadge}
           </span>
         </div>
         ${isExpanded ? `

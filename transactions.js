@@ -37,6 +37,7 @@ function setTxType(type){
   const receiptWrap = document.getElementById('purchaseReceiptWrap');
   if(receiptWrap && type !== 'in') receiptWrap.style.display = 'none';
   if(typeof batchRenderFormExtras === 'function') batchRenderFormExtras();
+  if(typeof icTxCnRefresh === 'function') icTxCnRefresh(type);   // 入庫:可選對應的 Credit Note
   if(type !== 'in') removePurchaseReceipt(); // 切走「進貨」類型的話,暫存的收據附件狀態一併清掉,避免殘留到下次填別種類型的表單
   if(type !== 'in'){
     const emailToggle = document.getElementById('purchaseEmailToggle');
@@ -814,7 +815,7 @@ function renderTxBatchList(){
   // 沒有這個模組就沒有意義,不用佔畫面空間。
   const showAmountCol = hasFeature('receiptScanModule') && currentTxType === 'in'; // 金額只有進貨才用(出貨/入庫/調整不記金額),其他類型不顯示
   // 出貨(新增訂單 / 載入待處理訂單加品項):顯示 Sell price(依出貨方 Discount 與預計批次),受系統設置開關控制
-  const showSellCol = typeof spEnabled === 'function' && spEnabled() && currentTxType === 'out' && (registerOutFlowType === 'new-order' || registerOutFlowType === 'load-pending');
+  const showSellCol = typeof spEnabled === 'function' && spEnabled() && currentTxType === 'out' && (registerOutFlowType === 'new-order' || registerOutFlowType === 'load-pending' || registerOutFlowType === 'load-completed');
   const sellPartyId = showSellCol ? ((document.getElementById('txPartySelect') || {}).value || '') : '';
   // 同一個商品在清單裡出現不只一筆(常見情境:發票登記了5箱,後來因為缺貨開的 Credit Note
   // 退了1箱,兩筆分開登記),依 productId 分組——分組本身不影響底層資料或送出時各自登記成
@@ -878,7 +879,7 @@ function renderTxBatchList(){
     <table class="stock-table">
       <thead><tr><th>${t('colProduct')}</th><th class="num">${t('colQty')}</th>${showSellCol ? `<th class="num">${t('spColUnitPrice')}</th><th class="num">${t('spColTotalPrice')}</th>` : ''}${showBatchCols ? `<th class="num">${t('batchColExpiry')}</th><th style="min-width:220px;padding-left:18px;">${t('batchLocTitle')}</th>` : ''}${showAmountCol ? `<th class="num">${t('colAmount')}${(typeof pcAmountColSuffix === 'function') ? pcAmountColSuffix() : ''}</th>` : ''}<th></th></tr></thead>
       <tbody>${rowsHtml}</tbody>
-      ${showSellCol ? (() => { const tt = spTxItemsTotal(sellPartyId); const miss = tt.missing ? ` <span style="font-weight:400;font-size:11px;color:var(--ink-soft);">(${tf('spTotalMissing', { n: tt.missing })})</span>` : ''; const lead = registerOutFlowType === 'load-pending' ? t('spAddedItemsTotal') + ' · ' : ''; const tail = `<td colspan="${(showBatchCols ? 2 : 0) + (showAmountCol ? 1 : 0) + 1}"></td>`; const r = (lab, v, strong) => `<tr style="font-weight:${strong ? 700 : 600};"><td class="row-name" colspan="3" style="text-align:right;">${lab}</td><td class="row-num"><span style="${SP_TOTAL_PILL}">${spMoney(v)}</span></td>${tail}</tr>`; return `<tfoot>${r(lead + t('spSaleAmt') + miss, tt.sum, false)}${r(t('spGstAmt'), tt.gst, false)}${r(t('spTotalAmt'), spRound2(tt.sum + tt.gst), true)}</tfoot>`; })() : ''}
+      ${showSellCol ? (() => { const tt = spTxItemsTotal(sellPartyId); const miss = tt.missing ? ` <span style="font-weight:400;font-size:11px;color:var(--ink-soft);">(${tf('spTotalMissing', { n: tt.missing })})</span>` : ''; const lead = (registerOutFlowType === 'load-pending' || registerOutFlowType === 'load-completed') ? t('spAddedItemsTotal') + ' · ' : ''; const tail = `<td colspan="${(showBatchCols ? 2 : 0) + (showAmountCol ? 1 : 0) + 1}"></td>`; const r = (lab, v, strong) => `<tr style="font-weight:${strong ? 700 : 600};"><td class="row-name" colspan="3" style="text-align:right;">${lab}</td><td class="row-num"><span style="${SP_TOTAL_PILL}">${spMoney(v)}</span></td>${tail}</tr>`; return `<tfoot>${r(lead + t('spSaleAmt') + miss, tt.sum, false)}${r(t('spGstAmt'), tt.gst, false)}${r(t('spTotalAmt'), spRound2(tt.sum + tt.gst), true)}</tfoot>`; })() : ''}
     </table>
   `;
 }
@@ -2070,6 +2071,7 @@ async function submitTxBatchSimple(date, msg){
   const LOG_ACTION_EN_LABEL = { tx_in: 'Stock In', tx_restock: 'Restock' };
   const logDesc = `Logged ${LOG_ACTION_EN_LABEL[logActionType] || logActionType}: ${count} item(s)${party ? ', party ' + party : ''}`;
   logInventoryAction(logActionType, logDesc, null);
+  if(currentTxType === 'restock' && typeof icTxCnAfterSubmit === 'function') await icTxCnAfterSubmit(txBatchItems);   // 記下這張 Credit Note 已入庫的數量
   txBatchItems = [];
   if(typeof batchResetFormAfterSubmit === 'function') batchResetFormAfterSubmit();
   renderTxBatchList();
@@ -2246,6 +2248,7 @@ async function submitLoadPendingFlow(action, msg){
   const noteInput = document.getElementById('txNote');
   const newNote = noteInput ? noteInput.value.trim() : (order.note || '');
   const { pendingQtyChanges, pendingDeletes } = collectPendingItemChanges(order);
+  if(!(await invGuardOrderEdit(order, { qty: Object.fromEntries(pendingQtyChanges.map(c => [c.item.productId, c.newQty])), del: pendingDeletes.map(it => it.productId) }))) return;
 
   const changes = [];
   if(newDate && newDate !== order.date) changes.push(tf('changeSummaryDate', { old: order.date || '', new: newDate }));
@@ -2381,6 +2384,8 @@ async function submitLoadCompletedFlow(date, msg){
     if(ch.newQty === 0){ pendingQtyChanges.splice(i, 1); pendingDeletes.push(ch.item); continue; }
     if(ch.newQty < 0 && ch.item.qty > 0){ msg.className = 'msg error'; msg.textContent = `⚠ ${tf('errReduceBelowZero', { name: ch.item.name })}`; return; }
   }
+
+  if(!(await invGuardOrderEdit(order, { qty: Object.fromEntries(pendingQtyChanges.map(c => [c.item.productId, c.newQty])), del: pendingDeletes.map(it => it.productId) }))) return;
 
   // 批次追蹤:減少數量的品項如果用了兩個以上的批次,先問要從哪個批次扣(退回)
   if(typeof batchAskReturnPicks === 'function'){
@@ -2710,11 +2715,15 @@ async function mergeItemsIntoCompletedOrderCore(orderId, batchItems, date, party
   }));
 
   const prevItems = order.items;
-  const newOrderItems = batchItems.map(it => ({
-    productId: it.productId, sku: it.sku || '', name: it.name, unit: it.unit,
-    qty: it.qty,
-    qtyHistory: [{ added: true, at: new Date().toISOString(), qty: it.qty }]
-  }));
+  const newOrderItems = batchItems.map(it => {
+    const ni = {
+      productId: it.productId, sku: it.sku || '', name: it.name, unit: it.unit,
+      qty: it.qty,
+      qtyHistory: [{ added: true, at: new Date().toISOString(), qty: it.qty }]
+    };
+    if(typeof spCarryTxPrice === 'function') spCarryTxPrice(ni, it);   // 新增商品時手動改過的單價一起帶進訂單
+    return ni;
+  });
   order.items = [...prevItems, ...newOrderItems];
   if(typeof spFreezeOne === 'function'){ order.items = order.items.map(it => (newOrderItems.includes(it) && !it.sellFrozen) ? spFreezeOne(order, it) : it); }   // 核對後新增的品項,售價也在加入當下固定
 

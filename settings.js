@@ -41,6 +41,8 @@ async function runAutoBackup(){
   };
   try{ const bt = await batchExportForBackup(); if(bt) backup.batchTracking = bt; }
   catch(e){ console.error('自動備份:讀取批次資料失敗,這份備份不含批次資料', e); }
+  try{ backup.productLocations = await exportProductLocationsForBackup(); }
+  catch(e){ console.error('自動備份:讀取庫存分布失敗,這份備份不含庫存分布', e); }
   try{ if(typeof psExportForBackup === 'function') backup.priceData = await psExportForBackup(); }
   catch(e){ console.error('自動備份:讀取 Price Setting / 售價紀錄失敗,這份備份不含這些資料', e); }
   try{ if(typeof invExportForBackup === 'function' && currentUser && currentUser.role === 'admin'){ const iv = await invExportForBackup(); if(iv) backup.invoiceData = iv; } }
@@ -213,6 +215,7 @@ async function restoreFromBackupFolder(){
     await restoreQuickListsFromBackup(backup);
     const forecastRestoreOk = await restoreForecastDataFromBackup(backup);
     const batchRes = await batchRestoreFromBackup(backup);
+    try{ await restoreProductLocationsFromBackup(backup); }catch(e){ console.error('還原庫存分布失敗', e); }
     try{ if(typeof psRestoreFromBackup === 'function') await psRestoreFromBackup(backup); }catch(e){ console.error('還原 Price Setting / 售價紀錄失敗', e); }
     try{ if(typeof invRestoreFromBackup === 'function') await invRestoreFromBackup(backup); }catch(e){ console.error('還原 Invoice 失敗', e); }
     await locationLogReplace(locationLogRowsFromBackup(backup));   // 庫存分布紀錄一起還原(舊備份沒有 = 清空)
@@ -606,6 +609,8 @@ async function exportFullBackup(){
     purchases
   };
   const msg0 = document.getElementById('backupMsg');
+  try{ backup.productLocations = await exportProductLocationsForBackup(); }
+  catch(e){ console.error('匯出備份:讀取庫存分布失敗,這份備份不含庫存分布', e); }
   try{ const bt = await batchExportForBackup(); if(bt) backup.batchTracking = bt; }
   catch(e){
     console.error('匯出備份:讀取批次資料失敗', e);
@@ -704,6 +709,7 @@ function importFullBackup(){
         await restoreQuickListsFromBackup(backup);
         const forecastRestoreOk = await restoreForecastDataFromBackup(backup);
         const batchRes = await batchRestoreFromBackup(backup);
+        try{ await restoreProductLocationsFromBackup(backup); }catch(e){ console.error('還原庫存分布失敗', e); }
         try{ if(typeof psRestoreFromBackup === 'function') await psRestoreFromBackup(backup); }catch(e){ console.error('還原 Price Setting / 售價紀錄失敗', e); }
     try{ if(typeof invRestoreFromBackup === 'function') await invRestoreFromBackup(backup); }catch(e){ console.error('還原 Invoice 失敗', e); }
         await locationLogReplace(locationLogRowsFromBackup(backup));   // 庫存分布紀錄一起還原(舊備份沒有 = 清空)

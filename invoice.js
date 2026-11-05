@@ -16,6 +16,15 @@ let invSettings = { companyName: '', abn: '', address: '', phone: '', email: '',
 let invLogoDraft = null;   // 設定頁剛選好還沒儲存的 Logo(dataURL);'' = 要移除;null = 沒動
 
 const invEsc = s => String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+// 會計清單的客戶名稱:同一個出貨方統一顯示公司名(沒有公司名才用出貨方名稱);搜尋時出貨方名稱、公司名、編號都找得到
+function invPartyOf(r){
+  if(!r || typeof shippingParties === 'undefined') return null;
+  if(r.party_id) return shippingParties.find(x => x.id === r.party_id) || null;
+  const n = invNormName(r.customer);   // 沒有出貨方編號的舊資料:用名稱對應
+  return n ? (shippingParties.find(x => invNormName(x.name) === n || invNormName(x.companyName) === n) || null) : null;
+}
+function invCustLabel(r){ const sp = invPartyOf(r); return (sp && (sp.companyName || sp.name)) || (r && r.customer) || ''; }
+function invCustSearch(r){ const sp = invPartyOf(r); return [r && r.customer, sp && sp.name, sp && sp.companyName, sp && sp.code].filter(Boolean).join(' '); }
 const invNl2br = s => invEsc(s).replace(/\r?\n/g, '<br>');
 
 async function loadInvoiceSettings(){
@@ -117,8 +126,8 @@ function invMoney2(n){ return (Math.round((Number(n) + Number.EPSILON) * 100) / 
 function invFmtQty(n){ const v = Number(n); return Number.isInteger(v) ? v.toFixed(2) : String(Math.round(v * 1000) / 1000); }
 
 // 從已完成訂單產生 Invoice 內容;回傳 { ok, snap } 或 { ok:false, reason, names }
-function invBuildSnapshot(order){
-  if(!invSettingsComplete()) return { ok: false, reason: 'settings' };
+function invBuildSnapshot(order, opts){
+  if(!(opts && opts.skipSettings) && !invSettingsComplete()) return { ok: false, reason: 'settings' };
   const sp = (typeof shippingParties !== 'undefined') ? shippingParties.find(x => x.id === order.partyId) : null;
   const gstRate = (typeof SP_GST_RATE !== 'undefined') ? SP_GST_RATE : 0.10;
   const noPrice = [];
@@ -188,10 +197,14 @@ function invBuildSnapshot(order){
 // ---------- Invoice 版面(HTML)----------
 function invDocHtml(snap, logoDataUrl){
   snap = invNormalizeSnap(snap);
+  const cnDoc = snap.docType === 'credit_note';
+  const mm = n => cnDoc ? '(' + invMoney2(n) + ')' : invMoney2(n);   // Credit Note 的金額用括號表示負數
   const c = snap.company || {};
   const termText = snap.paymentType === 'cod' ? 'COD' : `${snap.term} Days`;
   const bk = snap.bank || {};
-  const bankHtml = snap.paymentType === 'cod'
+  const bankHtml = cnDoc
+    ? `<div style="font-weight:700;">${snap.invoiceNo ? 'Credit applied to Invoice ' + invEsc(snap.invoiceNo) : 'Credit held on customer account'}</div>${(snap.lines || []).some(l => l.ret) ? '<div style="margin-top:4px;">Items marked for return are to be returned to the warehouse.</div>' : ''}`
+    : snap.paymentType === 'cod'
     ? `<div style="font-weight:700;">Cash on Delivery (COD)</div><div style="margin-top:4px;">Payment is due on delivery.</div>`
     : `<div>Please pay by bank transfer to:</div>
        ${bk.bankName ? `<div style="font-weight:700;margin-top:3px;">${invEsc(bk.bankName)}</div>` : ''}
@@ -205,10 +218,10 @@ function invDocHtml(snap, logoDataUrl){
       <td style="${td}">${l.sku ? `<b>${invEsc(l.sku)}</b><br>` : ''}${invEsc(l.desc)}</td>
       <td style="${td}">${invEsc(l.comment)}</td>
       <td style="${td}text-align:right;">${invFmtQty(l.qty)}${l.unit ? '<br><span style="font-size:9px;">' + invEsc(l.unit) + '</span>' : ''}</td>
-      <td style="${td}text-align:right;">${invMoney2(l.price)}</td>
+      <td style="${td}text-align:right;">${mm(l.price)}</td>
       <td style="${td}text-align:right;">${invMoney2(l.disc)}%</td>
-      <td style="${td}text-align:right;">${invMoney2(l.amount)}</td>
-      <td style="${td}text-align:right;">${invMoney2(l.tax)}</td>
+      <td style="${td}text-align:right;">${mm(l.amount)}</td>
+      <td style="${td}text-align:right;">${mm(l.tax)}</td>
     </tr>`).join('');
   const cu = snap.customer || {}, sh = snap.ship || {};
   const paid = Math.max(0, Number(snap.paid) || 0);
@@ -231,12 +244,12 @@ function invDocHtml(snap, logoDataUrl){
         </div>
       </td>
       <td style="vertical-align:top;text-align:right;">
-        <div style="font-size:24px;font-weight:400;letter-spacing:0.5px;">TAX INVOICE</div>
+        <div style="font-size:24px;font-weight:400;letter-spacing:0.5px;">${cnDoc ? 'CREDIT NOTE' : 'TAX INVOICE'}</div>
         <table style="margin-left:auto;margin-top:4px;border-collapse:collapse;text-align:left;">
-          <tr><td style="padding:1px 14px 1px 0;font-weight:700;">Invoice No:</td><td>${invEsc(snap.no)}</td></tr>
-          <tr><td style="padding:1px 14px 1px 0;font-weight:700;">Invoice Date:</td><td>${invEsc(invIsoToDmy(snap.date))}</td></tr>
-          <tr><td style="padding:1px 14px 1px 0;font-weight:700;">Terms:</td><td>${invEsc(termText)}</td></tr>
-          <tr><td style="padding:1px 14px 1px 0;font-weight:700;">Due Date:</td><td>${invEsc(invIsoToDmy(snap.dueDate))}</td></tr>
+          <tr><td style="padding:1px 14px 1px 0;font-weight:700;">${cnDoc ? 'Credit Note No:' : 'Invoice No:'}</td><td>${invEsc(snap.no)}</td></tr>
+          <tr><td style="padding:1px 14px 1px 0;font-weight:700;">${cnDoc ? 'Date:' : 'Invoice Date:'}</td><td>${invEsc(invIsoToDmy(snap.date))}</td></tr>
+          ${cnDoc ? '' : `<tr><td style="padding:1px 14px 1px 0;font-weight:700;">Terms:</td><td>${invEsc(termText)}</td></tr>
+          <tr><td style="padding:1px 14px 1px 0;font-weight:700;">Due Date:</td><td>${invEsc(invIsoToDmy(snap.dueDate))}</td></tr>`}
           <tr><td style="padding:1px 14px 1px 0;font-weight:700;">Sale Rep</td><td>${invEsc(snap.saleRep)}</td></tr>
         </table>
       </td></tr></table>
@@ -272,24 +285,21 @@ function invDocHtml(snap, logoDataUrl){
    <div class="inv-foot" style="margin-top:auto;padding-top:24px;">
     <table style="width:100%;border-collapse:collapse;page-break-inside:avoid;"><tr>
       <td style="vertical-align:top;width:58%;border:1px solid #000;padding:8px 10px;">
-        <div style="font-weight:700;text-decoration:underline;margin-bottom:4px;">Payment Method</div>
+        <div style="font-weight:700;text-decoration:underline;margin-bottom:4px;">${cnDoc ? 'Credit Details' : 'Payment Method'}</div>
         ${bankHtml}
       </td>
       <td style="vertical-align:top;padding:0;border:1px solid #000;border-left:none;">
         <table style="width:100%;border-collapse:collapse;">
-          <tr><td style="${tr}">Before Tax</td><td style="${tr}text-align:right;">${invMoney2(snap.beforeTax)}</td></tr>
-          <tr><td style="${tr}">Tax</td><td style="${tr}text-align:right;">${invMoney2(snap.tax)}</td></tr>
-          <tr style="font-weight:700;"><td style="${tr}">Total Amt</td><td style="${tr}text-align:right;">${invMoney2(snap.total)}</td></tr>
+          <tr><td style="${tr}">Before Tax</td><td style="${tr}text-align:right;">${mm(snap.beforeTax)}</td></tr>
+          <tr><td style="${tr}">Tax</td><td style="${tr}text-align:right;">${mm(snap.tax)}</td></tr>
+          ${cnDoc ? `<tr style="font-weight:700;background:#d9d9d9;"><td style="padding:8px 10px;background:#d9d9d9;">Total Credit</td><td style="padding:8px 10px;text-align:right;background:#d9d9d9;">${mm(snap.total)}</td></tr>` : `<tr style="font-weight:700;"><td style="${tr}">Total Amt</td><td style="${tr}text-align:right;">${invMoney2(snap.total)}</td></tr>
           <tr><td style="${tr}">${snap.id ? 'Paid' : 'Paid Today'}</td><td style="${tr}text-align:right;">${invMoney2(paid)}</td></tr>
-          <tr style="font-weight:700;background:#d9d9d9;"><td style="padding:8px 10px;background:#d9d9d9;">Balance Due</td><td style="padding:8px 10px;text-align:right;background:#d9d9d9;">${invMoney2(balance)}</td></tr>
+          <tr style="font-weight:700;background:#d9d9d9;"><td style="padding:8px 10px;background:#d9d9d9;">Balance Due</td><td style="padding:8px 10px;text-align:right;background:#d9d9d9;">${invMoney2(balance)}</td></tr>`}
         </table>
       </td></tr></table>
 
     <div style="margin-top:16px;font-size:10px;page-break-inside:avoid;">
-      <div>I agree to the following statements and acknowledge the associated responsibilities:</div>
-      <div>I agree to complete the signing process, confirming that the quantity and items listed on this invoice are correct.</div>
-      <div>Signing indicates the completion of the delivery process, and I accept that no further replenishments will be made thereafter.</div>
-      <div style="margin-top:22px;font-size:12px;">Full Name: ____________________________ &nbsp;&nbsp; Signature: ____________________________</div>
+      <div><b>Terms:</b> Signing confirms receipt and finalizes the order. Returns of standard products incur a 30% restocking fee. Due to health and hygiene reasons, all food products are strictly non-returnable and non-exchangeable.</div>
     </div>
    </div>
   </div>`;
@@ -310,15 +320,16 @@ function invFitPages(host, mode){
 }
 
 // ---------- 預覽視窗 ----------
-let invModal = null;   // { orderId, snap, created }
+let invModal = null;   // { orderId, snap, created, link }  link = 手動 / 多張訂單合併的 Invoice(見 invoice-create.js)
 function invCloseModal(){ const o = document.getElementById('invoiceOverlay'); if(o) o.remove(); invModal = null; }
-function invShowModal(orderId, snap, created){
+function invShowModal(orderId, snap, created, link){
   invCloseModal();
-  invModal = { orderId, snap, created };
+  invModal = { orderId, snap, created, link: link || null };
   const ov = document.createElement('div');
   ov.id = 'invoiceOverlay'; ov.className = 'modal-overlay'; ov.style.display = 'flex'; ov.style.zIndex = '1150';
   const order = orders.find(o => o.id === orderId);
-  const title = `${created ? 'Invoice' : 'Create Invoice'}${(order && order.orderNo) || snap.orderNo ? ' · ' + ((order && order.orderNo) || snap.orderNo) : ''}`;
+  const isCn = snap.docType === 'credit_note';
+  const title = isCn ? `${created ? 'Credit Note' : 'Create Credit Note'}${snap.no ? ' · ' + snap.no : ''}` : `${created ? 'Invoice' : 'Create Invoice'}${(order && order.orderNo) || snap.orderNo ? ' · ' + ((order && order.orderNo) || snap.orderNo) : ''}`;
   const shown = created ? snap : Object.assign({}, snap, { no: t('invNoAuto') });
   ov.innerHTML = `<div class="modal-box" style="max-width:min(900px,96vw);max-height:92vh;overflow:auto;">
     <div class="section-title" style="margin-top:0;">${invEsc(title)}</div>
@@ -327,7 +338,8 @@ function invShowModal(orderId, snap, created){
     <div id="invModalMsg" class="msg"></div>
     <div class="modal-actions">
       <button class="btn ghost" onclick="invCloseModal()">${created ? t('btnClose') : t('btnCancel')}</button>
-      ${created ? (invModal.snap.id ? `<button class="btn ghost" onclick="invOpenPayments(invModal.snap.id)">${t('invBtnPayments')}</button>` : '') : `<button class="btn ghost" onclick="invOpenPaidPrompt()">${t('invBtnPaidToday')}</button>`}
+      ${isCn && created && snap.invoiceId ? `<button class="btn ghost" onclick="var i='${invEsc(snap.invoiceId)}';invCloseModal();invOpenDetails(i)">Invoice ${invEsc(snap.invoiceNo || '')}</button>` : ''}
+      ${isCn ? '' : (created ? (invModal.snap.id ? `<button class="btn ghost" onclick="invOpenPayments(invModal.snap.id)">${t('invBtnPayments')}</button>` : '') : `<button class="btn ghost" onclick="invOpenPaidPrompt()">${t('invBtnPaidToday')}</button>`)}
       <button class="btn ghost" onclick="invDoPrint()">${t('invBtnPrint')}</button>
       <button class="btn" onclick="invDoSavePdf()">${created ? t('invBtnExport') : t('invBtnSavePdf')}</button>
     </div>
@@ -346,6 +358,8 @@ function invOpenPaidPrompt(){
     <div class="section-title" style="margin-top:0;">${t('invBtnPaidToday')}</div>
     <p style="font-size:12px;color:var(--ink-soft);margin:0 0 8px;">Total Amt: <b>${invMoney2(snap.total)}</b></p>
     <input id="invPaidInput" type="number" min="0" step="0.01" value="${Number(snap.paid) > 0 ? invMoney2(snap.paid) : ''}" style="width:100%;box-sizing:border-box;" placeholder="0.00" />
+    <label style="font-size:12px;display:block;margin-top:8px;">${t('invPayMethod')}</label>
+    <select id="invPaidMethod" style="width:100%;box-sizing:border-box;">${INV_PAY_METHODS.map(m => `<option value="${m}" ${(snap.paidMethod || 'Bank Transfer') === m ? 'selected' : ''}>${m}</option>`).join('')}</select>
     <div id="invPaidMsg" class="msg"></div>
     <div class="modal-actions"><button class="btn ghost" onclick="document.getElementById('invPaidOverlay').remove()">${t('btnCancel')}</button><button class="btn" onclick="invSavePaid()">${t('btnSave')}</button></div>
   </div>`;
@@ -378,6 +392,7 @@ async function invSavePaid(){
     }
   }
   invModal.snap.paid = v;
+  const pm = document.getElementById('invPaidMethod'); if(pm) invModal.snap.paidMethod = pm.value;
   const po = document.getElementById('invPaidOverlay'); if(po) po.remove();
   const host = document.getElementById('invPreviewHost');
   if(host){
@@ -389,7 +404,7 @@ async function invSavePaid(){
 function invOpenCreate(orderId){
   if(!canCreateInvoice()) return;
   const order = orders.find(o => o.id === orderId);
-  if(!order || order.deleted || orderStatus(order) !== 'confirmed') return;
+  if(!order || order.deleted) return;   // 待處理 / 處理中 / 已完成的訂單都可以開 Invoice(一張訂單只能開一次)
   if(order.invoice){ invOpenView(orderId); return; }
   const r = invBuildSnapshot(order);
   if(!r.ok){
@@ -408,6 +423,7 @@ async function invFetchSnapshot(invoiceId){
 async function invOpenView(orderId){
   const order = orders.find(o => o.id === orderId);
   if(!order || !order.invoice) return;
+  if(invOrderSyncable(order)) await invSyncOrders([order]);
   if(order.invoice.lines){ invShowModal(orderId, order.invoice, true); return; }
   try{ invShowModal(orderId, await invFetchSnapshot(order.invoice.id), true); }
   catch(e){ console.error('讀取 Invoice 失敗', e); showInfoModal(t('invLoadFailed')); }
@@ -416,6 +432,7 @@ async function invOpenView(orderId){
 async function invEnsureCreated(){
   if(!invModal) return null;
   if(invModal.created) return invModal.snap;
+  if(invModal.link) return await invEnsureCreatedMulti();
   const order = orders.find(o => o.id === invModal.orderId);
   if(!order) return null;
   if(order.invoice && order.invoice.lines){ invModal.snap = order.invoice; invModal.created = true; return order.invoice; }
@@ -464,11 +481,12 @@ function invRefreshModalAfterCreate(){
   const ov = document.getElementById('invoiceOverlay');
   if(ov && invModal){
     const ttl = ov.querySelector('.section-title'); const order = orders.find(o => o.id === invModal.orderId);
-    if(ttl) ttl.textContent = 'Invoice' + ((order && order.orderNo) || invModal.snap.orderNo ? ' · ' + ((order && order.orderNo) || invModal.snap.orderNo) : '');
+    if(ttl && invModal.snap.docType === 'credit_note') ttl.textContent = 'Credit Note · ' + invModal.snap.no;
+    else if(ttl) ttl.textContent = 'Invoice' + ((order && order.orderNo) || invModal.snap.orderNo ? ' · ' + ((order && order.orderNo) || invModal.snap.orderNo) : '');
     const hint = ov.querySelector('p'); if(hint) hint.remove();
   }
 }
-function invFileName(snap){ return `Invoice_${snap.no}_${String((snap.customer && snap.customer.name) || '').replace(/[^\w\-]+/g, '_').slice(0, 30)}.pdf`; }
+function invFileName(snap){ return `${snap.docType === 'credit_note' ? 'CreditNote' : 'Invoice'}_${snap.no}_${String((snap.customer && snap.customer.name) || '').replace(/[^\w\-]+/g, '_').slice(0, 30)}.pdf`; }
 
 async function invDoSavePdf(){
   const snap = await invEnsureCreated(); if(!snap) return;
@@ -612,6 +630,107 @@ async function invExportMyob(orderId){
 
 
 // ============================================================
+// 訂單 ↔ Invoice 連動:訂單(待處理 / 已完成)改了內容,Invoice 的明細與總額跟著更新並留下變更紀錄;
+// 訂單簽收之後訂單不能再改,Invoice 也就不再變。Invoice 號碼、日期、已收款不隨訂單變動。
+// ============================================================
+// 訂單卡片狀態欄左邊的「linked INV00000001」(只有看得到 Invoice 的人看得到;點下去開 Invoice)
+function invLinkedBadgeHtml(o){
+  if(!o || !o.invoice || !o.invoice.no || typeof canCreateInvoice !== 'function' || !canCreateInvoice()) return '';
+  return `<span class="inv-linked-badge" title="${invEsc(t('invLinkedTip'))}" style="font-size:11.5px;color:var(--ink-soft);margin-right:6px;cursor:pointer;white-space:nowrap;" onclick="event.stopPropagation();invOpenView('${invEsc(o.id)}')">${invEsc(t('invLinkedLabel'))} <span style="text-decoration:underline;font-weight:600;">INV${invEsc(o.invoice.no)}</span><span title="Copy" style="margin-left:4px;cursor:pointer;" onclick="event.stopPropagation();invCopyText('INV${invEsc(o.invoice.no)}',this)">⧉</span></span>`;
+}
+const INV_LINE_KEYS = ['desc', 'sku', 'comment', 'qty', 'unit', 'price', 'disc', 'amount', 'tax'];
+function invLineKey(l){ return (l.sku || '') + '|' + (l.desc || ''); }
+// 比對新舊兩份快照,回傳變更內容(沒變回傳 null)
+function invDiffSnap(oldS, newS){
+  const oldL = oldS.lines || [], newL = newS.lines || [];
+  const same = oldL.length === newL.length && oldL.every((l, i) => INV_LINE_KEYS.every(k => String(l[k] === undefined ? '' : l[k]) === String(newL[i][k] === undefined ? '' : newL[i][k])));
+  const noteChanged = (oldS.note || '') !== (newS.note || '');
+  if(same && !noteChanged && Number(oldS.total) === Number(newS.total)) return null;
+  const om = new Map(oldL.map(l => [invLineKey(l), l])), nm = new Map(newL.map(l => [invLineKey(l), l]));
+  const d = { added: [], removed: [], changed: [], total: [Number(oldS.total), Number(newS.total)] };
+  newL.forEach(l => { const o = om.get(invLineKey(l)); if(!o) d.added.push({ desc: l.desc, qty: l.qty, unit: l.unit, price: l.price }); else if(Number(o.qty) !== Number(l.qty) || Number(o.price) !== Number(l.price) || Number(o.amount) !== Number(l.amount)) d.changed.push({ desc: l.desc, unit: l.unit, qty: [o.qty, l.qty], price: [o.price, l.price] }); });
+  oldL.forEach(l => { if(!nm.has(invLineKey(l))) d.removed.push({ desc: l.desc, qty: l.qty, unit: l.unit, price: l.price }); });
+  if(noteChanged) d.note = [oldS.note || '', newS.note || ''];
+  return d;
+}
+function invOrderSyncable(o){ return !!(o && o.invoice && o.invoice.id && !o.invoice.lines && !o.deleted && !o.signedAt); }
+let invSyncBusy = false;
+// 把一批訂單(或全部)跟各自的 Invoice 對一次,有差異就更新。回傳更新了幾張。
+async function invSyncOrders(orderList){
+  if(invSyncBusy || typeof canCreateInvoice !== 'function' || !canCreateInvoice() || invDbMode === 'legacy') return 0;
+  const list = (orderList || orders || []).filter(invOrderSyncable);
+  if(!list.length) return 0;
+  invSyncBusy = true; let n = 0;
+  try{
+    await loadInvoiceSettings();
+    const { data, error } = await sb.from('invoices').select('id,snapshot').in('id', list.map(o => o.invoice.id));
+    if(error) throw error;
+    const snaps = new Map((data || []).map(r => [r.id, r.snapshot]));
+    const done = new Set();
+    for(const o of list){
+      const invId = o.invoice.id;
+      if(done.has(invId)) continue;      // 多張訂單合併的 Invoice 只處理一次
+      done.add(invId);
+      const oldS = snaps.get(invId); if(!oldS) continue;
+      let r;
+      if(Array.isArray(oldS.orders) && oldS.orders.length > 1){
+        // 多張訂單合併的 Invoice:用所有連結的訂單重新合併
+        const members = oldS.orders.map(x => orders.find(y => y.id === x.id));
+        if(members.some(m => !m || m.deleted)) continue;
+        const parts = members.map(m => invBuildSnapshot(m));
+        if(parts.some(x => !x.ok)) continue;
+        r = { ok: true, snap: icMergeSnaps(parts.map(x => x.snap), members.map(m => m.orderNo || '').filter(Boolean)) };
+      } else {
+        r = invBuildSnapshot(o);
+      }
+      if(!r.ok) continue;     // 設定不完整、有品項沒價錢、或整張訂單沒有品項:不動 Invoice
+      const newS = Object.assign({}, oldS, { lines: r.snap.lines, beforeTax: r.snap.beforeTax, tax: r.snap.tax, total: r.snap.total, note: r.snap.note, orderNo: r.snap.orderNo });
+      const detail = invDiffSnap(oldS, newS);
+      if(!detail) continue;
+      const { error: e2 } = await sb.rpc('invoice_sync', { p_invoice_id: invId, p_snapshot: newS, p_detail: detail });
+      if(e2){ if(!invIsMissingFn(e2)) console.error('更新 Invoice 失敗', e2); continue; }   // 還沒執行 invoice_changes.sql 就不連動
+      n++;
+      try{ logInventoryAction('order_edit', `Order ${o.orderNo || o.id} - invoice ${oldS.no} updated (${invMoney2(detail.total[0])} → ${invMoney2(detail.total[1])})`, o.orderNo); }catch(e){}
+    }
+  }catch(e){ console.error('同步 Invoice 失敗', e); }
+  finally{ invSyncBusy = false; }
+  if(n){ invList = []; try{ invRerenderLists(); }catch(e){} }
+  return n;
+}
+// 訂單編輯前的檢查:改完之後 Invoice 新總額如果會低於已收款,不給改(請會計用 Credit Note 處理)。
+// mods = { qty: { 商品id: 新數量 }, del: [商品id] };回傳 true = 可以繼續。沒有 Invoice、已簽收、或還沒執行 SQL 都放行。
+async function invGuardOrderEdit(order, mods){
+  try{
+    if(!order || !order.invoice || !order.invoice.id || order.invoice.lines || order.signedAt) return true;
+    if(typeof invSettings === 'undefined') return true;
+    const before = invBuildSnapshot(order, { skipSettings: true });
+    if(!before.ok) return true;
+    const clone = Object.assign({}, order, { items: (order.items || []).map(it => Object.assign({}, it)) });
+    const m = mods || {};
+    clone.items.forEach(it => {
+      if(m.qty && Object.prototype.hasOwnProperty.call(m.qty, it.productId)) it.qty = Number(m.qty[it.productId]);
+      if(m.del && m.del.indexOf(it.productId) >= 0) it.deleted = true;
+    });
+    const after = invBuildSnapshot(clone, { skipSettings: true });
+    const newTotal = after.ok ? Number(after.snap.total) : (after.reason === 'empty' ? 0 : null);
+    if(newTotal === null) return true;
+    const delta = Math.round((newTotal - Number(before.snap.total)) * 100) / 100;
+    if(delta >= 0) return true;     // 金額只會增加或不變,不可能低於已收款
+    const { data, error } = await sb.rpc('invoice_edit_guard', { p_invoice_id: order.invoice.id, p_delta: delta });
+    if(error){ if(!invIsMissingFn(error)) console.error('Invoice 檢查失敗', error); return true; }
+    if(data === false){
+      showInfoModal(tf('invUnderpaidBlock', { no: order.invoice.no || '' }));
+      return false;
+    }
+  }catch(e){ console.error('Invoice 檢查失敗', e); }
+  return true;
+}
+// 訂單存檔後呼叫(db.js upsertOrders):不擋住存檔,背景同步
+function invAfterOrdersSaved(orderList){
+  try{ if(typeof canCreateInvoice === 'function' && canCreateInvoice()) invSyncOrders(orderList); }catch(e){}
+}
+
+// ============================================================
 // 會計分頁 → Invoices 清單(含收款狀態)、收款記錄、出貨方的 Invoice 記錄
 // ============================================================
 let invList = [];            // 從 invoices 資料表讀到的清單(不含完整快照)
@@ -628,26 +747,32 @@ function invCodGrace(){ const n = parseInt(invSettings.codGraceDays, 10); return
 // · 有 Due Date(Bank Transfer):過了 Due Date 且還有餘額 = overdue
 // · COD:視為「到貨當天到期」,但有寬限天數(系統設置 → Invoice 格式,預設 7 天),過了寬限天數還沒收完才算 overdue
 function invRowInfo(r){
-  const total = Number(r.total) || 0, paid = Math.min(Number(r.paid) || 0, total);
-  const balance = Math.round((total - paid) * 100) / 100;
+  const gross = Number(r.total) || 0, credited = Math.min(Number(r.credited) || 0, gross);
+  const total = Math.round((gross - credited) * 100) / 100;   // 扣掉 Credit Note 之後的應收金額
+  const paid = Number(r.paid) || 0;                           // 不再截斷:Credit Note 扣完之後如果已收比應收多,就是「多收」
+  const balance = Math.round((total - paid) * 100) / 100;    // 負數 = 多收(待退款)
   const due = r.payment_type === 'cod' ? invAddDays(r.invoice_date, invCodGrace()) : (r.due_date || r.invoice_date);
   let status;
-  if(balance <= 0.004) status = 'paid';
+  if(balance < -0.004) status = 'overpaid';
+  else if(balance <= 0.004) status = 'paid';
   else if(due && invToday() > due) status = 'overdue';
   else status = paid > 0 ? 'partial' : 'unpaid';
-  return { total, paid, balance, status, due };
+  return { total, gross, credited, paid, balance, status, due };
 }
 function invStatusBadge(st){
-  const col = { paid: ['#e7f6ec', '#1d7a3c'], partial: ['#fff4dc', '#9a6a00'], unpaid: ['#eef0f3', '#555'], overdue: ['#fde8e8', '#b42318'] }[st] || ['#eee', '#555'];
+  const col = { paid: ['#e7f6ec', '#1d7a3c'], partial: ['#fff4dc', '#9a6a00'], unpaid: ['#eef0f3', '#555'], overdue: ['#fde8e8', '#b42318'], overpaid: ['#efe6fb', '#6b3fa0'] }[st] || ['#eee', '#555'];
   return `<span style="display:inline-block;padding:1px 8px;border-radius:10px;font-size:11px;font-weight:700;background:${col[0]};color:${col[1]};white-space:nowrap;">${invEsc(t('invSt_' + st))}</span>`;
 }
 async function invLoadList(force){
   if(!force && invList.length && !invListError) return;
   invListError = '';
+  const base = 'id,invoice_no,order_id,order_no,party_id,customer,invoice_date,due_date,terms,payment_type,sale_rep,before_tax,tax,total,paid,currency';
+  const run = cols => sb.from('invoices').select(cols).order('invoice_date', { ascending: false }).order('invoice_no', { ascending: false }).limit(5000);
   try{
-    const { data, error } = await sb.from('invoices')
-      .select('id,invoice_no,order_id,order_no,party_id,customer,invoice_date,due_date,terms,payment_type,sale_rep,before_tax,tax,total,paid,currency')
-      .order('invoice_date', { ascending: false }).order('invoice_no', { ascending: false }).limit(5000);
+    // change_count(Invoice 變更過幾次)需要先執行 sql/invoice_changes.sql;還沒執行就退回不帶這欄
+    let { data, error } = await run(base + ',change_count,credited');
+    if(error && (error.code === '42703' || /change_count|credited/.test(error.message || ''))) ({ data, error } = await run(base + ',change_count'));
+    if(error && (error.code === '42703' || /change_count/.test(error.message || ''))) ({ data, error } = await run(base));
     if(error) throw error;
     invList = data || [];
   }catch(e){
@@ -670,13 +795,15 @@ function applyInvoiceFeatureVisibility(){
       else sel.value = 'subtab-price-setting';
     }
   }
-  if(off){ try{ invClosePartyRecords(); invClosePayments(); invCloseModal(); }catch(e){} }
+  if(off){ try{ invClosePartyRecords(); invClosePayments(); invCloseDetails(); invCloseModal(); }catch(e){} }
+  try{ icApplyVisibility(); }catch(e){}
   try{ if(typeof renderOrders === 'function') renderOrders(); }catch(e){}
 }
 async function invOpenListPage(){
   if(!canCreateInvoice()) return;
   const root = document.getElementById(invCtx.main.rootId);
   if(root) root.innerHTML = `<div class="empty-note">${t('batchLoading')}</div>`;
+  await invSyncOrders();   // 先把「別人改了訂單、Invoice 還沒跟上」的補上(例如倉庫管理員改的)
   await invLoadList(true);
   invRenderList('main');
 }
@@ -687,7 +814,7 @@ function invFilteredList(key){
     && (!f.pay || (f.pay === 'cod' ? r.payment_type === 'cod' : r.payment_type !== 'cod'))
     && (!f.rep || (r.sale_rep || '') === f.rep)
     && (!f.status || invRowInfo(r).status === f.status)
-    && (!q || [r.invoice_no, r.customer, r.order_no, r.sale_rep].join(' ').toLowerCase().includes(q)));
+    && (!q || ['INV' + (r.invoice_no || ''), r.invoice_no, invCustSearch(r), r.order_no, r.sale_rep].join(' ').toLowerCase().includes(q)));
 }
 function invRenderList(key){
   key = key || 'main';
@@ -706,20 +833,19 @@ function invRenderList(key){
     if(i.status === 'overdue'){ a.od += i.balance; a.odN++; }
     return a;
   }, { b: 0, t: 0, g: 0, p: 0, bal: 0, od: 0, odN: 0 });
+  const showCust = key !== 'party';   // 出貨方的 Invoice 記錄整頁都是同一個客戶,不用再列客戶欄
   const rows = list.map(r => {
     const i = invRowInfo(r);
-    const dueTxt = r.payment_type === 'cod' ? 'COD' : (r.terms ? r.terms + ' Days' : '');
+    const changed = Number(r.change_count) > 0;
     return `<tr>
       <td style="white-space:nowrap;cursor:pointer;" onclick="invOpenFromList('${invEsc(r.id)}')"><span class="batch-link">${invEsc(r.invoice_no)}</span></td>
       <td style="white-space:nowrap;">${invEsc(invIsoToDmy(r.invoice_date))}</td>
-      <td>${invEsc(r.customer)}</td>
-      <td>${invEsc(r.order_no)}</td>
-      <td style="white-space:nowrap;">${invEsc(dueTxt)}<div style="font-size:10.5px;color:var(--ink-soft);">${invEsc(invIsoToDmy(r.payment_type === 'cod' ? '' : r.due_date))}</div></td>
-      <td>${invEsc(r.sale_rep)}</td>
-      <td class="num">${invMoney2(r.before_tax)}</td><td class="num">${invMoney2(r.tax)}</td><td class="num"><b>${invMoney2(i.total)}</b></td>
+      ${showCust ? `<td>${invEsc(invCustLabel(r))}</td>` : ''}
+      <td>${invOrderLinks(r.order_no)}</td>
+      <td class="num"><b>${invMoney2(i.total)}</b></td>
       <td class="num">${invMoney2(i.paid)}</td><td class="num"><b>${invMoney2(i.balance)}</b></td>
       <td style="white-space:nowrap;">${invStatusBadge(i.status)}</td>
-      <td style="white-space:nowrap;"><span class="del-link" onclick="invOpenPayments('${invEsc(r.id)}')">${t('invBtnPayments')}</span></td>
+      <td style="white-space:nowrap;"><span class="del-link" onclick="invOpenPayments('${invEsc(r.id)}')">${t('invBtnPayments')}</span> <span class="batch-info-icon" style="margin-left:6px;" title="${invEsc(t('invBtnDetails'))}" onclick="invOpenDetails('${invEsc(r.id)}')">ⓘ</span>${changed ? `<span class="batch-info-icon" title="${invEsc(t('invChangedTip'))}" style="color:#b45309;font-size:15px;margin-left:6px;" onclick="invOpenDetails('${invEsc(r.id)}')">✎</span>` : ''}</td>
     </tr>`;
   }).join('');
   const sel = (id, val, opts) => `<select id="${id}" onchange="invOnListFilter('${key}')">${opts.map(o => `<option value="${invEsc(o[0])}" ${val === o[0] ? 'selected' : ''}>${invEsc(o[1])}</option>`).join('')}</select>`;
@@ -734,17 +860,17 @@ function invRenderList(key){
     <div class="filter-row" style="margin-bottom:10px;">
       <div class="field"><label>${t('lblFromDate')}</label><input type="date" id="invFlt_${key}_from" value="${invEsc(f.from)}" onchange="invOnListFilter('${key}')" /></div>
       <div class="field"><label>${t('lblToDate')}</label><input type="date" id="invFlt_${key}_to" value="${invEsc(f.to)}" onchange="invOnListFilter('${key}')" /></div>
-      <div class="field"><label>${t('invFltStatus')}</label>${sel('invFlt_' + key + '_status', f.status, [['', t('invFltAll')], ['unpaid', t('invSt_unpaid')], ['partial', t('invSt_partial')], ['paid', t('invSt_paid')], ['overdue', t('invSt_overdue')]])}</div>
+      <div class="field"><label>${t('invFltStatus')}</label>${sel('invFlt_' + key + '_status', f.status, [['', t('invFltAll')], ['unpaid', t('invSt_unpaid')], ['partial', t('invSt_partial')], ['paid', t('invSt_paid')], ['overdue', t('invSt_overdue')], ['overpaid', t('invSt_overpaid')]])}</div>
       <div class="field"><label>${t('invFltPayType')}</label>${sel('invFlt_' + key + '_pay', f.pay, [['', t('invFltAll')], ['bank', 'Bank Transfer'], ['cod', 'COD']])}</div>
       <div class="field"><label>Sale Rep</label>${sel('invFlt_' + key + '_rep', f.rep, [['', t('invFltAll')]].concat(reps.map(x => [x, x])))}</div>
-      <div class="field" style="min-width:220px;"><label>${t('invFltSearch')}</label><input type="search" id="invFlt_${key}_q" value="${invEsc(f.q)}" oninput="invOnListFilter('${key}',true)" placeholder="${invEsc(t('invListSearchPh'))}" /></div>
+      <div class="field" style="min-width:220px;"><label>${t('invFltSearch')}</label><input type="search" id="invFlt_${key}_q" value="${invEsc(f.q)}" oninput="invOnListFilter('${key}',true)" placeholder="${invEsc(t(key === 'party' ? 'invListSearchPhParty' : 'invListSearchPh'))}" /></div>
       <button class="btn ghost" onclick="invClearListFilter('${key}')" style="align-self:flex-end;">${t('btnClearFilter')}</button>
       <button class="btn ghost" onclick="invExportListXlsx('${key}')" style="align-self:flex-end;">${t('invExportList')}</button>
     </div>
     ${list.length === 0 ? `<div class="empty-note">${t('invListEmpty')}</div>` : `<div style="font-size:11.5px;color:var(--ink-soft);margin-bottom:6px;">${t('invListClickHint')}</div>
-    <div style="overflow-x:auto;"><table class="stock-table"><thead><tr><th>Invoice No</th><th>Invoice Date</th><th>${t('invColCustomer')}</th><th>${t('invColOrder')}</th><th>Terms / Due</th><th>Sale Rep</th><th class="num">${t('spSaleAmt')}</th><th class="num">${t('spGstAmt')}</th><th class="num">${t('spTotalAmt')}</th><th class="num">${t('invColPaid')}</th><th class="num">${t('invColBalance')}</th><th>${t('invFltStatus')}</th><th></th></tr></thead>
+    <div style="overflow-x:auto;"><table class="stock-table"><thead><tr><th>Invoice No</th><th>Invoice Date</th>${showCust ? `<th>${t('invColCustomer')}</th>` : ''}<th>${t('invColOrder')}</th><th class="num">${t('spTotalAmt')}</th><th class="num">${t('invColPaid')}</th><th class="num">${t('invColBalance')}</th><th>${t('invFltStatus')}</th><th></th></tr></thead>
       <tbody>${rows}</tbody>
-      <tfoot><tr style="font-weight:700;"><td colspan="6" style="text-align:right;">${t('invListTotals')} (${list.length})</td><td class="num">${invMoney2(sum.b)}</td><td class="num">${invMoney2(sum.t)}</td><td class="num">${invMoney2(sum.g)}</td><td class="num">${invMoney2(sum.p)}</td><td class="num">${invMoney2(sum.bal)}</td><td colspan="2"></td></tr></tfoot></table></div>`}`;
+      <tfoot><tr style="font-weight:700;"><td colspan="${showCust ? 4 : 3}" style="text-align:right;">${t('invListTotals')} (${list.length})</td><td class="num">${invMoney2(sum.g)}</td><td class="num">${invMoney2(sum.p)}</td><td class="num">${invMoney2(sum.bal)}</td><td colspan="2"></td></tr></tfoot></table></div>`}`;
 }
 function invClearListFilter(key){
   invCtx[key].filter = { from: '', to: '', q: '', status: '', pay: '', rep: '' };
@@ -775,12 +901,203 @@ function invExportListXlsx(key){
   const aoa = [['Invoice No', 'Invoice Date', 'Customer', 'Order No', 'Terms', 'Due Date', 'Sale Rep', 'Sale Amt (Ex. GST)', 'GST', 'Total Amt (Inc. GST)', 'Paid', 'Balance Due', 'Status', 'Currency']]
     .concat(list.map(r => {
       const i = invRowInfo(r);
-      return [r.invoice_no, r.invoice_date, r.customer, r.order_no, r.payment_type === 'cod' ? 'COD' : (r.terms ? r.terms + ' Days' : ''), r.payment_type === 'cod' ? '' : r.due_date, r.sale_rep, Number(r.before_tax), Number(r.tax), i.total, i.paid, i.balance, t('invSt_' + i.status), r.currency];
+      return [r.invoice_no, r.invoice_date, invCustLabel(r), r.order_no, r.payment_type === 'cod' ? 'COD' : (r.terms ? r.terms + ' Days' : ''), r.payment_type === 'cod' ? '' : r.due_date, r.sale_rep, Number(r.before_tax), Number(r.tax), i.total, i.paid, i.balance, t('invSt_' + i.status), r.currency];
     }));
   const ws = XLSX.utils.aoa_to_sheet(aoa);
   ws['!cols'] = [{ wch: 12 }, { wch: 12 }, { wch: 30 }, { wch: 12 }, { wch: 10 }, { wch: 12 }, { wch: 16 }, { wch: 16 }, { wch: 10 }, { wch: 18 }, { wch: 12 }, { wch: 12 }, { wch: 10 }, { wch: 8 }];
   const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, 'Invoices');
   XLSX.writeFile(wb, `invoices_${invToday()}.xlsx`);
+}
+
+// ---------- 詳細資料視窗(清單上放不下的欄位 + 變更紀錄)----------
+function invCloseDetails(){ const o = document.getElementById('invDetailsOverlay'); if(o) o.remove(); }
+function invChangeDetailHtml(d){
+  if(!d) return '';
+  const q = n => (Number.isInteger(Number(n)) ? String(Number(n)) : invMoney2(n));
+  const li = [];
+  (d.added || []).forEach(x => li.push(`<li>${invEsc(t('invChAdded'))}: ${invEsc(x.desc)} × ${q(x.qty)} ${invEsc(x.unit || '')} @ ${invMoney2(x.price)}</li>`));
+  (d.removed || []).forEach(x => li.push(`<li>${invEsc(t('invChRemoved'))}: ${invEsc(x.desc)} × ${q(x.qty)} ${invEsc(x.unit || '')}</li>`));
+  (d.changed || []).forEach(x => {
+    const parts = [];
+    if(Number(x.qty[0]) !== Number(x.qty[1])) parts.push(`${invEsc(t('invChQty'))} ${q(x.qty[0])} → ${q(x.qty[1])}`);
+    if(Number(x.price[0]) !== Number(x.price[1])) parts.push(`${invEsc(t('invChPrice'))} ${invMoney2(x.price[0])} → ${invMoney2(x.price[1])}`);
+    li.push(`<li>${invEsc(x.desc)}: ${parts.join(', ') || invEsc(t('invChAmount'))}</li>`);
+  });
+  if(d.note) li.push(`<li>${invEsc(t('invChNote'))}: "${invEsc(d.note[0])}" → "${invEsc(d.note[1])}"</li>`);
+  return li.length ? `<ul style="margin:3px 0 0 16px;padding:0;font-size:12px;">${li.join('')}</ul>` : '';
+}
+async function invOpenDetails(invoiceId){
+  if(!canCreateInvoice()) return;
+  try{
+    const [{ data: inv, error: e1 }, cr] = await Promise.all([
+      sb.from('invoices').select('*').eq('id', invoiceId).maybeSingle(),
+      sb.from('invoice_changes').select('*').eq('invoice_id', invoiceId).order('changed_at', { ascending: false })
+    ]);
+    if(e1 || !inv) throw e1 || new Error('not found');
+    const changes = cr.error ? [] : (cr.data || []);   // 變更紀錄表還沒建立就當作沒有
+    let cnList = [];
+    try{ const cq = await sb.from('credit_notes').select('id,cn_no,cn_date,total,return_status').eq('invoice_id', invoiceId).order('cn_date', { ascending: false }); cnList = cq.error ? [] : (cq.data || []); }catch(e){}
+    const i = invRowInfo(inv);
+    const row = (k, v) => `<tr><td style="color:var(--ink-soft);white-space:nowrap;vertical-align:top;">${k}</td><td>${v === '' || v === null || v === undefined ? '–' : v}</td></tr>`;
+    const terms = inv.payment_type === 'cod' ? `COD (${invEsc(tf('invDtCodGrace', { n: invCodGrace() }))})` : (inv.terms ? invEsc(inv.terms) + ' Days' : '');
+    const when = iso => { try{ return new Date(iso).toLocaleString(); }catch(e){ return iso || ''; } };
+    const ov = document.createElement('div');
+    ov.id = 'invDetailsOverlay'; ov.className = 'modal-overlay'; ov.style.display = 'flex'; ov.style.zIndex = '1250';
+    ov.onclick = e => { if(e.target === ov) invCloseDetails(); };
+    ov.innerHTML = `<div class="modal-box" style="max-width:min(640px,96vw);max-height:92vh;overflow:auto;">
+      <div class="section-title" style="margin-top:0;">${invEsc(t('invDetailTitle'))} · ${invEsc(inv.invoice_no)}</div>
+      <div style="font-size:12.5px;margin:0 0 8px;">${invEsc(invCustLabel(inv))} · ${invStatusBadge(i.status)}</div>
+      <table class="stock-table"><tbody>
+        ${row('Invoice Date', invEsc(invIsoToDmy(inv.invoice_date)))}
+        ${row('Terms', terms)}
+        ${row('Due Date', inv.payment_type === 'cod' ? '' : invEsc(invIsoToDmy(inv.due_date)))}
+        ${row(t('invDtPayType'), inv.payment_type === 'cod' ? 'COD' : 'Bank Transfer')}
+        ${row('Sale Rep', invEsc(inv.sale_rep))}
+        ${row(t('invColOrder'), invOrderLinks(inv.order_no))}
+        ${row(t('spSaleAmt'), invMoney2(inv.before_tax))}
+        ${row(t('spGstAmt'), invMoney2(inv.tax))}
+        ${row(t('spTotalAmt'), '<b>' + invMoney2(i.total) + '</b>')}
+        ${Number(inv.credited) > 0 ? row(t('icCredited'), '(' + invMoney2(inv.credited) + ')') : ''}
+        ${row(t('invColPaid'), invMoney2(i.paid))}
+        ${row(t('invColBalance'), '<b>' + invMoney2(i.balance) + '</b>')}
+        ${row(t('invDtCreated'), invEsc((inv.created_by || '') + (inv.created_at ? ' · ' + when(inv.created_at) : '')))}
+      </tbody></table>
+      ${cnList.length ? `<div style="margin-top:12px;font-size:12.5px;font-weight:700;">Credit Notes</div>${cnList.map(c => `<div style="padding:4px 0;border-top:1px solid var(--line);font-size:12px;"><span class="batch-link" onclick="invCloseDetails();icCnView('${invEsc(c.id)}')">${invEsc(c.cn_no)}</span> · ${invEsc(invIsoToDmy(c.cn_date))} · <b>(${invMoney2(c.total)})</b> · ${icRsBadge(c.return_status)}</div>`).join('')}` : ''}
+      ${i.status === 'overpaid' ? `<div style="margin-top:12px;border:1px solid #cdb8ec;background:#f6f0fd;border-radius:8px;padding:8px 10px;font-size:12.5px;">
+          <div style="font-weight:700;margin-bottom:4px;">${invEsc(t('invOverTitle'))}</div>
+          <div>${invEsc(t('invOverGross'))}: ${invMoney2(i.gross)} − Credit Notes (${invMoney2(i.credited)}) = ${invEsc(t('invOverNet'))} <b>${invMoney2(i.total)}</b></div>
+          <div>${invEsc(t('invColPaid'))}: <b>${invMoney2(i.paid)}</b> → ${invEsc(t('invOverAmount'))} <b>${invMoney2(-i.balance)}</b></div>
+          <div style="margin-top:6px;"><button class="btn" onclick="invOpenRefund('${invEsc(inv.id)}')">${invEsc(t('invBtnRefund'))}</button></div>
+        </div>` : ''}
+      <div style="margin-top:12px;font-size:12.5px;font-weight:700;">${invEsc(t('invChangeTitle'))}</div>
+      ${changes.length === 0 ? `<div class="empty-note" style="margin:4px 0;">${invEsc(t('invChangeNone'))}</div>` : changes.map(c => `<div style="padding:6px 0;border-top:1px solid var(--line);">
+          <div style="font-size:12px;"><b>${invEsc(when(c.changed_at))}</b> · ${invEsc(c.changed_by || '')} · ${invEsc(t('invChTotal'))} ${invMoney2(c.before_total)} → <b>${invMoney2(c.after_total)}</b></div>
+          ${invChangeDetailHtml(c.detail)}
+        </div>`).join('')}
+      <div class="modal-actions"><button class="btn ghost" onclick="invCloseDetails()">${t('btnClose')}</button></div>
+    </div>`;
+    document.body.appendChild(ov);
+  }catch(e){
+    console.error('讀取 Invoice 詳細資料失敗', e);
+    showInfoModal(t('invLoadFailed'));
+  }
+}
+
+// ---------- 客戶額度:用單獨的 Credit Note / 其他 Invoice 的多收金額,抵扣這張 Invoice 的未收 ----------
+async function invCreditSources(row){
+  const out = [];
+  const same = (a) => (row.party_id && a.party_id === row.party_id) || (row.customer && a.customer === row.customer);
+  try{
+    let r = await sb.from('credit_notes').select('id,cn_no,total,applied,party_id,customer').is('invoice_id', null);
+    if(r.error && r.error.code === '42703') r = await sb.from('credit_notes').select('id,cn_no,total,party_id,customer').is('invoice_id', null);
+    (r.data || []).filter(same).forEach(c => { const av = Math.round((Number(c.total) - Number(c.applied || 0)) * 100) / 100; if(av > 0.004) out.push({ type: 'cn', id: c.id, label: `${c.cn_no} · ${t('invCreditAvail')} ${invMoney2(av)}`, avail: av }); });
+  }catch(e){}
+  await invLoadList(true);
+  (invList || []).filter(x => x.id !== row.id && same(x)).forEach(x => {
+    const i = invRowInfo(x);
+    if(i.balance < -0.004) out.push({ type: 'invoice', id: x.id, label: `INV${x.invoice_no} · ${t('invOverAmount')} ${invMoney2(-i.balance)}`, avail: Math.round(-i.balance * 100) / 100 });
+  });
+  return out;
+}
+async function invOpenApplyCredit(){
+  if(!invPay) return;
+  const row = invPay.row;
+  const paid = Math.round(invPay.payments.reduce((s, p) => s + Number(p.amount), 0) * 100) / 100;
+  const info = invRowInfo(Object.assign({}, row, { paid }));
+  const srcs = await invCreditSources(row);
+  if(!srcs.length){ showInfoModal(t('invNoCredit')); return; }
+  window.invCreditCtx = { srcs, balance: info.balance };
+  const old = document.getElementById('invApplyOverlay'); if(old) old.remove();
+  const ov = document.createElement('div');
+  ov.id = 'invApplyOverlay'; ov.className = 'modal-overlay'; ov.style.display = 'flex'; ov.style.zIndex = '1350';
+  ov.innerHTML = `<div class="modal-box" style="max-width:400px;">
+    <div class="section-title" style="margin-top:0;">${invEsc(t('invBtnApplyCredit'))} · ${invEsc(row.invoice_no)}</div>
+    <p style="font-size:12px;color:var(--ink-soft);margin:0 0 8px;">${invEsc(t('invApplyHint'))}</p>
+    <label style="font-size:12px;">${invEsc(t('invCreditSource'))}</label>
+    <select id="invApSrc" onchange="invApplySrcChange()" style="width:100%;box-sizing:border-box;margin-bottom:8px;">${srcs.map((s, i) => `<option value="${i}">${invEsc(s.label)}</option>`).join('')}</select>
+    <label style="font-size:12px;">${invEsc(t('invPayDate'))}</label><input id="invApDate" type="date" value="${invToday()}" style="width:100%;box-sizing:border-box;margin-bottom:8px;" />
+    <label style="font-size:12px;">${invEsc(t('invPayAmount'))}</label><input id="invApAmt" type="number" min="0" step="0.01" style="width:100%;box-sizing:border-box;" />
+    <div id="invApMsg" class="msg"></div>
+    <div class="modal-actions"><button class="btn ghost" onclick="document.getElementById('invApplyOverlay').remove()">${t('btnCancel')}</button><button class="btn" onclick="invApplyCreditDo()">${invEsc(t('invBtnApplyCredit'))}</button></div>
+  </div>`;
+  document.body.appendChild(ov);
+  invApplySrcChange();
+}
+function invApplySrcChange(){
+  const c = window.invCreditCtx; if(!c) return;
+  const s = c.srcs[Number(document.getElementById('invApSrc').value)];
+  const el = document.getElementById('invApAmt'); if(el && s) el.value = invMoney2(Math.min(s.avail, c.balance));
+}
+async function invApplyCreditDo(){
+  const c = window.invCreditCtx; if(!c || !invPay) return;
+  const msg = document.getElementById('invApMsg');
+  const s = c.srcs[Number(document.getElementById('invApSrc').value)];
+  const amt = Math.round(Number(document.getElementById('invApAmt').value) * 100) / 100;
+  const date = document.getElementById('invApDate').value;
+  if(!date){ msg.className = 'msg error'; msg.textContent = t('invPayBadDate'); return; }
+  if(!s || !Number.isFinite(amt) || amt <= 0 || amt > s.avail + 0.004 || amt > c.balance + 0.004){ msg.className = 'msg error'; msg.textContent = t('invApplyBad'); return; }
+  try{
+    const { error } = await sb.rpc('invoice_apply_credit', { p_invoice_id: invPay.id, p_source_type: s.type, p_source_id: s.id, p_amount: amt, p_date: date });
+    if(error) throw error;
+    try{ logInventoryAction('order_edit', `Invoice ${invPay.row.invoice_no} - credit applied: ${invMoney2(amt)} (${s.label})`, invPay.row.invoice_no); }catch(e){}
+    document.getElementById('invApplyOverlay').remove();
+    invList = []; if(typeof icCnRows !== 'undefined') icCnRows = null;
+    await invPayReload();
+    try{ await invLoadList(true); invRerenderLists(); }catch(e){}
+  }catch(e){
+    console.error('額度抵扣失敗', e);
+    msg.className = 'msg error';
+    msg.textContent = invIsMissingFn(e) ? t('invPayNeedSql') : (/credit_exceeds|credit_source/.test((e && e.message) || '') ? t('invApplyBad') : t('invPaidFailed'));
+  }
+}
+
+// ---------- 多收 → 退款(在收款記錄裡記一筆負數收款)----------
+function invOpenRefund(invoiceId){
+  
+  const row = invList.find(x => x.id === invoiceId);
+  // 以資料庫現況為準:重新讀一次這張 Invoice
+  sb.from('invoices').select('id,invoice_no,total,paid,credited,payment_type,invoice_date').eq('id', invoiceId).maybeSingle().then(({ data, error }) => {
+    if(error || !data){ showInfoModal(t('invLoadFailed')); return; }
+    const i = invRowInfo(data), over = Math.round(-i.balance * 100) / 100;
+    if(over <= 0){ showInfoModal(t('invRefundNone')); return; }
+    const old = document.getElementById('invRefundOverlay'); if(old) old.remove();
+    const ov = document.createElement('div');
+    ov.id = 'invRefundOverlay'; ov.className = 'modal-overlay'; ov.style.display = 'flex'; ov.style.zIndex = '1300';
+    ov.innerHTML = `<div class="modal-box" style="max-width:380px;">
+      <div class="section-title" style="margin-top:0;">${invEsc(t('invBtnRefund'))} · ${invEsc(data.invoice_no)}</div>
+      <p style="font-size:12px;color:var(--ink-soft);margin:0 0 8px;">${invEsc(t('invRefundHint'))}</p>
+      <label style="font-size:12px;">${invEsc(t('invPayDate'))}</label><input id="invRfDate" type="date" value="${invToday()}" style="width:100%;box-sizing:border-box;margin-bottom:8px;" />
+      <label style="font-size:12px;">${invEsc(t('invPayAmount'))}</label><input id="invRfAmt" type="number" min="0" step="0.01" value="${invMoney2(over)}" style="width:100%;box-sizing:border-box;margin-bottom:8px;" />
+      <label style="font-size:12px;">${invEsc(t('invPayMethod'))}</label><select id="invRfMethod" style="width:100%;box-sizing:border-box;margin-bottom:8px;">${INV_PAY_METHODS.map(m => `<option value="${m}">${m}</option>`).join('')}</select>
+      <input id="invRfNote" type="text" placeholder="${invEsc(t('colNote'))}" style="width:100%;box-sizing:border-box;" />
+      <div id="invRfMsg" class="msg"></div>
+      <div class="modal-actions"><button class="btn ghost" onclick="document.getElementById('invRefundOverlay').remove()">${t('btnCancel')}</button><button class="btn" onclick="invDoRefund('${invEsc(invoiceId)}',${over})">${invEsc(t('invBtnRefund'))}</button></div>
+    </div>`;
+    document.body.appendChild(ov);
+  });
+}
+let invRefundCtx = null;
+async function invDoRefund(invoiceId, maxAmt){
+  const msg = document.getElementById('invRfMsg');
+  const date = document.getElementById('invRfDate').value;
+  const amt = Math.round(Number(document.getElementById('invRfAmt').value) * 100) / 100;
+  if(!date){ msg.className = 'msg error'; msg.textContent = t('invPayBadDate'); return; }
+  if(!Number.isFinite(amt) || amt <= 0 || amt > maxAmt + 0.004){ msg.className = 'msg error'; msg.textContent = t('invRefundBad'); return; }
+  try{
+    const { error } = await sb.rpc('invoice_refund', { p_invoice_id: invoiceId, p_date: date, p_amount: amt, p_method: document.getElementById('invRfMethod').value, p_note: (document.getElementById('invRfNote').value || '').trim() });
+    if(error) throw error;
+    try{ logInventoryAction('order_edit', `Invoice ${invoiceId} - refund ${invMoney2(amt)}`, ''); }catch(e){}
+    document.getElementById('invRefundOverlay').remove();
+    invCloseDetails();
+    invList = [];
+    await invLoadList(true);
+    try{ invRerenderLists(); }catch(e){}
+    invOpenDetails(invoiceId);
+  }catch(e){
+    console.error('退款失敗', e);
+    msg.className = 'msg error';
+    msg.textContent = invIsMissingFn(e) ? t('invPayNeedSql') : (/refund_exceeds/.test((e && e.message) || '') ? t('invRefundBad') : t('invPaidFailed'));
+  }
 }
 
 // ---------- 收款記錄視窗 ----------
@@ -789,8 +1106,9 @@ function invClosePayments(){ const o = document.getElementById('invPaymentsOverl
 async function invOpenPayments(invoiceId){
   if(!canCreateInvoice()) return;
   try{
+    const selInv = cols => sb.from('invoices').select(cols).eq('id', invoiceId).maybeSingle();
     const [{ data: inv, error: e1 }, { data: pays, error: e2 }] = await Promise.all([
-      sb.from('invoices').select('id,invoice_no,customer,invoice_date,due_date,payment_type,terms,total,paid').eq('id', invoiceId).maybeSingle(),
+      selInv('id,invoice_no,customer,party_id,invoice_date,due_date,payment_type,terms,total,paid,credited').then(r => (r.error && r.error.code === '42703') ? selInv('id,invoice_no,customer,party_id,invoice_date,due_date,payment_type,terms,total,paid') : r),
       sb.from('invoice_payments').select('*').eq('invoice_id', invoiceId).order('pay_date', { ascending: true }).order('created_at', { ascending: true })
     ]);
     if(e1 || e2 || !inv) throw e1 || e2 || new Error('not found');
@@ -810,24 +1128,26 @@ function invRenderPayments(){
     ov.onclick = e => { if(e.target === ov) invClosePayments(); };
     document.body.appendChild(ov);
   }
-  const r = invPay.row, total = Number(r.total) || 0;
+  const r = invPay.row;
   const paid = Math.round(invPay.payments.reduce((s, p) => s + Number(p.amount), 0) * 100) / 100;
   const info = invRowInfo(Object.assign({}, r, { paid }));
+  const total = info.total;   // 扣掉 Credit Note 之後的應收
   const ed = invPay.payments.find(p => p.id === invPay.editingId) || null;
   const dateV = ed ? ed.pay_date : invToday();
   const amtV = ed ? invMoney2(ed.amount) : (info.balance > 0 ? invMoney2(info.balance) : '');
-  const methodV = ed ? (ed.method || '') : (r.payment_type === 'cod' ? 'Cash' : 'Bank Transfer');
+  const defMethod = r.payment_type === 'cod' ? 'Cash' : 'Bank Transfer';
+  const methodV = ed ? ((ed.method && ed.method !== 'Paid Today') ? ed.method : defMethod) : defMethod;   // 舊記錄的「Paid Today」不再是選項,編輯時請改選實際的付款方式
   const methods = INV_PAY_METHODS.concat(methodV && !INV_PAY_METHODS.includes(methodV) ? [methodV] : []);
   const rows = invPay.payments.map(p => `<tr>
       <td style="white-space:nowrap;">${invEsc(invIsoToDmy(p.pay_date))}</td>
       <td class="num">${invMoney2(p.amount)}</td>
       <td>${invEsc(p.method || '')}</td>
       <td>${invEsc(p.note || '')}<div style="font-size:10.5px;color:var(--ink-soft);">${invEsc(p.created_by || '')}</div></td>
-      <td style="white-space:nowrap;text-align:right;"><span class="del-link" onclick="invPayEdit('${invEsc(p.id)}')" style="margin-right:6px;">${t('btnEdit')}</span><span class="del-link" onclick="invPayDelete('${invEsc(p.id)}')">${t('btnDelete')}</span></td>
+      <td style="white-space:nowrap;text-align:right;">${(Number(p.amount) < 0 || p.credit_cn_id || p.pair_payment_id) ? '' : `<span class="del-link" onclick="invPayEdit('${invEsc(p.id)}')" style="margin-right:6px;">${t('btnEdit')}</span>`}<span class="del-link" onclick="invPayDelete('${invEsc(p.id)}')">${t('btnDelete')}</span></td>
     </tr>`).join('');
   ov.innerHTML = `<div class="modal-box" style="max-width:min(640px,96vw);max-height:92vh;overflow:auto;">
     <div class="section-title" style="margin-top:0;">${t('invPayTitle')} · ${invEsc(r.invoice_no)}</div>
-    <div style="font-size:12.5px;margin:0 0 8px;">${invEsc(r.customer)} · ${invStatusBadge(info.status)}</div>
+    <div style="font-size:12.5px;margin:0 0 8px;">${invEsc(invCustLabel(r))} · ${invStatusBadge(info.status)}</div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;">
       <div style="flex:1 1 110px;border:1px solid var(--line);border-radius:8px;padding:6px 10px;"><div style="font-size:11px;color:var(--ink-soft);">Total Amt</div><b>${invMoney2(total)}</b></div>
       <div style="flex:1 1 110px;border:1px solid var(--line);border-radius:8px;padding:6px 10px;"><div style="font-size:11px;color:var(--ink-soft);">${t('invColPaid')}</div><b>${invMoney2(paid)}</b></div>
@@ -835,7 +1155,7 @@ function invRenderPayments(){
     </div>
     ${invPay.payments.length === 0 ? `<div class="empty-note" style="margin:6px 0;">${t('invPayEmpty')}</div>` : `<div style="overflow-x:auto;"><table class="stock-table"><thead><tr><th>${t('invPayDate')}</th><th class="num">${t('invPayAmount')}</th><th>${t('invPayMethod')}</th><th>${t('colNote')}</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`}
     <div style="margin-top:12px;padding-top:10px;border-top:1px solid var(--line);">
-      <div style="font-size:12.5px;font-weight:700;margin-bottom:6px;">${ed ? t('invPayEditTitle') : t('invPayAddTitle')}</div>
+      <div style="font-size:12.5px;font-weight:700;margin-bottom:6px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;">${ed ? t('invPayEditTitle') : t('invPayAddTitle')}${!ed && info.balance > 0.004 ? `<button class="btn ghost" style="font-weight:400;" onclick="invOpenApplyCredit()">${invEsc(t('invBtnApplyCredit'))}</button>` : ''}</div>
       <div class="form-grid" style="grid-template-columns:1fr 1fr;gap:8px;">
         <div class="field"><label>${t('invPayDate')}</label><input type="date" id="invPayDate" value="${invEsc(dateV)}" /></div>
         <div class="field"><label>${t('invPayAmount')}</label><input type="number" id="invPayAmount" min="0.01" step="0.01" value="${invEsc(amtV)}" placeholder="0.00" /></div>
@@ -880,7 +1200,9 @@ async function invPaySave(){
   if(!date){ msg.className = 'msg error'; msg.textContent = t('invPayBadDate'); return; }
   if(!Number.isFinite(amt) || amt <= 0){ msg.className = 'msg error'; msg.textContent = t('invPayBadAmount'); return; }
   const others = invPay.payments.filter(p => p.id !== invPay.editingId).reduce((s, p) => s + Number(p.amount), 0);
-  if(others + amt > Number(invPay.row.total) + 0.004){ msg.className = 'msg error'; msg.textContent = t('invPaidTooMuch'); return; }
+  const allSum = invPay.payments.reduce((s, p) => s + Number(p.amount), 0);
+  const netTotal = Number(invPay.row.total) - Number(invPay.row.credited || 0);
+  if(others + amt > Math.max(netTotal, allSum) + 0.004){ msg.className = 'msg error'; msg.textContent = t('invPaidTooMuch'); return; }
   try{
     const { error } = await sb.rpc('invoice_payment_save', { p_invoice_id: invPay.id, p_payment_id: invPay.editingId, p_date: date, p_amount: amt, p_method: method, p_note: note });
     if(error) throw error;
@@ -908,6 +1230,7 @@ async function invPayDeleteDo(paymentId){
     const { error } = await sb.rpc('invoice_payment_delete', { p_payment_id: paymentId });
     if(error) throw error;
     try{ logInventoryAction('order_edit', `Invoice ${invPay.row.invoice_no} - payment deleted: ${invMoney2(p.amount)}`, invPay.row.invoice_no); }catch(e){}
+    invList = [];   // 轉入 / 轉出的收款會連動另一張 Invoice,清單重新讀取
     await invPayReload();
   }catch(e){
     console.error('刪除收款失敗', e);
@@ -950,7 +1273,12 @@ async function invExportForBackup(){
     if(error) throw error;
     const pr = await sb.from('invoice_payments').select('*').order('created_at', { ascending: true }).limit(200000);
     const payments = pr.error ? [] : (pr.data || []);   // 收款表還沒建立(沒執行 invoice_payments.sql)時,備份裡就沒有收款
-    return { invoices: data || [], payments, next: await invGetNextNo() };
+    const cr = await sb.from('invoice_changes').select('*').order('id', { ascending: true }).limit(200000);
+    const changes = cr.error ? [] : (cr.data || []);    // 變更紀錄表還沒建立(沒執行 invoice_changes.sql)時,備份裡就沒有變更紀錄
+    const creditNotes = (typeof icCnExportForBackup === 'function') ? await icCnExportForBackup() : null;   // Credit Note 表還沒建立時為 null
+    let settings = null;   // Invoice 格式(公司資料、銀行資料、Logo 等)
+    try{ const sr = await dbGet('invoiceSettings'); settings = sr && sr.value ? sr.value : null; }catch(e){}
+    return { invoices: data || [], payments, changes, creditNotes, settings, next: await invGetNextNo() };
   }catch(e){
     if(invIsMissingFn(e)) return null;
     throw e;
@@ -959,10 +1287,65 @@ async function invExportForBackup(){
 async function invRestoreFromBackup(backup){
   const d = backup && backup.invoiceData;
   if(!d || !Array.isArray(d.invoices)) return;
-  const { error } = await sb.rpc('invoice_restore_all', { p_rows: d.invoices, p_next: d.next || 1, p_payments: Array.isArray(d.payments) ? d.payments : [] });
+  const args = { p_rows: d.invoices, p_next: d.next || 1, p_payments: Array.isArray(d.payments) ? d.payments : [] };
+  let { error } = await sb.rpc('invoice_restore_all', Object.assign({ p_changes: Array.isArray(d.changes) ? d.changes : [] }, args));
+  if(error && invIsMissingFn(error)) ({ error } = await sb.rpc('invoice_restore_all', args));   // 還沒執行 invoice_changes.sql:用舊版函式還原(不含變更紀錄)
   if(error && !invIsMissingFn(error)) throw error;
+  if(typeof icCnRestoreFromBackup === 'function'){
+    // 舊備份沒有 Credit Note 資料時,要把現有的清掉(否則還原 Invoice 後它們會變成沒有對應 Invoice 的獨立 Credit Note)
+    if(d.creditNotes) await icCnRestoreFromBackup(d.creditNotes); else if(typeof icCnClearAll === 'function') await icCnClearAll();
+  }
+  if(typeof d.settings === 'string' && d.settings){
+    try{ await dbSet('invoiceSettings', d.settings); await loadInvoiceSettings(); }catch(e){ console.error(e); }
+  }
 }
 async function invClearAll(){
   const { error } = await sb.rpc('invoice_clear_all');
   if(error && !invIsMissingFn(error)) throw error;
+  if(typeof icCnClearAll === 'function') await icCnClearAll();
+}
+
+
+// 發票清單 / 詳細資料裡的訂單號:點下去跳到該訂單(待處理 → 訂貨後台管理;已完成 → 歷史紀錄的已完成訂單)
+function invOrderLinks(orderNo){
+  const parts = String(orderNo || '').split(/\s*,\s*/).filter(Boolean);
+  if(!parts.length) return '';
+  return parts.map(no => {
+    const o = (typeof orders !== 'undefined' ? orders : []).find(x => x.orderNo === no);
+    return o ? `<span class="batch-link" onclick="invGotoOrder('${invEsc(o.id)}')">${invEsc(no)}</span>` : invEsc(no);
+  }).join(', ');
+}
+function invGotoOrder(orderId){
+  const o = orders.find(x => x.id === orderId);
+  if(!o) return;
+  try{ if(typeof invCloseDetails === 'function') invCloseDetails(); }catch(e){}
+  expandedOrderIds.add(orderId);
+  if(isPreVerificationStatus(o) && !o.deleted){
+    switchTab('tab-order-admin');
+    switchOrderAdminSubTab('subtab-order-pending');
+    ['pendingOrderPartyFilter','pendingOrderDateFrom','pendingOrderDateTo'].forEach(id => { const e = document.getElementById(id); if(e) e.value = ''; });
+    renderPendingOrders();
+  } else {
+    switchTab('tab-log');
+    const sel = document.getElementById('logSubtabSelect'); if(sel) sel.value = 'subtab-log-completed';
+    switchLogSubTab('subtab-log-completed');
+    const pf = document.getElementById('completedOrderPartyFilter'); if(pf) pf.value = '';
+    const df = document.getElementById('completedOrderDateFrom'); if(df) df.value = '';
+    const dt = document.getElementById('completedOrderDateTo'); if(dt) dt.value = '';
+    renderOrders();
+  }
+  setTimeout(() => {
+    const el = document.querySelector(`.tab-content.active .order-card[data-oid="${orderId}"], .order-card[data-oid="${orderId}"]`);
+    if(!el) return;
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    const old = el.style.boxShadow; el.style.boxShadow = '0 0 0 3px var(--yellow, #e5a02f)';
+    setTimeout(() => { el.style.boxShadow = old; }, 2500);
+  }, 150);
+}
+
+// 複製文字到剪貼簿,圖示暫時變成 ✓
+function invCopyText(text, el){
+  const done = () => { if(!el) return; const o = el.textContent; el.textContent = '✓'; setTimeout(() => { el.textContent = o; }, 1200); };
+  const fallback = () => { const ta = document.createElement('textarea'); ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0'; document.body.appendChild(ta); ta.select(); try{ document.execCommand('copy'); }catch(e){} ta.remove(); done(); };
+  if(navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(done, fallback); else fallback();
 }
