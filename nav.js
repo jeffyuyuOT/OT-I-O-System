@@ -626,7 +626,7 @@ function switchOrderSubTab(subtabId){
 // ---- 分頁說明:標題旁的 ⓘ,點擊才顯示說明文字(標題下面緊接著的灰色說明段落) ----
 function initTitleHints(){
   document.querySelectorAll('.tab-content p[style*="--ink-soft"]').forEach(p => {
-    if(p.dataset.hintInit || p.id || p.closest('.modal-box')) return;
+    if(p.dataset.hintInit || p.dataset.hintAlways || p.id || p.closest('.modal-box')) return;   // data-hint-always:說明直接顯示,不收進 ⓘ
     const prev = p.previousElementSibling;
     if(!prev) return;
     const title = prev.classList.contains('section-title') ? prev : prev.querySelector(':scope > .section-title');
