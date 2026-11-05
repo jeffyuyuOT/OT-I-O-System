@@ -468,9 +468,9 @@ async function icOnInvSearch(v){
   const q = (v || '').trim().toLowerCase();
   if(!q){ box.innerHTML = ''; return; }
   await invLoadList();
-  const m = (invList || []).filter(r => ['INV' + (r.invoice_no || ''), r.invoice_no, r.customer, r.order_no].join(' ').toLowerCase().includes(q)).slice(0, 12);
+  const m = (invList || []).filter(r => ['INV' + (r.invoice_no || ''), r.invoice_no, invCustSearch(r), r.order_no].join(' ').toLowerCase().includes(q)).slice(0, 12);
   box.innerHTML = m.length
-    ? m.map(r => `<div class="batch-link" style="padding:6px 4px;border-bottom:1px solid var(--line);cursor:pointer;" onclick="icPickInvoice('${invEsc(r.id)}')">INV${invEsc(r.invoice_no)} · ${invEsc(r.customer)} · ${invEsc(invIsoToDmy(r.invoice_date))} · ${invMoney2(r.total)}</div>`).join('')
+    ? m.map(r => `<div class="batch-link" style="padding:6px 4px;border-bottom:1px solid var(--line);cursor:pointer;" onclick="icPickInvoice('${invEsc(r.id)}')">INV${invEsc(r.invoice_no)} · ${invEsc(invCustLabel(r))} · ${invEsc(invIsoToDmy(r.invoice_date))} · ${invMoney2(r.total)}</div>`).join('')
     : `<div class="empty-note">${t('icNoInvoice')}</div>`;
 }
 function icClearInvoice(){ icState.cnInv = null; icState.items = []; icState.partyId = ''; icRenderNew(); }
@@ -623,18 +623,18 @@ function icCnRender(){
   if(icCnErr){ root.innerHTML = `<div class="empty-note">${t('invLoadFailed')}</div>`; return; }
   const f = icCnF, q = f.q.trim().toLowerCase();
   const list = (icCnRows || []).filter(r => (!f.from || r.cn_date >= f.from) && (!f.to || r.cn_date <= f.to) && (!f.st || (r.return_status || 'none') === f.st)
-    && (!q || [r.cn_no, r.customer, 'INV' + (r.invoice_no || ''), r.invoice_no].join(' ').toLowerCase().includes(q)));
+    && (!q || [r.cn_no, invCustSearch(r), 'INV' + (r.invoice_no || ''), r.invoice_no].join(' ').toLowerCase().includes(q)));
   const sum = list.reduce((a, r) => a + (Number(r.total) || 0), 0);
   const availSum = list.reduce((a, r) => a + (r.invoice_id ? 0 : (Number(r.total) || 0) - (Number(r.applied) || 0)), 0);   // 單獨 Credit Note 的可用額度合計
   const stOpt = (v, l) => `<option value="${v}" ${f.st === v ? 'selected' : ''}>${l}</option>`;
   const body = list.map(r => `<tr>
       <td style="white-space:nowrap;cursor:pointer;" onclick="icCnView('${invEsc(r.id)}')"><span class="batch-link">${invEsc(r.cn_no)}</span></td>
-      <td style="white-space:nowrap;">${invEsc(invIsoToDmy(r.cn_date))}</td><td>${invEsc(r.customer)}</td>
+      <td style="white-space:nowrap;">${invEsc(invIsoToDmy(r.cn_date))}</td><td>${invEsc(invCustLabel(r))}</td>
       <td>${r.invoice_no ? (r.invoice_id ? `<span class="batch-link" onclick="invOpenDetails('${invEsc(r.invoice_id)}')">INV${invEsc(r.invoice_no)}</span>` : 'INV' + invEsc(r.invoice_no)) : '–'}</td>
       <td class="num"><b>(${invMoney2(r.total)})</b></td>
       <td class="num">${r.invoice_id ? '–' : invMoney2(Number(r.total) - Number(r.applied || 0))}</td>
       <td style="white-space:nowrap;">${icRsBadge(r.return_status)}</td>
-      <td style="white-space:nowrap;"><span class="del-link" onclick="icCnView('${invEsc(r.id)}')">${t('invBtnDetails')}</span>${(r.return_status || 'none') !== 'none' ? ` <span class="del-link" style="margin-left:6px;" onclick="icCnOpenStatus('${invEsc(r.id)}')">${t('icBtnReturnStatus')}</span>` : ''}</td></tr>`).join('');
+      <td style="white-space:nowrap;"><span class="del-link" onclick="icCnOpenDetails('${invEsc(r.id)}')">${t('invBtnDetails')}</span>${(r.return_status || 'none') !== 'none' ? ` <span class="del-link" style="margin-left:6px;" onclick="icCnOpenStatus('${invEsc(r.id)}')">${t('icBtnReturnStatus')}</span>` : ''}</td></tr>`).join('');
   root.innerHTML = `<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin-bottom:8px;">
       <div><div style="font-size:11px;color:var(--ink-soft);">${t('icFrom')}</div><input type="date" value="${invEsc(f.from)}" onchange="icCnF.from=this.value;icCnRender()" /></div>
       <div><div style="font-size:11px;color:var(--ink-soft);">${t('icTo')}</div><input type="date" value="${invEsc(f.to)}" onchange="icCnF.to=this.value;icCnRender()" /></div>
@@ -654,6 +654,49 @@ async function icCnView(id){
     try{ await loadInvoiceSettings(); }catch(e){}
     invShowModal(null, data.snapshot, true, null);
   }catch(e){ console.error('讀取 Credit Note 失敗', e); showInfoModal(t('invLoadFailed')); }
+}
+async function icCnOpenDetails(id){
+  try{
+    const { data: cn, error } = await sb.from('credit_notes').select('*').eq('id', id).maybeSingle();
+    if(error || !cn) throw error || new Error('not found');
+    let uses = [];
+    try{
+      const pr = await sb.from('invoice_payments').select('id,invoice_id,pay_date,amount,created_by,created_at').eq('credit_cn_id', id).order('pay_date', { ascending: true });
+      const pays = pr.error ? [] : (pr.data || []);
+      if(pays.length){
+        const ir = await sb.from('invoices').select('id,invoice_no').in('id', [...new Set(pays.map(x => x.invoice_id))]);
+        const m = {}; (ir.data || []).forEach(x => { m[x.id] = x.invoice_no; });
+        uses = pays.map(x => Object.assign({}, x, { invoice_no: m[x.invoice_id] }));
+      }
+    }catch(e){}
+    const total = Number(cn.total) || 0, used = uses.reduce((a, x) => a + (Number(x.amount) || 0), 0);
+    const when = iso => { try{ return new Date(iso).toLocaleString(); }catch(e){ return iso || ''; } };
+    const row = (k, v) => `<tr><td style="color:var(--ink-soft);white-space:nowrap;vertical-align:top;">${k}</td><td>${v === '' || v === null || v === undefined ? '–' : v}</td></tr>`;
+    icCloseOverlay('icCnDetailsOverlay');
+    const ov = document.createElement('div');
+    ov.id = 'icCnDetailsOverlay'; ov.className = 'modal-overlay'; ov.style.display = 'flex'; ov.style.zIndex = '1250';
+    ov.onclick = e => { if(e.target === ov) icCloseOverlay('icCnDetailsOverlay'); };
+    const linkInv = cn.invoice_id ? `<span class="batch-link" onclick="icCloseOverlay('icCnDetailsOverlay');invOpenDetails('${invEsc(cn.invoice_id)}')">INV${invEsc(cn.invoice_no || '')}</span>` : '';
+    ov.innerHTML = `<div class="modal-box" style="max-width:min(560px,96vw);max-height:92vh;overflow:auto;">
+      <div class="section-title" style="margin-top:0;">${t('icCnDetailTitle')} · ${invEsc(cn.cn_no)}</div>
+      <div style="font-size:12.5px;margin:0 0 8px;">${invEsc(invCustLabel(cn))} · ${icRsBadge(cn.return_status)}</div>
+      <table style="width:100%;font-size:13px;border-collapse:collapse;"><tbody>
+        ${row('Date', invEsc(invIsoToDmy(cn.cn_date)))}
+        ${row('Invoice', linkInv)}
+        ${row(t('spSaleAmt'), invMoney2(cn.before_tax))}
+        ${row(t('spGstAmt'), invMoney2(cn.tax))}
+        ${row(t('spTotalAmt'), '<b>(' + invMoney2(total) + ')</b>')}
+        ${cn.invoice_id ? '' : row(t('icCnUsed'), invMoney2(used))}
+        ${cn.invoice_id ? '' : row(t('invCreditAvail'), '<b>' + invMoney2(Math.max(0, total - used)) + '</b>')}
+        ${row(t('invDtCreated'), invEsc((cn.created_by || '') + (cn.created_at ? ' · ' + when(cn.created_at) : '')))}
+      </tbody></table>
+      ${cn.invoice_id ? `<div style="margin-top:12px;font-size:12px;color:var(--ink-soft);">${invEsc(t('icCnAppliedToInv'))} INV${invEsc(cn.invoice_no || '')}</div>` : `
+        <div style="margin-top:12px;font-size:12.5px;font-weight:700;">${invEsc(t('icCnUseHistory'))}</div>
+        ${uses.length ? uses.map(x => `<div style="padding:5px 0;border-top:1px solid var(--line);font-size:12px;"><span class="batch-link" onclick="icCloseOverlay('icCnDetailsOverlay');invOpenDetails('${invEsc(x.invoice_id)}')">INV${invEsc(x.invoice_no || '')}</span> · ${invEsc(invIsoToDmy(x.pay_date))} · <b>${invMoney2(x.amount)}</b>${x.created_by ? ' · ' + invEsc(x.created_by) : ''}</div>`).join('') : `<div class="empty-note" style="margin:4px 0;">${invEsc(t('icCnNoUse'))}</div>`}`}
+      <div class="modal-actions"><button class="btn ghost" onclick="icCloseOverlay('icCnDetailsOverlay')">${t('btnClose')}</button><button class="btn ghost" onclick="icCloseOverlay('icCnDetailsOverlay');icCnView('${invEsc(cn.id)}')">${invEsc(t('icCnViewDoc'))}</button></div>
+    </div>`;
+    document.body.appendChild(ov);
+  }catch(e){ console.error('讀取 Credit Note 詳細資料失敗', e); showInfoModal(t('invLoadFailed')); }
 }
 function icCnOpenStatus(id){
   const r = (icCnRows || []).find(x => x.id === id); if(!r) return;

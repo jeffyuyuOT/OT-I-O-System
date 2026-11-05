@@ -16,6 +16,10 @@ let invSettings = { companyName: '', abn: '', address: '', phone: '', email: '',
 let invLogoDraft = null;   // 設定頁剛選好還沒儲存的 Logo(dataURL);'' = 要移除;null = 沒動
 
 const invEsc = s => String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+// 會計清單的客戶名稱:同一個出貨方統一顯示公司名(沒有公司名才用出貨方名稱);搜尋時出貨方名稱、公司名、編號都找得到
+function invPartyOf(r){ return (r && r.party_id && typeof shippingParties !== 'undefined') ? shippingParties.find(x => x.id === r.party_id) : null; }
+function invCustLabel(r){ const sp = invPartyOf(r); return (sp && (sp.companyName || sp.name)) || (r && r.customer) || ''; }
+function invCustSearch(r){ const sp = invPartyOf(r); return [r && r.customer, sp && sp.name, sp && sp.companyName, sp && sp.code].filter(Boolean).join(' '); }
 const invNl2br = s => invEsc(s).replace(/\r?\n/g, '<br>');
 
 async function loadInvoiceSettings(){
@@ -805,7 +809,7 @@ function invFilteredList(key){
     && (!f.pay || (f.pay === 'cod' ? r.payment_type === 'cod' : r.payment_type !== 'cod'))
     && (!f.rep || (r.sale_rep || '') === f.rep)
     && (!f.status || invRowInfo(r).status === f.status)
-    && (!q || ['INV' + (r.invoice_no || ''), r.invoice_no, r.customer, r.order_no, r.sale_rep].join(' ').toLowerCase().includes(q)));
+    && (!q || ['INV' + (r.invoice_no || ''), r.invoice_no, invCustSearch(r), r.order_no, r.sale_rep].join(' ').toLowerCase().includes(q)));
 }
 function invRenderList(key){
   key = key || 'main';
@@ -831,7 +835,7 @@ function invRenderList(key){
     return `<tr>
       <td style="white-space:nowrap;cursor:pointer;" onclick="invOpenFromList('${invEsc(r.id)}')"><span class="batch-link">${invEsc(r.invoice_no)}</span></td>
       <td style="white-space:nowrap;">${invEsc(invIsoToDmy(r.invoice_date))}</td>
-      ${showCust ? `<td>${invEsc(r.customer)}</td>` : ''}
+      ${showCust ? `<td>${invEsc(invCustLabel(r))}</td>` : ''}
       <td>${invOrderLinks(r.order_no)}</td>
       <td class="num"><b>${invMoney2(i.total)}</b></td>
       <td class="num">${invMoney2(i.paid)}</td><td class="num"><b>${invMoney2(i.balance)}</b></td>
@@ -892,7 +896,7 @@ function invExportListXlsx(key){
   const aoa = [['Invoice No', 'Invoice Date', 'Customer', 'Order No', 'Terms', 'Due Date', 'Sale Rep', 'Sale Amt (Ex. GST)', 'GST', 'Total Amt (Inc. GST)', 'Paid', 'Balance Due', 'Status', 'Currency']]
     .concat(list.map(r => {
       const i = invRowInfo(r);
-      return [r.invoice_no, r.invoice_date, r.customer, r.order_no, r.payment_type === 'cod' ? 'COD' : (r.terms ? r.terms + ' Days' : ''), r.payment_type === 'cod' ? '' : r.due_date, r.sale_rep, Number(r.before_tax), Number(r.tax), i.total, i.paid, i.balance, t('invSt_' + i.status), r.currency];
+      return [r.invoice_no, r.invoice_date, invCustLabel(r), r.order_no, r.payment_type === 'cod' ? 'COD' : (r.terms ? r.terms + ' Days' : ''), r.payment_type === 'cod' ? '' : r.due_date, r.sale_rep, Number(r.before_tax), Number(r.tax), i.total, i.paid, i.balance, t('invSt_' + i.status), r.currency];
     }));
   const ws = XLSX.utils.aoa_to_sheet(aoa);
   ws['!cols'] = [{ wch: 12 }, { wch: 12 }, { wch: 30 }, { wch: 12 }, { wch: 10 }, { wch: 12 }, { wch: 16 }, { wch: 16 }, { wch: 10 }, { wch: 18 }, { wch: 12 }, { wch: 12 }, { wch: 10 }, { wch: 8 }];
@@ -937,7 +941,7 @@ async function invOpenDetails(invoiceId){
     ov.onclick = e => { if(e.target === ov) invCloseDetails(); };
     ov.innerHTML = `<div class="modal-box" style="max-width:min(640px,96vw);max-height:92vh;overflow:auto;">
       <div class="section-title" style="margin-top:0;">${invEsc(t('invDetailTitle'))} · ${invEsc(inv.invoice_no)}</div>
-      <div style="font-size:12.5px;margin:0 0 8px;">${invEsc(inv.customer)} · ${invStatusBadge(i.status)}</div>
+      <div style="font-size:12.5px;margin:0 0 8px;">${invEsc(invCustLabel(inv))} · ${invStatusBadge(i.status)}</div>
       <table class="stock-table"><tbody>
         ${row('Invoice Date', invEsc(invIsoToDmy(inv.invoice_date)))}
         ${row('Terms', terms)}
@@ -1138,7 +1142,7 @@ function invRenderPayments(){
     </tr>`).join('');
   ov.innerHTML = `<div class="modal-box" style="max-width:min(640px,96vw);max-height:92vh;overflow:auto;">
     <div class="section-title" style="margin-top:0;">${t('invPayTitle')} · ${invEsc(r.invoice_no)}</div>
-    <div style="font-size:12.5px;margin:0 0 8px;">${invEsc(r.customer)} · ${invStatusBadge(info.status)}</div>
+    <div style="font-size:12.5px;margin:0 0 8px;">${invEsc(invCustLabel(r))} · ${invStatusBadge(info.status)}</div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;">
       <div style="flex:1 1 110px;border:1px solid var(--line);border-radius:8px;padding:6px 10px;"><div style="font-size:11px;color:var(--ink-soft);">Total Amt</div><b>${invMoney2(total)}</b></div>
       <div style="flex:1 1 110px;border:1px solid var(--line);border-radius:8px;padding:6px 10px;"><div style="font-size:11px;color:var(--ink-soft);">${t('invColPaid')}</div><b>${invMoney2(paid)}</b></div>
