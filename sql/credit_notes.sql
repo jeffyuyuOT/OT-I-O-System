@@ -154,3 +154,59 @@ grant execute on function public.credit_note_mark_returned(text, jsonb) to authe
 grant execute on function public.credit_note_set_return_status(text, text) to authenticated;
 grant execute on function public.credit_notes_restore_all(jsonb, bigint) to authenticated;
 grant execute on function public.credit_notes_clear_all() to authenticated;
+
+-- ============================================================
+-- 多收(已收款 > 扣完 Credit Note 後的應收)的處理:退款
+-- * 收款上限改成「Invoice 總額 - Credit Note」(不再是原總額);已經多收的 Invoice 修改舊收款不受限制(只要不讓多收變更多)。
+-- * invoice_refund():記一筆負數的收款(方式 = 你選的付款方式),退款金額不能超過目前多收的金額。
+-- ============================================================
+create or replace function public.invoice_payment_save(p_invoice_id text, p_payment_id text, p_date date, p_amount numeric, p_method text, p_note text)
+returns jsonb language plpgsql security definer set search_path = public as $$
+declare v_total numeric; v_cr numeric; v_other numeric; v_all numeric; v_who text; v_id text; v_paid numeric;
+begin
+  if not public.is_accounting_user() then raise exception 'invoice_forbidden'; end if;
+  select total, coalesce(credited, 0) into v_total, v_cr from public.invoices where id = p_invoice_id for update;
+  if not found then raise exception 'invoice_not_found'; end if;
+  if p_amount is null or p_amount <= 0 then raise exception 'invoice_bad_paid'; end if;
+  if p_date is null then raise exception 'invoice_bad_date'; end if;
+  select coalesce(sum(amount), 0) into v_all from public.invoice_payments where invoice_id = p_invoice_id;
+  select coalesce(sum(amount), 0) into v_other from public.invoice_payments
+   where invoice_id = p_invoice_id and (p_payment_id is null or id <> p_payment_id);
+  if v_other + p_amount > greatest(v_total - v_cr, v_all) + 0.004 then raise exception 'invoice_bad_paid'; end if;
+  select username into v_who from public.profiles where id = auth.uid();
+  if p_payment_id is null then
+    v_id := gen_random_uuid()::text;
+    insert into public.invoice_payments (id, invoice_id, pay_date, amount, method, note, created_by)
+    values (v_id, p_invoice_id, p_date, p_amount, nullif(p_method, ''), nullif(p_note, ''), v_who);
+  else
+    v_id := p_payment_id;
+    update public.invoice_payments
+       set pay_date = p_date, amount = p_amount, method = nullif(p_method, ''), note = nullif(p_note, '')
+     where id = p_payment_id and invoice_id = p_invoice_id;
+    if not found then raise exception 'invoice_payment_not_found'; end if;
+  end if;
+  v_paid := public.invoice_recalc_paid(p_invoice_id);
+  return jsonb_build_object('id', v_id, 'paid', v_paid);
+end $$;
+
+create or replace function public.invoice_refund(p_invoice_id text, p_date date, p_amount numeric, p_method text, p_note text)
+returns jsonb language plpgsql security definer set search_path = public as $$
+declare v_total numeric; v_cr numeric; v_paid numeric; v_who text; v_id text := gen_random_uuid()::text;
+begin
+  if not public.is_accounting_user() then raise exception 'invoice_forbidden'; end if;
+  select total, coalesce(credited, 0) into v_total, v_cr from public.invoices where id = p_invoice_id for update;
+  if not found then raise exception 'invoice_not_found'; end if;
+  select coalesce(sum(amount), 0) into v_paid from public.invoice_payments where invoice_id = p_invoice_id;
+  if p_amount is null or p_amount <= 0 then raise exception 'invoice_bad_paid'; end if;
+  if p_date is null then raise exception 'invoice_bad_date'; end if;
+  if p_amount > (v_paid - (v_total - v_cr)) + 0.004 then raise exception 'refund_exceeds'; end if;
+  select username into v_who from public.profiles where id = auth.uid();
+  insert into public.invoice_payments (id, invoice_id, pay_date, amount, method, note, created_by)
+  values (v_id, p_invoice_id, p_date, -p_amount, 'Refund' || coalesce(' - ' || nullif(p_method, ''), ''), nullif(p_note, ''), v_who);
+  perform public.invoice_recalc_paid(p_invoice_id);
+  return jsonb_build_object('id', v_id);
+end $$;
+revoke all on function public.invoice_payment_save(text, text, date, numeric, text, text) from public, anon;
+revoke all on function public.invoice_refund(text, date, numeric, text, text) from public, anon;
+grant execute on function public.invoice_payment_save(text, text, date, numeric, text, text) to authenticated;
+grant execute on function public.invoice_refund(text, date, numeric, text, text) to authenticated;
