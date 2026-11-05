@@ -15,6 +15,10 @@
 // ============================================================
 window.FEATURES = window.FEATURES || {};
 Object.assign(window.FEATURES, {
+  // 進貨帳務:進貨單「入會計紀錄」、每個品項的 GST、會計 → Purchase List(付款記錄);
+  // 取代進貨單上的「寄送給會計」勾選。
+  purchaseAccounting: true,
+
   // 批次追蹤:進貨批次號、出貨自動依 FEFO/FIFO 分配批次、庫存總覽「批次追蹤」分頁
   batchTracking: true,
 

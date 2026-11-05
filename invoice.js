@@ -1278,7 +1278,9 @@ async function invExportForBackup(){
     const creditNotes = (typeof icCnExportForBackup === 'function') ? await icCnExportForBackup() : null;   // Credit Note 表還沒建立時為 null
     let settings = null;   // Invoice 格式(公司資料、銀行資料、Logo 等)
     try{ const sr = await dbGet('invoiceSettings'); settings = sr && sr.value ? sr.value : null; }catch(e){}
-    return { invoices: data || [], payments, changes, creditNotes, settings, next: await invGetNextNo() };
+    let purchasePayments = null;   // 進貨付款記錄(OT custom 進貨帳務)
+    try{ if(typeof paBackupExport === 'function') purchasePayments = await paBackupExport(); }catch(e){}
+    return { invoices: data || [], payments, changes, creditNotes, settings, purchasePayments, next: await invGetNextNo() };
   }catch(e){
     if(invIsMissingFn(e)) return null;
     throw e;
@@ -1295,6 +1297,10 @@ async function invRestoreFromBackup(backup){
     // 舊備份沒有 Credit Note 資料時,要把現有的清掉(否則還原 Invoice 後它們會變成沒有對應 Invoice 的獨立 Credit Note)
     if(d.creditNotes) await icCnRestoreFromBackup(d.creditNotes); else if(typeof icCnClearAll === 'function') await icCnClearAll();
   }
+  if(typeof paBackupRestore === 'function'){
+    if(Array.isArray(d.purchasePayments)) await paBackupRestore(d.purchasePayments);
+    else if(typeof d.purchasePayments === 'undefined' && typeof paBackupClear === 'function') await paBackupClear();   // 舊備份(功能上線前)沒有進貨付款記錄:跟備份當時一樣,清掉
+  }
   if(typeof d.settings === 'string' && d.settings){
     try{ await dbSet('invoiceSettings', d.settings); await loadInvoiceSettings(); }catch(e){ console.error(e); }
   }
@@ -1303,6 +1309,7 @@ async function invClearAll(){
   const { error } = await sb.rpc('invoice_clear_all');
   if(error && !invIsMissingFn(error)) throw error;
   if(typeof icCnClearAll === 'function') await icCnClearAll();
+  if(typeof paBackupClear === 'function') await paBackupClear();
 }
 
 

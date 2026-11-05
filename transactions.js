@@ -45,6 +45,7 @@ function setTxType(type){
     const emailInput = document.getElementById('purchaseEmailAddress');
     if(emailInput) emailInput.value = '';
   }
+  if(typeof paFormInit === 'function') paFormInit(type);   // 進貨帳務:入會計紀錄(取代寄送給會計)
   if(type === 'in'){
     partyLabel.textContent = t('partyLabelIn');
     partyInput.placeholder = t('partyPlaceholderIn');
@@ -815,6 +816,8 @@ function renderTxBatchList(){
   // 沒有這個模組就沒有意義,不用佔畫面空間。
   const showAmountCol = hasFeature('receiptScanModule') && currentTxType === 'in'; // 金額只有進貨才用(出貨/入庫/調整不記金額),其他類型不顯示
   // 出貨(新增訂單 / 載入待處理訂單加品項):顯示 Sell price(依出貨方 Discount 與預計批次),受系統設置開關控制
+  const showGstCol = showAmountCol && typeof paOn === 'function' && paOn();   // 進貨帳務:每個品項的 GST
+  if(showGstCol) paAutoFillGst(txBatchItems);
   const showSellCol = typeof spEnabled === 'function' && spEnabled() && currentTxType === 'out' && (registerOutFlowType === 'new-order' || registerOutFlowType === 'load-pending' || registerOutFlowType === 'load-completed');
   const sellPartyId = showSellCol ? ((document.getElementById('txPartySelect') || {}).value || '') : '';
   // 同一個商品在清單裡出現不只一筆(常見情境:發票登記了5箱,後來因為缺貨開的 Credit Note
@@ -845,6 +848,7 @@ function renderTxBatchList(){
         
         ${(typeof batchLocCellHtml === 'function') ? batchLocCellHtml(it) : '<td></td>'}` : ''}
         ${showAmountCol ? `<td class="row-num tx-amt" data-label="${t('colAmount')}"><input type="number" class="order-qty-input" step="0.01" min="0" value="${(it.amount !== undefined && it.amount !== null) ? it.amount : ''}" placeholder="–" ${canEditPrice() ? '' : 'readonly'} onchange="updateTxBatchItemAmount('${it.batchItemId}', this.value)" /></td>` : ''}
+        ${showGstCol ? `<td class="row-num tx-gst" data-label="GST">${paGstSelectHtml(it.gst, "paSetTxItemGst('" + it.batchItemId + "', this.value)")}</td>` : ''}
         <td class="row-action">
           ${(typeof batchTxRowButtonHtml === 'function') ? batchTxRowButtonHtml(it) : ''}
           ${(showBatchCols && typeof batchTxDetailButtonHtml === 'function') ? batchTxDetailButtonHtml(it) : `<button onclick="openConversionFromTxBatch('${it.productId}')" title="${t('btnConvertBatchItem')}">🔄</button>`}
@@ -870,6 +874,7 @@ function renderTxBatchList(){
           ${showSellCol ? '<td></td><td></td>' : ''}
           ${showBatchCols ? '<td></td><td></td>' : ''}
           ${showAmountCol ? `<td class="row-num tx-amt">${netAmount !== null ? Number(netAmount).toFixed(2) : '–'}</td>` : ''}
+          ${showGstCol ? '<td></td>' : ''}
           <td class="row-action"></td>
         </tr>
       `;
@@ -877,7 +882,7 @@ function renderTxBatchList(){
   });
   container.innerHTML = `
     <table class="stock-table">
-      <thead><tr><th>${t('colProduct')}</th><th class="num">${t('colQty')}</th>${showSellCol ? `<th class="num">${t('spColUnitPrice')}</th><th class="num">${t('spColTotalPrice')}</th>` : ''}${showBatchCols ? `<th class="num">${t('batchColExpiry')}</th><th style="min-width:220px;padding-left:18px;">${t('batchLocTitle')}</th>` : ''}${showAmountCol ? `<th class="num">${t('colAmount')}${(typeof pcAmountColSuffix === 'function') ? pcAmountColSuffix() : ''}</th>` : ''}<th></th></tr></thead>
+      <thead><tr><th>${t('colProduct')}</th><th class="num">${t('colQty')}</th>${showSellCol ? `<th class="num">${t('spColUnitPrice')}</th><th class="num">${t('spColTotalPrice')}</th>` : ''}${showBatchCols ? `<th class="num">${t('batchColExpiry')}</th><th style="min-width:220px;padding-left:18px;">${t('batchLocTitle')}</th>` : ''}${showAmountCol ? `<th class="num">${t('colAmount')}${(typeof pcAmountColSuffix === 'function') ? pcAmountColSuffix() : ''}</th>` : ''}${showGstCol ? '<th>GST</th>' : ''}<th></th></tr></thead>
       <tbody>${rowsHtml}</tbody>
       ${showSellCol ? (() => { const tt = spTxItemsTotal(sellPartyId); const miss = tt.missing ? ` <span style="font-weight:400;font-size:11px;color:var(--ink-soft);">(${tf('spTotalMissing', { n: tt.missing })})</span>` : ''; const lead = (registerOutFlowType === 'load-pending' || registerOutFlowType === 'load-completed') ? t('spAddedItemsTotal') + ' · ' : ''; const tail = `<td colspan="${(showBatchCols ? 2 : 0) + (showAmountCol ? 1 : 0) + 1}"></td>`; const r = (lab, v, strong) => `<tr style="font-weight:${strong ? 700 : 600};"><td class="row-name" colspan="3" style="text-align:right;">${lab}</td><td class="row-num"><span style="${SP_TOTAL_PILL}">${spMoney(v)}</span></td>${tail}</tr>`; return `<tfoot>${r(lead + t('spSaleAmt') + miss, tt.sum, false)}${r(t('spGstAmt'), tt.gst, false)}${r(t('spTotalAmt'), spRound2(tt.sum + tt.gst), true)}</tfoot>`; })() : ''}
     </table>
@@ -1891,6 +1896,9 @@ async function submitTxBatchSimple(date, msg){
     if(trackedNames.length > 0 && !(await batchConfirmUntracked(trackedNames))) return;
   }
 
+  // 進貨帳務:有價錢的品項要有 GST;沒勾「入會計紀錄」卻有價錢 → 先確認
+  if(currentTxType === 'in' && typeof paPreSubmit === 'function' && !(await paPreSubmit(msg))) return;
+
   const purchaseId = currentTxType === 'in' ? genId() : null; // 一整批進貨(不管品項有幾個)共用同一個進貨單 ID
 
   // 「直接出貨」(currentTxType === 'out')的話,扣庫存之前先問清楚每個商品要從哪個位置扣——
@@ -2017,6 +2025,7 @@ async function submitTxBatchSimple(date, msg){
       createdAt: new Date().toISOString()
     };
     if(batchTrackThis) purchase.batchTracked = true;
+    if(typeof paApplyToPurchase === 'function') paApplyToPurchase(purchase, txBatchItems);   // 入會計紀錄 / GST
     if(typeof pcApplyToPurchase === 'function') pcApplyToPurchase(purchase); // 幣種換算 + 其他支出分攤 → 底價/總價
     let purchaseSaved = false;
     try{ await upsertPurchase(purchase); purchases.push(purchase); purchaseSaved = true; }
@@ -2034,6 +2043,7 @@ async function submitTxBatchSimple(date, msg){
     }
     if(typeof pcRememberExpenseNames === 'function' && purchase.costs) pcRememberExpenseNames(purchase.costs.expenses.map(e => e.name));
     if(typeof pcReset === 'function') pcReset();
+    if(typeof paFormReset === 'function') paFormReset();
     removePurchaseReceipt();
     // 這筆用的供應商名稱,如果「進貨方管理」清單裡還沒有(例如是透過「+ 新增供應商」臨時打的名字),
     // 跳視窗問要不要加入;要的話開出進貨方管理的編輯視窗(名稱已帶入),可以順便補聯繫人/電話/住址。

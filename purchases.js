@@ -512,6 +512,7 @@ function populateEditPurchasePartySelect(currentName, currentSupplierId){
   editPurchaseTargetId = purchaseId;
   editPurchaseWorkingReceiptFiles = getPurchaseReceiptFileList(p).slice();
   editPurchaseWorkingItems = (p.items || []).map(it => ({...it}));
+  if(typeof paEditLoad === 'function') paEditLoad(p);   // 進貨帳務:入會計紀錄 / GST
   document.getElementById('editPurchaseDateInput').value = p.date || '';
   { const _amt = document.getElementById('editPurchaseAddItemAmount'); if(_amt){ _amt.disabled = !canEditPrice(); if(!canEditPrice()) _amt.value = ''; } }
   populateEditPurchasePartySelect(p.partyName || p.partyId || '', p.supplierId || '');
@@ -626,6 +627,7 @@ function renderEditPurchaseItemsList(){
           <span style="width:70px;">${t('colQty')}</span>
           <span style="width:46px;flex:none;visibility:hidden;">${t('colQty')}</span>
           <span style="width:90px;">${t('colAmount')} (${escapeHtmlForPrint(typeof getSystemCurrency === 'function' ? getSystemCurrency() : 'AUD')})</span>
+          ${(typeof paOn === 'function' && paOn()) ? '<span style="width:92px;">GST</span>' : ''}
           <span style="visibility:hidden;">${t('btnRemoveItem')}</span>
         </div>`;
   wrap.innerHTML = `
@@ -642,6 +644,7 @@ function renderEditPurchaseItemsList(){
           <input type="number" value="${it.qty}" min="0" step="any" style="width:70px;" oninput="updateEditPurchaseItemQty(${i}, this.value)" />
           <span style="font-size:11.5px;color:var(--ink-soft);width:46px;flex:none;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtmlForPrint(it.unit || '')}</span>
           <input type="number" value="${it.amount !== undefined && it.amount !== null ? it.amount : ''}" min="0" step="any" placeholder="$" style="width:90px;" ${canEditPrice() ? '' : 'readonly title="' + t('priceReadOnlyTitle') + '"'} oninput="updateEditPurchaseItemAmount(${i}, this.value)" />
+          ${(typeof paOn === 'function' && paOn()) ? paGstSelectHtml(it.gst, 'paEditSetGst(' + i + ', this.value)') : ''}
           <span class="del-link" onclick="removeEditPurchaseItem(${i})">${t('btnRemoveItem')}</span>
          </div>
          ${editPurchaseIsBatchTracked() ? `<div style="display:flex;align-items:center;gap:8px;margin-top:4px;flex-wrap:wrap;">
@@ -965,6 +968,11 @@ async function confirmEditPurchase(){
     const { _scanUpdated, batchNote, ...rest } = it;
     return rest;
   });
+  if(typeof paEditCheck === 'function'){
+    paAutoFillGst(cleanItems);
+    const paErr = paEditCheck(cleanItems);
+    if(paErr){ msgEl.className = 'msg error'; msgEl.textContent = '⚠ ' + paErr; return; }
+  }
   // 比較品項有沒有真的改過:正規化成只留下影響庫存/金額的欄位、排序後再比較,不受「使用者
   // 只是把某一列刪掉又加回來、順序跟原本不一樣」這種操作影響——只要最終內容一樣,就不算改過,
   // 不需要白白重新產生一次 transactions。
@@ -1003,6 +1011,7 @@ async function confirmEditPurchase(){
   p.invoiceNo = invoiceVal;
   p.note = noteVal;
   p.items = cleanItems;
+  if(typeof paEditApply === 'function') paEditApply(p);   // 入會計紀錄 / GST 模式
   p.receiptFiles = editPurchaseWorkingReceiptFiles.slice();
   delete p.receiptUrl; // 舊格式欄位一旦編輯過就統一改用新的 receiptFiles 陣列,不留舊欄位造成混淆
   delete p.receiptFilename;
