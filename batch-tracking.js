@@ -1090,7 +1090,7 @@ function batchRenderBatchView(){
       <span style="font-size:12px;color:var(--ink-soft);">${batchEsc(h.isOpening ? t('batchOpening') : h.batchDate)}</span>
     </div>
     <table class="stock-table">
-      <thead><tr><th style="width:30%;">${t('colProduct')}</th><th class="num" style="width:14%;">${t('batchColRemaining')}</th><th style="width:20%;">${t('batchColExpiry')}</th><th class="num" style="width:12%;">${t('batchColCostPrice')}</th><th class="num" style="width:12%;">Sell price</th><th style="width:12%;"></th></tr></thead>
+      <thead><tr><th style="width:30%;">${t('colProduct')}</th><th class="num" style="width:14%;">${t('batchColRemaining')}</th><th style="width:20%;">${t('batchColExpiry')}</th><th class="num" style="width:12%;">${t('batchColCostPrice')}</th><th class="num" style="width:12%;">Sell price</th><th style="width:14%;"></th></tr></thead>
       <tbody>${items.sort((a, b) => batchProductName(a.productId).localeCompare(batchProductName(b.productId))).map(i => `
         <tr>
           <td><span class="batch-link" onclick="batchTrackerOpenProduct('${i.productId}')">${batchEsc(batchProductName(i.productId))}</span></td>
@@ -1098,7 +1098,7 @@ function batchRenderBatchView(){
           <td>${i.expiry ? batchEsc(i.expiry) + batchExpiryBadge(i.expiry, true) : '–'}</td>
           <td class="num">${(typeof spPriceCellHtml === 'function') ? spPriceCellHtml(i) : batchFmtMoney(batchUnitCost(i))}</td>
           <td class="num">${(typeof spSellCellHtml === 'function') ? spSellCellHtml(i) : batchFmtMoney(batchUnitCost(i))}</td>
-          <td><span class="del-link" onclick="batchTrackerOpenHistory('${i.id}')">${t('batchBtnHistory')}</span></td>
+          <td style="white-space:nowrap;"><span class="del-link" onclick="batchTrackerOpenHistory('${i.id}')">${t('batchBtnHistory')}</span> <span class="batch-info-icon" style="margin-left:6px;" title="${batchEsc(t('batchDetailsTitle'))}" onclick="batchOpenItemDetail('${i.id}')">ⓘ</span></td>
         </tr>`).join('')}</tbody>
     </table>`;
 }
