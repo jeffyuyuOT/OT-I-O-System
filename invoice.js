@@ -832,7 +832,7 @@ function invRenderList(key){
       <td style="white-space:nowrap;cursor:pointer;" onclick="invOpenFromList('${invEsc(r.id)}')"><span class="batch-link">${invEsc(r.invoice_no)}</span></td>
       <td style="white-space:nowrap;">${invEsc(invIsoToDmy(r.invoice_date))}</td>
       ${showCust ? `<td>${invEsc(r.customer)}</td>` : ''}
-      <td>${invEsc(r.order_no)}</td>
+      <td>${invOrderLinks(r.order_no)}</td>
       <td class="num"><b>${invMoney2(i.total)}</b></td>
       <td class="num">${invMoney2(i.paid)}</td><td class="num"><b>${invMoney2(i.balance)}</b></td>
       <td style="white-space:nowrap;">${invStatusBadge(i.status)}</td>
@@ -944,7 +944,7 @@ async function invOpenDetails(invoiceId){
         ${row('Due Date', inv.payment_type === 'cod' ? '' : invEsc(invIsoToDmy(inv.due_date)))}
         ${row(t('invDtPayType'), inv.payment_type === 'cod' ? 'COD' : 'Bank Transfer')}
         ${row('Sale Rep', invEsc(inv.sale_rep))}
-        ${row(t('invColOrder'), invEsc(inv.order_no))}
+        ${row(t('invColOrder'), invOrderLinks(inv.order_no))}
         ${row(t('spSaleAmt'), invMoney2(inv.before_tax))}
         ${row(t('spGstAmt'), invMoney2(inv.tax))}
         ${row(t('spTotalAmt'), '<b>' + invMoney2(i.total) + '</b>')}
@@ -1286,4 +1286,42 @@ async function invClearAll(){
   const { error } = await sb.rpc('invoice_clear_all');
   if(error && !invIsMissingFn(error)) throw error;
   if(typeof icCnClearAll === 'function') await icCnClearAll();
+}
+
+
+// 發票清單 / 詳細資料裡的訂單號:點下去跳到該訂單(待處理 → 訂貨後台管理;已完成 → 歷史紀錄的已完成訂單)
+function invOrderLinks(orderNo){
+  const parts = String(orderNo || '').split(/\s*,\s*/).filter(Boolean);
+  if(!parts.length) return '';
+  return parts.map(no => {
+    const o = (typeof orders !== 'undefined' ? orders : []).find(x => x.orderNo === no);
+    return o ? `<span class="batch-link" onclick="invGotoOrder('${invEsc(o.id)}')">${invEsc(no)}</span>` : invEsc(no);
+  }).join(', ');
+}
+function invGotoOrder(orderId){
+  const o = orders.find(x => x.id === orderId);
+  if(!o) return;
+  try{ if(typeof invCloseDetails === 'function') invCloseDetails(); }catch(e){}
+  expandedOrderIds.add(orderId);
+  if(isPreVerificationStatus(o) && !o.deleted){
+    switchTab('tab-order-admin');
+    switchOrderAdminSubTab('subtab-order-pending');
+    ['pendingOrderPartyFilter','pendingOrderDateFrom','pendingOrderDateTo'].forEach(id => { const e = document.getElementById(id); if(e) e.value = ''; });
+    renderPendingOrders();
+  } else {
+    switchTab('tab-log');
+    const sel = document.getElementById('logSubtabSelect'); if(sel) sel.value = 'subtab-log-completed';
+    switchLogSubTab('subtab-log-completed');
+    const pf = document.getElementById('completedOrderPartyFilter'); if(pf) pf.value = '';
+    const df = document.getElementById('completedOrderDateFrom'); if(df) df.value = '';
+    const dt = document.getElementById('completedOrderDateTo'); if(dt) dt.value = '';
+    renderOrders();
+  }
+  setTimeout(() => {
+    const el = document.querySelector(`.tab-content.active .order-card[data-oid="${orderId}"], .order-card[data-oid="${orderId}"]`);
+    if(!el) return;
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    const old = el.style.boxShadow; el.style.boxShadow = '0 0 0 3px var(--yellow, #e5a02f)';
+    setTimeout(() => { el.style.boxShadow = old; }, 2500);
+  }, 150);
 }

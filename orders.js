@@ -786,7 +786,7 @@ function renderCompletedOrdersInto(container, recentOnly){
       </div>
     `;
     return `
-      <div class="order-card ${o.deleted ? 'order-card-deleted' : ''}">
+      <div data-oid="${o.id}" class="order-card ${o.deleted ? 'order-card-deleted' : ''}">
         <div class="order-card-head" style="cursor:pointer;" onclick="toggleOrderExpand('${o.id}')">
           <span class="order-card-date">
             <span style="display:inline-block;width:14px;">${isExpanded ? '▾' : '▸'}</span>
@@ -1190,7 +1190,7 @@ function renderPendingOrders(){
     `;
     const activeItemCount = o.items.filter(it => !it.deleted).length;
     return `
-      <div class="order-card ${o.deleted ? 'order-card-deleted' : ''}">
+      <div data-oid="${o.id}" class="order-card ${o.deleted ? 'order-card-deleted' : ''}">
         <div class="order-card-head" style="cursor:pointer;" onclick="toggleOrderExpand('${o.id}')">
           <span class="order-card-date">
             <span style="display:inline-block;width:14px;">${isExpanded ? '▾' : '▸'}</span>
