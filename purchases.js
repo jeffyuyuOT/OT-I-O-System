@@ -157,13 +157,13 @@ function buildPurchaseWorkbook(p){
   const nsItems = p.nonStockItems || [], lineItems = p.lineExpenses || [];
   const productMap = Object.fromEntries(products.map(pp => [pp.id, pp]));
   const supplier = p.partyName || p.partyId || '';
-  const hasAnyAmount = exportItems.some(it => it.amount) || nsItems.length > 0 || lineItems.length > 0;
+  const hasAnyAmount = exportItems.some(it => it.amount) || nsItems.length > 0 || lineItems.length > 0 || ((p.costs && p.costs.expenses) || []).length > 0;
   const hasAnyDocType = exportItems.some(it => it.docType);
 
   const aoa = [];
   aoa.push([`Supplier: ${supplier}`, `Invoice No.: ${p.invoiceNo || ''}`]);
   aoa.push([`Date: ${p.date || ''}`]);
-  const hasOrig = exportItems.some(it => it.origCurrency) || nsItems.some(n => n.origCurrency) || lineItems.some(l => l.origCurrency);
+  const hasOrig = exportItems.some(it => it.origCurrency) || nsItems.some(n => n.origCurrency) || lineItems.some(l => l.origCurrency) || ((p.costs && p.costs.expenses) || []).some(e => e.currency && e.currency !== ((p.costs && p.costs.baseCurrency) || 'AUD'));
   const headerRow = ['SKU', 'Name', 'Qty', 'Unit'];
   // 第二期:Base Price = 發票商品本身的金額(AUD);Total Price = Base Price + 分攤到的其他支出。沒有其他支出時兩者相同。
   if(hasAnyAmount) headerRow.push('Base Price', 'Base Unit Price', 'Other Expenses (allocated)', 'Total Price', 'Total Unit Price');
@@ -217,6 +217,10 @@ function buildPurchaseWorkbook(p){
   };
   nsItems.forEach(n => pushExtraRow(`${n.name} (Non-stock)`, n.qty, n.unit || '', Number(n.amount) || 0, n.origAmount, n.origCurrency, n.fxRate));
   lineItems.forEach(l => pushExtraRow(`${l.name} (Other expense)`, '', '', Number(l.amount) || 0, l.origAmount, l.origCurrency, l.fxRate));
+  // 跟此進貨單相關的其他支出(運費、報關等,通常付給其他廠商):同樣成列,標示 Related expense
+  const relItems = (p.costs && p.costs.expenses) || [];
+  const relBase = (p.costs && p.costs.baseCurrency) || 'AUD';
+  relItems.forEach(e => pushExtraRow(`${e.name} (Related expense)`, '', '', Number(e.aud) || 0, e.currency !== relBase ? e.amount : undefined, e.currency !== relBase ? e.currency : '', e.currency !== relBase ? e.rate : ''));
 
   // 第二期:底價 / 其他支出 / 總價 合計(AUD),其他支出逐項列出(含原幣別與匯率)
   if(hasAnyAmount && typeof pcPurchaseTotals === 'function'){
@@ -225,9 +229,6 @@ function buildPurchaseWorkbook(p){
     aoa.push(['Invoice Items (Base Price)', '', '', '', tt.base]);
     if(tt.lineExpenses > 0) aoa.push(['Invoice Expenses (on receipt)', '', '', '', tt.lineExpenses]);
     if(p.costs && p.costs.expenses && p.costs.expenses.length){
-      p.costs.expenses.forEach(e => {
-        aoa.push([`Other Expense: ${e.name}`, '', '', '', e.aud, `${e.amount} ${e.currency}${e.currency !== ((p.costs && p.costs.baseCurrency) || 'AUD') ? ' @ ' + e.rate : ''}`]);
-      });
       const basisName = { volume: 'Volume', weight: 'Weight', boxes: 'Boxes', amount: 'Amount' }[p.costs.basis] || p.costs.basis;
       aoa.push(['Allocated by', basisName]);
     }
