@@ -625,6 +625,7 @@ function icCnRender(){
   const list = (icCnRows || []).filter(r => (!f.from || r.cn_date >= f.from) && (!f.to || r.cn_date <= f.to) && (!f.st || (r.return_status || 'none') === f.st)
     && (!q || [r.cn_no, r.customer, r.invoice_no].join(' ').toLowerCase().includes(q)));
   const sum = list.reduce((a, r) => a + (Number(r.total) || 0), 0);
+  const availSum = list.reduce((a, r) => a + (r.invoice_id ? 0 : (Number(r.total) || 0) - (Number(r.applied) || 0)), 0);   // 單獨 Credit Note 的可用額度合計
   const stOpt = (v, l) => `<option value="${v}" ${f.st === v ? 'selected' : ''}>${l}</option>`;
   const body = list.map(r => `<tr>
       <td style="white-space:nowrap;cursor:pointer;" onclick="icCnView('${invEsc(r.id)}')"><span class="batch-link">${invEsc(r.cn_no)}</span></td>
@@ -641,7 +642,7 @@ function icCnRender(){
       <div style="flex:1;min-width:160px;"><div style="font-size:11px;color:var(--ink-soft);">${t('invFltSearch')}</div><input type="text" value="${invEsc(f.q)}" placeholder="${invEsc(t('icCnSearchPh'))}" oninput="icCnF.q=this.value;icCnRenderKeepFocus(this)" style="width:100%;box-sizing:border-box;" /></div>
     </div>
     ${list.length ? `<div style="overflow-x:auto;"><table class="stock-table"><thead><tr><th>Credit Note No</th><th>${t('icColDate')}</th><th>${t('invColCustomer')}</th><th>Invoice</th><th class="num">${t('spTotalAmt')}</th><th class="num">${t('invCreditAvail')}</th><th>${t('icColReturnStatus')}</th><th></th></tr></thead><tbody>${body}</tbody>
-      <tfoot><tr style="font-weight:700;"><td colspan="4" style="text-align:right;">${t('invListTotals')} (${list.length})</td><td class="num">(${invMoney2(sum)})</td><td colspan="3"></td></tr></tfoot></table></div>` : `<div class="empty-note">${t('icNoCn')}</div>`}`;
+      <tfoot><tr style="font-weight:700;"><td colspan="4" style="text-align:right;">${t('invListTotals')} (${list.length})</td><td class="num">(${invMoney2(sum)})</td><td class="num">${invMoney2(availSum)}</td><td colspan="2"></td></tr></tfoot></table></div>` : `<div class="empty-note">${t('icNoCn')}</div>`}`;
 }
 function icCnRenderKeepFocus(inp){
   const pos = inp.selectionStart; icCnRender();
