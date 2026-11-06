@@ -211,7 +211,39 @@ async function arpRefresh(){
       arpReport.invAsOf = arpInvCompute(pById, arpAsOf, after);
     }catch(e){ arpReport.invAsOfErr = true; }
   }
+  // Income statement 用的期初 / 期末庫存(期初 = 起始日前一天的庫存;期末 = 結束日的庫存,沒有結束日或在今天以後 = 現在)
+  arpReport.stmt = { open: null, close: null, err: false };
+  try{
+    const pById = {}; ((typeof products !== 'undefined') ? products : []).forEach(p => { pById[p.id] = p; });
+    const today = (typeof invToday === 'function') ? invToday() : new Date().toISOString().slice(0, 10);
+    if(arpFilter.from){
+      const d = arpPrevDay(arpFilter.from);
+      const after = await arpLoadAfter(d);
+      arpReport.stmt.open = arpInvCompute(pById, d, after).total;
+    }
+    if(!arpFilter.to || arpFilter.to >= today) arpReport.stmt.close = arpReport.inv.total;
+    else { const after = await arpLoadAfter(arpFilter.to); arpReport.stmt.close = arpInvCompute(pById, arpFilter.to, after).total; }
+    if(run !== arpRunId) return;
+  }catch(e){ arpReport.stmt.err = true; }
   arpRender();
+}
+function arpPrevDay(d){ const x = new Date(d + 'T00:00:00Z'); x.setUTCDate(x.getUTCDate() - 1); return x.toISOString().slice(0, 10); }
+// Income statement(對齊會計師財報格式)。Purchases = 供應商進貨 + 進貨單相關費用(運費、關稅等,已分攤進庫存成本);Expenses = 獨立其他支出,依項目名稱分組。
+function arpStmt(R){
+  const st = R.stmt || {};
+  const purchases = arpR2(R.pur.ex + R.rel.ex);
+  const have = st.open !== null && st.open !== undefined && st.close !== null && st.close !== undefined;
+  const cos = have ? arpR2(st.open + purchases - st.close) : null;
+  const gp = cos === null ? null : arpR2(R.income.netEx - cos);
+  const g = {};
+  (R.expRows || []).filter(en => en.kind === 'sa').forEach(en => {
+    const nm = (en.name || '').trim() || '(–)', k = nm.toLowerCase();
+    (g[k] = g[k] || { name: nm, ex: 0 }).ex += en.info.ex;
+  });
+  const exp = Object.values(g).map(x => ({ name: x.name, ex: arpR2(x.ex) })).sort((a, b) => b.ex - a.ex);
+  const expTotal = arpR2(exp.reduce((a, x) => a + x.ex, 0));
+  return { sales: R.income.netEx, open: st.open, close: st.close, purchases, cos, gp, gpPct: (gp !== null && R.income.netEx > 0) ? arpR2(gp / R.income.netEx * 100) : null,
+    exp, expTotal, net: gp === null ? null : arpR2(gp - expTotal), err: !!st.err };
 }
 function arpSetFy(v){
   arpFilter.fy = v;
@@ -264,6 +296,19 @@ function arpRender(){
   const marginTbl = tbl([[t('arpColItem')], [t('arpColAmount'), 1]], [
     tr([t('arpNetRevenue') + ' (' + t('arpColEx') + ')', N(arpM(R.income.netEx))]), tr([t('arpCogs'), N('-' + arpM(R.cogs))]),
     tr([`<b>${t('arpMarginAmt')}</b>`, B(arpM(R.marginAmt))]), tr([t('arpMarginPct'), N(R.marginPct === null ? '–' : R.marginPct.toFixed(1) + '%')])].join(''));
+  const S = arpStmt(R), SM = v => (v === null || v === undefined) ? '–' : arpM(v);
+  const stmtTbl = tbl([[t('arpColItem')], [t('arpColAmount'), 1]], [
+    tr([`<b>${t('arpStRevenue')}</b>`, '']), tr([t('arpStSales'), N(arpM(S.sales))]),
+    tr([`<b>${t('arpStCos')}</b>`, '']),
+    tr([t('arpStOpen'), N(SM(S.open))]), tr([t('arpStPurchases'), N(arpM(S.purchases))]), tr([t('arpStClose'), N(S.close === null || S.close === undefined ? '–' : '(' + arpM(S.close) + ')')]),
+    tr([`<b>${t('arpStCosTotal')}</b>`, B(SM(S.cos))]),
+    tr([`<b>${t('arpStGp')}</b>`, B(SM(S.gp))]), tr([t('arpMarginPct'), N(S.gpPct === null ? '–' : S.gpPct.toFixed(1) + '%')]),
+    tr([`<b>${t('arpStExpenses')}</b>`, '']),
+    S.exp.map(x => tr([E(x.name), N(arpM(x.ex))])).join(''),
+    tr([`<b>${t('arpStExpTotal')}</b>`, B(arpM(S.expTotal))]),
+    tr([`<b>${t('arpStNet')}</b>`, B(SM(S.net))]),
+    tr([`<span style="color:var(--ink-soft);">${t('arpStCogsRef')}</span>`, N(`<span style="color:var(--ink-soft);">${arpM(R.cogs)}</span>`)])
+  ].join(''));
   const IV = R.invAsOf || R.inv;
   const invTbl = tbl([[t('colProduct')], [t('colQty'), 1], [t('arpColValue'), 1]],
     IV.rows.slice(0, 50).map(r => tr([E(r.name) + (r.sku ? ` <span style="color:var(--ink-soft);font-size:11px;">(${E(r.sku)})</span>` : ''), N(arpM(r.qty) + ' ' + E(r.unit)), N(arpM(r.value))])).join(''),
@@ -297,6 +342,7 @@ function arpRender(){
       ${R.invAsOf ? card(tf('arpInvAsOfCard', { d: arpAsOf }), arpM(R.invAsOf.total), R.invAsOf.total - R.inv.total >= 0 ? '+' + arpM(R.invAsOf.total - R.inv.total) + ' ' + t('arpVsNow') : '−' + arpM(R.inv.total - R.invAsOf.total) + ' ' + t('arpVsNow')) : ''}
       ${card(t('arpGstNet'), arpM(R.gst.net))}
     </div>
+    ${sec(t('arpSecStmt'), stmtTbl, t('arpStNote') + (S.open === null || S.open === undefined ? ' ' + t('arpStNoFrom') : '') + (S.err ? ' ' + t('arpStErr') : ''))}
     ${sec(t('arpSecIncome'), incTbl)}
     ${sec(t('arpSecPurchase'), purTbl, t('arpPurNote'))}
     ${sec(t('arpSecGst'), gstTbl, t('arpGstHint'))}
@@ -316,12 +362,18 @@ function arpExport(){
   const add = (name, aoa) => { const ws = XLSX.utils.aoa_to_sheet(aoa); ws['!cols'] = (aoa[0] || []).map((_, i) => ({ wch: i === 0 ? 34 : 16 })); XLSX.utils.book_append_sheet(wb, ws, name.slice(0, 31)); };
   const q = n => arpR2(n);
   const tot = { ex: R.pur.ex + R.rel.ex + R.sa.ex, gst: R.pur.gst + R.rel.gst + R.sa.gst, inc: R.pur.inc + R.rel.inc + R.sa.inc };
+  const S = arpStmt(R), sv = v => (v === null || v === undefined) ? '' : v;
+  add('Income statement', [
+    ['Period', (f.from || '…') + ' to ' + (f.to || '…')], [], ['REVENUE'], ['Sales', q(S.sales)], [], ['LESS: COST OF SALES'],
+    ['Opening inventories', sv(S.open)], ['Purchases', q(S.purchases)], ['Closing inventories', S.close === null || S.close === undefined ? '' : -q(S.close)], ['Cost of sales', sv(S.cos)], [],
+    ['GROSS PROFIT FROM TRADING', sv(S.gp)], ['Gross profit %', S.gpPct === null ? '' : S.gpPct], [], ['EXPENSES']
+  ].concat(S.exp.map(x => [x.name, x.ex])).concat([['Total expenses', S.expTotal], [], ['PROFIT BEFORE OTHER INCOME & INCOME TAX', sv(S.net)], [], ['Reference: cost of sales per batch cost', q(R.cogs)]]));
   add('Summary', [
     ['Period', (f.from || '…') + ' to ' + (f.to || '…')], [],
-    ['Revenue (ex GST, net of credit notes)', q(R.income.netEx)], ['GST collected (net)', q(R.income.netGst)], ['Revenue (inc GST)', q(R.income.netInc)], [],
-    ['Purchases (supplier invoices) ex GST', q(R.pur.ex)], ['Related expenses ex GST', q(R.rel.ex)], ['Other expenses (standalone) ex GST', q(R.sa.ex)], ['Total purchases & expenses ex GST', q(tot.ex)], ['GST paid (inputs)', q(tot.gst)], [],
-    ['Cost of goods sold (batch cost)', q(R.cogs)], ['Gross margin', q(R.marginAmt)], ['Gross margin %', R.marginPct === null ? '' : R.marginPct], [],
-    ['GST net payable / (refundable)', q(R.gst.net)], ['Wastage cost', q(R.wastageCost)], ['Inventory value (as of today)', q(R.inv.total)]
+    ['Sales (ex GST, net of credit notes)', q(R.income.netEx)], ['GST Collected (net)', q(R.income.netGst)], ['Sales (inc GST)', q(R.income.netInc)], [],
+    ['Purchases (supplier invoices) ex GST', q(R.pur.ex)], ['Purchases - related costs (freight, duty) ex GST', q(R.rel.ex)], ['Expenses (standalone) ex GST', q(R.sa.ex)], ['Total purchases & expenses ex GST', q(tot.ex)], ['GST Paid', q(tot.gst)], [],
+    ['Cost of sales (batch cost)', q(R.cogs)], ['Gross profit from trading', q(R.marginAmt)], ['Gross profit %', R.marginPct === null ? '' : R.marginPct], [],
+    ['GST net payable / (refundable)', q(R.gst.net)], ['Wastage cost', q(R.wastageCost)], ['Inventories - stock on hand at cost (as of today)', q(R.inv.total)]
   ].concat(R.invAsOf ? [['Inventory value (as of ' + arpAsOf + ')', q(R.invAsOf.total)]] : []));
   add('Invoices', [['Invoice No', 'Date', 'Customer', 'Ex GST', 'GST', 'Total', 'Paid']].concat(R.invs.map(r => [r.invoice_no, r.invoice_date, arpInvCustomer(r), q(arpN(r.before_tax)), q(arpN(r.tax)), q(arpN(r.total)), q(arpN(r.paid))])));
   add('Credit Notes', [['CN No', 'Date', 'Customer', 'Ex GST', 'GST', 'Total']].concat(R.cns.map(r => [r.cn_no, r.cn_date, arpInvCustomer(r), q(arpN(r.before_tax)), q(arpN(r.tax)), q(arpN(r.total))])));
@@ -330,8 +382,8 @@ function arpExport(){
   add('Wastage & adjustments', [['Reason', 'Group', 'Count', 'Qty', 'Cost']].concat(R.reasons.map(r => [(typeof adjReasonLabel === 'function' ? adjReasonLabel(r.code) : r.code), r.group, r.n, q(r.qty), q(r.cost)])));
   add('Inventory value' + (R.invAsOf ? ' ' + arpAsOf : ''), [['SKU', 'Product', 'Category', 'Qty', 'Unit', 'Value']].concat((R.invAsOf || R.inv).rows.map(r => [r.sku, r.name, r.category, q(r.qty), r.unit, q(r.value)])));
   const bk = ['cur', 'd30', 'd60', 'd90', 'd90p'];
-  add('AR aging', [['Customer', 'Not due', '1-30', '31-60', '61-90', '90+', 'Total']].concat(R.ar.rows.map(r => [r.name, ...bk.map(k => q(r[k])), q(r.total)])));
-  add('AP unpaid', [['Payee / supplier', '0-30 days', '31-60', '61-90', '91-120', '120+', 'Total']].concat(R.ap.rows.map(r => [r.name, ...bk.map(k => q(r[k])), q(r.total)])));
+  add('Trade receivables aging', [['Customer', 'Not due', '1-30', '31-60', '61-90', '90+', 'Total']].concat(R.ar.rows.map(r => [r.name, ...bk.map(k => q(r[k])), q(r.total)])));
+  add('Trade creditors aging', [['Payee / supplier', '0-30 days', '31-60', '61-90', '91-120', '120+', 'Total']].concat(R.ap.rows.map(r => [r.name, ...bk.map(k => q(r[k])), q(r.total)])));
   XLSX.writeFile(wb, `Accounting_Report_${f.from || 'all'}_${f.to || 'all'}.xlsx`);
 }
 
