@@ -553,5 +553,7 @@ function paApplyVisibility(){
   if(!sel) return;
   const o = Array.from(sel.options).find(x => x.value === 'subtab-acc-purchases');
   if(o){ o.hidden = !paOn(); o.disabled = !paOn(); }
+  const o2 = Array.from(sel.options).find(x => x.value === 'subtab-acc-prepay');
+  if(o2){ o2.hidden = !paOn(); o2.disabled = !paOn(); }
 }
 document.addEventListener('DOMContentLoaded', () => { try{ paApplyVisibility(); }catch(e){} });

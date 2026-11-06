@@ -116,7 +116,15 @@ function applySubTabOrder(){
       return;
     }
     const sel = getSubTabSelect(def.id);
-    if(sel){
+    if(sel && sel.querySelector('optgroup')){
+      // 有分組的下拉(會計):只在各自的分組裡調整順序,不把選項搬出分組
+      const cur = sel.value;
+      sel.querySelectorAll('optgroup').forEach(g => {
+        const its = Array.from(g.children).map(o => ({ key: 'opt:' + o.value, el: o, opt: o }));
+        orderSubTabItems(its, saved).forEach(i => g.appendChild(i.el));
+      });
+      sel.value = cur;
+    } else if(sel){
       const cur = sel.value;
       orderSubTabItems(getSelectSubTabItems(sel), saved).forEach(i => sel.appendChild(i.el));
       sel.value = cur;

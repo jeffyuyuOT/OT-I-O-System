@@ -2179,17 +2179,27 @@ body.no-cost-view .cost-col{display:none !important;}
   <div id="tab-accounting" class="tab-content">
     <div class="log-select-bar">
       <select id="accountingSubtabSelect" onchange="switchAccountingSubTab(this.value)">
-        <option value="subtab-acc-create-invoice" data-i18n="subtabAccCreateInvoice">Create Document</option>
-        <option value="subtab-acc-invoices" data-i18n="subtabAccInvoices">Invoice List</option>
-        <option value="subtab-acc-credit-notes" data-i18n="subtabAccCreditNotes">Credit Note List</option>
-        <option value="subtab-acc-purchases" data-i18n="subtabAccPurchases">Purchase List</option>
-        <option value="subtab-acc-prepay" data-i18n="subtabAccPrepay">預付款</option>
-        <option value="subtab-acc-expenses" data-i18n="subtabAccExpenses">其他支出</option>
-        <option value="subtab-acc-reports" data-i18n="subtabAccReports">會計報表</option>
-        <option value="subtab-acc-schedule" data-i18n="subtabAccSchedule">付款與收款排程</option>
-        <option value="subtab-price-setting" data-i18n="subtabPriceSetting">定價管理</option>
-        <option value="subtab-log-pricerec" data-i18n="subtabLogPriceRecord">定價管理紀錄</option>
-        <option value="subtab-acc-settings" data-i18n="subtabAccSettings">會計設定</option>
+        <optgroup label="銷售" data-i18n-label="accGrpSales">
+          <option value="subtab-acc-create-invoice" data-i18n="subtabAccCreateInvoice">Create Document</option>
+          <option value="subtab-acc-invoices" data-i18n="subtabAccInvoices">Invoice List</option>
+          <option value="subtab-acc-credit-notes" data-i18n="subtabAccCreditNotes">Credit Note List</option>
+        </optgroup>
+        <optgroup label="採購與支出" data-i18n-label="accGrpPurchase">
+          <option value="subtab-acc-purchases" data-i18n="subtabAccPurchases">Purchase List</option>
+          <option value="subtab-acc-prepay" data-i18n="subtabAccPrepay">預付款</option>
+          <option value="subtab-acc-expenses" data-i18n="subtabAccExpenses">其他支出</option>
+        </optgroup>
+        <optgroup label="報表與排程" data-i18n-label="accGrpReports">
+          <option value="subtab-acc-reports" data-i18n="subtabAccReports">會計報表</option>
+          <option value="subtab-acc-schedule" data-i18n="subtabAccSchedule">付款與收款排程</option>
+        </optgroup>
+        <optgroup label="定價" data-i18n-label="accGrpPricing">
+          <option value="subtab-price-setting" data-i18n="subtabPriceSetting">定價管理</option>
+          <option value="subtab-log-pricerec" data-i18n="subtabLogPriceRecord">定價管理紀錄</option>
+        </optgroup>
+        <optgroup label="設定" data-i18n-label="accGrpSettings">
+          <option value="subtab-acc-settings" data-i18n="subtabAccSettings">會計設定</option>
+        </optgroup>
       </select>
     </div>
 
@@ -2273,6 +2283,11 @@ body.no-cost-view .cost-col{display:none !important;}
               <button class="btn ghost" onclick="addCurrencyToList()" data-i18n="pcAddCurrency">加入</button>
             </div>
           </div>
+        </div>
+        <div class="settings-card">
+          <div class="section-title" data-i18n="secAccProducts">商品</div>
+          <p style="font-size:11.5px;color:var(--ink-soft);margin:0 0 8px;" data-i18n="accProductsHint">會計新增的商品:會計匯出一定顯示、倉管員不能刪除。</p>
+          <button class="btn ghost" onclick="openAddNewProductFromAcct()" data-i18n="btnAddProductAcct">＋ 新增商品</button>
         </div>
         <div class="settings-card" id="reportCategoryCard"></div>
         <div class="settings-card" id="sellPriceSettingCard">
