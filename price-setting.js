@@ -181,7 +181,7 @@ function psBuildRecord(map, source, note){
     if(avg){ it.a = avg.cost; if(avg.est) it.ae = 1; }   // 儲存當下的平均成本(舊紀錄沒有這個欄位)
     items.push(it);
   });
-  return { id: genId(), ts: new Date().toISOString(), by: psWho(), source: source || 'manual', note: note || '', items };
+  return { id: genId(), ts: new Date().toISOString(), by: psWho(), source: source || 'manual', note: note || '', basis: psMarginBasis === 'avg' ? 'avg' : 'batch', items };   // basis = 儲存當下 Margin 欄位依據的成本(舊紀錄沒有這個欄位 = batch)
 }
 async function psLoadIndex(force){
   if(psRecordIndex && !force) return psRecordIndex;
@@ -495,6 +495,7 @@ function psRenderRecordDetail(){
     <div style="margin:0 0 10px;"><button class="btn ghost" onclick="psRecBack()">← ${t('batchBackPrev')}</button></div>
     <div class="section-title" style="margin-top:0;">${psEsc(psFmtTime(rec.ts))} · ${psEsc(psSourceLabel(rec))}${rec.by ? ' · ' + psEsc(rec.by) : ''}</div>
     ${rec.note ? `<div style="font-size:12px;color:var(--ink-soft);margin-bottom:8px;">${psEsc(rec.note)}</div>` : ''}
+    <div style="font-size:12px;color:var(--ink-soft);margin-bottom:8px;">${t(rec.basis === 'avg' ? 'psRecBasisAvgNote' : 'psRecBasisBatchNote')}</div>
     <div class="filter-row" style="margin-bottom:10px;">
       ${psFilterSelectsHtml('psR', f, supMap, pseudo, 'psOnRecFilterChange()')}
       <div class="field" style="min-width:200px;"><label>${t('psSearchProduct')}</label><input type="search" id="psRQ" value="${psEsc(f.q)}" oninput="psOnRecSearch(this.value)" placeholder="${psEsc(t('psSearchProduct'))}" /></div>
@@ -509,12 +510,15 @@ function psRenderRecordTable(){
   if(!box || !psRecView) return;
   const f = psRecView.f;
   const items = psRecView.rec.items;
+  const avgBasis = psRecView.rec.basis === 'avg';
   const pseudo = items.map(i => ({ id: i.p, name: i.n, unit: i.u, category: i.c, sku: ((products || []).find(x => x.id === i.p) || {}).sku || '' }));
   const keep = new Set(psFilterProducts(pseudo, f, psSupplierMap()).map(p => p.id));
   const order = (typeof categoryOrder !== 'undefined' && Array.isArray(categoryOrder)) ? categoryOrder : [];
   const idx = c => { const k = order.indexOf(c || '未分類'); return k === -1 ? 9999 : k; };
   const rows = items.filter(i => keep.has(i.p)).sort((a, b) => (idx(a.c) - idx(b.c)) || String(a.n).localeCompare(String(b.n))).map(i => {
-    const m = i.e && i.s !== null && i.s !== undefined ? 20 : psMarginOf(i.s, i.k);
+    const m = avgBasis
+      ? (i.ae && i.s !== null && i.s !== undefined ? 20 : psMarginOf(i.s, i.a))
+      : (i.e && i.s !== null && i.s !== undefined ? 20 : psMarginOf(i.s, i.k));
     return `<tr>
       <td>${psEsc(i.n)}<div style="font-size:10.5px;color:var(--ink-soft);">${psEsc(catLabel(i.c || '未分類'))}${i.u ? ' · ' + psEsc(i.u) : ''}</div></td>
       <td class="num">${psFmt2(i.s)}</td>
@@ -523,7 +527,7 @@ function psRenderRecordTable(){
       <td class="num">${psMarginHtml(m)}</td>
     </tr>`;
   }).join('');
-  box.innerHTML = rows ? `<div style="overflow-x:auto;"><table class="stock-table"><thead><tr><th>${t('lblProduct')}</th><th class="num">Sell price</th><th class="num">${t('psRecColCostThen')}</th><th class="num">${t('psRecColAvgThen')}</th><th class="num">Margin</th></tr></thead><tbody>${rows}</tbody></table></div>` : `<div class="empty-note">${t('psNoProducts')}</div>`;
+  box.innerHTML = rows ? `<div style="overflow-x:auto;"><table class="stock-table"><thead><tr><th>${t('lblProduct')}</th><th class="num">Sell price</th><th class="num">${t('psRecColCostThen')}</th><th class="num">${t('psRecColAvgThen')}</th><th class="num">Margin<div style="font-size:10.5px;font-weight:400;">${t(avgBasis ? 'psRecBasisAvgShort' : 'psRecBasisBatchShort')}</div></th></tr></thead><tbody>${rows}</tbody></table></div>` : `<div class="empty-note">${t('psNoProducts')}</div>`;
 }
 
 // ============================================================
