@@ -230,6 +230,11 @@ function renderProductEditModalBody(p, opts){
         <span>${t('fieldProductGst')}<span style="color:var(--ink-soft);font-weight:400;"> ${t('fieldProductGstHint')}</span></span>
       </label>
     </div>
+    <div class="field-block">
+      <label>${t('rcFieldLabel')}</label>
+      ${typeof rcSelectHtml === 'function' ? rcSelectHtml(p.reportCategory || '') : ''}
+      <div class="field-hint">${t('rcFieldHint')}</div>
+    </div>
     ${acctAdded ? `<p style="font-size:12px;color:var(--ink-soft);margin:8px 0 0;">${t('prodAddedByAcctNote')}</p>` : ''}
   </div>` : '';
   return `
@@ -531,6 +536,7 @@ async function saveProductEditModal(){
       safetyStock: safetyRaw === '' ? null : parseFloat(safetyRaw),
       note, orderable: false, parentId: null, childWeight: null,
       gst: (document.getElementById('editProdGst') || {}).checked === true ? true : undefined,
+      reportCategory: ((document.getElementById('editProdReportCategory') || {}).value || '') || undefined,
       addedByAcct: addingProductFromAcct ? true : undefined,
       orderPageRemark: orderPageRemark || undefined,
       barcode: barcode || undefined,
@@ -565,6 +571,8 @@ async function saveProductEditModal(){
     if(hiddenEl) p.hidden = hiddenEl.checked;
     const gstEl = document.getElementById('editProdGst');
     if(gstEl) p.gst = gstEl.checked;
+    const rcEl = document.getElementById('editProdReportCategory');
+    if(rcEl){ if(rcEl.value) p.reportCategory = rcEl.value; else delete p.reportCategory; }
     const batchTrkEl = document.getElementById('editProdBatchTrack');
     if(batchTrkEl){ if(batchTrkEl.checked) delete p.batchTrack; else p.batchTrack = false; }
     const noAcctEl = document.getElementById('editProdNoAcct');

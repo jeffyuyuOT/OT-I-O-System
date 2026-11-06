@@ -1,0 +1,83 @@
+// ============================================================
+// 會計報表分類(Report category)
+//  · 跟庫存總覽的分類(product.category)是兩套:這個只用在會計報表,由會計在「會計設定」管理
+//  · 商品視窗的「會計」分頁裡,每個商品選一個報表分類(product.reportCategory,存名稱)
+//  · 清單存在 app_data 的 reportCategories(名稱陣列,順序即報表顯示順序)
+// ============================================================
+Object.assign(I18N.zh, {
+  rcTitle: '會計報表分類', rcHint: '這是會計報表用的商品分類,跟庫存總覽的分類不一樣,只在商品視窗的「會計」分頁選擇。刪除或改名會同步更新已選這個分類的商品。',
+  rcAddPh: '新分類名稱', rcAddBtn: '新增', rcEmpty: '還沒有報表分類。', rcRename: '改名', rcRenamePrompt: '把「{name}」改成:', rcDelete: '刪除',
+  rcDeleteConfirm: '刪除報表分類「{name}」?有 {n} 個商品選了這個分類,它們會變成「未設定」。', rcDup: '已經有這個分類名稱了。', rcUsed: '{n} 個商品', rcSaveFail: '儲存失敗,請再試一次。',
+  rcFieldLabel: '報表分類', rcUnset: '(未設定)', rcFieldHint: '會計報表用的分類,跟庫存總覽的分類不同。分類清單在「會計設定」管理。'
+});
+Object.assign(I18N.en, {
+  rcTitle: 'Accounting report categories', rcHint: 'Product categories used only in accounting reports — separate from the stock overview categories. Pick one per product in the product window\'s Accounting tab. Renaming or deleting updates the products that use it.',
+  rcAddPh: 'New category name', rcAddBtn: 'Add', rcEmpty: 'No report categories yet.', rcRename: 'Rename', rcRenamePrompt: 'Rename "{name}" to:', rcDelete: 'Delete',
+  rcDeleteConfirm: 'Delete report category "{name}"? {n} product(s) use it and will become unset.', rcDup: 'That category name already exists.', rcUsed: '{n} product(s)', rcSaveFail: 'Save failed, please try again.',
+  rcFieldLabel: 'Report category', rcUnset: '(unset)', rcFieldHint: 'Category used in accounting reports — separate from the stock overview category. Manage the list in Accounting Settings.'
+});
+
+let reportCategories = [];
+async function rcLoad(){
+  try{
+    const r = await dbGet('reportCategories');
+    if(r && r.value){ const a = JSON.parse(r.value); if(Array.isArray(a)) reportCategories = a.filter(x => typeof x === 'string' && x.trim()); }
+  }catch(e){ /* 還沒設定過 */ }
+}
+async function rcSave(){ await dbSet('reportCategories', JSON.stringify(reportCategories)); }
+function rcEsc(s){ return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
+function rcCount(name){ return products.filter(p => p.reportCategory === name).length; }
+// 商品視窗「會計」分頁的下拉選單
+function rcSelectHtml(current){
+  const list = reportCategories.slice();
+  if(current && !list.includes(current)) list.push(current);
+  return `<select id="editProdReportCategory" style="width:100%;padding:8px;"><option value="">${t('rcUnset')}</option>${list.map(c => `<option value="${rcEsc(c)}" ${c === current ? 'selected' : ''}>${rcEsc(c)}</option>`).join('')}</select>`;
+}
+function rcRenderSettings(){
+  const box = document.getElementById('reportCategoryCard'); if(!box) return;
+  const rows = reportCategories.map((c, i) => `<div class="cat-order-row">
+      <span class="cat-order-name">${rcEsc(c)} <span style="font-size:11px;color:var(--ink-soft);">${tf('rcUsed', { n: rcCount(c) })}</span></span>
+      <button onclick="rcMove(${i}, -1)" ${i === 0 ? 'disabled' : ''}>↑</button>
+      <button onclick="rcMove(${i}, 1)" ${i === reportCategories.length - 1 ? 'disabled' : ''}>↓</button>
+      <button class="cat-order-rename-btn" onclick="rcRename(${i})">${t('rcRename')}</button>
+      <button class="cat-order-rename-btn" style="color:var(--crit);" onclick="rcDelete(${i})">${t('rcDelete')}</button></div>`).join('');
+  box.innerHTML = `<div class="section-title">${t('rcTitle')}</div>
+    <p style="font-size:11.5px;color:var(--ink-soft);margin:0 0 8px;">${t('rcHint')}</p>
+    ${rows || `<div class="empty-note">${t('rcEmpty')}</div>`}
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:10px;">
+      <input id="rcNew" type="text" placeholder="${rcEsc(t('rcAddPh'))}" onkeydown="if(event.key==='Enter')rcAdd()" />
+      <button class="btn ghost" onclick="rcAdd()">${t('rcAddBtn')}</button><span id="rcMsg" style="font-size:12px;"></span></div>`;
+}
+function rcMsg(k){ const m = document.getElementById('rcMsg'); if(m){ m.style.color = 'var(--crit)'; m.textContent = k ? t(k) : ''; } }
+async function rcPersist(prev){
+  try{ await rcSave(); }catch(e){ console.error('儲存報表分類失敗', e); reportCategories = prev; rcRenderSettings(); rcMsg('rcSaveFail'); return false; }
+  rcRenderSettings(); return true;
+}
+async function rcAdd(){
+  const el = document.getElementById('rcNew'); const name = (el.value || '').trim(); if(!name) return;
+  if(reportCategories.some(c => c.trim().toLowerCase() === name.toLowerCase())){ rcMsg('rcDup'); return; }
+  const prev = reportCategories.slice(); reportCategories.push(name); await rcPersist(prev);
+}
+async function rcMove(i, d){
+  const j = i + d; if(j < 0 || j >= reportCategories.length) return;
+  const prev = reportCategories.slice(); [reportCategories[i], reportCategories[j]] = [reportCategories[j], reportCategories[i]]; await rcPersist(prev);
+}
+async function rcRename(i){
+  const old = reportCategories[i]; if(!old) return;
+  const input = window.prompt(tf('rcRenamePrompt', { name: old }), old); if(input === null) return;
+  const name = input.trim(); if(!name || name === old) return;
+  if(reportCategories.some((c, k) => k !== i && c.trim().toLowerCase() === name.toLowerCase())){ rcMsg('rcDup'); return; }
+  const prev = reportCategories.slice(); reportCategories[i] = name;
+  products.forEach(p => { if(p.reportCategory === old) p.reportCategory = name; });
+  try{ await saveProducts(); }catch(e){ console.error(e); }
+  await rcPersist(prev);
+}
+function rcDelete(i){
+  const name = reportCategories[i]; if(!name) return;
+  showConfirmModal(tf('rcDeleteConfirm', { name, n: rcCount(name) }), async () => {
+    const prev = reportCategories.slice(); reportCategories.splice(i, 1);
+    products.forEach(p => { if(p.reportCategory === name) delete p.reportCategory; });
+    try{ await saveProducts(); }catch(e){ console.error(e); }
+    await rcPersist(prev);
+  });
+}

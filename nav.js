@@ -553,6 +553,7 @@ function switchAccountingSubTab(subtabId){
   if(subtabId === 'subtab-log-pricerec' && typeof psOpenRecordList === 'function') psOpenRecordList();
   if(subtabId === 'subtab-acc-settings'){
     if(typeof renderSystemCurrencySetting === 'function') renderSystemCurrencySetting();
+    if(typeof rcRenderSettings === 'function') rcRenderSettings();
     if(typeof renderSellPriceSetting === 'function') renderSellPriceSetting();
     if(typeof invRenderSettings === 'function') invRenderSettings();
     if(typeof renderAccountingEmailList === 'function') renderAccountingEmailList();

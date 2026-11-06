@@ -2274,6 +2274,7 @@ body.no-cost-view .cost-col{display:none !important;}
             </div>
           </div>
         </div>
+        <div class="settings-card" id="reportCategoryCard"></div>
         <div class="settings-card" id="sellPriceSettingCard">
           <div class="section-title" data-i18n="secSellPriceBlock">Sell price</div>
 
@@ -3308,6 +3309,7 @@ body.no-cost-view .cost-col{display:none !important;}
 <script src="invoice-create.js"></script>
 <script src="purchase-accounting.js"></script>
 <script src="prepayments.js"></script>
+<script src="report-categories.js"></script>
 <script src="other-expenses.js"></script>
 <script src="accounting-reports.js"></script>
 <script src="payment-schedule.js"></script>
@@ -3770,7 +3772,7 @@ async function loadData(){
     'disableDirectVerify','hideInvoice','accountingEmails','accountingEmail','stockLocationMode','stockLocationEnabledFields',
     'stockLocationShowOnPickingSlip','productSortMode','productManualRank','completedExportFormat',
     'hideMultipackIconOnOrderPage','categoryOrder','tabOrder','subTabOrder','quickLists','forecastPrefs','forecastRecords','exportEmailLogs',
-    'historyRangeMonths']);
+    'historyRangeMonths','reportCategories']);
   // 送貨單/進貨單/後台紀錄屬於歷史類資料,第一次用到(開對應分頁、備份…)才載入,見 db.js ensure*Loaded
   const tablesP = Promise.all([loadProductStock(), loadProductLocations(), loadReceiptLineMappings(), loadPurchaseSuppliers()]);
   // 歷史資料顯示範圍(管理員設定)決定要載入幾個月的交易/訂單,所以要等設定值先讀到
@@ -3786,6 +3788,7 @@ async function loadData(){
     const p = await dbGet('products');
     products = p ? JSON.parse(p.value) : [];
   } catch(e){ products = []; }
+  if(typeof rcLoad === 'function') await rcLoad();
   try{
     const counterResult = await dbGet('orderCounter');
     orderCounter = counterResult ? (parseInt(counterResult.value, 10) || 0) : 0;
