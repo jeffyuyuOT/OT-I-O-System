@@ -161,6 +161,7 @@ function paSetTxItemGst(batchItemId, v){
 // 送出進貨前:有價格的品項要有 GST;沒勾「入會計紀錄」但有價錢 → 跳窗確認。回傳 false = 中止送出。
 async function paPreSubmit(msg){
   if(!paOn()) return true;
+  if(typeof canViewPrice === 'function' && !canViewPrice()) return true;   // 看不到價錢的人(倉管員)不填金額 / GST,由會計之後在 Purchase List 補
   const lineExps = (typeof pcState !== 'undefined' && pcState.lineExpenses ? pcState.lineExpenses : []).filter(l => Number(l.amount) > 0).map(l => Object.assign({ name: l.name || '(其他支出)' }, l));
   const nsExps = (typeof pcState !== 'undefined' && pcState.nonStock ? pcState.nonStock : []).filter(n => Number(n.amount) > 0).map(n => Object.assign({}, n, { name: n.name || '(非入庫商品)' }));
   const priced = txBatchItems.filter(it => Number(it.amount) > 0 && !paProductOffBooks(it.productId)).concat(lineExps, nsExps);
