@@ -121,6 +121,7 @@ function openPartyEditModal(id){
   document.getElementById('partyBillToInput').value = sp ? (sp.billTo || '') : '';
   document.getElementById('partyShipToInput').value = sp ? (sp.shipTo !== undefined ? sp.shipTo : (sp.address || '')) : '';
   document.getElementById('partyAbnInput').value = sp ? (sp.abn || '') : '';
+  document.getElementById('partyMyobInput').value = sp ? (myobCards['c:' + sp.id] || '') : '';
   document.getElementById('partyPaymentTypeSelect').value = (sp && sp.paymentType === 'cod') ? 'cod' : 'bank';
   document.getElementById('partyPaymentTermSelect').value = String((sp && Number(sp.paymentTerm) > 0) ? Number(sp.paymentTerm) : 7);
   onPartyPaymentTypeChange();
@@ -176,6 +177,8 @@ async function savePartyEdit(){
   sp.discount = discount;
   delete sp.contact;   // 舊的「聯絡方式」欄位已拆成 聯繫人 / 聯繫電話,內容在上面已帶進 phone
   if(isNew){ sp.code = nextEntityCode('C', shippingParties); shippingParties.push(sp); }
+  const myobName = document.getElementById('partyMyobInput').value.trim();
+  if(!(await myobCardSet('c:' + sp.id, myobName))) showInfoModal(t('rcSaveFail'));
   editingPartyId = null;
   document.getElementById('partyEditModalOverlay').style.display = 'none';
   await saveShippingParties();
@@ -546,6 +549,17 @@ async function importSuppliersFromPurchases(){
   });
 }
 
+// MYOB 卡片名稱(出貨方 c:<id> / 進貨方 s:<id>)——存在 app_data 的 myobCards,不動資料表
+let myobCards = {};
+async function myobCardsLoad(){
+  try{ const r = await dbGet('myobCards'); if(r && r.value){ const o = JSON.parse(r.value); if(o && typeof o === 'object' && !Array.isArray(o)) myobCards = o; } }catch(e){}
+}
+async function myobCardSet(key, name){
+  const prev = myobCards[key];
+  if(name) myobCards[key] = name; else delete myobCards[key];
+  try{ await dbSet('myobCards', JSON.stringify(myobCards)); return true; }
+  catch(e){ console.error('儲存 MYOB 卡片名稱失敗', e); if(prev === undefined) delete myobCards[key]; else myobCards[key] = prev; return false; }
+}
 let editingSupplierId = null;
 function openSupplierEditModal(supplierId, prefillName){
   editingSupplierId = supplierId;
@@ -557,6 +571,7 @@ function openSupplierEditModal(supplierId, prefillName){
   document.getElementById('supplierPhoneInput').value = s ? s.phone || '' : '';
   document.getElementById('supplierAddressInput').value = s ? s.address || '' : '';
   document.getElementById('supplierNoteInput').value = s ? s.note || '' : '';
+  document.getElementById('supplierMyobInput').value = s ? (myobCards['s:' + s.id] || '') : '';
   document.getElementById('supplierTermsInput').value = (s && s.paymentTerms !== null && s.paymentTerms !== undefined) ? s.paymentTerms : '';
   document.getElementById('supplierEditModalMsg').textContent = '';
   document.getElementById('supplierDeleteBtn').style.display = s ? '' : 'none';
@@ -588,6 +603,7 @@ async function saveSupplierEdit(){
   s.paymentTerms = terms;
   try{
     await upsertPurchaseSupplier(s);
+    if(!(await myobCardSet('s:' + s.id, document.getElementById('supplierMyobInput').value.trim()))) showInfoModal(t('rcSaveFail'));
     if(!editingSupplierId) purchaseSuppliers.push(s);
     // 改了名稱的話,之前收據辨識記憶對照表裡用舊名稱記錄的那些筆,一併同步改成新名稱,
     // 不然改名之後那些記憶會變成對照不到任何供應商、之後掃描還是會重新問一次。
