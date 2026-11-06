@@ -1284,7 +1284,9 @@ async function invExportForBackup(){
     try{ if(typeof paBackupExport === 'function') purchasePayments = await paBackupExport(); }catch(e){}
     let otherExpenses = null;   // 其他支出(獨立支出)
     try{ if(typeof oeBackupExport === 'function') otherExpenses = await oeBackupExport(); }catch(e){}
-    return { invoices: data || [], payments, changes, creditNotes, settings, purchasePayments, otherExpenses, next: await invGetNextNo() };
+    let prepayments = null;   // 供應商預付款(含抵扣紀錄)
+    try{ if(typeof ppBackupExport === 'function') prepayments = await ppBackupExport(); }catch(e){}
+    return { invoices: data || [], payments, changes, creditNotes, settings, purchasePayments, otherExpenses, prepayments, next: await invGetNextNo() };
   }catch(e){
     if(invIsMissingFn(e)) return null;
     throw e;
@@ -1305,6 +1307,11 @@ async function invRestoreFromBackup(backup){
     if(Array.isArray(d.purchasePayments)) await paBackupRestore(d.purchasePayments);
     else if(typeof d.purchasePayments === 'undefined' && typeof paBackupClear === 'function') await paBackupClear();   // 舊備份(功能上線前)沒有進貨付款記錄:跟備份當時一樣,清掉
   }
+  if(typeof ppBackupRestore === 'function'){
+    // 必須在進貨付款還原之後:抵扣紀錄綁著進貨付款。舊備份沒有預付款資料 → 跟備份當時一樣,清掉
+    if(d.prepayments && Array.isArray(d.prepayments.prepayments)) await ppBackupRestore(d.prepayments);
+    else if(typeof d.prepayments === 'undefined' && typeof ppBackupClear === 'function') await ppBackupClear();
+  }
   if(typeof oeBackupRestore === 'function'){
     if(Array.isArray(d.otherExpenses)) await oeBackupRestore(d.otherExpenses);
     else if(typeof d.otherExpenses === 'undefined' && typeof oeBackupClear === 'function') await oeBackupClear();
@@ -1317,6 +1324,7 @@ async function invClearAll(){
   const { error } = await sb.rpc('invoice_clear_all');
   if(error && !invIsMissingFn(error)) throw error;
   if(typeof icCnClearAll === 'function') await icCnClearAll();
+  if(typeof ppBackupClear === 'function') await ppBackupClear();
   if(typeof paBackupClear === 'function') await paBackupClear();
   if(typeof oeBackupClear === 'function') await oeBackupClear();
 }

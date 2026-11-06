@@ -19,6 +19,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
@@ -2289,6 +2290,7 @@ body.no-cost-view .cost-col{display:none !important;}
           <p style="font-size:11.5px;color:var(--ink-soft);margin:0 0 8px;" data-i18n="accProductsHint">會計新增的商品:會計匯出一定顯示、倉管員不能刪除。</p>
           <button class="btn ghost" onclick="openAddNewProductFromAcct()" data-i18n="btnAddProductAcct">＋ 新增商品</button>
         </div>
+        <div class="settings-card" id="evoPackCard"></div>
         <div class="settings-card" id="sellPriceSettingCard">
           <div class="section-title" data-i18n="secSellPriceBlock">Sell price</div>
 
@@ -3336,6 +3338,7 @@ body.no-cost-view .cost-col{display:none !important;}
 <script src="purchase-accounting.js"></script>
 <script src="prepayments.js"></script>
 <script src="report-categories.js"></script>
+<script src="evidence-pack.js"></script>
 <script src="other-expenses.js"></script>
 <script src="accounting-reports.js"></script>
 <script src="payment-schedule.js"></script>

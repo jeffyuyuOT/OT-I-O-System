@@ -270,3 +270,23 @@ async function ppApply(){
     paRenderPayments();
   }catch(e){ console.error('預付款抵扣失敗', e); msg.className = 'msg error'; msg.textContent = '⚠ ' + ppErrMsg(e); }
 }
+
+
+// ----- 完整資料備份 / 還原(跟進貨付款、其他支出一起,由 invoice.js 的備份流程呼叫)-----
+async function ppBackupExport(){
+  try{
+    const a = await sb.from('supplier_prepayments').select('*').limit(50000);
+    if(a.error) return null;   // 還沒執行 SQL
+    const b = await sb.from('prepayment_applications').select('*').limit(100000);
+    if(b.error) return null;
+    return { prepayments: a.data || [], applications: b.data || [] };
+  }catch(e){ return null; }
+}
+async function ppBackupRestore(d){
+  if(!d || !Array.isArray(d.prepayments)) return;
+  const { error } = await sb.rpc('prepayments_restore_all', { p_prepayments: d.prepayments, p_applications: Array.isArray(d.applications) ? d.applications : [] });
+  if(error) throw error;
+}
+async function ppBackupClear(){
+  try{ await sb.rpc('prepayments_clear_all'); }catch(e){ /* 還沒執行 SQL:沒有這張表就不用清 */ }
+}
