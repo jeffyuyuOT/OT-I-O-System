@@ -1258,6 +1258,12 @@ function openSaveForecastModal(){
   const loadedRec = forecastLoadedRecordId ? forecastRecords.find(r => r.id === forecastLoadedRecordId) : null;
   if(!loadedRec) forecastLoadedRecordId = null;
   document.getElementById('saveForecastNameInput').value = loadedRec ? loadedRec.name : defaultForecastRecordName();
+  { const ss = document.getElementById('saveForecastSupplier');
+    if(ss){
+      const sups = (typeof purchaseSuppliers !== 'undefined' ? purchaseSuppliers : []).slice().sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+      ss.innerHTML = `<option value="">${t('optForecastNoSupplier')}</option>` + sups.map(x => `<option value="${escapeHtmlText(x.id)}">${escapeHtmlText(x.name || '')}</option>`).join('');
+      ss.value = (loadedRec && loadedRec.supplierId && sups.some(x => x.id === loadedRec.supplierId)) ? loadedRec.supplierId : '';
+    } }
   document.getElementById('saveForecastModalMsg').textContent = '';
   document.getElementById('saveForecastModalOverlay').style.display = 'flex';
   setTimeout(() => { const i = document.getElementById('saveForecastNameInput'); if(i){ i.focus(); i.select(); } }, 50);
@@ -1280,13 +1286,18 @@ async function confirmSaveForecast(){
       boxBasisId: forecastBoxBasis[p.id] || null
     };
   });
+  const forecastSupplierSel = (() => {
+    const v = ((document.getElementById('saveForecastSupplier') || {}).value || '');
+    const sp = v ? (typeof purchaseSuppliers !== 'undefined' ? purchaseSuppliers : []).find(x => x.id === v) : null;
+    return sp ? { id: sp.id, name: sp.name } : {};
+  })();
   const prev = forecastRecords.slice();
   const wasLoadedId = forecastLoadedRecordId;
   // 同樣名稱的記錄只留最新一筆(取代舊的,已匯入進貨單的記錄不動);名稱不同才會多出一筆。
   // 載入的預估表預設帶原本的名稱(見 openSaveForecastModal),所以不改名直接儲存就是取代原本那筆。
   const sameNameCount = forecastRecords.filter(r => !r.converted && (r.name || '').trim() === name).length;
   forecastRecords = forecastRecords.filter(r => r.converted || (r.name || '').trim() !== name);
-  forecastRecords.push({ id: 'fr_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), name, savedAt: new Date().toISOString(), items, note: (forecastNote || '').trim(), orderPlaced: !!forecastOrderPlaced });
+  forecastRecords.push({ id: 'fr_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), name, savedAt: new Date().toISOString(), items, note: (forecastNote || '').trim(), orderPlaced: !!forecastOrderPlaced, supplierId: forecastSupplierSel.id || undefined, supplierName: forecastSupplierSel.name || undefined });
   try{ await saveForecastRecords(); }
   catch(e){
     console.error('儲存進貨預估紀錄失敗', e);
@@ -1403,6 +1414,7 @@ function forecastRecordDetailHtml(r){
   }
   return `<div style="padding:6px 4px 10px;">
     ${link}
+    ${r.supplierName ? `<div style="margin:6px 0;font-size:12.5px;color:var(--ink-soft);">${t('fieldForecastSupplier')}: ${escapeHtmlText(r.supplierName)}</div>` : ''}
     ${r.note ? `<div style="margin:6px 0;font-size:12.5px;color:var(--ink-soft);">${t('fieldForecastNote')}: ${escapeHtmlText(r.note)}</div>` : ''}
     ${rows ? `<table class="stock-table"><thead><tr><th>${t('colProductName')}</th><th class="num">${t('colForecastQtyExport')}</th><th>${t('colUnit')}</th></tr></thead><tbody>${rows}</tbody></table>` : `<div class="empty-note">${t('forecastRecordNoQtyItems')}</div>`}
   </div>`;
@@ -1528,6 +1540,10 @@ function loadForecastRecordToPurchase(id){
     switchWarehouseOpsSubTab('subtab-tx-register');
     setTxType('in');
     txBatchItems = [];
+    if(rec.supplierId && (typeof purchaseSuppliers !== 'undefined') && purchaseSuppliers.some(x => x.id === rec.supplierId)){
+      const hs = document.getElementById('txPartyHistorySelect');
+      if(hs){ hs.value = rec.supplierId; if(typeof onTxPartyHistorySelectChange === 'function') onTxPartyHistorySelectChange(rec.supplierId); }
+    }
     lines.forEach(({ prod, qty }) => {
       const ex = txBatchItems.find(x => x.productId === prod.id && !x.expiry);
       if(ex){ ex.qty += qty; return; }

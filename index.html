@@ -2832,6 +2832,10 @@ body.no-cost-view .cost-col{display:none !important;}
       <label data-i18n="fieldForecastRecordName">紀錄名稱</label>
       <input type="text" id="saveForecastNameInput" maxlength="80" style="width:100%;" onkeydown="if(event.key==='Enter') confirmSaveForecast()" />
     </div>
+    <div class="field-block">
+      <label data-i18n="fieldForecastSupplier">進貨方(選填)</label>
+      <select id="saveForecastSupplier" style="width:100%;padding:8px;"></select>
+    </div>
     <div id="saveForecastModalMsg" class="msg"></div>
     <div class="modal-actions">
       <button class="btn ghost" onclick="closeSaveForecastModal()" data-i18n="btnCancel">取消</button>
