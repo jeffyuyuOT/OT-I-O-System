@@ -895,6 +895,7 @@ function batchTrackerOpenProduct(pid){ bt.view = 'product'; bt.productId = pid; 
 function batchTrackerOpenBatch(batchId){ bt.view = 'batch'; bt.batchId = batchId; renderBatchTracker(); }
 
 function renderBatchTracker(){
+  if(typeof applyCostVisibility === 'function') applyCostVisibility();
   const root = document.getElementById('batchTrackerRoot');
   if(!root) return;
   if(!batchFeatureOn() || !batchAvailable){ root.innerHTML = `<div class="empty-note">${t('batchUnavailable')}</div>`; return; }
@@ -1005,15 +1006,15 @@ function batchRenderProductDetail(pid){
       </label>
     </div>
     <table class="stock-table">
-      <thead><tr><th style="width:26%;">${t('batchColBatch')}</th><th style="width:18%;">${t('batchColExpiry')}</th><th class="num" style="width:14%;">${t('batchColRemaining')}</th><th class="num" style="width:13%;">${t('batchColCostPrice')}</th><th class="num" style="width:13%;">Sell price</th><th style="width:16%;"></th></tr></thead>
+      <thead><tr><th style="width:26%;">${t('batchColBatch')}</th><th style="width:18%;">${t('batchColExpiry')}</th><th class="num" style="width:14%;">${t('batchColRemaining')}</th><th class="num cost-col" style="width:13%;">${t('batchColCostPrice')}</th><th class="num cost-col" style="width:13%;">Sell price</th><th style="width:16%;"></th></tr></thead>
       <tbody>
         ${(items.length === 0 && batchConvertedRows(pid).length === 0) ? `<tr><td colspan="6" class="empty-note">${t('batchNoBatches')}</td></tr>` : items.map(i => `
           <tr>
             <td><span class="batch-link" onclick="batchTrackerOpenBatch('${i.batchId}')">${batchEsc(i.batchNo)}</span>${i.isOpening ? ' <span style="color:var(--ink-soft);font-size:11px;">(' + t('batchOpening') + ')</span>' : ''}</td>
             <td>${i.expiry ? batchEsc(i.expiry) + batchExpiryBadge(i.expiry, true) : '–'}</td>
             <td class="num">${batchFmtQty(i.remaining)} ${batchEsc(batchProductUnit(pid))}</td>
-            <td class="num">${(typeof spPriceCellHtml === 'function') ? spPriceCellHtml(i) : batchFmtMoney(batchUnitCost(i))}</td>
-            <td class="num">${(typeof spSellCellHtml === 'function') ? spSellCellHtml(i) : batchFmtMoney(batchUnitCost(i))}</td>
+            <td class="num cost-col">${(typeof spPriceCellHtml === 'function') ? spPriceCellHtml(i) : batchFmtMoney(batchUnitCost(i))}</td>
+            <td class="num cost-col">${(typeof spSellCellHtml === 'function') ? spSellCellHtml(i) : batchFmtMoney(batchUnitCost(i))}</td>
             <td style="white-space:nowrap;"><span class="del-link" onclick="batchTrackerOpenHistory('${i.id}')">${t('batchBtnHistory')}</span> <span class="batch-info-icon" style="margin-left:6px;" title="${batchEsc(t('batchDetailsTitle'))}" onclick="batchOpenItemDetail('${i.id}')">ⓘ</span></td>
           </tr>`).join('')}
         ${batchConvertedRows(pid).map(c => `
@@ -1021,11 +1022,11 @@ function batchRenderProductDetail(pid){
             <td><span class="batch-link" onclick="batchTrackerOpenBatch('${c.b.batchId}')">${batchEsc(c.b.batchNo)}</span> <span style="font-size:11px;">${batchEsc(tf('batchConvertedNote', { name: c.mainName, qty: batchFmtQty(c.mainQty), unit: c.mainUnit }))}</span></td>
             <td>${c.b.expiry ? batchEsc(c.b.expiry) : '–'}</td>
             <td class="num">${batchFmtQty(c.rcvQty)} ${batchEsc(c.rcvUnit)}</td>
-            <td class="num">–</td><td class="num">–</td><td></td>
+            <td class="num cost-col">–</td><td class="num cost-col">–</td><td></td>
           </tr>`).join('')}
         ${untrackedRow}
       </tbody>
-      ${items.length === 0 ? '' : (() => { const live = items.filter(i => i.remaining > 0); const v = batchValueSum(live); const q = live.reduce((a, i) => a + i.remaining, 0); return `<tfoot><tr style="font-weight:700;"><td colspan="2" style="text-align:right;">${t('batchValueTotal')} · ${t('batchStockValue')} <span class="batch-info-icon" style="font-weight:400;" title="${batchEsc(t('batchValueHelpTitle'))}" onclick="showInfoModal(t('batchValueHelp'))">ⓘ</span>${v.missing ? `<div style="font-weight:400;font-size:11px;color:var(--ink-soft);">(${tf('batchValueMissing', { n: v.missing })})</div>` : ''}</td><td class="num" style="text-align:right;">${batchFmtQty(q)} ${batchEsc(batchProductUnit(pid))}</td><td class="num" style="text-align:right;">${(typeof spMoney === 'function') ? spMoney(v.sum) : v.sum.toFixed(2)}</td><td></td><td></td></tr></tfoot>`; })()}
+      ${items.length === 0 ? '' : (() => { const live = items.filter(i => i.remaining > 0); const v = batchValueSum(live); const q = live.reduce((a, i) => a + i.remaining, 0); return `<tfoot><tr style="font-weight:700;"><td colspan="2" class="cost-col" style="text-align:right;">${t('batchValueTotal')} · ${t('batchStockValue')} <span class="batch-info-icon" style="font-weight:400;" title="${batchEsc(t('batchValueHelpTitle'))}" onclick="showInfoModal(t('batchValueHelp'))">ⓘ</span>${v.missing ? `<div style="font-weight:400;font-size:11px;color:var(--ink-soft);">(${tf('batchValueMissing', { n: v.missing })})</div>` : ''}</td><td class="num" style="text-align:right;">${batchFmtQty(q)} ${batchEsc(batchProductUnit(pid))}</td><td class="num cost-col" style="text-align:right;">${(typeof spMoney === 'function') ? spMoney(v.sum) : v.sum.toFixed(2)}</td><td></td><td></td></tr></tfoot>`; })()}
     </table>`;
 }
 
@@ -1112,14 +1113,14 @@ function batchRenderBatchView(){
       <span style="font-size:12px;color:var(--ink-soft);">${batchEsc(h.isOpening ? t('batchOpening') : h.batchDate)}</span>
     </div>
     <table class="stock-table">
-      <thead><tr><th style="width:30%;">${t('colProduct')}</th><th class="num" style="width:14%;">${t('batchColRemaining')}</th><th style="width:20%;">${t('batchColExpiry')}</th><th class="num" style="width:12%;">${t('batchColCostPrice')}</th><th class="num" style="width:12%;">Sell price</th><th style="width:14%;"></th></tr></thead>
+      <thead><tr><th style="width:30%;">${t('colProduct')}</th><th class="num" style="width:14%;">${t('batchColRemaining')}</th><th style="width:20%;">${t('batchColExpiry')}</th><th class="num cost-col" style="width:12%;">${t('batchColCostPrice')}</th><th class="num cost-col" style="width:12%;">Sell price</th><th style="width:14%;"></th></tr></thead>
       <tbody>${items.sort((a, b) => batchProductName(a.productId).localeCompare(batchProductName(b.productId))).map(i => `
         <tr>
           <td><span class="batch-link" onclick="batchTrackerOpenProduct('${i.productId}')">${batchEsc(batchProductName(i.productId))}</span></td>
           <td class="num">${batchFmtQty(i.remaining)} ${batchEsc(batchProductUnit(i.productId))}</td>
           <td>${i.expiry ? batchEsc(i.expiry) + batchExpiryBadge(i.expiry, true) : '–'}</td>
-          <td class="num">${(typeof spPriceCellHtml === 'function') ? spPriceCellHtml(i) : batchFmtMoney(batchUnitCost(i))}</td>
-          <td class="num">${(typeof spSellCellHtml === 'function') ? spSellCellHtml(i) : batchFmtMoney(batchUnitCost(i))}</td>
+          <td class="num cost-col">${(typeof spPriceCellHtml === 'function') ? spPriceCellHtml(i) : batchFmtMoney(batchUnitCost(i))}</td>
+          <td class="num cost-col">${(typeof spSellCellHtml === 'function') ? spSellCellHtml(i) : batchFmtMoney(batchUnitCost(i))}</td>
           <td style="white-space:nowrap;"><span class="del-link" onclick="batchTrackerOpenHistory('${i.id}')">${t('batchBtnHistory')}</span> <span class="batch-info-icon" style="margin-left:6px;" title="${batchEsc(t('batchDetailsTitle'))}" onclick="batchOpenItemDetail('${i.id}')">ⓘ</span></td>
         </tr>`).join('')}</tbody>
     </table>`;
@@ -1165,13 +1166,13 @@ function batchRenderExpiryList(){
   let rows = withExp.slice().sort((a, b) => a.expiry.localeCompare(b.expiry) || batchProductName(a.productId).localeCompare(batchProductName(b.productId)));
   if(bt.expOnly) rows = rows.filter(i => batchDaysUntil(i.expiry) <= warn);
   const table = rows.length === 0 ? `<div class="empty-note">${t('batchNoExpiryRows')}</div>` : `<table class="stock-table">
-    <thead><tr><th>${t('batchColExpiry')}</th><th>${t('colProduct')}</th><th>${t('batchColBatch')}</th><th class="num">${t('batchColRemaining')}</th><th class="num">${t('batchStockValue')}</th></tr></thead>
+    <thead><tr><th>${t('batchColExpiry')}</th><th>${t('colProduct')}</th><th>${t('batchColBatch')}</th><th class="num">${t('batchColRemaining')}</th><th class="num cost-col">${t('batchStockValue')}</th></tr></thead>
     <tbody>${rows.map(i => `<tr>
       <td>${batchEsc(i.expiry)}${batchExpiryBadge(i.expiry, true)}</td>
       <td><span class="batch-link" onclick="batchTrackerOpenProduct('${i.productId}')">${batchEsc(batchProductName(i.productId))}</span></td>
       <td><span class="batch-link" onclick="batchTrackerOpenBatch('${i.batchId}')">${batchEsc(i.batchNo)}</span></td>
       <td class="num">${batchFmtQty(i.remaining)} ${batchEsc(batchProductUnit(i.productId))}</td>
-      <td class="num">${(() => { const v = batchItemValue(i); return v === null ? '–' : spMoney(v); })()}</td>
+      <td class="num cost-col">${(() => { const v = batchItemValue(i); return v === null ? '–' : spMoney(v); })()}</td>
     </tr>`).join('')}</tbody></table>`;
   // 摘要(不受下面「只看快到期與已過期」勾選影響):有填有效期的庫存總價值、快到期、已過期的價值
   const expired = batchValueSum(withExp.filter(i => batchDaysUntil(i.expiry) < 0));
@@ -1179,7 +1180,7 @@ function batchRenderExpiryList(){
   const all = batchValueSum(withExp);
   const missingTotal = all.missing;
   const chip = (label, v, color) => `<span style="display:inline-block;padding:6px 12px;border:1px solid var(--line);border-radius:3px;background:#fff;"><span style="font-size:11px;color:var(--ink-soft);">${label}</span><br><strong style="font-size:14px;${color ? 'color:' + color + ';' : ''}">${spMoney(v)}</strong></span>`;
-  const summary = `<div style="margin:0 0 12px;display:flex;gap:10px;flex-wrap:wrap;align-items:stretch;">
+  const summary = `<div class="cost-col" style="margin:0 0 12px;display:flex;gap:10px;flex-wrap:wrap;align-items:stretch;">
       ${chip(t('batchStockValue'), all.sum)}
       ${chip('🟠 ' + t('batchValueSoon'), soon.sum, '#B8860B')}
       ${chip('🔴 ' + t('batchValueExpired'), expired.sum, 'var(--crit)')}
@@ -1540,11 +1541,11 @@ function batchRenderHistoryPage(){
   if(batchHist.loading) return back + head + `<div class="empty-note">${t('batchLoading')}</div>`;
   const rowStyle = 'cursor:pointer;';
   const rows = [`<tr style="${rowStyle}" onclick="batchHistOpenRow(-1)"><td>${batchEsc(i.isOpening ? t('batchOpening') : i.batchDate)}</td><td>${t('batchKindIn')}</td><td class="num" style="padding-right:72px;">+${batchFmtQty(i.qtyIn)} ${unit}</td><td class="loc-col">–</td><td>${batchEsc(i.supplier) || '–'}</td><td>${batchEsc(i.invoiceNo) || '–'}</td><td class="num">${batchFmtMoney(batchUnitCost(i))}</td></tr>`]
-    .concat(batchHist.moves.map((m, idx) => `<tr class="${m.location_code ? 'has-loc' : ''}" style="${rowStyle}" onclick="batchHistOpenRow(${idx})"><td>${batchEsc(m.mv_date)}</td><td>${t(BATCH_KIND_LABEL_KEY[m.kind] || 'batchKindAdjust')}</td><td class="num" style="padding-right:72px;">${Number(m.qty) > 0 ? '+' : ''}${batchFmtQty(Number(m.qty))} ${unit}</td><td class="loc-col">${m.location_code ? batchEsc(m.location_code) : '–'}</td><td>${batchEsc(m.party) || '–'}</td><td>${batchEsc(m.order_no) || '–'}</td><td class="num">${batchCostWithFlag(m.unit_cost, i)}</td></tr>` + (m.location_code ? `<tr class="loc-row" style="${rowStyle}" onclick="batchHistOpenRow(${idx})"><td colspan="6">${t('batchLocTitle')}:📍 ${batchEsc(m.location_code)}</td></tr>` : '')));
+    .concat(batchHist.moves.map((m, idx) => `<tr class="${m.location_code ? 'has-loc' : ''}" style="${rowStyle}" onclick="batchHistOpenRow(${idx})"><td>${batchEsc(m.mv_date)}</td><td>${t(BATCH_KIND_LABEL_KEY[m.kind] || 'batchKindAdjust')}</td><td class="num" style="padding-right:72px;">${Number(m.qty) > 0 ? '+' : ''}${batchFmtQty(Number(m.qty))} ${unit}</td><td class="loc-col">${m.location_code ? batchEsc(m.location_code) : '–'}</td><td>${batchEsc(m.party) || '–'}</td><td>${batchEsc(m.order_no) || '–'}</td><td class="num cost-col">${batchCostWithFlag(m.unit_cost, i)}</td></tr>` + (m.location_code ? `<tr class="loc-row" style="${rowStyle}" onclick="batchHistOpenRow(${idx})"><td colspan="6">${t('batchLocTitle')}:📍 ${batchEsc(m.location_code)}</td></tr>` : '')));
   return back + head + `<div class="batch-hist-wrap"><table class="stock-table batch-hist-table">
     <thead>
       <tr><th style="border-bottom:none;"></th><th style="border-bottom:none;"></th><th class="num" style="border-bottom:none;white-space:nowrap;padding-bottom:6px;padding-right:72px;"><span style="display:inline-block;padding:4px 10px;background:rgba(0,0,0,0.07);border-radius:3px;font-size:14px;font-weight:700;color:var(--ink);text-transform:none;letter-spacing:0;">${tf('batchHistRemaining', { qty: batchFmtQty(i.remaining) + ' ' + unit })}</span></th><th colspan="4" style="border-bottom:none;"></th></tr>
-      <tr><th>${t('colDate')}</th><th>${t('colType')}</th><th class="num" style="padding-right:72px;">${t('colQty')}</th><th class="loc-col">${t('batchLocTitle')}</th><th>${t('batchColParty')}</th><th>${t('batchColOrderNo')}</th><th class="num">${t('batchColUnitCost')}</th></tr>
+      <tr><th>${t('colDate')}</th><th>${t('colType')}</th><th class="num" style="padding-right:72px;">${t('colQty')}</th><th class="loc-col">${t('batchLocTitle')}</th><th>${t('batchColParty')}</th><th>${t('batchColOrderNo')}</th><th class="num cost-col">${t('batchColUnitCost')}</th></tr>
     </thead>
     <tbody>${rows.join('')}</tbody></table></div>`;
 }

@@ -1094,6 +1094,8 @@
   @media (max-width:460px){
     .card-grid{ grid-template-columns:1fr; }
   }
+/* 沒有「訂單顯示價錢」權限的人(倉管員等)看不到成本 / 售價欄 */
+body.no-cost-view .cost-col{display:none !important;}
 </style>
 </head>
 <body>

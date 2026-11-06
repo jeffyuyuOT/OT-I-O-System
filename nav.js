@@ -366,6 +366,7 @@ function showOnlyAllowedTabImmediately(){
 }
 
 function switchTab(tabId){
+  if(typeof applyCostVisibility === 'function') applyCostVisibility();
   const allowed = getCurrentUserTabPermissions();
   if(!allowed.includes(tabId)) return; // 防呆:使用者沒有這個分頁的權限
   if(tabId !== 'tab-overview' && typeof stockIncludePending !== 'undefined') { stockIncludePending = false; const mb = document.getElementById('stockIncludePendingMobile'); if(mb) mb.checked = false; } // 離開庫存總覽就自動取消「包含進貨預估」
