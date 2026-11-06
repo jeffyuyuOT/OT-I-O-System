@@ -933,7 +933,9 @@ function renderBatchTracker(){
 
 // 商品頁的「分類篩選 + 搜尋」放在標題列(跟「批次追蹤」標題同一行)
 function batchProductFiltersHtml(){
-  const trackedIds = [...new Set(batchData.items.map(i => i.productId))];
+  const convIds = [];
+  (typeof purchases !== 'undefined' ? purchases : []).forEach(p => (p.items || []).forEach(it => { if(it.rcv && it.rcv.productId && p.batchTracked) convIds.push(it.rcv.productId); }));
+  const trackedIds = [...new Set(batchData.items.map(i => i.productId).concat(convIds.filter(id => batchConvertedRows(id).length)))];
   const usedCats = [...new Set(trackedIds.map(pid => { const p = products.find(x => x.id === pid); return p ? (p.category || '未分類') : null; }).filter(Boolean))];
   const catLabelFn = (c) => (typeof catLabel === 'function') ? catLabel(c) : c;
   return `
@@ -972,6 +974,18 @@ function batchProductListHtml(){
       </tr>`;
     }).join('')}</tbody></table>`;
 }
+// 自動切換成主商品的進貨:批次實際建在主商品上,這裡把「收據上的那個商品」也列出來(顯示用,不是真的批次行)。
+function batchConvertedRows(pid){
+  const out = [], used = new Set();
+  (typeof purchases !== 'undefined' ? purchases : []).forEach(p => (p.items || []).forEach(it => {
+    if(!it.rcv || it.rcv.productId !== pid) return;
+    const b = batchData.items.find(x => !used.has(x.id) && x.purchaseId === p.id && x.productId === it.productId && Math.abs(x.qtyIn - Number(it.qty)) < 1e-6);
+    if(!b) return;
+    used.add(b.id);
+    out.push({ b, rcvQty: it.rcv.qty, rcvUnit: it.rcv.unit || '', mainName: batchProductName(it.productId), mainQty: Number(it.qty), mainUnit: it.unit || '' });
+  }));
+  return out;
+}
 function batchRenderProductDetail(pid){
   const p = products.find(x => x.id === pid);
   const items = batchItemsOfProduct(pid, bt.includeDepleted);
@@ -993,7 +1007,7 @@ function batchRenderProductDetail(pid){
     <table class="stock-table">
       <thead><tr><th style="width:26%;">${t('batchColBatch')}</th><th style="width:18%;">${t('batchColExpiry')}</th><th class="num" style="width:14%;">${t('batchColRemaining')}</th><th class="num" style="width:13%;">${t('batchColCostPrice')}</th><th class="num" style="width:13%;">Sell price</th><th style="width:16%;"></th></tr></thead>
       <tbody>
-        ${items.length === 0 ? `<tr><td colspan="6" class="empty-note">${t('batchNoBatches')}</td></tr>` : items.map(i => `
+        ${(items.length === 0 && batchConvertedRows(pid).length === 0) ? `<tr><td colspan="6" class="empty-note">${t('batchNoBatches')}</td></tr>` : items.map(i => `
           <tr>
             <td><span class="batch-link" onclick="batchTrackerOpenBatch('${i.batchId}')">${batchEsc(i.batchNo)}</span>${i.isOpening ? ' <span style="color:var(--ink-soft);font-size:11px;">(' + t('batchOpening') + ')</span>' : ''}</td>
             <td>${i.expiry ? batchEsc(i.expiry) + batchExpiryBadge(i.expiry, true) : '–'}</td>
@@ -1001,6 +1015,13 @@ function batchRenderProductDetail(pid){
             <td class="num">${(typeof spPriceCellHtml === 'function') ? spPriceCellHtml(i) : batchFmtMoney(batchUnitCost(i))}</td>
             <td class="num">${(typeof spSellCellHtml === 'function') ? spSellCellHtml(i) : batchFmtMoney(batchUnitCost(i))}</td>
             <td style="white-space:nowrap;"><span class="del-link" onclick="batchTrackerOpenHistory('${i.id}')">${t('batchBtnHistory')}</span> <span class="batch-info-icon" style="margin-left:6px;" title="${batchEsc(t('batchDetailsTitle'))}" onclick="batchOpenItemDetail('${i.id}')">ⓘ</span></td>
+          </tr>`).join('')}
+        ${batchConvertedRows(pid).map(c => `
+          <tr style="color:var(--ink-soft);">
+            <td><span class="batch-link" onclick="batchTrackerOpenBatch('${c.b.batchId}')">${batchEsc(c.b.batchNo)}</span> <span style="font-size:11px;">${batchEsc(tf('batchConvertedNote', { name: c.mainName, qty: batchFmtQty(c.mainQty), unit: c.mainUnit }))}</span></td>
+            <td>${c.b.expiry ? batchEsc(c.b.expiry) : '–'}</td>
+            <td class="num">${batchFmtQty(c.rcvQty)} ${batchEsc(c.rcvUnit)}</td>
+            <td class="num">–</td><td class="num">–</td><td></td>
           </tr>`).join('')}
         ${untrackedRow}
       </tbody>
