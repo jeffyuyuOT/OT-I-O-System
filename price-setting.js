@@ -13,6 +13,7 @@
 // ============================================================
 let psDraft = {};            // 還沒儲存的修改:{ 商品id: 數字 或 null(清空) }
 let psFilters = { type: '', val: '' };   // 篩選方式 type:''(不篩選)/ 'cat' / 'sup' / 'ql',val = 選到的分類/供應商/快捷清單
+let psMarginBasis = (function(){ try{ return localStorage.getItem('psMarginBasis') === 'avg' ? 'avg' : 'batch'; }catch(e){ return 'batch'; } })();   // Margin 欄位 / Apply margin 的成本基準:batch(出貨中批次成本)/ avg(平均成本)
 let psRoundMode = (function(){ try{ return localStorage.getItem('psRoundMode') || 'none'; }catch(e){ return 'none'; } })();   // Apply margin 的進位方式:none(小數兩位)/ up1(無條件進位到小數第一位)/ up0(無條件進位到整數)
 let psMarginInput = null;    // 頁面上 Apply margin 輸入框的值(字串);null = 用系統預設 margin
 let psPageMsg = '';          // 頁面上方的提示訊息(例如已套用到幾個商品)
@@ -51,6 +52,33 @@ function psEffCost(ci, sell){
     return { cost: spRound2(base), est: true };
   }
   return { cost: ci.cost, est: false };
+}
+// 平均成本 = 目前還有庫存的每個批次(剩餘量 × 單位成本)加總 ÷ 剩餘總量;沒有成本資料的批次不計入。
+// 期初匯入的批次沒有實際成本,跟成本價一樣用 Sell price ÷ 1.2 推算(est = true)。
+function psAvgCost(pid, sell){
+  if(typeof batchActive !== 'function' || !batchActive()) return null;
+  let total = 0, qty = 0, est = false;
+  batchItemsOfProduct(pid).forEach(it => {
+    const c = spTotalUnit(it);
+    if(c === null) return;
+    const q = Number(it.remaining) || 0;
+    if(!(q > 0)) return;
+    let unit = c;
+    if(it.isOpening){ est = true; if(sell !== null && sell !== undefined) unit = Number(sell) / 1.2; }
+    total += unit * q; qty += q;
+  });
+  if(!(qty > 0)) return null;
+  return { cost: spRound2(total / qty), est, qty };
+}
+// 目前選的成本基準(Margin 欄位、Apply margin 都用它)
+function psBasisEff(pid, sell, ci){
+  if(psMarginBasis === 'avg'){ const a = psAvgCost(pid, sell); return a ? { cost: a.cost, est: a.est } : { cost: null, est: false }; }
+  return psEffCost(ci, sell);
+}
+function psShowBatchCostInfo(pid){
+  const ci = psCostInfo(pid);
+  if(!ci) return;
+  showInfoModal(tf('psBatchCostInfo', { batch: ci.isOpening ? t('batchOpening') : ci.batchNo, cost: ci.cost === null ? '–' : psFmt2(ci.cost) }));
 }
 function psMarginFor(sell, eff){
   if(eff.est && sell !== null && sell !== undefined) return 20;   // 1.2 = 1 + 20%
@@ -224,18 +252,21 @@ function psRenderPage(){
     const sell = psShownSell(p.id, ci);
     const eff = psEffCost(ci, sell);
     const cost = eff.cost;
-    const m = psMarginFor(sell, eff);
+    const m = psMarginFor(sell, psBasisEff(p.id, sell, ci));
+    const avg = psAvgCost(p.id, sell);
     const edited = setting && Object.prototype.hasOwnProperty.call(psDraft, p.id) && (psDraft[p.id] === undefined ? null : psDraft[p.id]) !== psSavedSell(p.id);
     const sellCell = (setting && editable)
       ? `<input type="number" min="0" step="0.01" id="psSell_${psEsc(p.id)}" value="${sell === null || sell === undefined ? '' : Number(sell).toFixed(2)}" oninput="psOnSellInput('${psEsc(p.id)}', this.value)" style="width:100px;text-align:right;${edited ? 'background:#FFF8E1;' : ''}" />`
       : `<span>${psFmt2(sell)}</span>`;
-    const costCell = `<span id="psCostVal_${psEsc(p.id)}">${ci ? (cost === null ? `<span title="${psEsc(t('psNoCostHint'))}">–</span>` : psFmt2(cost) + (eff.est ? psEstIconHtml() : '')) : '–'}</span>` + (ci ? `<div style="font-size:10.5px;color:var(--ink-soft);">${ci.isOpening ? psEsc(t('batchOpening')) : psEsc(ci.batchNo)}</div>` : '');
+    const costCell = `<span id="psCostVal_${psEsc(p.id)}">${ci ? (cost === null ? `<span title="${psEsc(t('psNoCostHint'))}">–</span>` : psFmt2(cost) + (eff.est ? psEstIconHtml() : '')) : '–'}</span>` + (ci ? ` <span class="batch-link" title="${psEsc(t('psBatchCostTitle'))}" style="cursor:pointer;" onclick="psShowBatchCostInfo('${psEsc(p.id)}')">ⓘ</span>` : '');
+    const avgCell = `<span id="psAvgVal_${psEsc(p.id)}">${avg ? psFmt2(avg.cost) + (avg.est ? psEstIconHtml() : '') : '–'}</span>`;
     const bw = setting ? psBatchMarginWarn(p.id, sell) : null;
     const bwHtml = bw ? ` <span class="batch-link" title="${psEsc(t('psBatchWarnTitle'))}" style="cursor:pointer;" onclick="psShowBatchMarginInfo('${psEsc(p.id)}')">🏷️⚠️</span>` : '';
     return `<tr>
       <td>${psEsc(p.name || '')}${bwHtml}${p.parentId ? ' <span style="color:var(--ink-soft);font-size:11px;">⧉</span>' : ''}<div style="font-size:10.5px;color:var(--ink-soft);">${psEsc(p.sku || '')}${p.unit ? ' · ' + psEsc(p.unit) : ''}</div></td>
       <td class="num">${sellCell}</td>
       <td class="num">${costCell}</td>
+      <td class="num">${avgCell}</td>
       <td class="num" id="psMargin_${psEsc(p.id)}">${psMarginHtml(m)}</td>
     </tr>`;
   }).join('');
@@ -249,6 +280,10 @@ function psRenderPage(){
     <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:0 0 10px;padding:10px 12px;border:1px solid var(--line);">
       <strong style="font-size:12.5px;">Margin</strong>
       <input id="psMarginInput" type="number" min="0" step="any" value="${psEsc(marginVal)}" oninput="psMarginInput=this.value" style="width:90px;" ${editable ? '' : 'disabled'} /><span>%</span>
+      <select onchange="psMarginBasis=this.value;try{localStorage.setItem('psMarginBasis',this.value);}catch(e){}psSetMsg('');psRenderPage();" style="font-size:12.5px;" ${editable ? '' : 'disabled'} title="${psEsc(t('psBasisTitle'))}">
+        <option value="batch" ${psMarginBasis === 'batch' ? 'selected' : ''}>${psEsc(t('psBasisBatch'))}</option>
+        <option value="avg" ${psMarginBasis === 'avg' ? 'selected' : ''}>${psEsc(t('psBasisAvg'))}</option>
+      </select>
       <select onchange="psRoundMode=this.value;try{localStorage.setItem('psRoundMode',this.value);}catch(e){}" style="font-size:12.5px;" ${editable ? '' : 'disabled'} title="${psEsc(t('psRoundTitle'))}">
         <option value="none" ${psRoundMode === 'none' ? 'selected' : ''}>${psEsc(t('psRoundNone'))}</option>
         <option value="up1" ${psRoundMode === 'up1' ? 'selected' : ''}>${psEsc(t('psRoundUp1'))}</option>
@@ -262,7 +297,7 @@ function psRenderPage(){
     </div>
     <div id="psPageMsg" class="msg ${psPageMsgType}">${psEsc(psPageMsg)}</div>
     <div style="font-size:11.5px;color:var(--ink-soft);margin:0 0 8px;">${t('psColumnsHint')}</div>
-    ${list.length === 0 ? `<div class="empty-note">${t('psNoProducts')}</div>` : `<div style="overflow-x:auto;"><table class="stock-table"><thead><tr><th>${t('lblProduct')}</th><th class="num">Sell price</th><th class="num">${t('psColCost')}</th><th class="num">Margin</th></tr></thead><tbody>${rows}</tbody></table></div>`}`;
+    ${list.length === 0 ? `<div class="empty-note">${t('psNoProducts')}</div>` : `<div style="overflow-x:auto;"><table class="stock-table"><thead><tr><th>${t('lblProduct')}</th><th class="num">Sell price</th><th class="num">${t('psColCost')}</th><th class="num">${t('psColAvgCost')}</th><th class="num">Margin</th></tr></thead><tbody>${rows}</tbody></table></div>`}`;
 }
 // 這個商品正在出貨的批次有手動設定 margin,而且算出來的售價跟目前 Price Setting 的價格不同 → 回傳 { item, margin, suggested, cost }
 function psBatchMarginWarn(pid, shownSell){
@@ -319,7 +354,9 @@ function psOnSellInput(pid, raw){
   const ci = psCostInfo(pid);
   const eff = psEffCost(ci, psDraft[pid]);
   const cell = document.getElementById('psMargin_' + pid);
-  if(cell) cell.innerHTML = psMarginHtml(psMarginFor(psDraft[pid], eff));
+  if(cell) cell.innerHTML = psMarginHtml(psMarginFor(psDraft[pid], psBasisEff(pid, psDraft[pid], ci)));
+  const av = document.getElementById('psAvgVal_' + pid), avg = psAvgCost(pid, psDraft[pid]);
+  if(av && avg && avg.est) av.innerHTML = psFmt2(avg.cost) + psEstIconHtml();
   const cc = document.getElementById('psCostVal_' + pid);
   if(cc && eff.est) cc.innerHTML = (eff.cost === null ? '–' : psFmt2(eff.cost)) + psEstIconHtml();
   const dirty = Object.keys(psDraft).filter(k => (psDraft[k] === undefined ? null : psDraft[k]) !== psSavedSell(k)).length;
@@ -339,9 +376,18 @@ function psApplyMargin(){
   const list = psFilterProducts(psAllProducts(), psFilters, psSupplierMap());
   let done = 0, skipped = 0;
   list.forEach(p => {
-    const ci = psCostInfo(p.id);
-    if(!ci || ci.isOpening || ci.cost === null || !(ci.cost > 0)){ skipped++; return; }
-    const raw0 = ci.cost * (1 + m / 100);
+    let base;
+    if(psMarginBasis === 'avg'){
+      const a = psAvgCost(p.id, null);
+      // 平均成本含期初匯入推算的批次時,不是實際成本,不套用(跟批次成本基準的期初批次規則一致)
+      if(!a || a.est || !(a.cost > 0)){ skipped++; return; }
+      base = a.cost;
+    } else {
+      const ci = psCostInfo(p.id);
+      if(!ci || ci.isOpening || ci.cost === null || !(ci.cost > 0)){ skipped++; return; }
+      base = ci.cost;
+    }
+    const raw0 = base * (1 + m / 100);
     // 先取到小數第 6 位再進位,避免 12.3000000001 這種浮點誤差被多進一位
     const r6 = Math.round(raw0 * 1e6) / 1e6;
     psDraft[p.id] = psRoundMode === 'up0' ? Math.ceil(r6) : psRoundMode === 'up1' ? Math.ceil(Math.round(r6 * 10 * 1e6) / 1e6) / 10 : spRound2(raw0);
