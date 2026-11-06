@@ -85,6 +85,8 @@ async function ppOpenPage(){
   await ppLoad();
   ppRender();
 }
+let ppOpenApps = new Set();
+function ppToggleApp(id){ if(ppOpenApps.has(id)) ppOpenApps.delete(id); else ppOpenApps.add(id); ppRender(); }
 let ppFilter = { from: '', to: '', sup: '', bal: 'open' };
 function ppSetFilter(k, v){ ppFilter[k] = v; ppRender(); }
 function ppClearFilter(){ ppFilter = { from: '', to: '', sup: '', bal: 'open' }; ppRender(); }
@@ -116,7 +118,10 @@ function ppRender(){
   const sups = Array.from(new Set(ppRows.map(r => r.party_name))).sort((a, b) => a.localeCompare(b));
   const rows = list.slice().sort((a, b) => (b.pay_date || '').localeCompare(a.pay_date || '')).map(r => {
     const used = ppAppliedOf(r.id), bal = ppR2(Number(r.amount) - used), refund = Number(r.amount) < 0;
-    const apps = ppApps.filter(a => a.prepayment_id === r.id).map(a => `${ppEsc(paDmy(a.apply_date))} → ${ppEsc(purName(a.purchase_id) || '?')} · ${ppM(a.amount)}`).join('<br>');
+    const apps = ppApps.filter(a => a.prepayment_id === r.id).map(a => {
+      const open = ppOpenApps.has(a.id);
+      return `<div style="cursor:pointer;" onclick="ppToggleApp('${ppEsc(a.id)}')">${open ? '▾' : '▸'} ${ppEsc(paDmy(a.apply_date))} · ${ppM(a.amount)}</div>` + (open ? `<div style="color:var(--ink);padding-left:12px;">${t('ppAppliedTo')} ${ppEsc(purName(a.purchase_id) || '?')}</div>` : '');
+    }).join('');
     const fr = r.forecast_id ? `<span class="del-link" style="color:var(--ink);" onclick="ppViewForecast('${ppEsc(r.forecast_id)}','${ppEsc(r.forecast_name || '')}')">${ppEsc(r.forecast_name || '–')}</span>` : '–';
     return `<tr>
       <td style="white-space:nowrap;">${ppEsc(paDmy(r.pay_date))}</td><td>${ppEsc(r.party_name)}${refund ? ` <span style="font-size:11px;color:#6b3fa0;font-weight:700;">${t('ppRefundTag')}</span>` : ''}</td><td>${fr}</td>
