@@ -548,6 +548,13 @@ async function paBackupClear(){
 }
 
 // 這個功能沒開時隱藏會計分頁裡的 Purchase List 選項
+// Purchase List 的「＋ New purchase」:跳到 登記進出貨 → 進貨
+function paNewPurchase(){
+  if(!getCurrentUserTabPermissions().includes('tab-warehouse-ops')){ showInfoModal(t('paNewPurchaseNoAccess')); return; }
+  switchTab('tab-warehouse-ops');
+  switchWarehouseOpsSubTab('subtab-tx-register');
+  setTxType('in');
+}
 function paApplyVisibility(){
   const sel = document.getElementById('accountingSubtabSelect');
   if(!sel) return;
