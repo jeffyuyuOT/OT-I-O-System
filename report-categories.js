@@ -8,13 +8,13 @@ Object.assign(I18N.zh, {
   rcTitle: '會計報表分類', rcHint: '這是會計報表用的商品分類,跟庫存總覽的分類不一樣,只在商品視窗的「會計」分頁選擇。刪除或改名會同步更新已選這個分類的商品。',
   rcAddPh: '新分類名稱', rcAddBtn: '新增', rcEmpty: '還沒有報表分類。', rcRename: '改名', rcRenamePrompt: '把「{name}」改成:', rcDelete: '刪除',
   rcDeleteConfirm: '刪除報表分類「{name}」?有 {n} 個商品選了這個分類,它們會變成「未設定」。', rcDup: '已經有這個分類名稱了。', rcUsed: '{n} 個商品', rcSaveFail: '儲存失敗,請再試一次。',
-  rcFieldLabel: '報表分類', rcUnset: '(未設定)', rcFieldHint: '會計報表用的分類,跟庫存總覽的分類不同。分類清單在「會計設定」管理。'
+  rcAddLink: '＋ 新增分類', rcManageLink: '管理分類', rcNewPrompt: '新報表分類名稱:', rcFieldLabel: '報表分類', rcUnset: '(未設定)', rcFieldHint: '會計報表用的分類,跟庫存總覽的分類不同。'
 });
 Object.assign(I18N.en, {
   rcTitle: 'Accounting report categories', rcHint: 'Product categories used only in accounting reports — separate from the stock overview categories. Pick one per product in the product window\'s Accounting tab. Renaming or deleting updates the products that use it.',
   rcAddPh: 'New category name', rcAddBtn: 'Add', rcEmpty: 'No report categories yet.', rcRename: 'Rename', rcRenamePrompt: 'Rename "{name}" to:', rcDelete: 'Delete',
   rcDeleteConfirm: 'Delete report category "{name}"? {n} product(s) use it and will become unset.', rcDup: 'That category name already exists.', rcUsed: '{n} product(s)', rcSaveFail: 'Save failed, please try again.',
-  rcFieldLabel: 'Report category', rcUnset: '(unset)', rcFieldHint: 'Category used in accounting reports — separate from the stock overview category. Manage the list in Accounting Settings.'
+  rcAddLink: '＋ Add category', rcManageLink: 'Manage', rcNewPrompt: 'New report category name:', rcFieldLabel: 'Report category', rcUnset: '(unset)', rcFieldHint: 'Category used in accounting reports — separate from the stock overview category.'
 });
 
 let reportCategories = [];
@@ -31,8 +31,39 @@ function rcCount(name){ return products.filter(p => p.reportCategory === name).l
 function rcSelectHtml(current){
   const list = reportCategories.slice();
   if(current && !list.includes(current)) list.push(current);
-  return `<select id="editProdReportCategory" style="width:100%;padding:8px;"><option value="">${t('rcUnset')}</option>${list.map(c => `<option value="${rcEsc(c)}" ${c === current ? 'selected' : ''}>${rcEsc(c)}</option>`).join('')}</select>`;
+  return `<select id="editProdReportCategory" style="width:100%;padding:8px;"><option value="">${t('rcUnset')}</option>${list.map(c => `<option value="${rcEsc(c)}" ${c === current ? 'selected' : ''}>${rcEsc(c)}</option>`).join('')}</select>
+    <span class="del-link" style="display:inline-block;margin-top:4px;" onclick="rcAddInModal()">${t('rcAddLink')}</span>
+    <span class="del-link" style="display:inline-block;margin:4px 0 0 12px;" onclick="rcOpenManage()">${t('rcManageLink')}</span>`;
 }
+// 商品視窗的下拉選單重新整理(保留目前選的值)
+function rcRefreshSelect(selectValue){
+  const sel = document.getElementById('editProdReportCategory'); if(!sel) return;
+  const cur = selectValue !== undefined ? selectValue : sel.value;
+  const list = reportCategories.slice(); if(cur && !list.includes(cur)) list.push(cur);
+  sel.innerHTML = `<option value="">${t('rcUnset')}</option>` + list.map(c => `<option value="${rcEsc(c)}">${rcEsc(c)}</option>`).join('');
+  sel.value = list.includes(cur) ? cur : '';
+}
+async function rcAddInModal(){
+  const input = window.prompt(t('rcNewPrompt'), ''); if(input === null) return;
+  const name = input.trim(); if(!name) return;
+  const existing = reportCategories.find(c => c.trim().toLowerCase() === name.toLowerCase());
+  if(existing){ rcRefreshSelect(existing); return; }
+  const prev = reportCategories.slice(); reportCategories.push(name);
+  try{ await rcSave(); }catch(e){ console.error('儲存報表分類失敗', e); reportCategories = prev; showInfoModal(t('rcSaveFail')); return; }
+  rcRefreshSelect(name);
+}
+// 管理分類(改名 / 刪除 / 調整順序)
+function rcOpenManage(){
+  let ov = document.getElementById('rcManageOverlay');
+  if(!ov){
+    ov = document.createElement('div'); ov.id = 'rcManageOverlay'; ov.className = 'modal-overlay'; ov.style.display = 'flex'; ov.style.zIndex = '1300';
+    ov.onclick = e => { if(e.target === ov) rcCloseManage(); };
+    ov.innerHTML = `<div class="modal-box" style="max-width:min(480px,96vw);max-height:90vh;overflow:auto;"><div id="reportCategoryCard"></div><div class="modal-actions"><button class="btn ghost" onclick="rcCloseManage()">${t('btnClose')}</button></div></div>`;
+    document.body.appendChild(ov);
+  }
+  rcRenderSettings();
+}
+function rcCloseManage(){ const o = document.getElementById('rcManageOverlay'); if(o) o.remove(); rcRefreshSelect(); }
 function rcRenderSettings(){
   const box = document.getElementById('reportCategoryCard'); if(!box) return;
   const rows = reportCategories.map((c, i) => `<div class="cat-order-row">
