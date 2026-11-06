@@ -75,10 +75,14 @@ function psBasisEff(pid, sell, ci){
   if(psMarginBasis === 'avg'){ const a = psAvgCost(pid, sell); return a ? { cost: a.cost, est: a.est } : { cost: null, est: false }; }
   return psEffCost(ci, sell);
 }
+function psBatchIconHtml(pid){
+  return ` <span class="batch-link" title="${psEsc(t('psBatchCostTitle'))}" style="cursor:pointer;" onclick="psShowBatchCostInfo('${psEsc(pid)}')">ⓘ</span>`;
+}
 function psShowBatchCostInfo(pid){
   const ci = psCostInfo(pid);
   if(!ci) return;
-  showInfoModal(tf('psBatchCostInfo', { batch: ci.isOpening ? t('batchOpening') : ci.batchNo, cost: ci.cost === null ? '–' : psFmt2(ci.cost) }));
+  showInfoModal(tf('psBatchCostInfo', { batch: ci.isOpening ? t('batchOpening') : ci.batchNo, cost: ci.cost === null ? '–' : psFmt2(ci.cost) })
+    + (ci.isOpening && ci.cost !== null ? '\n\n' + t('psEstCostInfo') : ''));   // 期初批次的成本是推算的:同一個圖示一併說明
 }
 function psMarginFor(sell, eff){
   if(eff.est && sell !== null && sell !== undefined) return 20;   // 1.2 = 1 + 20%
@@ -260,7 +264,7 @@ function psRenderPage(){
     const sellCell = (setting && editable)
       ? `<input type="number" min="0" step="0.01" id="psSell_${psEsc(p.id)}" value="${sell === null || sell === undefined ? '' : Number(sell).toFixed(2)}" oninput="psOnSellInput('${psEsc(p.id)}', this.value)" style="width:100px;text-align:right;${edited ? 'background:#FFF8E1;' : ''}" />`
       : `<span>${psFmt2(sell)}</span>`;
-    const costCell = `<span id="psCostVal_${psEsc(p.id)}">${ci ? (cost === null ? `<span title="${psEsc(t('psNoCostHint'))}">–</span>` : psFmt2(cost) + (eff.est ? psEstIconHtml() : '')) : '–'}</span>` + (ci ? ` <span class="batch-link" title="${psEsc(t('psBatchCostTitle'))}" style="cursor:pointer;" onclick="psShowBatchCostInfo('${psEsc(p.id)}')">ⓘ</span>` : '');
+    const costCell = `<span id="psCostVal_${psEsc(p.id)}">${ci ? (cost === null ? `<span title="${psEsc(t('psNoCostHint'))}">–</span>` : psFmt2(cost)) : '–'}</span>` + (ci ? psBatchIconHtml(p.id) : '');
     const avgCell = `<span id="psAvgVal_${psEsc(p.id)}">${avg ? psFmt2(avg.cost) + (avg.est ? psEstIconHtml() : '') : '–'}</span>`;
     const bw = setting ? psBatchMarginWarn(p.id, sell) : null;
     const bwHtml = bw ? ` <span class="batch-link" title="${psEsc(t('psBatchWarnTitle'))}" style="cursor:pointer;" onclick="psShowBatchMarginInfo('${psEsc(p.id)}')">🏷️⚠️</span>` : '';
@@ -360,7 +364,7 @@ function psOnSellInput(pid, raw){
   const av = document.getElementById('psAvgVal_' + pid), avg = psAvgCost(pid, psDraft[pid]);
   if(av && avg && avg.est) av.innerHTML = psFmt2(avg.cost) + psEstIconHtml();
   const cc = document.getElementById('psCostVal_' + pid);
-  if(cc && eff.est) cc.innerHTML = (eff.cost === null ? '–' : psFmt2(eff.cost)) + psEstIconHtml();
+  if(cc && eff.est) cc.textContent = (eff.cost === null ? '–' : psFmt2(eff.cost));
   const dirty = Object.keys(psDraft).filter(k => (psDraft[k] === undefined ? null : psDraft[k]) !== psSavedSell(k)).length;
   const sb2 = document.getElementById('psSaveBtn'), db2 = document.getElementById('psDiscardBtn');
   if(sb2){ sb2.disabled = dirty === 0; sb2.textContent = t('btnSave') + (dirty > 0 ? ' (' + dirty + ')' : ''); }
