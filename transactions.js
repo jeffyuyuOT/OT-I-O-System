@@ -1924,7 +1924,7 @@ async function submitTxBatchSimple(date, msg){
   if(currentTxType === 'in' && typeof pcValidate === 'function'){
     if(typeof pcPrepare === 'function') await pcPrepare(); // 海外採購:支出項目沒填金額 → 沿用同供應商上次的金額(預估)
     const pcErr = pcValidate();
-    if(pcErr){ msg.className = 'msg error'; msg.textContent = '⚠ ' + pcErr; return; }
+    if(pcErr){ msg.className = 'msg error'; msg.textContent = '⚠ ' + pcErr; if(typeof pcErrPopup !== 'undefined' && pcErrPopup && typeof showInfoModal === 'function') showInfoModal('⚠ ' + pcErr); return; }
   }
 
   // 進貨(type='in')的時候,如果這個品項是批量商品、而且開了「自動切換」,不直接加進這個批量
@@ -2063,6 +2063,7 @@ async function submitTxBatchSimple(date, msg){
             productId: p.parentId, sku: (parent && parent.sku) || '', name: (parent && parent.name) || p.name,
             unit: (parent && parent.unit) || p.unit, qty: it.qty * weight
           };
+          item.rcv = { productId: p.id, name: p.name, unit: p.unit || '', qty: it.qty };   // 收據上的單位/數量(歷史紀錄顯示用)
           if(it.amount) item.amount = it.amount;
           if(it.docType) item.docType = it.docType;
           if(it.sourceFilename) item.sourceFilename = it.sourceFilename;
