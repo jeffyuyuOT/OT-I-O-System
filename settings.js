@@ -789,7 +789,7 @@ function syncCategoryOrder(){
 
   products.forEach(p => present.add(p.category || '未分類'));
 
-  order = order.filter(cat => present.has(cat));
+  order = order.filter(cat => present.has(cat) || categoryManual.includes(cat));   // 介面新增的分類,沒有商品也保留
   categoryOrder = [...order, '未分類'];
   if(changed) categoryNeedsResave = true;
 }
@@ -799,7 +799,56 @@ async function saveCategoryOrder(){
   catch(e){ console.error('儲存分類順序失敗', e); }
 }
 
+// 在介面上新增的分類(沒有商品也要保留);其他分類沒有商品就自動消失
+let categoryManual = [];
+async function saveCategoryManual(){ await dbSet('categoryManual', JSON.stringify(categoryManual)); }
+// 新增分類:名稱忽略大小寫/前後空白已存在就回傳原本的正式名稱,不重複新增
+async function addCategoryByName(raw){
+  const name = String(raw || '').trim();
+  if(!name || name === '未分類') return null;
+  syncCategoryOrder();
+  const existing = categoryOrder.find(c => c !== '未分類' && c.trim().toLowerCase() === name.toLowerCase());
+  if(existing) return existing;
+  const prevOrder = categoryOrder.slice(), prevManual = categoryManual.slice();
+  categoryOrder = [...categoryOrder.filter(c => c !== '未分類'), name, '未分類'];
+  categoryManual = categoryManual.concat(name);
+  try{ await dbSet('categoryOrder', JSON.stringify(categoryOrder)); await saveCategoryManual(); }
+  catch(e){ console.error('新增分類失敗', e); categoryOrder = prevOrder; categoryManual = prevManual; return null; }
+  return name;
+}
+async function addCategoryFromPanel(){
+  const el = document.getElementById('newCategoryInput'); if(!el) return;
+  const msg = document.getElementById('categoryOrderSaveMsg');
+  const n = await addCategoryByName(el.value);
+  if(n === null){ if(msg){ msg.style.color = 'var(--crit)'; msg.textContent = t('errSaveOrderFailed'); } return; }
+  el.value = '';
+  categoryOrderDraft = categoryOrder.filter(c => c !== '未分類');
+  renderCategoryOrderPanel(); populateCategoryDropdowns(); renderStockCards();
+}
+async function deleteEmptyCategoryAt(index){
+  const movable = (categoryOrderDraft || categoryOrder.filter(c => c !== '未分類'));
+  const name = movable[index]; if(!name) return;
+  if(products.some(p => (p.category || '未分類') === name)) return;
+  categoryOrder = categoryOrder.filter(c => c !== name);
+  categoryManual = categoryManual.filter(c => c !== name);
+  if(categoryOrderDraft) categoryOrderDraft = categoryOrderDraft.filter(c => c !== name);
+  try{ await saveCategoryOrder(); await saveCategoryManual(); }catch(e){ console.error(e); }
+  renderCategoryOrderPanel(); populateCategoryDropdowns(); renderStockCards();
+}
+// 商品視窗:在分類下拉旁新增分類並直接選取
+async function addCategoryInProductModal(){
+  const input = window.prompt(t('promptNewCategory'), ''); if(input === null) return;
+  const name = await addCategoryByName(input); if(!name) return;
+  const sel = document.getElementById('editProdCategory'); if(!sel) return;
+  if(!Array.from(sel.options).some(o => o.value === name)){ const o = document.createElement('option'); o.value = name; o.textContent = name; sel.appendChild(o); }
+  sel.value = name;
+  populateCategoryDropdowns();
+}
 async function loadCategoryOrder(){
+  try{
+    const m = await dbGet('categoryManual');
+    if(m && m.value){ const a = JSON.parse(m.value); if(Array.isArray(a)) categoryManual = a.filter(x => typeof x === 'string'); }
+  } catch(e){}
   try{
     const r = await dbGet('categoryOrder');
     if(r && r.value){
@@ -911,8 +960,13 @@ function renderCategoryOrderPanel(){
           <button onclick="moveCategoryOrder(${i}, -1)" ${i === 0 ? 'disabled' : ''} title="${t('titleMoveUp')}">↑</button>
           <button onclick="moveCategoryOrder(${i}, 1)" ${i === movable.length - 1 ? 'disabled' : ''} title="${t('titleMoveDown')}">↓</button>
           <button class="cat-order-rename-btn" onclick="renameCategoryAt(${i})" title="${t('titleRenameCategory')}">${t('btnRenameCategory')}</button>
+          ${products.some(p => (p.category || '未分類') === cat) ? '' : `<button class="cat-order-rename-btn" style="color:var(--crit);" onclick="deleteEmptyCategoryAt(${i})">${t('btnDeleteEmptyCategory')}</button>`}
         </div>
       `).join('')}
+      <div style="display:flex;gap:8px;align-items:center;margin-top:12px;flex-wrap:wrap;">
+        <input id="newCategoryInput" type="text" placeholder="${t('phNewCategory')}" onkeydown="if(event.key==='Enter')addCategoryFromPanel()" />
+        <button class="btn ghost" onclick="addCategoryFromPanel()">${t('btnAddCategory')}</button>
+      </div>
       <div style="display:flex;gap:10px;align-items:center;margin-top:12px;flex-wrap:wrap;">
         <button class="btn" onclick="saveCategoryOrderPanel()">${t('btnSaveOrder')}</button>
         <span id="categoryOrderSaveMsg" style="font-size:12px;"></span>
@@ -963,6 +1017,7 @@ async function renameCategoryAt(index){
     if(categoryOrderDraft) categoryOrderDraft = categoryOrderDraft.filter(c => c !== oldName);
   } else {
     categoryOrder = categoryOrder.map(c => c === oldName ? finalName : c);
+    categoryManual = categoryManual.map(c => c === oldName ? finalName : c);
     if(categoryOrderDraft) categoryOrderDraft = categoryOrderDraft.map(c => c === oldName ? finalName : c);
   }
 

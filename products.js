@@ -283,6 +283,7 @@ function renderProductEditModalBody(p, opts){
     <div class="field-block">
       <label>${t('fieldCategory')}</label>
       <select id="editProdCategory" style="width:100%;padding:8px;">${catOptions}</select>
+      <span class="del-link" style="display:inline-block;margin-top:4px;" onclick="addCategoryInProductModal()">${t('btnAddCategory')}</span>
     </div>
     `}
     <div class="field-block">
