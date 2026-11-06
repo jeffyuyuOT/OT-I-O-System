@@ -378,6 +378,7 @@ function pcUpdateNonStock(id, field, value){
   else if(field === 'gst'){ if(value === 'y') n.gst = true; else if(value === 'n') n.gst = false; else delete n.gst; }
   else if(field === 'alloc'){ n.alloc = !!value; }
   else if(field === 'basisVal'){ const v = parseFloat(value); n.basisVal = (isFinite(v) && v > 0) ? v : ''; }
+  else if(field.indexOf('dim') === 0){ const v = parseFloat(value); n.dims = n.dims || {}; n.dims[field.slice(3).toLowerCase()] = (isFinite(v) && v > 0) ? v : ''; }
   else n[field] = value;
   renderTxBatchList();
 }
@@ -387,12 +388,17 @@ function pcNonStockRows(){
   return (pcState.nonStock || []).map(n => {
     const amt = (n.amount === '' || n.amount === undefined) ? null : Number(n.amount);
     const qty = (n.qty === '' || n.qty === undefined) ? null : Number(n.qty);
-    return { id: n.id, name: (n.name || '').trim(), qty, unit: (n.unit || '').trim(), amount: amt, gst: n.gst, alloc: !!n.alloc, basisVal: n.basisVal, aud: (amt !== null && rate) ? pcRound2(amt * rate) : null };
+    return { id: n.id, name: (n.name || '').trim(), qty, unit: (n.unit || '').trim(), amount: amt, gst: n.gst, alloc: !!n.alloc, basisVal: n.basisVal, dims: n.dims, aud: (amt !== null && rate) ? pcRound2(amt * rate) : null };
   });
 }
 function pcNsAllocHtml(n, fn, basis){
   const need = basis !== 'amount';
-  return `<div style="margin-top:3px;font-size:11.5px;font-weight:400;"><label style="display:inline-flex;align-items:center;gap:5px;cursor:pointer;"><input type="checkbox" ${n.alloc ? 'checked' : ''} onchange="${fn}'alloc',this.checked)" style="width:14px;height:14px;" />${t('pcNsAlloc')}</label>${(n.alloc && need) ? ` <span style="color:var(--ink-soft);">${pcNsBasisLabel(basis)}</span> <input type="number" step="any" min="0" value="${n.basisVal === '' || n.basisVal === undefined ? '' : n.basisVal}" style="width:90px;" onchange="${fn}'basisVal',this.value)" />` : ''}</div>`;
+  const d = n.dims || {};
+  const dim = (k, ph) => `<input type="number" step="any" min="0" value="${d[k] === '' || d[k] === undefined ? '' : d[k]}" placeholder="${ph}" style="width:62px;" onchange="${fn}'dim${k.toUpperCase()}',this.value)" />`;
+  const inputs = basis === 'volume'
+    ? `${dim('l', t('pcNsDimL'))} × ${dim('w', t('pcNsDimW'))} × ${dim('h', t('pcNsDimH'))} cm`
+    : `<input type="number" step="any" min="0" value="${n.basisVal === '' || n.basisVal === undefined ? '' : n.basisVal}" style="width:90px;" onchange="${fn}'basisVal',this.value)" />`;
+  return `<div style="margin-top:3px;font-size:11.5px;font-weight:400;"><label style="display:inline-flex;align-items:center;gap:5px;cursor:pointer;"><input type="checkbox" ${n.alloc ? 'checked' : ''} onchange="${fn}'alloc',this.checked)" style="width:14px;height:14px;" />${t('pcNsAlloc')}</label>${(n.alloc && need) ? ` <span style="color:var(--ink-soft);">${basis === 'volume' ? t('pcNsBasisVolumeHint') : pcNsBasisLabel(basis)}</span> ${inputs}` : ''}</div>`;
 }
 function pcNonStockRowsHtml(cols){
   if(!pcLineExpOn() || !cols.amount) return '';
@@ -424,9 +430,13 @@ function pcBoxes(prod, qty){
   return qty * getBasisWeight(prod, anchor) / getBasisWeight(boxProd, anchor);
 }
 // 未入庫商品「參與其他支出分配」:分配基準由使用者直接輸入。
-//   體積/重量:輸入「每單位」的 cm³ / kg(× 數量);箱數:輸入整行的箱數;金額:直接用該行金額,不用輸入。缺資料回傳 null。
-function pcNsFixed(basis, qty, basisVal, amountAud){
+//   體積:輸入每單位的長×寬×高(cm,× 數量);重量:每單位 kg(× 數量);箱數:輸入整行的箱數;金額:直接用該行金額,不用輸入。缺資料回傳 null。
+function pcNsFixed(basis, qty, basisVal, amountAud, dims){
   if(basis === 'amount') return amountAud > 0 ? amountAud : null;
+  if(basis === 'volume'){   // 長 × 寬 × 高(cm),跟商品資料一樣;× 數量
+    const d = dims || {}, l = Number(d.l), w = Number(d.w), h = Number(d.h), q = Number(qty) || 0;
+    return (l > 0 && w > 0 && h > 0 && q > 0) ? l * w * h * q : null;
+  }
   const v = Number(basisVal);
   if(!(v > 0)) return null;
   if(basis === 'boxes') return v;
@@ -488,7 +498,7 @@ function pcMapTxItems(){
     return { key: it.batchItemId, product: prod, name: it.name, qty, amountAud, skip: it.docType === 'credit_note' || it.docType === 'others' || offBooks };
   }).concat(pcNonStockRows().filter(n => n.alloc && n.name).map(n => ({
     key: 'ns:' + n.id, product: null, name: n.name, qty: n.qty || 0, amountAud: n.aud || 0, skip: false, ns: true,
-    fixed: pcNsFixed(pcState.basis, n.qty, n.basisVal, n.aud || 0)
+    fixed: pcNsFixed(pcState.basis, n.qty, n.basisVal, n.aud || 0, n.dims)
   })));
 }
 // 支出列 → 含 rate/aud;金額或匯率有缺回傳 null 的 aud
@@ -526,7 +536,7 @@ function pcValidate(){
   for(const n of nsRows){
     if(!n.name || n.amount === null || !(n.amount >= 0) || !(n.qty > 0)) return t('pcErrNonStockInvalid');
   }
-  const nsMissing = nsRows.filter(n => n.alloc && n.name && pcNsFixed(pcState.basis, n.qty, n.basisVal, n.aud || 0) === null).map(n => n.name);
+  const nsMissing = nsRows.filter(n => n.alloc && n.name && pcNsFixed(pcState.basis, n.qty, n.basisVal, n.aud || 0, n.dims) === null).map(n => n.name);
   if(nsMissing.length){ pcErrPopup = true; return tf('pcErrNsNeedBasis', { basis: pcNsBasisLabel(pcState.basis), names: nsMissing.join('、') }); }
   const total = rows.reduce((s, e) => s + (e.aud || 0), 0) + lineRows.reduce((s, l) => s + (l.aud || 0), 0);
   if(total > 0){
@@ -561,7 +571,7 @@ function pcApplyToPurchase(purchase){
     purchase.nonStockItems = ns.map(n => {
       const o = { id: n.id, name: n.name, qty: n.qty, unit: n.unit, amount: n.aud };
       if(n.gst === true || n.gst === false) o.gst = n.gst;
-      if(n.alloc){ o.alloc = true; if(pcState.basis !== 'amount') o.basisVal = Number(n.basisVal); }
+      if(n.alloc){ o.alloc = true; if(pcState.basis === 'volume') o.dims = { l: Number(n.dims.l), w: Number(n.dims.w), h: Number(n.dims.h) }; else if(pcState.basis !== 'amount') o.basisVal = Number(n.basisVal); }
       if(overseas){ o.origAmount = n.amount; o.origCurrency = pcState.currency; o.fxRate = rate; }
       return o;
     });
@@ -592,7 +602,7 @@ function pcRecompute(purchase){
   }));
   const nsAlloc = (purchase.nonStockItems || []).map((n, i) => ({ n, i })).filter(x => x.n.alloc);
   nsAlloc.forEach(x => rows.push({ key: 'n' + x.i, product: null, name: x.n.name, qty: Number(x.n.qty) || 0, amountAud: Number(x.n.amount) || 0, skip: false,
-    fixed: pcNsFixed((purchase.costs || {}).basis || 'volume', x.n.qty, x.n.basisVal, Number(x.n.amount) || 0) }));
+    fixed: pcNsFixed((purchase.costs || {}).basis || 'volume', x.n.qty, x.n.basisVal, Number(x.n.amount) || 0, x.n.dims) }));
   const lineAud = pcRound2((purchase.lineExpenses || []).reduce((s, l) => s + (Number(l.amount) || 0), 0));
   costs.lineExpensesAud = lineAud;
   // 分攤池 = 商品列的其他支出 + 跟此進貨單相關的其他支出;兩者加起來一起分攤到發票商品
@@ -771,7 +781,7 @@ function pcEditInit(p){
     base: c.baseCurrency || pcBase(),
     expenses: (c.expenses || []).map(e => ({ id: e.id || genId(), name: e.name, currency: e.currency || c.baseCurrency || 'AUD', amount: e.amount, estimated: !!e.estimated, estimatedFrom: e.estimatedFrom || '', payee: e.payee || '', gst: e.gst })),
     lineExpenses: (p.lineExpenses || []).map(l => ({ id: l.id || genId(), name: l.name, amount: l.amount, gst: l.gst, origAmount: l.origAmount, origCurrency: l.origCurrency, fxRate: l.fxRate })),
-    nonStock: (p.nonStockItems || []).map(n => ({ id: n.id || genId(), name: n.name, qty: n.qty, unit: n.unit || '', amount: n.amount, gst: n.gst, alloc: !!n.alloc, basisVal: n.basisVal === undefined ? '' : n.basisVal, origAmount: n.origAmount, origCurrency: n.origCurrency, fxRate: n.fxRate })),
+    nonStock: (p.nonStockItems || []).map(n => ({ id: n.id || genId(), name: n.name, qty: n.qty, unit: n.unit || '', amount: n.amount, gst: n.gst, alloc: !!n.alloc, basisVal: n.basisVal === undefined ? '' : n.basisVal, dims: n.dims ? Object.assign({}, n.dims) : undefined, origAmount: n.origAmount, origCurrency: n.origCurrency, fxRate: n.fxRate })),
     basis: c.basis || 'volume',
     rates: Object.assign({}, c.rates || {}),
     overseas: !!c.overseas,
@@ -833,6 +843,7 @@ function pcEdUpdateNs(id, field, value){
   else if(field === 'gst'){ if(value === 'y') n.gst = true; else if(value === 'n') n.gst = false; else delete n.gst; }
   else if(field === 'alloc'){ n.alloc = !!value; }
   else if(field === 'basisVal'){ const v = parseFloat(value); n.basisVal = (isFinite(v) && v > 0) ? v : ''; }
+  else if(field.indexOf('dim') === 0){ const v = parseFloat(value); n.dims = n.dims || {}; n.dims[field.slice(3).toLowerCase()] = (isFinite(v) && v > 0) ? v : ''; }
   else n[field] = value;
   pcEditRender();
 }
@@ -989,12 +1000,12 @@ function pcEditApply(p, cleanItems){
     if(n.alloc){
       o.alloc = true;
       if(pcEd.basis !== 'amount'){
-        if(pcNsFixed(pcEd.basis, qty, n.basisVal, 0) === null){
+        if(pcNsFixed(pcEd.basis, qty, n.basisVal, 0, n.dims) === null){
           const msg = tf('pcErrNsNeedBasis', { basis: pcNsBasisLabel(pcEd.basis), names: o.name });
           if(typeof showInfoModal === 'function') showInfoModal('⚠ ' + msg);
           return { error: msg };
         }
-        o.basisVal = Number(n.basisVal);
+        if(pcEd.basis === 'volume') o.dims = { l: Number(n.dims.l), w: Number(n.dims.w), h: Number(n.dims.h) }; else o.basisVal = Number(n.basisVal);
       }
     }
     if(n.origCurrency && n.fxRate){ o.origCurrency = n.origCurrency; o.fxRate = n.fxRate; o.origAmount = pcRound2(amt / n.fxRate); }
