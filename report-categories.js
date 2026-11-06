@@ -131,3 +131,28 @@ function rcDelete(i){
     await rcPersist(prev);
   });
 }
+
+
+// ----- 完整備份 / 還原:會計報表分類、科目代碼、MYOB 卡片名稱、手動新增的庫存分類 -----
+// 舊備份沒有 acctSettings 時,不動目前的設定(這些是設定,不是交易資料)
+function acctSettingsBackupExport(){
+  return { reportCategories, reportCategoryAccounts: rcAccounts, myobCards: (typeof myobCards !== 'undefined') ? myobCards : {}, categoryManual: (typeof categoryManual !== 'undefined') ? categoryManual : [] };
+}
+async function acctSettingsBackupRestore(backup){
+  const d = backup && backup.acctSettings; if(!d || typeof d !== 'object') return;
+  if(Array.isArray(d.reportCategories)){ reportCategories = d.reportCategories.filter(x => typeof x === 'string' && x.trim()); await rcSave(); }
+  if(d.reportCategoryAccounts && typeof d.reportCategoryAccounts === 'object' && !Array.isArray(d.reportCategoryAccounts)){ rcAccounts = d.reportCategoryAccounts; await rcSaveAccounts(); }
+  if(d.myobCards && typeof d.myobCards === 'object' && !Array.isArray(d.myobCards) && typeof myobCards !== 'undefined'){ myobCards = d.myobCards; await dbSet('myobCards', JSON.stringify(myobCards)); }
+  if(Array.isArray(d.categoryManual) && typeof categoryManual !== 'undefined'){ categoryManual = d.categoryManual.filter(x => typeof x === 'string' && x.trim()); await saveCategoryManual(); }
+}
+
+// 商品匯入:Excel 的「Report Category」欄位——名稱(忽略大小寫/空白)對應到現有分類;沒有的就新增進清單
+async function rcImportNormalize(items){
+  let added = false;
+  (items || []).forEach(it => {
+    const raw = (it.reportCategory || '').trim(); if(!raw){ it.reportCategory = null; return; }
+    const hit = reportCategories.find(c => c.trim().toLowerCase() === raw.toLowerCase());
+    if(hit){ it.reportCategory = hit; } else { reportCategories.push(raw); it.reportCategory = raw; added = true; }
+  });
+  if(added) await rcSave();
+}

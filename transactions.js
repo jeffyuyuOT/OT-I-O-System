@@ -1487,6 +1487,7 @@ async function importStockItems(items, skippedRows, clearBlanksMode){
 }
 
 async function runStockImportCore(items, skippedRows, clearBlanksMode, dryRun){
+  if(!dryRun){ try{ if(typeof rcImportNormalize === 'function') await rcImportNormalize(items); }catch(e){ console.error('匯入:整理報表分類失敗', e); } }   // 預覽階段不動設定,確認匯入後才把新的報表分類加進清單
   skippedRows = skippedRows || [];
   clearBlanksMode = !!clearBlanksMode;
   const msg = document.getElementById('importMsg');
@@ -1535,6 +1536,7 @@ async function runStockImportCore(items, skippedRows, clearBlanksMode, dryRun){
         hidden: item.hidden === true,
         orderPageRemark: item.orderPageRemark || undefined,
         barcode: item.barcode || undefined,
+        ...(item.reportCategory ? { reportCategory: item.reportCategory } : {}),
         ...(item.noAccounting === true ? { noAccounting: true } : {}),
         ...(item.batchTrack === false ? { batchTrack: false } : {}),
         ...(item.noAccounting === true || item.hideAcctExport === true ? { hideFromCompletedOrderExport: true } : {}),
@@ -1604,6 +1606,9 @@ async function runStockImportCore(items, skippedRows, clearBlanksMode, dryRun){
     else if(clearBlanksMode && (item.orderPageRemark === null || item.orderPageRemark === undefined) && existing.orderPageRemark){ changedFields.push(tf('importFieldChangeLine', {field: t('fieldOrderPageRemark'), from: existing.orderPageRemark, to: '(空白)'})); existing.orderPageRemark = undefined; changed = true; }
     if(item.barcode !== null && item.barcode !== undefined && existing.barcode !== item.barcode){ changedFields.push(tf('importFieldChangeLine', {field: t('fieldBarcode'), from: existing.barcode || '(空白)', to: item.barcode})); existing.barcode = item.barcode; changed = true; }
     else if(clearBlanksMode && (item.barcode === null || item.barcode === undefined) && existing.barcode){ changedFields.push(tf('importFieldChangeLine', {field: t('fieldBarcode'), from: existing.barcode, to: '(空白)'})); existing.barcode = undefined; changed = true; }
+
+    if(item.reportCategory !== null && item.reportCategory !== undefined && existing.reportCategory !== item.reportCategory){ changedFields.push(tf('importFieldChangeLine', {field: t('rcFieldLabel'), from: existing.reportCategory || '(空白)', to: item.reportCategory})); existing.reportCategory = item.reportCategory; changed = true; }
+    else if(clearBlanksMode && (item.reportCategory === null || item.reportCategory === undefined) && existing.reportCategory){ changedFields.push(tf('importFieldChangeLine', {field: t('rcFieldLabel'), from: existing.reportCategory, to: '(空白)'})); delete existing.reportCategory; changed = true; }
 
     // 庫存量欄位是選填:表格上這一列如果沒填庫存量(item.qty 是 null),完全不去比對/調整這個
     // 商品的庫存,只更新其他有填的欄位——這樣才能支援「只更新商品資料、不重新盤點庫存」的匯入,
