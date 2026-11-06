@@ -174,9 +174,11 @@ function psBuildRecord(map, source, note){
     const ci = psCostInfo(p.id);
     const eff = psEffCost(ci, s);
     const k = eff.cost !== null ? eff.cost : null;
-    if(s === null && k === null) return;
+    const avg = psAvgCost(p.id, s);
+    if(s === null && k === null && !avg) return;
     const it = { p: p.id, n: p.name || '', u: p.unit || '', c: p.category || '未分類', s, k, b: ci ? ci.batchNo : '' };
     if(eff.est) it.e = 1;      // 成本是期初匯入推算的(Sell price ÷ 1.2)
+    if(avg){ it.a = avg.cost; if(avg.est) it.ae = 1; }   // 儲存當下的平均成本(舊紀錄沒有這個欄位)
     items.push(it);
   });
   return { id: genId(), ts: new Date().toISOString(), by: psWho(), source: source || 'manual', note: note || '', items };
@@ -517,10 +519,11 @@ function psRenderRecordTable(){
       <td>${psEsc(i.n)}<div style="font-size:10.5px;color:var(--ink-soft);">${psEsc(catLabel(i.c || '未分類'))}${i.u ? ' · ' + psEsc(i.u) : ''}</div></td>
       <td class="num">${psFmt2(i.s)}</td>
       <td class="num">${i.k === null || i.k === undefined ? '–' : psFmt2(i.k)}${i.e ? psEstIconHtml() : ''}${i.b ? `<div style="font-size:10.5px;color:var(--ink-soft);">${psEsc(i.b)}</div>` : ''}</td>
+      <td class="num">${i.a === null || i.a === undefined ? '–' : psFmt2(i.a)}${i.ae ? psEstIconHtml() : ''}</td>
       <td class="num">${psMarginHtml(m)}</td>
     </tr>`;
   }).join('');
-  box.innerHTML = rows ? `<div style="overflow-x:auto;"><table class="stock-table"><thead><tr><th>${t('lblProduct')}</th><th class="num">Sell price</th><th class="num">${t('psRecColCostThen')}</th><th class="num">Margin</th></tr></thead><tbody>${rows}</tbody></table></div>` : `<div class="empty-note">${t('psNoProducts')}</div>`;
+  box.innerHTML = rows ? `<div style="overflow-x:auto;"><table class="stock-table"><thead><tr><th>${t('lblProduct')}</th><th class="num">Sell price</th><th class="num">${t('psRecColCostThen')}</th><th class="num">${t('psRecColAvgThen')}</th><th class="num">Margin</th></tr></thead><tbody>${rows}</tbody></table></div>` : `<div class="empty-note">${t('psNoProducts')}</div>`;
 }
 
 // ============================================================
