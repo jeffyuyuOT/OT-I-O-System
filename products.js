@@ -12,6 +12,10 @@ function deleteProduct(id){
   if(!hasCapability('cap-edit-overview')) return;
   const children = getChildProducts(id);
   const idsToDelete = [id, ...children.map(c => c.id)];
+  // 倉管員不能刪除連結會計資料的商品(會計新增的、或已出現在進貨單 / Invoice / Credit Note);會計與管理者不受限
+  if(!(typeof canSeeProductAcct === 'function' && canSeeProductAcct()) && productAcctLinked(idsToDelete)){
+    showInfoModal(t('prodDeleteAcctLinked')); return;
+  }
   const hasTx = transactions.some(t => idsToDelete.includes(t.productId));
   const warnMsg = children.length > 0
     ? `這個商品有 ${children.length} 個批量商品,刪除主商品會一併刪除所有批量商品${hasTx ? '及相關進出貨紀錄' : ''}。確定要刪除嗎?`
@@ -66,7 +70,10 @@ function openAddChildModal(parentId){
 
 // 新增一個全新的(不掛在任何主商品底下的)獨立商品——跟「編輯商品」共用同一個視窗跟表單,
 // 資訊填起來比原本分頁上那排小欄位清楚很多,也不用另外維護兩套「商品欄位長什麼樣子」的畫面。
+let addingProductFromAcct = false;
+function openAddNewProductFromAcct(){ openAddNewProductModal(); addingProductFromAcct = true; }
 function openAddNewProductModal(){
+  addingProductFromAcct = false;
   editingProductId = null;
   editingProductPhotoUrl = null;
   addingChildParentId = null;
@@ -210,7 +217,23 @@ function renderProductEditModalBody(p, opts){
       childExportCheckboxLocked = true;
     }
   }
+  const acctAdded = p.addedByAcct === true;      // 會計新增的商品:「已完成訂單匯出不顯示」鎖死不能勾選
+  const showAcctTab = (typeof canSeeProductAcct === 'function') && canSeeProductAcct();
+  const tabStrip = showAcctTab ? `<div style="display:flex;gap:6px;margin-bottom:12px;border-bottom:1px solid var(--line);">
+      <button type="button" id="prodTabBtnWh" class="btn" style="border-radius:6px 6px 0 0;" onclick="switchProductEditTab('wh')">${t('prodTabWarehouse')}</button>
+      <button type="button" id="prodTabBtnAcct" class="btn ghost" style="border-radius:6px 6px 0 0;" onclick="switchProductEditTab('acct')">${t('prodTabAccounting')}</button>
+    </div>` : '';
+  const acctPane = showAcctTab ? `<div id="prodPaneAcct" style="display:none;">
+    <div class="field-block">
+      <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-weight:400;">
+        <input type="checkbox" id="editProdGst" ${p.gst ? 'checked' : ''} />
+        <span>${t('fieldProductGst')}<span style="color:var(--ink-soft);font-weight:400;"> ${t('fieldProductGstHint')}</span></span>
+      </label>
+    </div>
+    ${acctAdded ? `<p style="font-size:12px;color:var(--ink-soft);margin:8px 0 0;">${t('prodAddedByAcctNote')}</p>` : ''}
+  </div>` : '';
   return `
+    ${tabStrip}<div id="prodPaneWh">
     ${isChild && parent ? `
     <div class="field-block">
       <label>上層商品(主商品)</label>
@@ -317,25 +340,20 @@ function renderProductEditModalBody(p, opts){
         <span>${t('fieldProductBatchTrack')}<span style="color:var(--ink-soft);font-weight:400;"> ${t('fieldProductBatchTrackHint')}</span></span>
       </label>
     </div>` : ''}
-    ${(typeof paOn === 'function' && paOn()) ? `<div class="field-block">
+    ${(typeof paOn === 'function' && paOn() && !acctAdded) ? `<div class="field-block">
       <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-weight:400;">
         <input type="checkbox" id="editProdNoAcct" ${p.noAccounting === true ? 'checked' : ''} onchange="onProdNoAcctToggle(this)" />
         <span>${t('fieldProductNoAcct')}<span style="color:var(--ink-soft);font-weight:400;"> ${t('fieldProductNoAcctHint')}</span></span>
       </label>
     </div>` : ''}
-    <div class="field-block">
-      <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-weight:400;">
-        <input type="checkbox" id="editProdGst" ${p.gst ? 'checked' : ''} />
-        <span>${t('fieldProductGst')}<span style="color:var(--ink-soft);font-weight:400;"> ${t('fieldProductGstHint')}</span></span>
-      </label>
-    </div>
     ${showHideFromExportToggle ? `
     <div class="field-block">
-      <label style="display:flex;align-items:center;gap:6px;cursor:${childExportCheckboxLocked ? 'not-allowed' : 'pointer'};font-weight:400;">
-        <input type="checkbox" id="editProdHideFromExport" ${(p.hideFromCompletedOrderExport || childExportCheckboxForceChecked || p.noAccounting === true) ? 'checked' : ''} ${(childExportCheckboxLocked || p.noAccounting === true) ? 'disabled' : ''} onchange="toggleHideFromExportModeVisibility(this)" />
+      <label style="display:flex;align-items:center;gap:6px;cursor:${(childExportCheckboxLocked || acctAdded) ? 'not-allowed' : 'pointer'};font-weight:400;">
+        <input type="checkbox" id="editProdHideFromExport" ${(!acctAdded && (p.hideFromCompletedOrderExport || childExportCheckboxForceChecked || p.noAccounting === true)) ? 'checked' : ''} ${(childExportCheckboxLocked || p.noAccounting === true || acctAdded) ? 'disabled' : ''} onchange="toggleHideFromExportModeVisibility(this)" />
         <span>${t('fieldHideFromCompletedExport')}</span>
       </label>
       <p id="hideFromExportNoAcctHint" style="display:${p.noAccounting === true ? 'block' : 'none'};font-size:11.5px;color:var(--ink-soft);margin:4px 0 0 22px;">${t('hideExportNoAcctHint')}</p>
+      ${acctAdded ? `<p style="font-size:11.5px;color:var(--ink-soft);margin:4px 0 0 22px;">${t('prodAcctAddedExportLocked')}</p>` : ''}
       ${childExportCheckboxLocked ? `<p style="font-size:11.5px;color:var(--ink-soft);margin:4px 0 0 22px;">${childExportCheckboxForceChecked ? t('hideExportChildForcedHint') : t('hideExportChildLockedHint')}</p>` : ''}
       ${hasChildrenForExportMode ? `
       <div id="hideFromExportModeWrap" style="display:${(p.hideFromCompletedOrderExport || p.noAccounting === true) ? 'block' : 'none'};margin:8px 0 0 22px;">
@@ -358,10 +376,33 @@ function renderProductEditModalBody(p, opts){
       <span class="del-link" style="color:var(--crit);" onclick="deleteProduct('${p.id}')">${t('btnDeleteProduct')}</span>
     </div>
     ` : ''}
+    </div>${acctPane}
   `;
 }
+function switchProductEditTab(which){
+  const wh = document.getElementById('prodPaneWh'), ac = document.getElementById('prodPaneAcct');
+  if(!wh || !ac) return;
+  wh.style.display = which === 'acct' ? 'none' : '';
+  ac.style.display = which === 'acct' ? '' : 'none';
+  const bw = document.getElementById('prodTabBtnWh'), ba = document.getElementById('prodTabBtnAcct');
+  if(bw) bw.className = 'btn' + (which === 'acct' ? ' ghost' : '');
+  if(ba) ba.className = 'btn' + (which === 'acct' ? '' : ' ghost');
+}
+
+// 商品有沒有連結會計資料:會計新增的商品,或出現在進貨單 / Invoice / Credit Note 的品項裡
+function productAcctLinked(ids){
+  const set = new Set(ids);
+  if(products.some(x => set.has(x.id) && x.addedByAcct === true)) return true;
+  const hit = arr => (arr || []).some(r => (r.items || []).some(it => it && set.has(it.productId)));
+  if(hit(typeof purchases !== 'undefined' ? purchases : [])) return true;
+  if(hit(typeof invList !== 'undefined' ? invList : [])) return true;
+  if(typeof arpRaw !== 'undefined' && arpRaw && hit(arpRaw.cns)) return true;
+  return false;
+}
+
 
 function closeProductEditModal(){
+  addingProductFromAcct = false;
   editingProductId = null;
   addingChildParentId = null;
   addingNewStandaloneProduct = false;
@@ -489,6 +530,8 @@ async function saveProductEditModal(){
       manualAvg: avgRaw === '' ? null : parseFloat(avgRaw),
       safetyStock: safetyRaw === '' ? null : parseFloat(safetyRaw),
       note, orderable: false, parentId: null, childWeight: null,
+      gst: (document.getElementById('editProdGst') || {}).checked === true ? true : undefined,
+      addedByAcct: addingProductFromAcct ? true : undefined,
       orderPageRemark: orderPageRemark || undefined,
       barcode: barcode || undefined,
       photoUrl: editingProductPhotoUrl || undefined,
@@ -530,7 +573,7 @@ async function saveProductEditModal(){
     if(showInTotalEl) applyTotalStockBasisChoice(p, showInTotalEl.checked);
     const hideFromExportEl = document.getElementById('editProdHideFromExport');
     if(hideFromExportEl){
-      p.hideFromCompletedOrderExport = hideFromExportEl.checked;
+      p.hideFromCompletedOrderExport = p.addedByAcct === true ? false : hideFromExportEl.checked;
       const modeEl = document.getElementById('editProdHideFromExportMode');
       if(modeEl) p.hideFromCompletedOrderExportMode = modeEl.value;
       // 主商品選了「整個家族都不顯示」的話,底下所有子商品自己的隱藏設定要跟著強制打勾——
