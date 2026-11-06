@@ -567,6 +567,17 @@ function switchAccountingSubTab(subtabId){
     if(typeof renderAccountingEmailList === 'function') renderAccountingEmailList();
   }
 }
+// 會計設定:Preference / Items & Data 兩個分頁(同一頁內切換)
+function switchAccSettingsTab(which){
+  const items = which === 'items';
+  const pp = document.getElementById('accSetPanePref'), pi = document.getElementById('accSetPaneItems');
+  if(pp) pp.style.display = items ? 'none' : '';
+  if(pi) pi.style.display = items ? '' : 'none';
+  const bp = document.getElementById('accSetBtnPref'), bi = document.getElementById('accSetBtnItems');
+  if(bp) bp.className = items ? 'btn ghost' : 'btn';
+  if(bi) bi.className = items ? 'btn' : 'btn ghost';
+  if(items && typeof evRender === 'function') evRender();
+}
 function refreshAccountingSubTab(){
   const sel = document.getElementById('accountingSubtabSelect');
   switchAccountingSubTab(sel && sel.value ? sel.value : 'subtab-acc-invoices');

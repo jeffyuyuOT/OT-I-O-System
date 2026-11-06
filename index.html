@@ -2267,6 +2267,11 @@ body.no-cost-view .cost-col{display:none !important;}
 
     <div id="subtab-acc-settings" class="subtab-content">
       <div class="section-title" style="margin-top:0;" data-i18n="subtabAccSettings">會計設定</div>
+        <div style="display:flex;gap:6px;border-bottom:1px solid var(--line);margin:0 0 12px;">
+          <button type="button" id="accSetBtnPref" class="btn" style="border-radius:6px 6px 0 0;" onclick="switchAccSettingsTab('pref')">Preference</button>
+          <button type="button" id="accSetBtnItems" class="btn ghost" style="border-radius:6px 6px 0 0;" onclick="switchAccSettingsTab('items')">Items &amp; Data</button>
+        </div>
+        <div id="accSetPanePref">
         <div class="settings-card">
           <div class="section-title" data-i18n="secSystemCurrency">系統預設幣種</div>
           <p style="font-size:11.5px;color:var(--ink-soft);margin:0 0 8px;" data-i18n="systemCurrencyHint">進貨單的其他支出、海外採購都會統一換算成這個幣種,批次成本也以這個幣種記錄與顯示。更改只影響之後新建立的進貨單,已建立的進貨單與批次成本不會被換算。預設 AUD。</p>
@@ -2285,12 +2290,6 @@ body.no-cost-view .cost-col{display:none !important;}
             </div>
           </div>
         </div>
-        <div class="settings-card">
-          <div class="section-title" data-i18n="secAccProducts">商品</div>
-          <p style="font-size:11.5px;color:var(--ink-soft);margin:0 0 8px;" data-i18n="accProductsHint">會計新增的商品:會計匯出一定顯示、倉管員不能刪除。</p>
-          <button class="btn ghost" onclick="openAddNewProductFromAcct()" data-i18n="btnAddProductAcct">＋ 新增商品</button>
-        </div>
-        <div class="settings-card" id="evoPackCard"></div>
         <div class="settings-card" id="sellPriceSettingCard">
           <div class="section-title" data-i18n="secSellPriceBlock">Sell price</div>
 
@@ -2326,35 +2325,6 @@ body.no-cost-view .cost-col{display:none !important;}
             </div>
             <div id="spMarginSettingMsg" class="msg"></div>
           </div>
-        </div>
-        <div class="settings-card" id="importDataCard">
-        <div class="section-title" data-i18n="secImportData">匯入資料</div>
-        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:0 0 4px;">
-          <select id="importTemplateSelect" style="min-width:180px;">
-            <option value="master" data-i18n="optImportTemplateMaster">商品主檔範本</option>
-            <option value="price" data-i18n="optImportTemplatePrice">定價管理範本</option>
-          </select>
-          <button class="btn" onclick="downloadImportTemplate()" data-i18n="btnDownloadMasterTemplate">📄 下載匯入範本</button>
-        </div>
-
-        <hr class="divider" />
-
-        <div class="section-title" id="uploadFileTitle" style="margin-bottom:8px;"><span data-i18n="secUploadFile">上傳檔案</span></div>
-        <p style="font-size:12.5px;color:var(--ink-soft);margin:0 0 10px;" data-i18n="importByFilenameDesc">系統依檔名決定匯入哪一種:檔名含「price」的當作 Price setting 匯入,其他檔案當作商品主檔匯入。直接用下載的範本檔名即可。</p>
-        <div style="display:flex;align-items:center;gap:8px;margin:0 0 12px;">
-          <input type="checkbox" id="clearBlanksOnImport" style="width:16px;height:16px;cursor:pointer;" />
-          <label for="clearBlanksOnImport" style="font-size:12.5px;color:var(--ink);cursor:pointer;" data-i18n="clearBlanksOnImportLabel">表格裡選填欄位如果是空白,就清空現有商品對應的資料(預設不勾選,空白欄位維持現有商品原本的值不變)</label>
-        </div>
-        <div class="form-grid" style="grid-template-columns:1fr auto;">
-          <div class="field">
-            <label data-i18n="fieldSelectFiles">選擇檔案(檔案在不同資料夾可分次加選)</label>
-            <input type="file" id="masterImportFile" accept=".xlsx,.xls" multiple onchange="addMasterFiles(this.files)" style="border:1px solid var(--line);background:#fff;border-radius:2px;padding:8px;font-family:'IBM Plex Mono',monospace;font-size:12px;width:100%;" />
-          </div>
-          <button class="btn" onclick="parseMasterExcelFile()" data-i18n="btnParseImport">解析並匯入</button>
-        </div>
-        <div id="masterFileList" class="file-chip-list"></div>
-        <div id="importMsg" class="msg"></div>
-        <div id="priceImportMsg" class="msg"></div>
         </div>
         <div class="settings-card">
           <div class="section-title" data-i18n="secAccountingEmail">會計 Email</div>
@@ -2398,6 +2368,44 @@ body.no-cost-view .cost-col{display:none !important;}
           </div>
           <div style="margin-top:12px;"><button class="btn" onclick="invSaveSettings()" data-i18n="btnSave">儲存</button></div>
           <div id="invSettingsMsg" class="msg"></div>
+        </div>
+        </div>
+        <div id="accSetPaneItems" style="display:none;">
+        <div class="settings-card">
+          <div class="section-title" data-i18n="secAccProducts">商品</div>
+          <p style="font-size:11.5px;color:var(--ink-soft);margin:0 0 8px;" data-i18n="accProductsHint">會計新增的商品:會計匯出一定顯示、倉管員不能刪除。</p>
+          <button class="btn ghost" onclick="openAddNewProductFromAcct()" data-i18n="btnAddProductAcct">＋ 新增商品</button>
+        </div>
+        <div class="settings-card" id="evoPackCard"></div>
+        <div class="settings-card" id="importDataCard">
+        <div class="section-title" data-i18n="secImportData">匯入資料</div>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:0 0 4px;">
+          <select id="importTemplateSelect" style="min-width:180px;">
+            <option value="master" data-i18n="optImportTemplateMaster">商品主檔範本</option>
+            <option value="price" data-i18n="optImportTemplatePrice">定價管理範本</option>
+          </select>
+          <button class="btn" onclick="downloadImportTemplate()" data-i18n="btnDownloadMasterTemplate">📄 下載匯入範本</button>
+        </div>
+
+        <hr class="divider" />
+
+        <div class="section-title" id="uploadFileTitle" style="margin-bottom:8px;"><span data-i18n="secUploadFile">上傳檔案</span></div>
+        <p style="font-size:12.5px;color:var(--ink-soft);margin:0 0 10px;" data-i18n="importByFilenameDesc">系統依檔名決定匯入哪一種:檔名含「price」的當作 Price setting 匯入,其他檔案當作商品主檔匯入。直接用下載的範本檔名即可。</p>
+        <div style="display:flex;align-items:center;gap:8px;margin:0 0 12px;">
+          <input type="checkbox" id="clearBlanksOnImport" style="width:16px;height:16px;cursor:pointer;" />
+          <label for="clearBlanksOnImport" style="font-size:12.5px;color:var(--ink);cursor:pointer;" data-i18n="clearBlanksOnImportLabel">表格裡選填欄位如果是空白,就清空現有商品對應的資料(預設不勾選,空白欄位維持現有商品原本的值不變)</label>
+        </div>
+        <div class="form-grid" style="grid-template-columns:1fr auto;">
+          <div class="field">
+            <label data-i18n="fieldSelectFiles">選擇檔案(檔案在不同資料夾可分次加選)</label>
+            <input type="file" id="masterImportFile" accept=".xlsx,.xls" multiple onchange="addMasterFiles(this.files)" style="border:1px solid var(--line);background:#fff;border-radius:2px;padding:8px;font-family:'IBM Plex Mono',monospace;font-size:12px;width:100%;" />
+          </div>
+          <button class="btn" onclick="parseMasterExcelFile()" data-i18n="btnParseImport">解析並匯入</button>
+        </div>
+        <div id="masterFileList" class="file-chip-list"></div>
+        <div id="importMsg" class="msg"></div>
+        <div id="priceImportMsg" class="msg"></div>
+        </div>
         </div>
     </div>
 
