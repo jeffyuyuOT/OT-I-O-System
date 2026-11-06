@@ -50,7 +50,12 @@ async function arpLoadRaw(){
     const r = await fetchAllPages(() => sb.from('transactions').select('id,product_id,type,qty,date,adj_reason').not('adj_reason', 'is', null).order('id', { ascending: true }));
     adjTx.push(...r);
   }catch(e){ if(!(e && (e.code === '42703' || /adj_reason/.test(e.message || '')))) errs.push('Adjustments'); }
-  arpRaw = { cns, adjTx, errs };
+  const invPays = [];
+  try{
+    const r = await fetchAllPages(() => sb.from('invoice_payments').select('invoice_id,pay_date,amount').order('created_at', { ascending: true }));
+    invPays.push(...r);
+  }catch(e){ if(!(e && (e.code === '42P01' || e.code === 'PGRST205'))) errs.push('Invoice payments'); }
+  arpRaw = { cns, adjTx, errs, invPays };
 }
 async function arpLoadMovements(from, to){
   const key = from + '|' + to;
@@ -128,30 +133,49 @@ function arpCompute(movements){
   R.inv = arpInvCompute(pById, null);
   // 應收帳齡(截至今天)
   const today = (typeof invToday === 'function') ? invToday() : new Date().toISOString().slice(0, 10);
+  const D = arpBalDate(), asOfPast = D < today;
+  R.balDate = D; R.arLegacy = 0;
   const arB = ['cur', 'd30', 'd60', 'd90', 'd90p'];
   const arBucket = d => d <= 0 ? 'cur' : d <= 30 ? 'd30' : d <= 60 ? 'd60' : d <= 90 ? 'd90' : 'd90p';
   const ar = { total: 0, buckets: { cur: 0, d30: 0, d60: 0, d90: 0, d90p: 0 }, byCust: {} };
+  // 截止日在過去 → 用「截止日當天以前」的 Invoice、Credit Note、收款倒推;否則沿用目前餘額
+  const cnBy = {}, payBy = {}, payRowsBy = {};
+  if(asOfPast){
+    arpRaw.cns.forEach(c => { if(c.invoice_id && c.cn_date && c.cn_date <= D) cnBy[c.invoice_id] = (cnBy[c.invoice_id] || 0) + arpN(c.total); });
+    (arpRaw.invPays || []).forEach(x => { (payRowsBy[x.invoice_id] = payRowsBy[x.invoice_id] || 0); payRowsBy[x.invoice_id]++; if(x.pay_date && x.pay_date <= D) payBy[x.invoice_id] = (payBy[x.invoice_id] || 0) + arpN(x.amount); });
+  }
   (typeof invList !== 'undefined' ? invList : []).forEach(r => {
-    const i = invRowInfo(r); if(i.balance <= 0.004) return;
-    const b = arBucket(i.due ? arpDays(i.due, today) : 0);
-    ar.total += i.balance; ar.buckets[b] += i.balance;
+    let bal, due;
+    if(asOfPast){
+      if(!r.invoice_date || r.invoice_date > D) return;
+      const i0 = invRowInfo(r); due = i0.due;
+      const gross = arpN(r.total), credited = Math.min(cnBy[r.id] || 0, gross);
+      let paid = payBy[r.id] || 0;
+      if(!payRowsBy[r.id] && arpN(r.paid) > 0){ paid = arpN(r.paid); R.arLegacy++; }   // 沒有付款日期的舊資料:當作已收
+      bal = arpR2(gross - credited - paid);
+    } else { const i = invRowInfo(r); bal = i.balance; due = i.due; }
+    if(bal <= 0.004) return;
+    const b = arBucket(due ? arpDays(due, D) : 0);
+    ar.total += bal; ar.buckets[b] += bal;
     const k = arpInvCustomer(r); const c = (ar.byCust[k] = ar.byCust[k] || { cur: 0, d30: 0, d60: 0, d90: 0, d90p: 0, total: 0 });
-    c[b] += i.balance; c.total += i.balance;
+    c[b] += bal; c.total += bal;
   });
   ar.rows = Object.keys(ar.byCust).map(k => Object.assign({ name: k }, ar.byCust[k])).sort((a, b) => b.total - a.total);
   R.ar = ar; R.arKeys = arB;
-  // 應付(未付;依單據日期帳齡)
+  // 應付(未付;依單據日期帳齡;截止日在過去時用當天以前的單據與付款倒推)
   const ap = { total: 0, buckets: { cur: 0, d30: 0, d60: 0, d90: 0, d90p: 0 }, byName: {} };
+  const paidAsOf = key => asOfPast ? arpR2((paRows || []).filter(x => x.purchase_id === key && x.pay_date && x.pay_date <= D).reduce((a, x) => a + arpN(x.amount), 0)) : null;
   const apAdd = (name, date, bal) => {
     if(bal <= 0.004) return;
-    const d = arpDays(date || today, today);
+    if(asOfPast && date && date > D) return;
+    const d = arpDays(date || D, D);
     const bk = d <= 30 ? 'cur' : d <= 60 ? 'd30' : d <= 90 ? 'd60' : d <= 120 ? 'd90' : 'd90p';
     ap.total += bal; ap.buckets[bk] += bal;
     const c = (ap.byName[name] = ap.byName[name] || { cur: 0, d30: 0, d60: 0, d90: 0, d90p: 0, total: 0 });
     c[bk] += bal; c.total += bal;
   };
-  (typeof purchases !== 'undefined' ? purchases : []).filter(p => paCounted(p)).forEach(p => apAdd(p.partyName || '(?)', p.date, paInfo(p).balance));
-  oeAllEntries().forEach(en => apAdd(en.payee || (en.kind === 'rel' ? (en.p.partyName || '(?)') : '(–)'), en.date, en.info.balance));
+  (typeof purchases !== 'undefined' ? purchases : []).filter(p => paCounted(p)).forEach(p => { const i = paInfo(p); apAdd(p.partyName || '(?)', p.date, asOfPast ? arpR2(i.total - paidAsOf(p.id)) : i.balance); });
+  oeAllEntries().forEach(en => { const key = en.kind === 'rel' ? en.x.key : 'exp:' + en.e.id; apAdd(en.payee || (en.kind === 'rel' ? (en.p.partyName || '(?)') : '(–)'), en.date, asOfPast ? arpR2(en.info.total - paidAsOf(key)) : en.info.balance); });
   ap.rows = Object.keys(ap.byName).map(k => Object.assign({ name: k }, ap.byName[k])).sort((a, b) => b.total - a.total);
   R.ap = ap;
   return R;
@@ -226,6 +250,11 @@ async function arpRefresh(){
     if(run !== arpRunId) return;
   }catch(e){ arpReport.stmt.err = true; }
   arpRender();
+}
+// 應收 / 應付 / 期末庫存的截止日:結束日(沒設或在今天之後 = 今天)
+function arpBalDate(){
+  const today = (typeof invToday === 'function') ? invToday() : new Date().toISOString().slice(0, 10);
+  return (arpFilter.to && arpFilter.to < today) ? arpFilter.to : today;
 }
 function arpPrevDay(d){ const x = new Date(d + 'T00:00:00Z'); x.setUTCDate(x.getUTCDate() - 1); return x.toISOString().slice(0, 10); }
 // Income statement(對齊會計師財報格式)。Purchases = 供應商進貨 + 進貨單相關費用(運費、關稅等,已分攤進庫存成本);Expenses = 獨立其他支出,依項目名稱分組。
@@ -307,6 +336,8 @@ function arpRender(){
     S.exp.map(x => tr([E(x.name), N(arpM(x.ex))])).join(''),
     tr([`<b>${t('arpStExpTotal')}</b>`, B(arpM(S.expTotal))]),
     tr([`<b>${t('arpStNet')}</b>`, B(SM(S.net))]),
+    tr([`<b>${tf('arpStBal', { d: R.balDate })}</b>`, '']),
+    tr([t('arpStBalInv'), N(SM(S.close))]), tr([t('arpStBalAr'), N(arpM(R.ar.total))]), tr([t('arpStBalAp'), N(arpM(R.ap.total))]),
     tr([`<span style="color:var(--ink-soft);">${t('arpStCogsRef')}</span>`, N(`<span style="color:var(--ink-soft);">${arpM(R.cogs)}</span>`)])
   ].join(''));
   const IV = R.invAsOf || R.inv;
@@ -349,8 +380,8 @@ function arpRender(){
     ${sec(t('arpSecMargin'), marginTbl, t('arpMarginNote'))}
     ${sec(t('arpSecInventory') + (R.invAsOf ? ' — ' + arpAsOf : ' — ' + t('arpAsOfToday')), `<div class="filter-row" style="margin-bottom:6px;"><div class="field"><label>${t('arpInvAsOfLbl')}</label><input type="date" id="arpAsOfIn" value="${E(arpAsOf)}" max="${E((typeof invToday === 'function') ? invToday() : '')}" onchange="arpOnAsOf(this.value)" /></div>${arpAsOf ? `<button class="btn ghost" onclick="arpOnAsOf('')" style="align-self:flex-end;">${t('arpInvAsOfNow')}</button>` : ''}</div>${R.invAsOfErr ? `<div class="msg error">⚠ ${t('arpInvAsOfErr')}</div>` : ''}` + invTbl, t('arpInvNote') + (R.invAsOf ? ' ' + t('arpInvAsOfNote') : '') + (IV.noCost ? ' ' + tf('arpInvNoCost', { n: IV.noCost }) : '') + (IV.rows.length > 50 ? ' ' + t('arpTop50') : ''))}
     ${sec(t('arpSecWastage'), wasteTbl, t('arpWastageNote') + (R.adjNoCostQty ? ' ' + tf('arpWastageNoCost', { qty: arpM(R.adjNoCostQty) }) : ''))}
-    ${sec(t('arpSecAr'), tbl(ageHead, ageRows(R.ar)), t('arpArNote'))}
-    ${sec(t('arpSecAp'), tbl(ageHead.map((h, i) => i >= 1 && i <= 5 ? [t('arpApBk_' + bk[i - 1]), 1] : h), ageRows(R.ap)), t('arpApNote'))}
+    ${sec(t('arpSecAr') + ' — ' + R.balDate, tbl(ageHead, ageRows(R.ar)), t('arpArNote') + (R.arLegacy ? ' ' + tf('arpArLegacy', { n: R.arLegacy }) : ''))}
+    ${sec(t('arpSecAp') + ' — ' + R.balDate, tbl(ageHead.map((h, i) => i >= 1 && i <= 5 ? [t('arpApBk_' + bk[i - 1]), 1] : h), ageRows(R.ap)), t('arpApNote'))}
     ${sec(t('arpSecByCust'), custTbl, R.byCust.length > 30 ? t('arpTop30') : '')}
     ${sec(t('arpSecBySup'), supTbl, R.bySup.length > 30 ? t('arpTop30') : '')}`;
 }
@@ -370,7 +401,7 @@ function arpExport(){
   ].concat(S.exp.map(x => [x.name, x.ex])).concat([['Total expenses', S.expTotal], [], ['PROFIT BEFORE OTHER INCOME & INCOME TAX', sv(S.net)], [], ['Reference: cost of sales per batch cost', q(R.cogs)]]));
   add('Summary', [
     ['Period', (f.from || '…') + ' to ' + (f.to || '…')], [],
-    ['Sales (ex GST, net of credit notes)', q(R.income.netEx)], ['GST Collected (net)', q(R.income.netGst)], ['Sales (inc GST)', q(R.income.netInc)], [],
+    ['Sales (ex GST, net of credit notes)', q(R.income.netEx)], ['Balances as at', R.balDate], ['Trade receivables', q(R.ar.total)], ['Trade creditors', q(R.ap.total)], ['GST Collected (net)', q(R.income.netGst)], ['Sales (inc GST)', q(R.income.netInc)], [],
     ['Purchases (supplier invoices) ex GST', q(R.pur.ex)], ['Purchases - related costs (freight, duty) ex GST', q(R.rel.ex)], ['Expenses (standalone) ex GST', q(R.sa.ex)], ['Total purchases & expenses ex GST', q(tot.ex)], ['GST Paid', q(tot.gst)], [],
     ['Cost of sales (batch cost)', q(R.cogs)], ['Gross profit from trading', q(R.marginAmt)], ['Gross profit %', R.marginPct === null ? '' : R.marginPct], [],
     ['GST net payable / (refundable)', q(R.gst.net)], ['Wastage cost', q(R.wastageCost)], ['Inventories - stock on hand at cost (as of today)', q(R.inv.total)]
