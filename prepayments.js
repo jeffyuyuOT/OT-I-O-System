@@ -9,7 +9,7 @@
 Object.assign(I18N.zh, {
   subtabAccPrepay: '預付款', ppTitle: '供應商預付款', ppAdd: '＋ 登記預付款', ppEmpty: '還沒有預付款紀錄。',
   ppSumBalance: '未抵扣餘額', ppSumPaid: '預付總額', ppSumApplied: '已抵扣',
-  ppColDate: '付款日期', ppColSupplier: '進貨方', ppColForecast: '預估紀錄', ppColAmount: '金額', ppColApplied: '已抵扣', ppColBalance: '餘額', ppColNote: '方式 / 備註',
+  ppSumPaidFy: '預付', ppSumAppliedFy: '抵扣', ppFltFrom: '從', ppFltTo: '到', ppFltAll: '全部', ppFltOpen: '有餘額', ppFltUsed: '已用完', ppFltClear: '清除篩選', ppEmptyFiltered: '沒有符合篩選的預付款。', ppColDate: '付款日期', ppColSupplier: '進貨方', ppColForecast: '預估紀錄', ppColAmount: '金額', ppColApplied: '已抵扣', ppColBalance: '餘額', ppColNote: '方式 / 備註',
   ppFormAdd: '登記預付款', ppFormEdit: '修改預付款', ppFSupplier: '進貨方', ppFForecast: '連結進貨預估紀錄(選填)', ppFNone: '不連結', ppFDate: '付款日期', ppFAmount: '金額', ppFMethod: '付款方式', ppFNote: '備註',
   ppFRefund: '這是供應商退回預付款(取消訂單)', ppFPickSupplier: '請選擇進貨方', ppFBadAmount: '金額必須大於 0', ppFBadDate: '請填付款日期',
   ppRefundTag: '退回', ppAppliedTo: '抵扣', ppViewForecast: '查看預估紀錄', ppForecastGone: '預估紀錄已不存在(名稱:{n})',
@@ -23,7 +23,7 @@ Object.assign(I18N.zh, {
 Object.assign(I18N.en, {
   subtabAccPrepay: 'Prepayments', ppTitle: 'Supplier prepayments', ppAdd: '＋ Add prepayment', ppEmpty: 'No prepayments yet.',
   ppSumBalance: 'Unapplied balance', ppSumPaid: 'Total prepaid', ppSumApplied: 'Applied',
-  ppColDate: 'Paid on', ppColSupplier: 'Supplier', ppColForecast: 'Forecast record', ppColAmount: 'Amount', ppColApplied: 'Applied', ppColBalance: 'Balance', ppColNote: 'Method / note',
+  ppSumPaidFy: 'prepaid', ppSumAppliedFy: 'applied', ppFltFrom: 'From', ppFltTo: 'To', ppFltAll: 'All', ppFltOpen: 'With balance', ppFltUsed: 'Fully applied', ppFltClear: 'Clear filters', ppEmptyFiltered: 'No prepayments match the filters.', ppColDate: 'Paid on', ppColSupplier: 'Supplier', ppColForecast: 'Forecast record', ppColAmount: 'Amount', ppColApplied: 'Applied', ppColBalance: 'Balance', ppColNote: 'Method / note',
   ppFormAdd: 'Add prepayment', ppFormEdit: 'Edit prepayment', ppFSupplier: 'Supplier', ppFForecast: 'Linked purchase forecast record (optional)', ppFNone: 'None', ppFDate: 'Paid on', ppFAmount: 'Amount', ppFMethod: 'Method', ppFNote: 'Note',
   ppFRefund: 'Supplier refunded a prepayment (order cancelled)', ppFPickSupplier: 'Please choose a supplier', ppFBadAmount: 'Amount must be above 0', ppFBadDate: 'Please enter the payment date',
   ppRefundTag: 'Refund', ppAppliedTo: 'Applied to', ppViewForecast: 'View forecast record', ppForecastGone: 'Forecast record no longer exists (name: {n})',
@@ -85,16 +85,38 @@ async function ppOpenPage(){
   await ppLoad();
   ppRender();
 }
+let ppFilter = { from: '', to: '', sup: '', bal: 'open' };
+function ppSetFilter(k, v){ ppFilter[k] = v; ppRender(); }
+function ppClearFilter(){ ppFilter = { from: '', to: '', sup: '', bal: 'open' }; ppRender(); }
+function ppFyInfo(){
+  const y = (typeof arpCurrentFyStart === 'function') ? arpCurrentFyStart() : (new Date().getMonth() >= 6 ? new Date().getFullYear() : new Date().getFullYear() - 1);
+  return { label: (typeof arpFyLabel === 'function') ? arpFyLabel(y) : ('FY' + y), from: y + '-07-01', to: (y + 1) + '-06-30' };
+}
 function ppRender(){
   const root = document.getElementById('prepaymentRoot'); if(!root) return;
   if(ppErr === 'sql'){ root.innerHTML = `<div class="msg error">${t('ppNeedSql')}</div>`; return; }
   if(ppErr){ root.innerHTML = `<div class="msg error">${t('ppSaveFailed')}</div>`; return; }
-  const paid = ppR2(ppRows.reduce((s, r) => s + Number(r.amount), 0)), applied = ppR2(ppApps.reduce((s, a) => s + Number(a.amount), 0));
+  // 上面三個數字:未抵扣餘額(目前全部),加上「本財年」的預付與抵扣——不會隨年份一路累積
+  const fy = ppFyInfo(), inFy = d => !!d && d >= fy.from && d <= fy.to;
+  const balNow = ppR2(ppRows.reduce((s, r) => s + Number(r.amount), 0) - ppApps.reduce((s, a) => s + Number(a.amount), 0));
+  const paidFy = ppR2(ppRows.filter(r => inFy(r.pay_date)).reduce((s, r) => s + Number(r.amount), 0));
+  const usedFy = ppR2(ppApps.filter(a => inFy(a.apply_date)).reduce((s, a) => s + Number(a.amount), 0));
   const box = (label, v) => `<div style="flex:1 1 140px;border:1px solid var(--line);border-radius:8px;padding:6px 10px;"><div style="font-size:11px;color:var(--ink-soft);">${label}</div><b>${v}</b></div>`;
-  const purName = id => { const p = (typeof purchases !== 'undefined' ? purchases : []).find(x => x.id === id); return p ? [p.date, p.invoiceNo ? '#' + p.invoiceNo : ''].filter(Boolean).join(' ') : ''; };
-  const rows = ppRows.slice().sort((a, b) => (b.pay_date || '').localeCompare(a.pay_date || '')).map(r => {
+  const purName = id => { const p = (typeof purchases !== 'undefined' ? purchases : []).find(x => x.id === id); return p ? [paDmy(p.date), p.invoiceNo ? '#' + p.invoiceNo : ''].filter(Boolean).join(' ') : ''; };
+  const F = ppFilter;
+  const list = ppRows.filter(r => {
+    if(F.from && (r.pay_date || '') < F.from) return false;
+    if(F.to && (r.pay_date || '') > F.to) return false;
+    if(F.sup && r.party_name !== F.sup) return false;
+    const refund = Number(r.amount) < 0, bal = ppBalanceOf(r);
+    if(F.bal === 'open') return !refund && bal > 0.004;
+    if(F.bal === 'used') return !refund && bal <= 0.004;
+    return true;
+  });
+  const sups = Array.from(new Set(ppRows.map(r => r.party_name))).sort((a, b) => a.localeCompare(b));
+  const rows = list.slice().sort((a, b) => (b.pay_date || '').localeCompare(a.pay_date || '')).map(r => {
     const used = ppAppliedOf(r.id), bal = ppR2(Number(r.amount) - used), refund = Number(r.amount) < 0;
-    const apps = ppApps.filter(a => a.prepayment_id === r.id).map(a => `${ppEsc(paDmy(a.apply_date))} ${ppEsc(purName(a.purchase_id))} ${ppM(a.amount)}`).join('<br>');
+    const apps = ppApps.filter(a => a.prepayment_id === r.id).map(a => `${ppEsc(paDmy(a.apply_date))} → ${ppEsc(purName(a.purchase_id) || '?')} · ${ppM(a.amount)}`).join('<br>');
     const fr = r.forecast_id ? `<span class="del-link" style="color:var(--ink);" onclick="ppViewForecast('${ppEsc(r.forecast_id)}','${ppEsc(r.forecast_name || '')}')">${ppEsc(r.forecast_name || '–')}</span>` : '–';
     return `<tr>
       <td style="white-space:nowrap;">${ppEsc(paDmy(r.pay_date))}</td><td>${ppEsc(r.party_name)}${refund ? ` <span style="font-size:11px;color:#6b3fa0;font-weight:700;">${t('ppRefundTag')}</span>` : ''}</td><td>${fr}</td>
@@ -102,8 +124,15 @@ function ppRender(){
       <td>${ppEsc(r.method || '')}${r.note ? ' · ' + ppEsc(r.note) : ''}<div style="font-size:10.5px;color:var(--ink-soft);">${ppEsc(r.created_by || '')}</div></td>
       <td style="white-space:nowrap;text-align:right;"><span class="del-link" onclick="ppOpenForm('${ppEsc(r.id)}')" style="margin-right:6px;">${t('btnEdit')}</span><span class="del-link" onclick="ppDelete('${ppEsc(r.id)}')">${t('btnDelete')}</span></td></tr>`;
   }).join('');
-  root.innerHTML = `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;">${box(t('ppSumBalance'), ppM(paid - applied))}${box(t('ppSumPaid'), ppM(paid))}${box(t('ppSumApplied'), ppM(applied))}</div>
-    ${ppRows.length === 0 ? `<div class="empty-note">${t('ppEmpty')}</div>` : `<div style="overflow-x:auto;"><table class="stock-table"><thead><tr><th>${t('ppColDate')}</th><th>${t('ppColSupplier')}</th><th>${t('ppColForecast')}</th><th class="num">${t('ppColAmount')}</th><th class="num">${t('ppColApplied')}</th><th class="num">${t('ppColBalance')}</th><th>${t('ppColNote')}</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`}`;
+  const filterBar = `<div class="filter-row" style="margin-bottom:10px;">
+      <div class="field"><label>${t('ppFltFrom')}</label><input type="date" value="${ppEsc(F.from)}" onchange="ppSetFilter('from', this.value)" /></div>
+      <div class="field"><label>${t('ppFltTo')}</label><input type="date" value="${ppEsc(F.to)}" onchange="ppSetFilter('to', this.value)" /></div>
+      <div class="field"><label>${t('ppColSupplier')}</label><select onchange="ppSetFilter('sup', this.value)"><option value="">${t('ppFltAll')}</option>${sups.map(n => `<option value="${ppEsc(n)}" ${n === F.sup ? 'selected' : ''}>${ppEsc(n)}</option>`).join('')}</select></div>
+      <div class="field"><label>${t('ppColBalance')}</label><select onchange="ppSetFilter('bal', this.value)"><option value="open" ${F.bal === 'open' ? 'selected' : ''}>${t('ppFltOpen')}</option><option value="used" ${F.bal === 'used' ? 'selected' : ''}>${t('ppFltUsed')}</option><option value="all" ${F.bal === 'all' ? 'selected' : ''}>${t('ppFltAll')}</option></select></div>
+      <button class="btn ghost" onclick="ppClearFilter()" style="align-self:flex-end;">${t('ppFltClear')}</button></div>`;
+  root.innerHTML = `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;">${box(t('ppSumBalance'), ppM(balNow))}${box(fy.label + ' ' + t('ppSumPaidFy'), ppM(paidFy))}${box(fy.label + ' ' + t('ppSumAppliedFy'), ppM(usedFy))}</div>
+    ${filterBar}
+    ${ppRows.length === 0 ? `<div class="empty-note">${t('ppEmpty')}</div>` : (list.length === 0 ? `<div class="empty-note">${t('ppEmptyFiltered')}</div>` : `<div style="overflow-x:auto;"><table class="stock-table"><thead><tr><th>${t('ppColDate')}</th><th>${t('ppColSupplier')}</th><th>${t('ppColForecast')}</th><th class="num">${t('ppColAmount')}</th><th class="num">${t('ppColApplied')}</th><th class="num">${t('ppColBalance')}</th><th>${t('ppColNote')}</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`)}`;
 }
 
 // ---- 預估紀錄明細(從預付款列表點進去) ----
