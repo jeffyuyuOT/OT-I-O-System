@@ -126,6 +126,7 @@ function paStatusBadge(st){
 // ------------------------------------------------------------
 // 登記進貨(type = 'in'):顯示「入會計紀錄」(取代「寄送給會計」);其他類型隱藏
 function paFormInit(type){
+  if(typeof applyCostVisibility === 'function') applyCostVisibility();
   const wrap = document.getElementById('purchaseAccWrap'), emailWrap = document.getElementById('purchaseEmailWrap');
   if(!wrap) return;
   const on = paOn();

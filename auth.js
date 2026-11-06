@@ -222,6 +222,7 @@ async function handleLoginSubmit(e){
   currentUser = profile;
   document.getElementById('loginScreen').style.display = 'none';
   document.getElementById('appLoadingOverlay').style.display = 'flex';
+  if(typeof applyCostVisibility === 'function') applyCostVisibility();
   showOnlyAllowedTabImmediately();
   await startApp();
   document.getElementById('appLoadingOverlay').style.display = 'none';
