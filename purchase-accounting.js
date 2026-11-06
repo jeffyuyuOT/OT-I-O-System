@@ -416,6 +416,10 @@ function paRemoveFromAccounting(id){
 function paOpenPayments(id, expId, expName, sid){
   paPay = { id, editingId: null, expId: expId || '', expName: expName || '', sid: sid || '' };
   paRenderPayments();
+  if(typeof ppLoad === 'function' && typeof ppOn === 'function' && ppOn() && !ppLoaded){
+    const loadF = (typeof loadForecastRecords === 'function') ? loadForecastRecords().catch(() => {}) : Promise.resolve();
+    Promise.all([ppLoad(), loadF]).then(() => { if(paPay) paRenderPayments(); });
+  }
 }
 function paClosePayments(){ paCloseOverlay('paPaymentsOverlay'); paPay = null; paRenderList(); if(typeof oeRender === 'function' && document.getElementById('otherExpensesRoot') && document.getElementById('otherExpensesRoot').innerHTML) oeRender(); }
 function paRenderPayments(){
@@ -458,6 +462,7 @@ function paRenderPayments(){
       </div>
       <div id="paPayMsg" class="msg"></div>
     </div>
+    ${typeof ppApplyHtml === 'function' ? ppApplyHtml(p, tg) : ''}
     <div class="modal-actions">
       <button class="btn ghost" onclick="paClosePayments()">${t('btnClose')}</button>
       ${ed ? `<button class="btn ghost" onclick="paPay.editingId=null;paRenderPayments()">${t('btnCancel')}</button>` : ''}

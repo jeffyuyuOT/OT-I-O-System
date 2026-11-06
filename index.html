@@ -2181,6 +2181,7 @@
         <option value="subtab-acc-invoices" data-i18n="subtabAccInvoices">Invoice List</option>
         <option value="subtab-acc-credit-notes" data-i18n="subtabAccCreditNotes">Credit Note List</option>
         <option value="subtab-acc-purchases" data-i18n="subtabAccPurchases">Purchase List</option>
+        <option value="subtab-acc-prepay" data-i18n="subtabAccPrepay">預付款</option>
         <option value="subtab-acc-expenses" data-i18n="subtabAccExpenses">其他支出</option>
         <option value="subtab-acc-reports" data-i18n="subtabAccReports">會計報表</option>
         <option value="subtab-acc-schedule" data-i18n="subtabAccSchedule">付款與收款排程</option>
@@ -2229,6 +2230,13 @@
       <div class="section">
         <div class="toolbar"><div class="section-title" style="margin:0;" data-i18n="subtabAccPurchases">Purchase List</div><button class="btn ghost" onclick="openAddNewProductFromAcct()" data-i18n="btnAddProductAcct">＋ 新增商品</button></div>
         <div id="purchaseListRoot"></div>
+      </div>
+    </div>
+
+    <div id="subtab-acc-prepay" class="subtab-content">
+      <div class="section">
+        <div class="toolbar"><div class="section-title" style="margin:0;" data-i18n="ppTitle">供應商預付款</div><button class="btn ghost" onclick="ppOpenForm()" data-i18n="ppAdd">＋ 登記預付款</button></div>
+        <div id="prepaymentRoot"></div>
       </div>
     </div>
 
@@ -3297,6 +3305,7 @@
 <script src="invoice.js"></script>
 <script src="invoice-create.js"></script>
 <script src="purchase-accounting.js"></script>
+<script src="prepayments.js"></script>
 <script src="other-expenses.js"></script>
 <script src="accounting-reports.js"></script>
 <script src="payment-schedule.js"></script>

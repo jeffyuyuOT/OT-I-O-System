@@ -1360,6 +1360,7 @@ function toggleForecastRecordsPanel(forceOpen){
   if(panel.style.display === 'none' || forceOpen === true){
     panel.style.display = 'block';
     loadForecastRecords().then(renderForecastRecords);
+    if(typeof ppOn === 'function' && ppOn()) ppLoad().then(renderForecastRecords);
   } else {
     panel.style.display = 'none';
   }
@@ -1429,12 +1430,13 @@ function forecastRecordsTableHtml(includeConverted){
             ? `<span class="del-link" title="${t('btnDeleteRecord')}" onclick="deleteForecastRecord('${r.id}')">✕</span>`
             : `<span class="del-link" style="color:var(--ink);" onclick="loadForecastRecord('${r.id}')">${t('btnLoadForecastRecord')}</span>
                <span class="del-link" style="margin-left:10px;" title="${t('btnDeleteRecord')}" onclick="deleteForecastRecord('${r.id}')">✕</span>
-               <span class="del-link" style="margin-left:10px;color:var(--ink);" onclick="loadForecastRecordToPurchase('${r.id}')">${t('btnLoadPurchaseRecord')}</span>`;
+               <span class="del-link" style="margin-left:10px;color:var(--ink);" onclick="loadForecastRecordToPurchase('${r.id}')">${t('btnLoadPurchaseRecord')}</span>
+               ${(typeof ppOn === 'function' && ppOn()) ? `<span class="del-link" style="margin-left:10px;color:var(--ink);" onclick="ppOpenForm('', '${r.id}')">${t('ppBtnRegister')}</span>` : ''}`;
           return `<tr style="cursor:pointer;" onclick="toggleForecastRecordExpand('${r.id}')">
             <td class="row-name"><span style="display:inline-block;width:14px;">${open ? '▾' : '▸'}</span>${escapeHtmlText(r.name)}${r.note ? ` <span class="del-link" style="margin-left:4px;" title="${t('fieldForecastNote')}" onclick="event.stopPropagation();showForecastRecordNote('${r.id}')">📝</span>` : ''}</td>
             <td>${escapeHtmlText(formatOrderDateTime(r.savedAt))}</td>
             <td>${tf('forecastRecordItemsCount', { q: withQty })}</td>
-            <td style="color:${stColor};font-weight:600;white-space:nowrap;">${forecastStatusLabel(st)}</td>
+            <td style="color:${stColor};font-weight:600;white-space:nowrap;">${forecastStatusLabel(st)}${(typeof ppOn === 'function' && ppOn() && ppForRecord(r.id).length) ? `<div style="font-size:11px;color:var(--ink-soft);font-weight:400;">${tf('ppPaidTag', { a: ppM(ppPaidForRecord(r.id)) })}</div>` : ''}</td>
             <td style="white-space:nowrap;text-align:right;" onclick="event.stopPropagation()">${acts}</td>
           </tr>${open ? `<tr><td colspan="5" style="background:var(--bg,#faf7f0);">${forecastRecordDetailHtml(r)}</td></tr>` : ''}`;
         }).join('')}

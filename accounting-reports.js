@@ -44,6 +44,7 @@ async function arpLoadRaw(){
   }catch(e){ if(!(e && (e.code === '42P01' || e.code === 'PGRST205'))) errs.push('Credit Note'); }
   try{ if(typeof ensurePurchasesLoaded === 'function') await ensurePurchasesLoaded(); }catch(e){ errs.push('Purchases'); }
   try{ await paLoadPayments(); if(paErr) errs.push('Purchase payments'); }catch(e){ errs.push('Purchase payments'); }
+  try{ if(typeof ppLoad === 'function') await ppLoad(); }catch(e){}
   try{ await oeLoad(); if(oeErr === 'error') errs.push('Other expenses'); }catch(e){ errs.push('Other expenses'); }
   try{ if(typeof batchFeatureOn === 'function' && batchFeatureOn() && typeof ensureBatchDataLoaded === 'function') await ensureBatchDataLoaded(true); }catch(e){ errs.push('Batches'); }
   try{
@@ -131,6 +132,7 @@ function arpCompute(movements){
   R.bySup = Object.keys(bySup).map(k => Object.assign({ name: k }, bySup[k])).sort((a, b) => b.ex - a.ex);
   // GST
   const gstIn = arpR2(P.gst + rel.gst + sa.gst);
+  R.prepay = (typeof ppBalanceAsOf === 'function' && typeof ppOn === 'function' && ppOn()) ? ppBalanceAsOf(arpBalDate()) : 0;
   R.gstQ = arpGstByQuarter();
   R.gst = { g1: inc.netInc, sales: inc.netGst, purch: gstIn, net: arpR2(inc.netGst - gstIn) };
   // 庫存調整 / 耗損
@@ -366,7 +368,7 @@ function arpRender(){
     tr([`<b>${t('arpStExpTotal')}</b>`, B(arpM(S.expTotal))]),
     tr([`<b>${t('arpStNet')}</b>`, B(SM(S.net))]),
     tr([`<b>${tf('arpStBal', { d: R.balDate })}</b>`, '']),
-    tr([t('arpStBalInv'), N(SM(S.close))]), tr([t('arpStBalAr'), N(arpM(R.ar.total))]), tr([t('arpStBalAp'), N(arpM(R.ap.total))]),
+    tr([t('arpStBalInv'), N(SM(S.close))]), tr([t('arpStBalAr'), N(arpM(R.ar.total))]), tr([t('arpStBalAp'), N(arpM(R.ap.total))]), tr([t('arpStBalPrepay'), N(arpM(R.prepay))]),
     tr([`<span style="color:var(--ink-soft);">${t('arpStCogsRef')}</span>`, N(`<span style="color:var(--ink-soft);">${arpM(R.cogs)}</span>`)])
   ].join(''));
   const IV = R.invAsOf || R.inv;
@@ -433,7 +435,7 @@ function arpExport(){
     .concat(R.gstQ.rows.map(x => ['Q' + x.q, x.from, x.to, x.coll, x.paid, x.net])).concat([['Total', '', '', R.gstQ.coll, R.gstQ.paid, R.gstQ.net]]));
   add('Summary', [
     ['Period', (f.from || '…') + ' to ' + (f.to || '…')], [],
-    ['Sales (ex GST, net of credit notes)', q(R.income.netEx)], ['Balances as at', R.balDate], ['Trade receivables', q(R.ar.total)], ['Trade creditors', q(R.ap.total)], ['GST Collected (net)', q(R.income.netGst)], ['Sales (inc GST)', q(R.income.netInc)], [],
+    ['Sales (ex GST, net of credit notes)', q(R.income.netEx)], ['Balances as at', R.balDate], ['Trade receivables', q(R.ar.total)], ['Trade creditors', q(R.ap.total)], ['Prepayments to suppliers', q(R.prepay)], ['GST Collected (net)', q(R.income.netGst)], ['Sales (inc GST)', q(R.income.netInc)], [],
     ['Purchases (supplier invoices) ex GST', q(R.pur.ex)], ['Purchases - related costs (freight, duty) ex GST', q(R.rel.ex)], ['Expenses (standalone) ex GST', q(R.sa.ex)], ['Total purchases & expenses ex GST', q(tot.ex)], ['GST Paid', q(tot.gst)], [],
     ['Cost of sales (batch cost)', q(R.cogs)], ['Gross profit from trading', q(R.marginAmt)], ['Gross profit %', R.marginPct === null ? '' : R.marginPct], [],
     ['GST net payable / (refundable)', q(R.gst.net)], ['Wastage cost', q(R.wastageCost)], ['Inventories - stock on hand at cost (as of today)', q(R.inv.total)]
