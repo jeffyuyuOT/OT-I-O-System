@@ -75,6 +75,30 @@ async function arpLoadMovements(from, to){
 
 // ---- 計算 ----
 function arpInvCustomer(r){ return (r.customer || r.party_id || '').trim() || '(?)'; }
+
+// GST 依季度(所選財年 Q1–Q4,不受季度 / 日期篩選影響):1A = Invoice − Credit Note 的 GST;1B = 進貨 + 進貨相關費用 + 獨立支出的 GST
+function arpGstFy(){
+  if(arpFilter.fy) return Number(arpFilter.fy);
+  const d = arpFilter.to || arpFilter.from;
+  if(d){ const y = Number(d.slice(0, 4)), m = Number(d.slice(5, 7)); return m >= 7 ? y : y - 1; }
+  return arpCurrentFyStart();
+}
+function arpGstByQuarter(){
+  const fy = arpGstFy(), rows = [];
+  const invs = (typeof invList !== 'undefined' ? invList : []), cns = arpRaw.cns || [];
+  const pur = (typeof purchases !== 'undefined' ? purchases : []).filter(p => paCounted(p));
+  const ens = oeAllEntries();
+  for(let q = 1; q <= 4; q++){
+    const r = arpRangeFor(fy, q), inR = d => !!d && d >= r.from && d <= r.to;
+    let coll = 0, paid = 0;
+    invs.forEach(x => { if(inR(x.invoice_date)) coll += arpN(x.tax); });
+    cns.forEach(x => { if(inR(x.cn_date)) coll -= arpN(x.tax); });
+    pur.forEach(p => { if(inR(p.date)) paid += paInfo(p).gst; });
+    ens.forEach(en => { if(inR(en.date)) paid += en.info.gst; });
+    rows.push({ q, from: r.from, to: r.to, coll: arpR2(coll), paid: arpR2(paid), net: arpR2(coll - paid) });
+  }
+  return { fy, rows, coll: arpR2(rows.reduce((a, x) => a + x.coll, 0)), paid: arpR2(rows.reduce((a, x) => a + x.paid, 0)), net: arpR2(rows.reduce((a, x) => a + x.net, 0)) };
+}
 function arpCompute(movements){
   const R = {};
   const prods = (typeof products !== 'undefined') ? products : [];
@@ -107,6 +131,7 @@ function arpCompute(movements){
   R.bySup = Object.keys(bySup).map(k => Object.assign({ name: k }, bySup[k])).sort((a, b) => b.ex - a.ex);
   // GST
   const gstIn = arpR2(P.gst + rel.gst + sa.gst);
+  R.gstQ = arpGstByQuarter();
   R.gst = { g1: inc.netInc, sales: inc.netGst, purch: gstIn, net: arpR2(inc.netGst - gstIn) };
   // 庫存調整 / 耗損
   const adjIds = new Set(arpRaw.adjTx.map(x => x.id));
@@ -322,6 +347,10 @@ function arpRender(){
   const gstTbl = tbl([[t('arpColItem')], [t('arpColAmount'), 1]], [
     tr([t('arpGstG1'), N(arpM(R.gst.g1))]), tr([t('arpGstSales'), N(arpM(R.gst.sales))]), tr([t('arpGstPurch'), N(arpM(R.gst.purch))]),
     tr([`<b>${t('arpGstNet')}</b>`, B(arpM(R.gst.net))])].join(''));
+  const GQ = R.gstQ;
+  const gstQTbl = tbl([[t('arpGqQuarter')], [t('arpGqRange')], [t('arpGstSales'), 1], [t('arpGstPurch'), 1], [t('arpGstNet'), 1]],
+    GQ.rows.map(x => tr(['Q' + x.q, x.from + ' ~ ' + x.to, N(arpM(x.coll)), N(arpM(x.paid)), N(arpM(x.net))])).join('') +
+    tr([`<b>${arpFyLabel(GQ.fy)}</b>`, '', B(arpM(GQ.coll)), B(arpM(GQ.paid)), B(arpM(GQ.net))]));
   const marginTbl = tbl([[t('arpColItem')], [t('arpColAmount'), 1]], [
     tr([t('arpNetRevenue') + ' (' + t('arpColEx') + ')', N(arpM(R.income.netEx))]), tr([t('arpCogs'), N('-' + arpM(R.cogs))]),
     tr([`<b>${t('arpMarginAmt')}</b>`, B(arpM(R.marginAmt))]), tr([t('arpMarginPct'), N(R.marginPct === null ? '–' : R.marginPct.toFixed(1) + '%')])].join(''));
@@ -377,6 +406,7 @@ function arpRender(){
     ${sec(t('arpSecIncome'), incTbl)}
     ${sec(t('arpSecPurchase'), purTbl, t('arpPurNote'))}
     ${sec(t('arpSecGst'), gstTbl, t('arpGstHint'))}
+    ${sec(t('arpSecGstQ') + ' — ' + arpFyLabel(GQ.fy), gstQTbl, t('arpGqNote'))}
     ${sec(t('arpSecMargin'), marginTbl, t('arpMarginNote'))}
     ${sec(t('arpSecInventory') + (R.invAsOf ? ' — ' + arpAsOf : ' — ' + t('arpAsOfToday')), `<div class="filter-row" style="margin-bottom:6px;"><div class="field"><label>${t('arpInvAsOfLbl')}</label><input type="date" id="arpAsOfIn" value="${E(arpAsOf)}" max="${E((typeof invToday === 'function') ? invToday() : '')}" onchange="arpOnAsOf(this.value)" /></div>${arpAsOf ? `<button class="btn ghost" onclick="arpOnAsOf('')" style="align-self:flex-end;">${t('arpInvAsOfNow')}</button>` : ''}</div>${R.invAsOfErr ? `<div class="msg error">⚠ ${t('arpInvAsOfErr')}</div>` : ''}` + invTbl, t('arpInvNote') + (R.invAsOf ? ' ' + t('arpInvAsOfNote') : '') + (IV.noCost ? ' ' + tf('arpInvNoCost', { n: IV.noCost }) : '') + (IV.rows.length > 50 ? ' ' + t('arpTop50') : ''))}
     ${sec(t('arpSecWastage'), wasteTbl, t('arpWastageNote') + (R.adjNoCostQty ? ' ' + tf('arpWastageNoCost', { qty: arpM(R.adjNoCostQty) }) : ''))}
@@ -399,6 +429,8 @@ function arpExport(){
     ['Opening inventories', sv(S.open)], ['Purchases', q(S.purchases)], ['Closing inventories', S.close === null || S.close === undefined ? '' : -q(S.close)], ['Cost of sales', sv(S.cos)], [],
     ['GROSS PROFIT FROM TRADING', sv(S.gp)], ['Gross profit %', S.gpPct === null ? '' : S.gpPct], [], ['EXPENSES']
   ].concat(S.exp.map(x => [x.name, x.ex])).concat([['Total expenses', S.expTotal], [], ['PROFIT BEFORE OTHER INCOME & INCOME TAX', sv(S.net)], [], ['Reference: cost of sales per batch cost', q(R.cogs)]]));
+  add('GST by quarter', [['Financial year', arpFyLabel(R.gstQ.fy)], [], ['Quarter', 'From', 'To', 'GST Collected (1A)', 'GST Paid (1B)', 'Net payable / (refundable)']]
+    .concat(R.gstQ.rows.map(x => ['Q' + x.q, x.from, x.to, x.coll, x.paid, x.net])).concat([['Total', '', '', R.gstQ.coll, R.gstQ.paid, R.gstQ.net]]));
   add('Summary', [
     ['Period', (f.from || '…') + ' to ' + (f.to || '…')], [],
     ['Sales (ex GST, net of credit notes)', q(R.income.netEx)], ['Balances as at', R.balDate], ['Trade receivables', q(R.ar.total)], ['Trade creditors', q(R.ap.total)], ['GST Collected (net)', q(R.income.netGst)], ['Sales (inc GST)', q(R.income.netInc)], [],
