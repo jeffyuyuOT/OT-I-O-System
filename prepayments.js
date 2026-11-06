@@ -16,7 +16,7 @@ Object.assign(I18N.zh, {
   ppDeleteConfirm: '確定刪除這筆預付款?', ppErrInUse: '這筆預付款已經抵扣過進貨單,不能刪除或把金額改得比已抵扣的少。請先到進貨單的付款記錄刪除抵扣的那一筆。',
   ppErrExceeds: '退回金額超過這個進貨方目前的預付款餘額。', ppNeedSql: '請先在 Supabase 執行 sql/supplier_prepayments.sql 才能使用預付款。', ppSaveFailed: '儲存失敗,請再試一次。',
   ppApplyTitle: '用預付款抵扣', ppApplyPick: '選擇預付款', ppApplyAmount: '抵扣金額', ppApplyBtn: '抵扣', ppApplyBad: '抵扣金額必須大於 0,不能超過預付款餘額,也不能超過這張進貨單的未付金額。',
-  ppApplyLinked: '(連結這張進貨單的預估紀錄)', ppApplyRemain: '餘額',
+  ppApplyLinked: '(連結這張進貨單的預估紀錄)', ppApplyAvail: '可用餘額', ppApplyRemain: '餘額',
   ppBtnRegister: '預付款', ppPaidTag: '已預付 {a}', ppForecastPaid: '預付款',
   arpStBalPrepay: 'Prepayments 供應商預付款(尚未抵扣)'
 });
@@ -30,7 +30,7 @@ Object.assign(I18N.en, {
   ppDeleteConfirm: 'Delete this prepayment?', ppErrInUse: 'This prepayment has already been applied to a purchase, so it cannot be deleted or reduced below the applied amount. Delete the applied payment on the purchase first.',
   ppErrExceeds: 'The refund is more than this supplier\'s current prepayment balance.', ppNeedSql: 'Run sql/supplier_prepayments.sql in Supabase first to use prepayments.', ppSaveFailed: 'Save failed, please try again.',
   ppApplyTitle: 'Apply a prepayment', ppApplyPick: 'Prepayment', ppApplyAmount: 'Amount to apply', ppApplyBtn: 'Apply', ppApplyBad: 'The amount must be above 0, not more than the prepayment balance, and not more than this purchase\'s unpaid amount.',
-  ppApplyLinked: '(forecast record linked to this purchase)', ppApplyRemain: 'balance',
+  ppApplyLinked: '(forecast record linked to this purchase)', ppApplyAvail: 'available', ppApplyRemain: 'balance',
   ppBtnRegister: 'Prepayment', ppPaidTag: 'Prepaid {a}', ppForecastPaid: 'Prepayments',
   arpStBalPrepay: 'Prepayments to suppliers (not yet applied)'
 });
@@ -209,7 +209,7 @@ function ppApplyHtml(p, tg){
     <div class="form-grid" style="grid-template-columns:2fr 1fr 1fr auto;gap:8px;align-items:end;">
       <div class="field"><label>${t('ppApplyPick')}</label><select id="ppApplySel" onchange="ppApplySelChange()">${c.map(x => `<option value="${ppEsc(x.r.id)}" data-bal="${ppM(x.bal)}">${ppEsc(paDmy(x.r.pay_date))} · ${ppEsc(x.r.forecast_name || x.r.note || 'Prepayment')} · ${t('ppApplyRemain')} ${ppM(x.bal)}${x.linked ? ' ' + t('ppApplyLinked') : ''}</option>`).join('')}</select></div>
       <div class="field"><label>${t('paPayDate')}</label><input type="date" id="ppApplyDate" value="${ppEsc(paToday())}" /></div>
-      <div class="field"><label>${t('ppApplyAmount')}</label><input type="number" id="ppApplyAmt" step="0.01" value="${def > 0 ? ppM(def) : ''}" /></div>
+      <div class="field"><label>${t('ppApplyAmount')} <span id="ppApplyAvail" style="font-weight:400;color:var(--ink-soft);">(${t('ppApplyAvail')} ${ppM(first.bal)})</span></label><input type="number" id="ppApplyAmt" step="0.01" value="${def > 0 ? ppM(def) : ''}" /></div>
       <button class="btn" onclick="ppApply()">${t('ppApplyBtn')}</button>
     </div><div id="ppApplyMsg" class="msg"></div></div>`;
 }
@@ -218,6 +218,7 @@ function ppApplySelChange(){
   const p = paPayPurchase(); if(!p) return;
   const bal = Number((s.options[s.selectedIndex] || {}).getAttribute('data-bal')) || 0;
   a.value = ppM(Math.min(bal, Math.max(0, paPayTarget(p).info.balance)));
+  const av = document.getElementById('ppApplyAvail'); if(av) av.textContent = '(' + t('ppApplyAvail') + ' ' + ppM(bal) + ')';
 }
 async function ppApply(){
   if(typeof paPay === 'undefined' || !paPay) return;
