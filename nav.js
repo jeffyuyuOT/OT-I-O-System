@@ -627,7 +627,6 @@ function switchAccountingSubTab(subtabId){
   if(subtabId === 'subtab-log-pricerec' && typeof psOpenRecordList === 'function') psOpenRecordList();
   if(subtabId === 'subtab-acc-settings'){
     if(typeof renderSystemCurrencySetting === 'function') renderSystemCurrencySetting();
-    if(typeof evRender === 'function') evRender();
     if(typeof psSyncAvgMethodUI === 'function') psSyncAvgMethodUI();
     if(typeof renderSellPriceSetting === 'function') renderSellPriceSetting();
     if(typeof invRenderSettings === 'function') invRenderSettings();
@@ -643,7 +642,6 @@ function switchAccSettingsTab(which){
   const bp = document.getElementById('accSetBtnPref'), bi = document.getElementById('accSetBtnItems');
   if(bp) bp.className = items ? 'btn ghost' : 'btn';
   if(bi) bi.className = items ? 'btn' : 'btn ghost';
-  if(items && typeof evRender === 'function') evRender();
 }
 function refreshAccountingSubTab(){
   const sel = document.getElementById('accountingSubtabSelect');

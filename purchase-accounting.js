@@ -256,6 +256,19 @@ async function paOpenPage(){
   await paLoadPayments();
   paRenderList();
 }
+// 會計清單共用的 Excel 匯出(目前篩選結果)
+function accExportXlsx(aoa, sheetName, filePrefix, widths){
+  if(typeof XLSX === 'undefined'){ showInfoModal(t('psImportNoXlsx')); return; }
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
+  if(widths) ws['!cols'] = widths.map(w => ({ wch: w }));
+  const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, sheetName);
+  XLSX.writeFile(wb, `${filePrefix}_${(typeof invToday === 'function') ? invToday() : new Date().toISOString().slice(0, 10)}.xlsx`);
+}
+function paExportXlsx(){
+  const aoa = [['Date', 'Supplier', 'Invoice No', 'Amount (Ex. GST)', 'GST', 'Total (Inc. GST)', 'Paid', 'Balance', 'Status']]
+    .concat(paFiltered().map(p => { const i = paInfo(p); return [p.date || '', p.partyName || '', p.invoiceNo || '', i.ex, i.gst, i.total, i.paid, i.balance, t('invSt_' + i.status)]; }));
+  accExportXlsx(aoa, 'Purchases', 'purchases', [12, 28, 16, 16, 10, 16, 12, 12, 12]);
+}
 function paFiltered(){
   const f = paFilter, q = (f.q || '').trim().toLowerCase();
   return purchases.filter(p => paCounted(p)
@@ -308,7 +321,11 @@ function paRenderList(){
       <div class="field"><label>${t('invFltStatus')}</label>${sel('paFlt_status', f.status, [['', t('invFltAll')], ['unpaid', t('invSt_unpaid')], ['partial', t('invSt_partial')], ['paid', t('invSt_paid')], ['overpaid', t('invSt_overpaid')]])}</div>
       <div class="field" style="min-width:220px;"><label>${t('invFltSearch')}</label><input type="search" id="paFlt_q" value="${paEsc(f.q)}" oninput="paOnFilter(true)" placeholder="${paEsc(t('paSearchPh'))}" /></div>
       <button class="btn ghost" onclick="paClearFilter()" style="align-self:flex-end;">${t('btnClearFilter')}</button>
+      <button class="btn ghost" onclick="paExportXlsx()" style="align-self:flex-end;">${t('accExportXlsx')}</button>
+      <button class="btn ghost" id="evBtn" onclick="evDownload()" style="align-self:flex-end;" title="${paEsc(t('evHint'))}">${t('evPackBtn')}</button>
+      <button class="btn ghost" id="evCancelBtn" style="display:none;align-self:flex-end;" onclick="evCancelRun()">${t('evCancel')}</button>
     </div>
+    <div id="evMsg" style="font-size:12px;color:var(--ink-soft);margin:-4px 0 8px;"></div>
     ${list.length === 0 ? `<div class="empty-note">${t('paListEmpty')}</div>` : `<div style="overflow-x:auto;"><table class="stock-table"><thead><tr><th>${t('colDate')}</th><th>${t('paColSupplier')}</th><th>Invoice No</th><th class="num">${t('paColAmount')}</th><th class="num">${t('paColPaid')}</th><th class="num">${t('paColUnpaid')}</th><th>${t('invFltStatus')}</th><th></th></tr></thead>
       <tbody>${rows}<tr style="font-weight:700;border-top:2px solid var(--line, #ccc);"><td colspan="3" style="text-align:right;">${t('invListTotals')} (${list.length})</td><td class="num">${paM2(sum.t)}</td><td class="num">${paM2(sum.p)}</td><td class="num">${paM2(sum.b)}</td><td colspan="2"></td></tr></tbody>
     </table></div>`}`;

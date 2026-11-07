@@ -68,8 +68,10 @@ const LOOKOUT_CARDS = [
       switchTab('tab-accounting');
       switchAccountingSubTab('subtab-acc-create-invoice');
     } },
-  { id: 'forecast', icon: '🫡', titleKey: 'subtabTxForecast', descKey: 'lookoutForecastDesc', tab: ['tab-warehouse-admin', 'tab-log'],
+  { id: 'forecast', icon: '🔭', titleKey: 'subtabTxForecast', descKey: 'lookoutForecastDesc', tab: ['tab-warehouse-admin', 'tab-log'],
     go: function(){ lookoutOpenForecastChoice(); } },
+  { id: 'export', icon: '📤', titleKey: 'lookoutExport', descKey: 'lookoutExportDesc', tab: ['tab-overview', 'tab-accounting'],
+    go: function(){ lookoutOpenExportChoice(); } },
   { id: 'tx-log', icon: '🧾', titleKey: 'lookoutTxLog', descKey: 'lookoutTxLogDesc', tab: 'tab-log',
     go: function(){
       switchTab('tab-log');
@@ -124,10 +126,31 @@ function renderLookout(){
   }).join('');
 }
 
-// 進貨預估:點進去先選「新增進貨預估」(倉庫後台管理 → 進貨預估)或「進貨預估紀錄」(歷史紀錄),
-// 沒有對應分頁權限的選項不顯示。
+// 通用選項視窗:卡片點進去要先選去哪裡時用(進貨預估、匯出檔案)。opts = [{label, go}],沒有對應權限的選項呼叫端先過濾掉。
+function lookoutOpenChoice(titleKey, opts){
+  const old = document.getElementById('lookoutChoiceOverlay'); if(old) old.remove();
+  if(!opts || opts.length === 0) return;
+  window.__lookoutChoiceOpts = opts;
+  const ov = document.createElement('div');
+  ov.id = 'lookoutChoiceOverlay'; ov.className = 'modal-overlay'; ov.style.display = 'flex'; ov.style.zIndex = '1150';
+  ov.onclick = function(e){ if(e.target === ov) ov.remove(); };
+  ov.innerHTML = '<div class="modal-box" style="max-width:min(420px,92vw);">' +
+    '<div class="section-title" style="margin-top:0;">' + t(titleKey) + '</div>' +
+    '<div style="display:flex;flex-direction:column;gap:10px;margin-top:6px;">' +
+    opts.map(function(o, i){ return '<button class="btn" onclick="lookoutChoicePick(' + i + ')">' + o.label + '</button>'; }).join('') +
+    '</div>' +
+    '<div class="modal-actions"><button class="btn ghost" onclick="document.getElementById(\'lookoutChoiceOverlay\').remove()">' + t('btnCancel') + '</button></div>' +
+    '</div>';
+  document.body.appendChild(ov);
+}
+function lookoutChoicePick(i){
+  const o = (window.__lookoutChoiceOpts || [])[i];
+  const ov = document.getElementById('lookoutChoiceOverlay'); if(ov) ov.remove();
+  if(o) try{ o.go(); }catch(e){ console.error('Lookout 跳轉失敗', e); }
+}
+
+// 進貨預估:「新增進貨預估」(倉庫後台管理 → 進貨預估)或「進貨預估紀錄」(歷史紀錄)
 function lookoutOpenForecastChoice(){
-  const old = document.getElementById('lookoutForecastOverlay'); if(old) old.remove();
   const opts = [];
   if(lookoutTabAllowed('tab-warehouse-admin')) opts.push({ label: t('lookoutForecastNew'), go: function(){
     switchTab('tab-warehouse-admin');
@@ -137,22 +160,20 @@ function lookoutOpenForecastChoice(){
     switchTab('tab-log');
     switchLogSubTab('subtab-log-forecast');
   } });
-  if(opts.length === 0) return;
-  window.__lookoutForecastOpts = opts;
-  const ov = document.createElement('div');
-  ov.id = 'lookoutForecastOverlay'; ov.className = 'modal-overlay'; ov.style.display = 'flex'; ov.style.zIndex = '1150';
-  ov.onclick = function(e){ if(e.target === ov) ov.remove(); };
-  ov.innerHTML = '<div class="modal-box" style="max-width:min(420px,92vw);">' +
-    '<div class="section-title" style="margin-top:0;">' + t('subtabTxForecast') + '</div>' +
-    '<div style="display:flex;flex-direction:column;gap:10px;margin-top:6px;">' +
-    opts.map(function(o, i){ return '<button class="btn" onclick="lookoutForecastPick(' + i + ')">' + o.label + '</button>'; }).join('') +
-    '</div>' +
-    '<div class="modal-actions"><button class="btn ghost" onclick="document.getElementById(\'lookoutForecastOverlay\').remove()">' + t('btnCancel') + '</button></div>' +
-    '</div>';
-  document.body.appendChild(ov);
+  lookoutOpenChoice('subtabTxForecast', opts);
 }
-function lookoutForecastPick(i){
-  const o = (window.__lookoutForecastOpts || [])[i];
-  const ov = document.getElementById('lookoutForecastOverlay'); if(ov) ov.remove();
-  if(o) try{ o.go(); }catch(e){ console.error('Lookout 跳轉失敗', e); }
+
+// 匯出檔案:匯出庫存(庫存總覽 → Action → 匯出庫存數量視窗)或匯出報表(會計 → 會計報表)
+function lookoutOpenExportChoice(){
+  const opts = [];
+  if(lookoutTabAllowed('tab-overview')) opts.push({ label: t('lookoutExportStock'), go: function(){
+    switchTab('tab-overview');
+    switchOverviewSubTab('subtab-overview-summary');
+    if(typeof openStockExportModal === 'function') openStockExportModal();
+  } });
+  if(lookoutTabAllowed('tab-accounting')) opts.push({ label: t('lookoutExportReport'), go: function(){
+    switchTab('tab-accounting');
+    switchAccountingSubTab('subtab-acc-reports');
+  } });
+  lookoutOpenChoice('lookoutExport', opts);
 }

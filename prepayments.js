@@ -94,6 +94,26 @@ function ppFyInfo(){
   const y = (typeof arpCurrentFyStart === 'function') ? arpCurrentFyStart() : (new Date().getMonth() >= 6 ? new Date().getFullYear() : new Date().getFullYear() - 1);
   return { label: (typeof arpFyLabel === 'function') ? arpFyLabel(y) : ('FY' + y), from: y + '-07-01', to: (y + 1) + '-06-30' };
 }
+function ppFiltered(){
+  const F = ppFilter;
+  return ppRows.filter(r => {
+    if(F.from && (r.pay_date || '') < F.from) return false;
+    if(F.to && (r.pay_date || '') > F.to) return false;
+    if(F.sup && r.party_name !== F.sup) return false;
+    const refund = Number(r.amount) < 0, bal = ppBalanceOf(r);
+    if(F.bal === 'open') return !refund && bal > 0.004;
+    if(F.bal === 'used') return !refund && bal <= 0.004;
+    return true;
+  });
+}
+function ppExportXlsx(){
+  const aoa = [['Date', 'Supplier', 'Forecast', 'Amount', 'Applied', 'Balance', 'Method', 'Note', 'Created by']]
+    .concat(ppFiltered().slice().sort((a, b) => (b.pay_date || '').localeCompare(a.pay_date || '')).map(r => {
+      const refund = Number(r.amount) < 0, used = ppAppliedOf(r.id);
+      return [r.pay_date || '', r.party_name || '', r.forecast_name || '', Number(r.amount), refund ? '' : used, refund ? '' : ppR2(Number(r.amount) - used), r.method || '', r.note || '', r.created_by || ''];
+    }));
+  accExportXlsx(aoa, 'Prepayments', 'prepayments', [12, 28, 24, 12, 12, 12, 14, 30, 16]);
+}
 function ppRender(){
   const root = document.getElementById('prepaymentRoot'); if(!root) return;
   if(ppErr === 'sql'){ root.innerHTML = `<div class="msg error">${t('ppNeedSql')}</div>`; return; }
@@ -106,15 +126,7 @@ function ppRender(){
   const box = (label, v) => `<div style="flex:1 1 140px;border:1px solid var(--line);border-radius:8px;padding:6px 10px;"><div style="font-size:11px;color:var(--ink-soft);">${label}</div><b>${v}</b></div>`;
   const purName = id => { const p = (typeof purchases !== 'undefined' ? purchases : []).find(x => x.id === id); return p ? [paDmy(p.date), p.invoiceNo ? '#' + p.invoiceNo : ''].filter(Boolean).join(' ') : ''; };
   const F = ppFilter;
-  const list = ppRows.filter(r => {
-    if(F.from && (r.pay_date || '') < F.from) return false;
-    if(F.to && (r.pay_date || '') > F.to) return false;
-    if(F.sup && r.party_name !== F.sup) return false;
-    const refund = Number(r.amount) < 0, bal = ppBalanceOf(r);
-    if(F.bal === 'open') return !refund && bal > 0.004;
-    if(F.bal === 'used') return !refund && bal <= 0.004;
-    return true;
-  });
+  const list = ppFiltered();
   const sups = Array.from(new Set(ppRows.map(r => r.party_name))).sort((a, b) => a.localeCompare(b));
   const rows = list.slice().sort((a, b) => (b.pay_date || '').localeCompare(a.pay_date || '')).map(r => {
     const used = ppAppliedOf(r.id), bal = ppR2(Number(r.amount) - used), refund = Number(r.amount) < 0;
@@ -134,7 +146,8 @@ function ppRender(){
       <div class="field"><label>${t('ppFltTo')}</label><input type="date" value="${ppEsc(F.to)}" onchange="ppSetFilter('to', this.value)" /></div>
       <div class="field"><label>${t('ppColSupplier')}</label><select onchange="ppSetFilter('sup', this.value)"><option value="">${t('ppFltAll')}</option>${sups.map(n => `<option value="${ppEsc(n)}" ${n === F.sup ? 'selected' : ''}>${ppEsc(n)}</option>`).join('')}</select></div>
       <div class="field"><label>${t('ppColBalance')}</label><select onchange="ppSetFilter('bal', this.value)"><option value="open" ${F.bal === 'open' ? 'selected' : ''}>${t('ppFltOpen')}</option><option value="used" ${F.bal === 'used' ? 'selected' : ''}>${t('ppFltUsed')}</option><option value="all" ${F.bal === 'all' ? 'selected' : ''}>${t('ppFltAll')}</option></select></div>
-      <button class="btn ghost" onclick="ppClearFilter()" style="align-self:flex-end;">${t('ppFltClear')}</button></div>`;
+      <button class="btn ghost" onclick="ppClearFilter()" style="align-self:flex-end;">${t('ppFltClear')}</button>
+      <button class="btn ghost" onclick="ppExportXlsx()" style="align-self:flex-end;">${t('accExportXlsx')}</button></div>`;
   root.innerHTML = `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;">${box(t('ppSumBalance'), ppM(balNow))}${box(fy.label + ' ' + t('ppSumPaidFy'), ppM(paidFy))}${box(fy.label + ' ' + t('ppSumAppliedFy'), ppM(usedFy))}</div>
     ${filterBar}
     ${ppRows.length === 0 ? `<div class="empty-note">${t('ppEmpty')}</div>` : (list.length === 0 ? `<div class="empty-note">${t('ppEmptyFiltered')}</div>` : `<div style="overflow-x:auto;"><table class="stock-table"><thead><tr><th>${t('ppColDate')}</th><th>${t('ppColSupplier')}</th><th>${t('ppColForecast')}</th><th class="num">${t('ppColAmount')}</th><th class="num">${t('ppColApplied')}</th><th class="num">${t('ppColBalance')}</th><th>${t('ppColNote')}</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`)}`;

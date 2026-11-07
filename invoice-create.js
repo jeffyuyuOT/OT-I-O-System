@@ -632,13 +632,22 @@ function icRsBadge(st){
   const col = { none: ['#eef0f3', '#555'], pending: ['#fff4dc', '#9a6a00'], partial: ['#e8f0fe', '#1a56b0'], done: ['#e7f6ec', '#1d7a3c'] }[st] || ['#eee', '#555'];
   return `<span style="display:inline-block;padding:1px 8px;border-radius:10px;font-size:11px;font-weight:700;background:${col[0]};color:${col[1]};white-space:nowrap;">${invEsc(t('icRs_' + (st || 'none')))}</span>`;
 }
+function icCnFiltered(){
+  const f = icCnF, q = f.q.trim().toLowerCase();
+  return (icCnRows || []).filter(r => (!f.from || r.cn_date >= f.from) && (!f.to || r.cn_date <= f.to) && (!f.st || (r.return_status || 'none') === f.st)
+    && (!q || [r.cn_no, invCustSearch(r), 'INV' + (r.invoice_no || ''), r.invoice_no].join(' ').toLowerCase().includes(q)));
+}
+function icCnExportXlsx(){
+  const aoa = [['Credit Note No', 'Date', 'Customer', 'Linked Invoice', 'Total (Inc. GST)', 'Available', 'Return Status']]
+    .concat(icCnFiltered().map(r => [r.cn_no, r.cn_date, invCustLabel(r), r.invoice_id ? 'INV' + (r.invoice_no || '') : ((icCnUsedOn[r.id] || []).map(x => 'INV' + (x.no || '')).join(', ')), -(Number(r.total) || 0), r.invoice_id ? '' : (Number(r.total) || 0) - (Number(r.applied) || 0), t('icRs_' + (r.return_status || 'none'))]));
+  accExportXlsx(aoa, 'Credit Notes', 'credit_notes', [16, 12, 30, 20, 16, 14, 14]);
+}
 function icCnRender(){
   const root = document.getElementById('creditNoteListRoot'); if(!root || !icOk()) return;
   if(icCnErr === 'sql'){ root.innerHTML = `<div class="empty-note">${t('icNeedSqlCn')}</div>`; return; }
   if(icCnErr){ root.innerHTML = `<div class="empty-note">${t('invLoadFailed')}</div>`; return; }
   const f = icCnF, q = f.q.trim().toLowerCase();
-  const list = (icCnRows || []).filter(r => (!f.from || r.cn_date >= f.from) && (!f.to || r.cn_date <= f.to) && (!f.st || (r.return_status || 'none') === f.st)
-    && (!q || [r.cn_no, invCustSearch(r), 'INV' + (r.invoice_no || ''), r.invoice_no].join(' ').toLowerCase().includes(q)));
+  const list = icCnFiltered();
   const sum = list.reduce((a, r) => a + (Number(r.total) || 0), 0);
   const availSum = list.reduce((a, r) => a + (r.invoice_id ? 0 : (Number(r.total) || 0) - (Number(r.applied) || 0)), 0);   // 單獨 Credit Note 的可用額度合計
   const stOpt = (v, l) => `<option value="${v}" ${f.st === v ? 'selected' : ''}>${l}</option>`;
@@ -655,6 +664,7 @@ function icCnRender(){
       <div><div style="font-size:11px;color:var(--ink-soft);">${t('icTo')}</div><input type="date" value="${invEsc(f.to)}" onchange="icCnF.to=this.value;icCnRender()" /></div>
       <div><div style="font-size:11px;color:var(--ink-soft);">${t('icColReturnStatus')}</div><select onchange="icCnF.st=this.value;icCnRender()">${stOpt('', t('invFltAll'))}${stOpt('pending', t('icRs_pending'))}${stOpt('partial', t('icRs_partial'))}${stOpt('done', t('icRs_done'))}${stOpt('none', t('icRs_none'))}</select></div>
       <div style="flex:1;min-width:160px;"><div style="font-size:11px;color:var(--ink-soft);">${t('invFltSearch')}</div><input type="text" value="${invEsc(f.q)}" placeholder="${invEsc(t('icCnSearchPh'))}" oninput="icCnF.q=this.value;icCnRenderKeepFocus(this)" style="width:100%;box-sizing:border-box;" /></div>
+      <button class="btn ghost" onclick="icCnExportXlsx()" style="align-self:flex-end;">${t('accExportXlsx')}</button>
     </div>
     ${list.length ? `<div style="overflow-x:auto;"><table class="stock-table"><thead><tr><th>Credit Note No</th><th>${t('icColDate')}</th><th>${t('invColCustomer')}</th><th>${t('icLinkedInvoice')}</th><th class="num">${t('spTotalAmt')}</th><th class="num">${t('invCreditAvail')}</th><th>${t('icColReturnStatus')}</th><th></th></tr></thead><tbody>${body}<tr style="font-weight:700;border-top:2px solid var(--line, #ccc);"><td colspan="4" style="text-align:right;">${t('invListTotals')} (${list.length})</td><td class="num">(${invMoney2(sum)})</td><td class="num">${invMoney2(availSum)}</td><td></td><td></td></tr></tbody></table></div>` : `<div class="empty-note">${t('icNoCn')}</div>`}`;
 }
