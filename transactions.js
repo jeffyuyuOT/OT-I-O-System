@@ -2267,8 +2267,8 @@ function finishNewOrderSubmit(kind, orderId, count, orderNo, msg){
   txBatchItems = [];
   resetRegisterOutFlow();
   setTxOutFlowType('');
-  switchTab('tab-order-admin');
-  switchOrderAdminSubTab(kind === 'pending' ? 'subtab-order-pending' : 'subtab-order-completed');
+  switchTab('tab-warehouse-ops');
+  switchWarehouseOpsSubTab(kind === 'pending' ? 'subtab-order-pending' : 'subtab-order-completed');
   expandedOrderIds.add(orderId);
   renderAll();
   showInfoModal(tf('addToOrderSuccessMsg', { orderNo: orderNo || orderId, n: count }));
@@ -2403,8 +2403,8 @@ async function submitLoadPendingFlow(action, msg){
     if(action === 'save-pending'){
       resetRegisterOutFlow();
       setTxOutFlowType('');
-      switchTab('tab-order-admin');
-      switchOrderAdminSubTab('subtab-order-pending');
+      switchTab('tab-warehouse-ops');
+      switchWarehouseOpsSubTab('subtab-order-pending');
       expandedOrderIds.add(orderId);
       renderAll();
       msg.className='msg ok'; msg.textContent='✓ 已儲存';
@@ -2646,8 +2646,8 @@ async function submitLoadCompletedFlow(date, msg){
 
     resetRegisterOutFlow();
     setTxOutFlowType('');
-    switchTab('tab-order-admin');
-    switchOrderAdminSubTab('subtab-order-completed');
+    switchTab('tab-warehouse-ops');
+    switchWarehouseOpsSubTab('subtab-order-completed');
     expandedOrderIds.add(orderId);
     renderAll();
     msg.className='msg ok'; msg.textContent='✓ 已儲存';

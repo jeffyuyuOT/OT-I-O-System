@@ -59,6 +59,11 @@ function oeFiltered(){
     && (!f.status || en.info.status === f.status)
     && (!q || [en.name, en.payee, en.kind === 'rel' ? (en.p.invoiceNo || '') + ' ' + (en.p.partyName || '') : (en.e.note || '')].join(' ').toLowerCase().includes(q)));
 }
+function oeExportXlsx(){
+  const aoa = [['Date', 'Item', 'Payee', 'Type', 'Purchase', 'Amount (Ex. GST)', 'GST', 'Total (Inc. GST)', 'Paid', 'Balance', 'Status']]
+    .concat(oeFiltered().map(en => { const i = en.info; return [en.date || '', en.name || '', en.payee || '', en.kind === 'rel' ? t('oeTypeRelated') : t('oeTypeStandalone'), en.kind === 'rel' ? [en.p.partyName, en.p.invoiceNo].filter(Boolean).join(' ') : '', i.ex, i.gst, i.total, i.paid, i.balance, t('invSt_' + i.status)]; }));
+  accExportXlsx(aoa, 'Other Expenses', 'other_expenses', [12, 28, 22, 18, 26, 16, 10, 16, 12, 12, 12]);
+}
 function oeRender(){
   const root = document.getElementById('otherExpensesRoot'); if(!root) return;
   if(oeErr === 'sql'){ root.innerHTML = `<div class="empty-note">${t('oeNeedSql')}</div>`; return; }
@@ -107,6 +112,7 @@ function oeRender(){
       <div class="field"><label>${t('invFltStatus')}</label>${sel('oeFlt_status', f.status, [['', t('invFltAll')], ['unpaid', t('invSt_unpaid')], ['partial', t('invSt_partial')], ['paid', t('invSt_paid')], ['overpaid', t('invSt_overpaid')]])}</div>
       <div class="field" style="min-width:220px;"><label>${t('invFltSearch')}</label><input type="search" id="oeFlt_q" value="${oeEsc(f.q)}" oninput="oeOnFilter(true)" placeholder="${oeEsc(t('oeSearchPh'))}" /></div>
       <button class="btn ghost" onclick="oeClearFilter()" style="align-self:flex-end;">${t('btnClearFilter')}</button>
+      <button class="btn ghost exp-btn" onclick="oeExportXlsx()" style="align-self:flex-end;">${t('accExportXlsx')}</button>
     </div>
     ${list.length === 0 ? `<div class="empty-note">${t('oeEmpty')}</div>` : `<div style="overflow-x:auto;"><table class="stock-table"><thead><tr><th>${t('colDate')}</th><th>${t('oeColItem')}</th><th>${t('oeColPayee')}</th><th>Linked INV</th><th class="num">${t('paColAmount')}</th><th class="num">${t('paColPaid')}</th><th class="num">${t('paColUnpaid')}</th><th>${t('invFltStatus')}</th><th></th></tr></thead>
       <tbody>${rows}<tr style="font-weight:700;border-top:2px solid var(--line, #ccc);"><td colspan="4" style="text-align:right;">${t('invListTotals')} (${list.length})</td><td class="num">${paM2(sum.t)}</td><td class="num">${paM2(sum.p)}</td><td class="num">${paM2(sum.b)}</td><td colspan="2"></td></tr></tbody>

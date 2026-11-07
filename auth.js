@@ -8,11 +8,12 @@
 // ===== 分頁定義 =====
 
 const TAB_DEFS = [
+  // Lookout:常用功能快捷入口(卡片),排第一;沒有自己的資料,卡片依其他分頁權限顯示
+  { id: 'tab-lookout', labelKey: 'tabLookout' },
   { id: 'tab-master', labelKey: 'tabMaster' },
   { id: 'tab-warehouse-ops', labelKey: 'tabWarehouseOps' },
   { id: 'tab-overview', labelKey: 'tabOverview' },
   { id: 'tab-order', labelKey: 'tabOrder' },
-  { id: 'tab-order-admin', labelKey: 'secOrderAdmin' },
   { id: 'tab-warehouse-admin', labelKey: 'tabWarehouseAdmin' },
   { id: 'tab-log', labelKey: 'tabLog' },
   // 會計:Invoices、定價管理、定價管理紀錄;只有管理者、會計預設看得到
@@ -43,8 +44,41 @@ const CAPABILITY_DEFS = [
   { id: 'cap-view-price', parentTab: null, labelKey: 'capViewPrice', special: 'viewprice' },
   // 訂單核對:能不能使用「訂單核對」頁面、把待處理訂單載入核對。除了會計以外預設允許(會計預設不允許,
   // 需要時再個別勾選)。用 allow:/deny: 標記,見 canVerifyOrdersFor。
-  { id: 'cap-order-verify', parentTab: 'tab-warehouse-ops', labelKey: 'capOrderVerify', special: 'verify' }
+  { id: 'cap-order-verify', parentTab: 'tab-warehouse-ops', labelKey: 'capOrderVerify', special: 'verify' },
+  // 倉庫作業台的子分頁權限(原本「訂貨後台管理」分頁已併進倉庫作業台):預設都允許,取消勾選 = 看不到那個子分頁
+  { id: 'cap-tx-register', parentTab: 'tab-warehouse-ops', labelKey: 'capTxRegister' },
+  { id: 'cap-orders-pending', parentTab: 'tab-warehouse-ops', labelKey: 'capOrdersPending' },
+  { id: 'cap-orders-completed', parentTab: 'tab-warehouse-ops', labelKey: 'capOrdersCompleted' }
 ];
+
+// 舊版權限遷移(「訂貨後台管理」tab-order-admin 併進倉庫作業台):
+// restricted_capabilities 裡沒有 'perm-v2' 標記的帳號,載入時在記憶體裡轉換一次(不改資料庫;
+// 管理者在使用者管理按儲存時會寫成新格式並加上標記)——
+//   · 原本有 tab-order-admin、沒有 tab-warehouse-ops:給倉庫作業台,但關掉「登記進出貨」「訂單核對」,只留訂單子分頁
+//   · 原本有 tab-warehouse-ops、沒有 tab-order-admin:關掉「待處理訂單」「已完成訂單」,維持原本看到的內容
+//   · 兩個都有:全部開放
+function migratePermsV2(tabPerms, restricted, role){
+  const tabs = Array.isArray(tabPerms) ? tabPerms.slice() : [];
+  let rc = Array.isArray(restricted) ? restricted.slice() : [];
+  if(rc.includes('perm-v2')) return { tabPermissions: tabs.filter(id => id !== 'tab-order-admin'), restrictedCapabilities: rc };
+  const hadAdmin = tabs.includes('tab-order-admin');
+  const hadOps = tabs.includes('tab-warehouse-ops');
+  const out = tabs.filter(id => id !== 'tab-order-admin');
+  const add = id => { if(!rc.includes(id)) rc.push(id); };
+  if(hadAdmin && !hadOps){
+    out.push('tab-warehouse-ops');
+    add('cap-tx-register');
+    rc = rc.filter(x => x !== 'allow:cap-order-verify'); add('deny:cap-order-verify');
+  } else if(hadOps && !hadAdmin){
+    add('cap-orders-pending'); add('cap-orders-completed');
+  }
+  // 舊版「角色預設分頁會自動補進去」的行為,改成在這裡一次補齊;之後(有 perm-v2 標記)存檔的分頁清單就是準的,
+  // 管理者在樹狀權限取消勾選的分頁不會再被補回來。
+  const allIds = TAB_DEFS.map(d => d.id);
+  (ROLE_DEFAULT_TABS[role] || []).forEach(id => { if(allIds.includes(id) && !out.includes(id)) out.push(id); });
+  rc.push('perm-v2');
+  return { tabPermissions: out, restrictedCapabilities: rc };
+}
 
 // 「編輯價錢」權限(存在 restricted_capabilities 這個既有欄位裡,不用改資料表):
 //   · 清單裡有 'allow:cap-edit-price' → 允許(管理者以外的人要被明確勾選才有)
@@ -105,9 +139,15 @@ function userDisplayName(u){
 const ROLE_DEFAULT_TABS = {
   admin: TAB_DEFS.map(d => d.id),
   accountant: TAB_DEFS.map(d => d.id).filter(id => id !== 'tab-master' && id !== 'tab-order'),   // 不帶訂貨(那是出貨方下單用的頁面;會計從訂貨後台管理看訂單)、不帶系統管理(會計用的設定在「會計」分頁的「會計設定」);倉庫作業台要帶(會計要登記進貨、出貨),但「訂單核對」預設隱藏(cap-order-verify)
-  order: ['tab-order'],
-  inventory: ['tab-warehouse-ops', 'tab-overview', 'tab-order-admin', 'tab-warehouse-admin', 'tab-log']
+  order: ['tab-order'],   // 訂貨用戶只有訂貨分頁(不帶 Lookout)
+  inventory: ['tab-lookout', 'tab-warehouse-ops', 'tab-overview', 'tab-warehouse-admin', 'tab-log']
 };
+// 新帳號 / 切換身分時的預設細部限制(清單裡的 = 取消勾選)。倉庫管理員:歷史紀錄的「匯出紀錄」預設不開。
+// 價錢相關(編輯價錢、訂單顯示價錢)倉庫管理員本來就預設不允許,不用列在這裡。
+const ROLE_DEFAULT_RESTRICTED = {
+  inventory: ['sub:subtab-log-exports']
+};
+function roleDefaultRestricted(role){ return (ROLE_DEFAULT_RESTRICTED[role] || []).slice(); }
 
 // Turn a plain username into the placeholder email Supabase Auth needs.
 function usernameToEmail(username){
@@ -121,13 +161,14 @@ function emailToUsername(email){
 async function fetchProfileForUser(authUser){
   const { data, error } = await sb.from('profiles').select('*').eq('id', authUser.id).maybeSingle();
   if(error || !data) return null;
+  const mig = migratePermsV2(data.tab_permissions, data.restricted_capabilities, data.role);
   return {
     id: authUser.id,
     username: data.username,
     role: data.role,
-    tabPermissions: Array.isArray(data.tab_permissions) ? data.tab_permissions : [],
+    tabPermissions: mig.tabPermissions,
     assignedPartyIds: Array.isArray(data.assigned_party_ids) ? data.assigned_party_ids : [],
-    restrictedCapabilities: Array.isArray(data.restricted_capabilities) ? data.restricted_capabilities : [],
+    restrictedCapabilities: mig.restrictedCapabilities,
     firstName: data.first_name || '',
     lastName: data.last_name || '',
     email: data.email || ''
@@ -155,9 +196,9 @@ async function loadUsers(){
     id: row.id,
     username: row.username,
     role: row.role,
-    tabPermissions: Array.isArray(row.tab_permissions) ? row.tab_permissions : [],
+    tabPermissions: migratePermsV2(row.tab_permissions, row.restricted_capabilities, row.role).tabPermissions,
     assignedPartyIds: Array.isArray(row.assigned_party_ids) ? row.assigned_party_ids : [],
-    restrictedCapabilities: Array.isArray(row.restricted_capabilities) ? row.restricted_capabilities : [],
+    restrictedCapabilities: migratePermsV2(row.tab_permissions, row.restricted_capabilities, row.role).restrictedCapabilities,
     firstName: row.first_name || '',
     lastName: row.last_name || '',
     email: row.email || ''
@@ -331,27 +372,77 @@ function renderUsersTab(){
 // ---- 編輯使用者:彈出視窗 ----
 let editingUserModalId = null;
 
-function capabilityCheckboxesHtml(userId, tabPermissions, restrictedCapabilities, role){
-  const relevant = CAPABILITY_DEFS.filter(c => !c.parentTab || tabPermissions.includes(c.parentTab));
-  if(relevant.length === 0) return '';
+// 樹狀權限:主分頁(勾選 = 看得到)→ 底下的子分頁 / 細部功能(父分頁沒勾就灰掉不能勾);
+// 不屬於任何分頁的功能(編輯價錢、訂單顯示價錢)放在最下面「全域功能」。
+// 資料格式沒變:分頁 id 存 tab_permissions,細部功能存 restricted_capabilities(沒勾 = 被限制,
+// 編輯價錢 / 顯示價錢 / 訂單核對是 allow:/deny: 標記),另外固定加上 'perm-v2' 標記(見 migratePermsV2)。
+function capCheckedFor(c, restrictedCapabilities, role){
+  return c.special === 'price' ? canEditPriceFor(role, restrictedCapabilities)
+    : (c.special === 'viewprice' ? canViewPriceFor(role, restrictedCapabilities)
+    : (c.special === 'verify' ? canVerifyOrdersFor(role, restrictedCapabilities) : !restrictedCapabilities.includes(c.id)));
+}
+function capRowHtml(userId, c, restrictedCapabilities, role, disabled, depth){
+  const label = c.label != null ? c.label : t(c.labelKey);
   return `
-    <div class="field-block">
-      <label>${t('fieldCapabilities')}</label>
-      <div class="field-hint">${t('capabilitiesHint')}</div>
-      <div class="user-perm-checks">
-        ${relevant.map(c => {
-          const checked = c.special === 'price' ? canEditPriceFor(role, restrictedCapabilities)
-            : (c.special === 'viewprice' ? canViewPriceFor(role, restrictedCapabilities)
-            : (c.special === 'verify' ? canVerifyOrdersFor(role, restrictedCapabilities) : !restrictedCapabilities.includes(c.id)));
-          return `
-          <label style="display:flex;align-items:flex-start;gap:6px;max-width:100%;">
-            <input type="checkbox" data-cap-id="${c.id}" id="modalCap_${userId}_${c.id}" ${checked ? 'checked' : ''} />
-            <span>${t(c.labelKey)}</span>
-          </label>`;
-        }).join('')}
+    <label style="display:flex;align-items:flex-start;gap:6px;max-width:100%;font-size:12.5px;margin-left:${(depth || 0) * 18}px;${disabled ? 'opacity:.45;' : ''}">
+      <input type="checkbox" data-cap-id="${c.id}" id="modalCap_${userId}_${c.id.replace(/[^\w-]/g, '_')}" ${capCheckedFor(c, restrictedCapabilities, role) ? 'checked' : ''} ${disabled ? 'disabled' : ''} />
+      <span>${label.replace(/</g, '&lt;')}</span>
+    </label>`;
+}
+// 子分頁 / 下拉選項節點 → 權限列(遞迴,「供應與清單管理」底下的出貨方 / 進貨方 / 快捷清單縮排一層)
+function subtabRowsHtml(userId, nodes, restrictedCapabilities, role, disabled, depth){
+  return nodes.map(n => {
+    const key = subTabPermKey(n.id);
+    const def = CAPABILITY_DEFS.find(c => c.id === key) || { id: key };
+    return capRowHtml(userId, Object.assign({}, def, { label: n.label }), restrictedCapabilities, role, disabled, depth)
+      + subtabRowsHtml(userId, n.children || [], restrictedCapabilities, role, disabled, (depth || 0) + 1);
+  }).join('');
+}
+function countNodes(nodes){ return nodes.reduce((a, n) => a + 1 + countNodes(n.children || []), 0); }
+// 主分頁底下的項目:子分頁 / 下拉選項,再加上不是子分頁的細部功能(例如庫存總覽的編輯商品)
+function tabKidsHtml(userId, def, restrictedCapabilities, role, disabled){
+  const nodes = getTabSubtabNodes(def.id);
+  const used = new Set(Object.values(SUBTAB_PERM_KEY_OVERRIDE));
+  const extras = CAPABILITY_DEFS.filter(c => c.parentTab === def.id && !used.has(c.id));
+  const html = subtabRowsHtml(userId, nodes, restrictedCapabilities, role, disabled, 0)
+    + extras.map(c => capRowHtml(userId, c, restrictedCapabilities, role, disabled, 0)).join('');
+  return { html, count: countNodes(nodes) + extras.length };
+}
+function togglePermNode(el){
+  const node = el.closest('.perm-node');
+  const kids = node && node.querySelector('.perm-kids');
+  if(!kids) return;
+  const open = kids.style.display === 'none';
+  kids.style.display = open ? 'flex' : 'none';
+  const arrow = node.querySelector('.perm-arrow');
+  if(arrow) arrow.textContent = open ? '▾' : '▸';
+}
+function permTreeHtml(userId, tabPermissions, restrictedCapabilities, role){
+  const tabsHtml = TAB_DEFS.map(def => {
+    const on = tabPermissions.includes(def.id);
+    const kids = tabKidsHtml(userId, def, restrictedCapabilities, role, !on);
+    return `
+    <div class="perm-node" style="margin:0 0 8px;">
+      <div style="display:flex;align-items:center;gap:8px;">
+        <input type="checkbox" data-tab-id="${def.id}" id="modalPerm_${userId}_${def.id}" ${on ? 'checked' : ''} />
+        <span style="font-weight:700;${kids.count ? 'cursor:pointer;' : ''}flex:1;user-select:none;" ${kids.count ? 'onclick="togglePermNode(this)"' : ''}>
+          ${t(def.labelKey)}${kids.count ? ` <span class="perm-arrow" style="color:var(--ink-soft);font-weight:400;">▸</span> <span style="color:var(--ink-soft);font-weight:400;font-size:11.5px;">(${kids.count})</span>` : ''}
+        </span>
       </div>
-    </div>
-  `;
+      ${kids.count ? `<div class="perm-kids" data-parent-tab="${def.id}" style="display:none;margin:6px 0 2px 22px;padding-left:10px;border-left:2px solid var(--line);flex-direction:column;gap:5px;">
+        ${kids.html}
+      </div>` : ''}
+    </div>`;
+  }).join('');
+  const globals = CAPABILITY_DEFS.filter(c => !c.parentTab);
+  const globalHtml = globals.length ? `
+    <div class="perm-node" style="margin:12px 0 0;padding-top:10px;border-top:1px solid var(--line);">
+      <div style="font-weight:700;margin-bottom:6px;">${t('permGlobalGroup')}</div>
+      <div style="margin-left:22px;display:flex;flex-direction:column;gap:5px;">
+        ${globals.map(c => capRowHtml(userId, c, restrictedCapabilities, role, false, 0)).join('')}
+      </div>
+    </div>` : '';
+  return tabsHtml + globalHtml;
 }
 
 // 從細部功能權限區塊讀出目前要存的 restricted_capabilities 清單:
@@ -359,7 +450,8 @@ function capabilityCheckboxesHtml(userId, tabPermissions, restrictedCapabilities
 function collectRestrictedCapabilities(capsWrap){
   if(!capsWrap) return [];
   const out = [];
-  capsWrap.querySelectorAll('input[type="checkbox"]').forEach(el => {
+  // 父分頁沒勾的細部功能是灰掉的(disabled),不收集(= 預設允許,之後重新勾選分頁時回到預設)
+  capsWrap.querySelectorAll('input[data-cap-id]:not(:disabled)').forEach(el => {
     const def = CAPABILITY_DEFS.find(c => c.id === el.dataset.capId);
     if(def && def.special === 'price'){
       out.push(el.checked ? 'allow:cap-edit-price' : 'deny:cap-edit-price');
@@ -371,11 +463,12 @@ function collectRestrictedCapabilities(capsWrap){
       out.push(el.dataset.capId);
     }
   });
+  out.push('perm-v2');
   return out;
 }
 
 function renderUserEditModalBody(u){
-  const tabPermissions = u.tabPermissions || [];
+  const tabPermissions = u.role === 'admin' ? TAB_DEFS.map(d => d.id) : (u.tabPermissions || []);   // 管理者一律看得到全部分頁
   const restrictedCapabilities = u.restrictedCapabilities || [];
   const partyIds = u.assignedPartyIds || [];
   const q = s => (s||'').replace(/"/g,'&quot;');
@@ -409,9 +502,9 @@ function renderUserEditModalBody(u){
     </div>
     <div class="field-block">
       <label>${t('userTabPermDesc')}</label>
-      <div class="user-perm-checks" id="modalTabPerms">${tabPermCheckboxesHtml('modalPerm_' + u.id, tabPermissions)}</div>
+      <div class="field-hint">${t('permTreeHint')}</div>
+      <div id="modalCapabilitiesWrap" style="border:1px solid var(--line);border-radius:6px;padding:12px;background:var(--panel);">${permTreeHtml(u.id, tabPermissions, restrictedCapabilities, u.role)}</div>
     </div>
-    <div id="modalCapabilitiesWrap">${capabilityCheckboxesHtml(u.id, tabPermissions, restrictedCapabilities, u.role)}</div>
     <div class="field-block">
       <label>${t('fieldRestrictedParties')}</label>
       <div class="field-hint">${t('restrictedPartiesHint')}</div>
@@ -448,26 +541,20 @@ function closeUserEditModal(){
 function onModalRoleChange(userId){
   const role = document.getElementById('modalUserRole').value;
   const perms = (ROLE_DEFAULT_TABS[role] || []).slice();
-  const box = document.getElementById('modalTabPerms');
-  if(box) box.innerHTML = tabPermCheckboxesHtml('modalPerm_' + userId, perms);
-  const capsWrap = document.getElementById('modalCapabilitiesWrap');
-  if(capsWrap) capsWrap.innerHTML = capabilityCheckboxesHtml(userId, perms, [], role); // 換身分 → 細部權限(含編輯價錢)回到該身分的預設值
+  const wrap = document.getElementById('modalCapabilitiesWrap');
+  if(wrap) wrap.innerHTML = permTreeHtml(userId, perms, roleDefaultRestricted(role).concat('perm-v2'), role); // 換身分 → 分頁與細部權限(含編輯價錢)回到該身分的預設值
   attachModalTabPermListeners(userId);
 }
 
 // 分頁勾選一改變,細部功能權限清單也要跟著增減(因為某個功能是掛在某個分頁底下的)。
 function attachModalTabPermListeners(userId){
-  const box = document.getElementById('modalTabPerms');
-  if(!box) return;
-  box.querySelectorAll('input[type="checkbox"]').forEach(cb => {
+  const wrap = document.getElementById('modalCapabilitiesWrap');
+  if(!wrap) return;
+  wrap.querySelectorAll('input[data-tab-id]').forEach(cb => {
     cb.addEventListener('change', () => {
-      const currentPerms = collectCheckedTabIds('modalPerm_' + userId);
-      const capsWrap = document.getElementById('modalCapabilitiesWrap');
-      if(capsWrap){
-        // 保留使用者目前已經勾好的功能狀態,只是重新決定要顯示哪些功能區塊
-        const roleNow = document.getElementById('modalUserRole').value;
-        capsWrap.innerHTML = capabilityCheckboxesHtml(userId, currentPerms, collectRestrictedCapabilities(capsWrap), roleNow);
-      }
+      const kids = wrap.querySelector(`.perm-kids[data-parent-tab="${cb.dataset.tabId}"]`);
+      if(!kids) return;
+      kids.querySelectorAll('input[data-cap-id]').forEach(k => { k.disabled = !cb.checked; k.closest('label').style.opacity = cb.checked ? '' : '.45'; });
     });
   });
 }
@@ -571,17 +658,25 @@ function deleteUserRow(userId){
     showInfoModal('至少要留一個帳號能進到「系統管理 → 使用者管理」,不然之後沒有人可以再管理帳號了。');
     return;
   }
-  showConfirmModal(`確定要移除使用者「${u.username}」的權限嗎?(這只會移除他在這個 App 的權限資料,若要完全刪除登入帳號,還要到 Supabase 後台的 Authentication → Users 一併刪除)`, async () => {
-    const { error } = await sb.from('profiles').delete().eq('id', userId);
+  showConfirmModal(`確定要刪除使用者「${u.username}」嗎?(會一併刪除他的登入帳號,刪除後不能復原;他過去的出貨、進貨、訂單紀錄不受影響)`, async () => {
     const msg = document.getElementById('userMsg');
-    if(error){
-      msg.className = 'msg error';
-      msg.textContent = '刪除失敗:' + error.message;
-      return;
+    // 先請 Edge Function 一起刪登入帳號 + profile;函式還是舊版(沒有刪除功能)或失敗時,退回只刪 profile 並提醒
+    let loginRemoved = false, fnErr = '';
+    try{ await callInviteFunction({ action: 'delete', userId }); loginRemoved = true; }
+    catch(e){ fnErr = (e && e.message) || String(e); }
+    if(!loginRemoved){
+      const { error } = await sb.from('profiles').delete().eq('id', userId);
+      if(error){
+        msg.className = 'msg error';
+        msg.textContent = '刪除失敗:' + error.message;
+        return;
+      }
     }
     users = users.filter(x => x.id !== userId);
-    msg.className = 'msg ok';
-    msg.textContent = `✓ 已移除使用者「${u.username}」的權限`;
+    msg.className = loginRemoved ? 'msg ok' : 'msg error';
+    msg.textContent = loginRemoved
+      ? `✓ 已刪除使用者「${u.username}」(含登入帳號)`
+      : `已移除使用者「${u.username}」的權限資料,但登入帳號沒有刪掉(${fnErr})。請確認 invite-user 函式已更新,或到 Supabase 的 Authentication → Users 手動刪除。`;
     renderUsersTab();
   });
 }
@@ -694,7 +789,7 @@ async function confirmUserInvite(){
     firstName: (document.getElementById('inviteFirstName').value || '').trim(),
     lastName: (document.getElementById('inviteLastName').value || '').trim(),
     tabPermissions: (ROLE_DEFAULT_TABS[role] || []).slice(),
-    restrictedCapabilities: [], // 編輯價錢:管理者預設允許、其他身分預設不允許(見 canEditPriceFor)
+    restrictedCapabilities: roleDefaultRestricted(role).concat('perm-v2'), // 帶 perm-v2 才不會在第一次登入被當成舊帳號重新遷移;價錢權限:管理者預設允許、其他身分預設不允許(見 canEditPriceFor)
     assignedPartyIds: Array.from(document.querySelectorAll('#invitePartyChecks input:checked')).map(el => el.dataset.partyId)
   };
   const btn = document.getElementById('btnConfirmUserInvite');

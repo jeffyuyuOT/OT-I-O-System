@@ -457,6 +457,18 @@ async function upsertPurchaseSupplier(s){
   if(error){ console.error('儲存進貨方失敗', error); throw error; }
   scheduleAutoBackup();
 }
+// 備份還原用:進貨方是獨立資料表(不像出貨方整批存成 JSON),備份要另外帶、還原要另外寫回。
+// 還原 = 先清空再逐筆寫回(備份裡的 id 保留,進貨單的 supplierId 才對得上)。
+async function replaceAllPurchaseSuppliers(list){
+  await clearAllPurchaseSuppliers();
+  const rows = Array.isArray(list) ? list : [];
+  for(const sup of rows){
+    if(!sup || !sup.id || !sup.name) continue;
+    const { id, name, code, contact, phone, address, note, paymentTerms } = sup;
+    await upsertPurchaseSupplier({ id, name, code, contact, phone, address, note, paymentTerms });
+  }
+  await loadPurchaseSuppliers();
+}
 async function deletePurchaseSupplierRow(id){
   const { error } = await sb.from('purchase_suppliers').delete().eq('id', id);
   if(error){ console.error('刪除進貨方失敗', error); throw error; }
@@ -546,6 +558,19 @@ async function clearAllPurchaseSuppliers(){
 async function clearAllProductLocations(){
   const { error } = await sb.from('product_locations').delete().not('id', 'is', null);
   if(error){ console.error('清空庫存分布失敗', error); throw error; }
+}
+
+// 備份還原用:收據掃描記憶對照表是獨立資料表,備份要另外帶、還原要另外寫回(先清空再分批寫入)。
+async function replaceAllReceiptLineMappings(list){
+  await clearAllReceiptLineMappings();
+  const rows = (Array.isArray(list) ? list : [])
+    .filter(m => m && m.id && m.normalizedText && m.productId)
+    .map(receiptMappingToRow);
+  for(let i = 0; i < rows.length; i += 500){
+    const { error } = await sb.from('receipt_line_mappings').upsert(rows.slice(i, i + 500));
+    if(error){ console.error('還原收據掃描記憶失敗', error); throw error; }
+  }
+  await loadReceiptLineMappings();
 }
 
 async function clearAllReceiptLineMappings(){

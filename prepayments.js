@@ -12,7 +12,7 @@ Object.assign(I18N.zh, {
   ppSumPaidFy: '預付', ppSumAppliedFy: '抵扣', ppFltFrom: '從', ppFltTo: '到', ppFltAll: '全部', ppFltOpen: '有餘額', ppFltUsed: '已用完', ppFltClear: '清除篩選', ppEmptyFiltered: '沒有符合篩選的預付款。', ppColDate: '付款日期', ppColSupplier: '進貨方', ppColForecast: '預估紀錄', ppColAmount: '金額', ppColApplied: '已抵扣', ppColBalance: '餘額', ppColNote: '方式 / 備註',
   ppFormAdd: '登記預付款', ppFormEdit: '修改預付款', ppFSupplier: '進貨方', ppFForecast: '連結進貨預估紀錄(選填)', ppFNone: '不連結', ppFDate: '付款日期', ppFAmount: '金額', ppFMethod: '付款方式', ppFNote: '備註',
   ppFRefund: '這是供應商退回預付款(取消訂單)', ppFPickSupplier: '請選擇進貨方', ppFBadAmount: '金額必須大於 0', ppFBadDate: '請填付款日期',
-  ppRefundTag: '退回', ppAppliedTo: '抵扣', ppViewForecast: '查看預估紀錄', ppForecastGone: '預估紀錄已不存在(名稱:{n})',
+  ppRefundTag: '退回', ppAppliedTo: '抵扣', ppViewForecast: '查看預估紀錄', ppForecastGone: '預估紀錄已不存在(名稱:{n})', ppForecastGoneOpt: '{n}(已刪除)',
   ppDeleteConfirm: '確定刪除這筆預付款?', ppErrInUse: '這筆預付款已經抵扣過進貨單,不能刪除或把金額改得比已抵扣的少。請先到進貨單的付款記錄刪除抵扣的那一筆。',
   ppErrExceeds: '退回金額超過這個進貨方目前的預付款餘額。', ppNeedSql: '請先在 Supabase 執行 sql/supplier_prepayments.sql 才能使用預付款。', ppSaveFailed: '儲存失敗,請再試一次。',
   ppApplyTitle: '用預付款抵扣', ppApplyPick: '選擇預付款', ppApplyAmount: '抵扣金額', ppApplyBtn: '抵扣', ppApplyBad: '抵扣金額必須大於 0,不能超過預付款餘額,也不能超過這張進貨單的未付金額。',
@@ -26,7 +26,7 @@ Object.assign(I18N.en, {
   ppSumPaidFy: 'prepaid', ppSumAppliedFy: 'applied', ppFltFrom: 'From', ppFltTo: 'To', ppFltAll: 'All', ppFltOpen: 'With balance', ppFltUsed: 'Fully applied', ppFltClear: 'Clear filters', ppEmptyFiltered: 'No prepayments match the filters.', ppColDate: 'Paid on', ppColSupplier: 'Supplier', ppColForecast: 'Forecast record', ppColAmount: 'Amount', ppColApplied: 'Applied', ppColBalance: 'Balance', ppColNote: 'Method / note',
   ppFormAdd: 'Add prepayment', ppFormEdit: 'Edit prepayment', ppFSupplier: 'Supplier', ppFForecast: 'Linked purchase forecast record (optional)', ppFNone: 'None', ppFDate: 'Paid on', ppFAmount: 'Amount', ppFMethod: 'Method', ppFNote: 'Note',
   ppFRefund: 'Supplier refunded a prepayment (order cancelled)', ppFPickSupplier: 'Please choose a supplier', ppFBadAmount: 'Amount must be above 0', ppFBadDate: 'Please enter the payment date',
-  ppRefundTag: 'Refund', ppAppliedTo: 'Applied to', ppViewForecast: 'View forecast record', ppForecastGone: 'Forecast record no longer exists (name: {n})',
+  ppRefundTag: 'Refund', ppAppliedTo: 'Applied to', ppViewForecast: 'View forecast record', ppForecastGone: 'Forecast record no longer exists (name: {n})', ppForecastGoneOpt: '{n} (deleted)',
   ppDeleteConfirm: 'Delete this prepayment?', ppErrInUse: 'This prepayment has already been applied to a purchase, so it cannot be deleted or reduced below the applied amount. Delete the applied payment on the purchase first.',
   ppErrExceeds: 'The refund is more than this supplier\'s current prepayment balance.', ppNeedSql: 'Run sql/supplier_prepayments.sql in Supabase first to use prepayments.', ppSaveFailed: 'Save failed, please try again.',
   ppApplyTitle: 'Apply a prepayment', ppApplyPick: 'Prepayment', ppApplyAmount: 'Amount to apply', ppApplyBtn: 'Apply', ppApplyBad: 'The amount must be above 0, not more than the prepayment balance, and not more than this purchase\'s unpaid amount.',
@@ -64,6 +64,10 @@ function ppBalanceAsOf(D){
   const used = ppApps.filter(a => a.apply_date && a.apply_date <= D).reduce((s, a) => s + Number(a.amount), 0);
   return ppR2(paid - used);
 }
+// 連結的預估紀錄已被刪除?(預估紀錄載入完成之後才判斷,避免還沒載入就全部標成已刪除)
+let ppFcLoaded = false;
+function ppForecastGone(fid){ return !!fid && ppFcLoaded && !(typeof forecastRecords !== 'undefined' ? forecastRecords : []).some(x => x.id === fid); }
+function ppForecastLabel(r){ return r.forecast_name ? (ppForecastGone(r.forecast_id) ? tf('ppForecastGoneOpt', { n: r.forecast_name }) : r.forecast_name) : ''; }
 function ppForRecord(forecastId){ return ppRows.filter(r => r.forecast_id === forecastId); }
 function ppPaidForRecord(forecastId){ return ppR2(ppForRecord(forecastId).reduce((s, r) => s + Number(r.amount), 0)); }
 function ppErrMsg(e){
@@ -81,7 +85,7 @@ async function ppOpenPage(){
   if(!ppOn()){ root.innerHTML = ''; return; }
   root.innerHTML = `<div class="empty-note">${t('batchLoading')}</div>`;
   try{ if(typeof ensurePurchasesLoaded === 'function') await ensurePurchasesLoaded(); }catch(e){}
-  try{ if(typeof loadForecastRecords === 'function') await loadForecastRecords(); }catch(e){}
+  try{ if(typeof loadForecastRecords === 'function'){ await loadForecastRecords(); ppFcLoaded = true; } }catch(e){}
   await ppLoad();
   ppRender();
 }
@@ -93,6 +97,26 @@ function ppClearFilter(){ ppFilter = { from: '', to: '', sup: '', bal: 'open' };
 function ppFyInfo(){
   const y = (typeof arpCurrentFyStart === 'function') ? arpCurrentFyStart() : (new Date().getMonth() >= 6 ? new Date().getFullYear() : new Date().getFullYear() - 1);
   return { label: (typeof arpFyLabel === 'function') ? arpFyLabel(y) : ('FY' + y), from: y + '-07-01', to: (y + 1) + '-06-30' };
+}
+function ppFiltered(){
+  const F = ppFilter;
+  return ppRows.filter(r => {
+    if(F.from && (r.pay_date || '') < F.from) return false;
+    if(F.to && (r.pay_date || '') > F.to) return false;
+    if(F.sup && r.party_name !== F.sup) return false;
+    const refund = Number(r.amount) < 0, bal = ppBalanceOf(r);
+    if(F.bal === 'open') return !refund && bal > 0.004;
+    if(F.bal === 'used') return !refund && bal <= 0.004;
+    return true;
+  });
+}
+function ppExportXlsx(){
+  const aoa = [['Date', 'Supplier', 'Forecast', 'Amount', 'Applied', 'Balance', 'Method', 'Note', 'Created by']]
+    .concat(ppFiltered().slice().sort((a, b) => (b.pay_date || '').localeCompare(a.pay_date || '')).map(r => {
+      const refund = Number(r.amount) < 0, used = ppAppliedOf(r.id);
+      return [r.pay_date || '', r.party_name || '', ppForecastLabel(r), Number(r.amount), refund ? '' : used, refund ? '' : ppR2(Number(r.amount) - used), r.method || '', r.note || '', r.created_by || ''];
+    }));
+  accExportXlsx(aoa, 'Prepayments', 'prepayments', [12, 28, 24, 12, 12, 12, 14, 30, 16]);
 }
 function ppRender(){
   const root = document.getElementById('prepaymentRoot'); if(!root) return;
@@ -106,15 +130,7 @@ function ppRender(){
   const box = (label, v) => `<div style="flex:1 1 140px;border:1px solid var(--line);border-radius:8px;padding:6px 10px;"><div style="font-size:11px;color:var(--ink-soft);">${label}</div><b>${v}</b></div>`;
   const purName = id => { const p = (typeof purchases !== 'undefined' ? purchases : []).find(x => x.id === id); return p ? [paDmy(p.date), p.invoiceNo ? '#' + p.invoiceNo : ''].filter(Boolean).join(' ') : ''; };
   const F = ppFilter;
-  const list = ppRows.filter(r => {
-    if(F.from && (r.pay_date || '') < F.from) return false;
-    if(F.to && (r.pay_date || '') > F.to) return false;
-    if(F.sup && r.party_name !== F.sup) return false;
-    const refund = Number(r.amount) < 0, bal = ppBalanceOf(r);
-    if(F.bal === 'open') return !refund && bal > 0.004;
-    if(F.bal === 'used') return !refund && bal <= 0.004;
-    return true;
-  });
+  const list = ppFiltered();
   const sups = Array.from(new Set(ppRows.map(r => r.party_name))).sort((a, b) => a.localeCompare(b));
   const rows = list.slice().sort((a, b) => (b.pay_date || '').localeCompare(a.pay_date || '')).map(r => {
     const used = ppAppliedOf(r.id), bal = ppR2(Number(r.amount) - used), refund = Number(r.amount) < 0;
@@ -122,7 +138,7 @@ function ppRender(){
       const open = ppOpenApps.has(a.id);
       return `<div style="cursor:pointer;" onclick="ppToggleApp('${ppEsc(a.id)}')">${open ? '▾' : '▸'} ${ppEsc(paDmy(a.apply_date))} · ${ppM(a.amount)}</div>` + (open ? `<div style="color:var(--ink);padding-left:12px;">${t('ppAppliedTo')} ${ppEsc(purName(a.purchase_id) || '?')}</div>` : '');
     }).join('');
-    const fr = r.forecast_id ? `<span class="del-link" style="color:var(--ink);" onclick="ppViewForecast('${ppEsc(r.forecast_id)}','${ppEsc(r.forecast_name || '')}')">${ppEsc(r.forecast_name || '–')}</span>` : '–';
+    const fr = r.forecast_id ? `<span class="del-link" style="color:var(--ink);" onclick="ppViewForecast('${ppEsc(r.forecast_id)}','${ppEsc(r.forecast_name || '')}')">${ppEsc(ppForecastLabel(r) || '–')}</span>` : '–';
     return `<tr>
       <td style="white-space:nowrap;">${ppEsc(paDmy(r.pay_date))}</td><td>${ppEsc(r.party_name)}${refund ? ` <span style="font-size:11px;color:#6b3fa0;font-weight:700;">${t('ppRefundTag')}</span>` : ''}</td><td>${fr}</td>
       <td class="num">${ppM(r.amount)}</td><td class="num">${refund ? '–' : ppM(used)}${apps ? `<div style="font-size:10.5px;color:var(--ink-soft);text-align:right;">${apps}</div>` : ''}</td><td class="num"><b>${refund ? '–' : ppM(bal)}</b></td>
@@ -134,7 +150,8 @@ function ppRender(){
       <div class="field"><label>${t('ppFltTo')}</label><input type="date" value="${ppEsc(F.to)}" onchange="ppSetFilter('to', this.value)" /></div>
       <div class="field"><label>${t('ppColSupplier')}</label><select onchange="ppSetFilter('sup', this.value)"><option value="">${t('ppFltAll')}</option>${sups.map(n => `<option value="${ppEsc(n)}" ${n === F.sup ? 'selected' : ''}>${ppEsc(n)}</option>`).join('')}</select></div>
       <div class="field"><label>${t('ppColBalance')}</label><select onchange="ppSetFilter('bal', this.value)"><option value="open" ${F.bal === 'open' ? 'selected' : ''}>${t('ppFltOpen')}</option><option value="used" ${F.bal === 'used' ? 'selected' : ''}>${t('ppFltUsed')}</option><option value="all" ${F.bal === 'all' ? 'selected' : ''}>${t('ppFltAll')}</option></select></div>
-      <button class="btn ghost" onclick="ppClearFilter()" style="align-self:flex-end;">${t('ppFltClear')}</button></div>`;
+      <button class="btn ghost" onclick="ppClearFilter()" style="align-self:flex-end;">${t('ppFltClear')}</button>
+      <button class="btn ghost exp-btn" onclick="ppExportXlsx()" style="align-self:flex-end;">${t('accExportXlsx')}</button></div>`;
   root.innerHTML = `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;">${box(t('ppSumBalance'), ppM(balNow))}${box(fy.label + ' ' + t('ppSumPaidFy'), ppM(paidFy))}${box(fy.label + ' ' + t('ppSumAppliedFy'), ppM(usedFy))}</div>
     ${filterBar}
     ${ppRows.length === 0 ? `<div class="empty-note">${t('ppEmpty')}</div>` : (list.length === 0 ? `<div class="empty-note">${t('ppEmptyFiltered')}</div>` : `<div style="overflow-x:auto;"><table class="stock-table"><thead><tr><th>${t('ppColDate')}</th><th>${t('ppColSupplier')}</th><th>${t('ppColForecast')}</th><th class="num">${t('ppColAmount')}</th><th class="num">${t('ppColApplied')}</th><th class="num">${t('ppColBalance')}</th><th>${t('ppColNote')}</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`)}`;
@@ -169,7 +186,7 @@ async function ppOpenForm(id, forecastId){
     <div class="section-title" style="margin-top:0;">${ed ? t('ppFormEdit') : t('ppFormAdd')}</div>
     <div class="form-grid" style="grid-template-columns:1fr 1fr;gap:8px;">
       <div class="field" style="grid-column:1/3;"><label>${t('ppFSupplier')}</label><select id="ppFSup" ${(!ed && recSup(ppEdit.forecastId)) ? 'disabled' : ''}><option value="">${t('ppFPickSupplier')}</option>${sups.map(s => `<option value="${ppEsc(s.name)}" data-id="${ppEsc(s.id)}" ${s.name === supV ? 'selected' : ''}>${ppEsc(s.name)}</option>`).join('')}</select></div>
-      <div class="field" style="grid-column:1/3;"><label>${t('ppFForecast')}</label><select id="ppFForecast" onchange="ppOnForecastPick(this.value)"><option value="">${t('ppFNone')}</option>${recs.map(r => `<option value="${ppEsc(r.id)}" ${r.id === ppEdit.forecastId ? 'selected' : ''}>${ppEsc(r.name)}</option>`).join('')}</select></div>
+      <div class="field" style="grid-column:1/3;"><label>${t('ppFForecast')}</label><select id="ppFForecast" onchange="ppOnForecastPick(this.value)"><option value="">${t('ppFNone')}</option>${recs.map(r => `<option value="${ppEsc(r.id)}" ${r.id === ppEdit.forecastId ? 'selected' : ''}>${ppEsc(r.name)}</option>`).join('')}${(ppEdit.forecastId && !recs.some(r => r.id === ppEdit.forecastId)) ? `<option value="${ppEsc(ppEdit.forecastId)}" selected>${ppEsc(tf('ppForecastGoneOpt', { n: (ed && ed.forecast_name) || '' }))}</option>` : ''}</select></div>
       <div class="field"><label>${t('ppFDate')}</label><input type="date" id="ppFDate" value="${ppEsc(ed ? ed.pay_date : paToday())}" /></div>
       <div class="field"><label>${t('ppFAmount')}</label><input type="number" id="ppFAmount" step="0.01" min="0" value="${ed ? ppM(Math.abs(ed.amount)) : ''}" placeholder="0.00" /></div>
       <div class="field"><label>${t('ppFMethod')}</label><select id="ppFMethod">${methods.map(m => `<option value="${ppEsc(m)}" ${m === methodV ? 'selected' : ''}>${ppEsc(m)}</option>`).join('')}</select></div>

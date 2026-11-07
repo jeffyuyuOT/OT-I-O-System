@@ -10,7 +10,8 @@ function syncTabOrder(){
   const allIds = TAB_DEFS.map(d => d.id);
   if(!Array.isArray(tabOrder)) tabOrder = [];
   tabOrder = tabOrder.filter(id => allIds.includes(id));
-  allIds.forEach(id => { if(!tabOrder.includes(id)) tabOrder.push(id); });
+  // 新分頁自動補進順序:Lookout 補在最前面,其他補在最後
+  allIds.forEach(id => { if(!tabOrder.includes(id)){ if(id === 'tab-lookout') tabOrder.unshift(id); else tabOrder.push(id); } });
 }
 
 async function saveTabOrder(){
@@ -70,6 +71,7 @@ function getSubTabLabel(btn){
 }
 // 排序面板用:依 key 找出子分頁(按鈕或下拉選項)顯示的名稱;找不到回傳 null
 function getSubTabLabelByKey(key){
+  if(String(key).startsWith('lookout:')) return (typeof lookoutCardLabel === 'function') ? lookoutCardLabel(key) : null;
   if(String(key).startsWith('opt:')){
     const v = key.slice(4);
     const opt = Array.from(document.querySelectorAll('.log-select-bar > select option')).find(o => o.value === v);
@@ -83,6 +85,7 @@ function getSubTabLabelByKey(key){
 
 // 目前畫面上某個主分頁的子分頁順序(按鈕 id 或 'opt:value' 陣列);沒有子分頁的主分頁回傳空陣列。
 function getCurrentSubTabKeys(tabId){
+  if(tabId === 'tab-lookout') return (typeof lookoutCardKeys === 'function') ? lookoutCardKeys() : [];
   const bar = getSubTabBar(tabId);
   if(bar) return getSubTabBarItems(bar).map(i => i.key);
   const sel = getSubTabSelect(tabId);
@@ -108,6 +111,7 @@ function orderSubTabItems(items, saved){
 
 function applySubTabOrder(){
   TAB_DEFS.forEach(def => {
+    if(def.id === 'tab-lookout'){ if(typeof renderLookout === 'function') renderLookout(); return; }   // Lookout 的「子分頁」是卡片,重畫即可
     const saved = Array.isArray(subTabOrder[def.id]) ? subTabOrder[def.id] : [];
     if(saved.length === 0) return;
     const bar = getSubTabBar(def.id);
@@ -271,6 +275,8 @@ function renderTabBar(){
     switchTab(visibleIds[0]);
   }
   renderMobileHomeMenu(visibleIds);
+  if(typeof renderLookout === 'function') renderLookout();
+  applySubTabPermissions();
 }
 
 // 手機版「選單首頁」:把每個看得到的分頁變成一個一個大按鍵(顏色輪流用一組固定色盤,同一個分頁
@@ -351,12 +357,7 @@ function showMobileHomeMenu(){
 // 不會被這裡補回來。
 function getCurrentUserTabPermissions(){
   if(currentUser && currentUser.role === 'admin') return TAB_DEFS.map(d => d.id);
-  if(currentUser && Array.isArray(currentUser.tabPermissions)){
-    const roleDefaults = ROLE_DEFAULT_TABS[currentUser.role] || [];
-    const allIds = TAB_DEFS.map(d => d.id);
-    const missingNewTabs = roleDefaults.filter(id => allIds.includes(id) && !currentUser.tabPermissions.includes(id));
-    return missingNewTabs.length > 0 ? [...currentUser.tabPermissions, ...missingNewTabs] : currentUser.tabPermissions;
-  }
+  if(currentUser && Array.isArray(currentUser.tabPermissions)) return currentUser.tabPermissions;   // 舊帳號缺的角色預設分頁,載入時在 migratePermsV2 補過一次
   return TAB_DEFS.map(d => d.id);
 }
 
@@ -395,26 +396,24 @@ function switchTab(tabId){
   const btn = document.getElementById('btn-' + tabId);
   if(btn) btn.classList.add('active');
 
+  applySubTabPermissions();   // 沒有權限的子分頁 / 下拉選項先藏起來
   // some browsers don't reliably reflect <select> option updates made while the tab was
   // display:none, so re-render whichever tab just became visible
   if(tabId === 'tab-overview'){ populateCategoryDropdowns(); renderStockCards(); }
+  if(tabId === 'tab-lookout' && typeof renderLookout === 'function') renderLookout();
   if(tabId === 'tab-log'){ refreshLogSubTab(); }
   if(tabId === 'tab-accounting'){ refreshAccountingSubTab(); }
   if(tabId === 'tab-warehouse-ops'){
     renderProductSelect(); renderTxBatchList();
     // 沒有「訂單核對」權限(會計預設)就藏起這個子分頁按鍵
-    const vBtn = document.getElementById('btn-subtab-tx-verify');
-    if(vBtn) vBtn.style.display = (typeof canVerifyOrders === 'function' && !canVerifyOrders()) ? 'none' : '';
+    populatePendingOrderPartyFilter(); renderPendingOrders();
+    populateCompletedOrderPartyFilter(); renderOrders();
   }
   if(tabId === 'tab-order'){
     populatePartySelect(); renderOrderItemsTable(); renderOrderHistory();
     const cartSection = document.getElementById('orderCartSection');
     const formSection = document.getElementById('orderFormSection');
     if(cartSection && formSection){ cartSection.style.display = 'none'; formSection.style.display = ''; }
-  }
-  if(tabId === 'tab-order-admin'){
-    populatePendingOrderPartyFilter(); renderPendingOrders();
-    populateCompletedOrderPartyFilter(); renderOrders();
   }
   if(tabId === 'tab-warehouse-admin'){
     renderPartiesTable(); renderForecastTable(); populateExportPartySelect(); renderExportProductList();
@@ -441,31 +440,17 @@ function switchTab(tabId){
     if(usersBtn) usersBtn.style.display = hasCapability('cap-manage-users') ? '' : 'none';
     if(!hasCapability('cap-manage-users')) switchSystemSubTab('subtab-sys-settings');
   }
+  ensureAllowedActiveSubTab(tabId);
 }
 
-
-// 訂貨後台管理分頁(tab-order-admin)自己的子分頁切換,只在它自己的容器裡找
-// .subtab-content/.subtab-btn,不會動到其他分頁(系統管理、庫存管理)那幾組子分頁的顯示狀態
-// (幾組子分頁共用同一套 CSS class,但各自獨立)。
-function switchOrderAdminSubTab(subtabId){
-  if(subtabId === 'subtab-order-parties' && !hasCapability('cap-manage-parties')) return;
-  const container = document.getElementById('tab-order-admin');
-  if(!container) return;
-  document.body.classList.remove('mobile-subtab-menu-active'); // 手機版:點了子分頁按鍵,離開「只顯示子分頁按鍵」的狀態
-  document.body.classList.add('mobile-subtab-content-active'); // 改成「顯示內容、隱藏子分頁按鍵」的狀態
-  container.querySelectorAll('.subtab-content').forEach(el => el.classList.remove('active-subtab'));
-  container.querySelectorAll('.subtab-btn').forEach(el => el.classList.remove('active'));
-  document.getElementById(subtabId).classList.add('active-subtab');
-  document.getElementById('btn-' + subtabId).classList.add('active');
-  if(subtabId === 'subtab-order-completed'){ populateCompletedOrderPartyFilter(); renderOrders(); }
-}
 
 // 系統管理分頁(tab-master)自己的子分頁切換,只在它自己的容器裡找 .subtab-content/.subtab-btn,
 // 不會動到其他分頁那幾組子分頁的顯示狀態(共用同一套 CSS class,但各自獨立)。
 function switchSystemSubTab(subtabId){
-  if(subtabId === 'subtab-sys-users' && !hasCapability('cap-manage-users')) return;
   const container = document.getElementById('tab-master');
   if(!container) return;
+  subtabId = subTabGuard('tab-master', subtabId);
+  if(!subtabId) return;
   document.body.classList.remove('mobile-subtab-menu-active');
   document.body.classList.add('mobile-subtab-content-active');
   container.querySelectorAll('.subtab-content').forEach(el => el.classList.remove('active-subtab'));
@@ -476,8 +461,83 @@ function switchSystemSubTab(subtabId){
 
 // 倉庫作業台分頁(tab-warehouse-ops)自己的子分頁切換,只在它自己的容器裡找 .subtab-content/.subtab-btn,
 // 不會動到其他分頁那幾組子分頁的顯示狀態(共用同一套 CSS class,但各自獨立)。
+// ===== 子分頁權限(使用者管理的樹狀權限) =====
+// 子分頁清單不另外維護,直接從畫面抓:子分頁列的按鈕(id = btn-xxx),或下拉選單的 <option>(value = xxx)。
+// 每個子分頁的權限 key:有舊的細部功能權限就沿用(SUBTAB_PERM_KEY_OVERRIDE),其他一律 'sub:<子分頁 id>'。
+// 預設全部允許,存在 restricted_capabilities 裡才被限制(管理者永遠允許)。
+const SUBTAB_PERM_KEY_OVERRIDE = {
+  'subtab-tx-register': 'cap-tx-register',
+  'subtab-order-pending': 'cap-orders-pending',
+  'subtab-order-completed': 'cap-orders-completed',
+  'subtab-tx-verify': 'cap-order-verify',
+  'subtab-sys-users': 'cap-manage-users',
+  'subtab-order-parties': 'cap-manage-parties'
+};
+function subTabPermKey(subtabId){ return SUBTAB_PERM_KEY_OVERRIDE[subtabId] || ('sub:' + subtabId); }
+function subTabAllowed(subtabId){
+  return typeof hasCapability === 'function' && hasCapability(subTabPermKey(subtabId));
+}
+// 某個主分頁底下的子分頁節點(給權限樹、權限套用用)。「供應與清單管理」底下的出貨方 / 進貨方 / 快捷清單
+// (第二個下拉)掛在它的 children 裡。
+function getTabSubtabNodes(tabId){
+  const c = document.getElementById(tabId);
+  if(!c) return [];
+  const labelOf = el => { const k = el.getAttribute('data-i18n'); return k ? t(k) : el.textContent.trim(); };
+  let nodes = [];
+  const bar = c.querySelector('.subtab-bar');
+  if(bar){
+    nodes = Array.from(bar.querySelectorAll('.subtab-btn')).filter(b => b.id).map(b => ({ id: b.id.replace(/^btn-/, ''), label: labelOf(b), el: b, kind: 'btn', children: [] }));
+  } else {
+    const sel = c.querySelector('.log-select-bar > select');
+    if(sel) nodes = Array.from(sel.options).map(o => ({ id: o.value, label: labelOf(o), el: o, kind: 'opt', children: [] }));
+  }
+  if(tabId === 'tab-warehouse-admin'){
+    const sup = nodes.find(n => n.id === 'subtab-supply-list');
+    const sel2 = document.getElementById('supplyListSelect');
+    if(sup && sel2) sup.children = Array.from(sel2.options).map(o => ({ id: o.value, label: labelOf(o), el: o, kind: 'opt', children: [] }));
+  }
+  return nodes;
+}
+// 把沒有權限的子分頁按鍵 / 下拉選項藏起來(只負責「因權限而藏」,不動功能開關自己藏的項目)
+function applySubTabPermissions(){
+  if(!currentUser) return;
+  TAB_DEFS.forEach(def => {
+    const walk = nodes => nodes.forEach(n => {
+      const ok = subTabAllowed(n.id);
+      if(n.kind === 'btn'){
+        const holder = n.el.parentElement && n.el.parentElement.tagName === 'SPAN' ? n.el.parentElement : n.el;   // 待處理訂單按鍵外面包了一層(數字徽章)
+        if(!ok){ holder.style.display = 'none'; holder.dataset.permHidden = '1'; }
+        else if(holder.dataset.permHidden){ holder.style.display = ''; delete holder.dataset.permHidden; }
+      } else {
+        if(!ok){ n.el.hidden = n.el.disabled = true; n.el.dataset.permHidden = '1'; }
+        else if(n.el.dataset.permHidden){ n.el.hidden = n.el.disabled = false; delete n.el.dataset.permHidden; }
+      }
+      walk(n.children || []);
+    });
+    walk(getTabSubtabNodes(def.id));
+  });
+}
+// 要切去的子分頁沒有權限時,改成這個分頁第一個看得到的;一個都沒有就回傳 null
+function resolveAllowedSubTab(tabId, subtabId){
+  if(subtabId && subTabAllowed(subtabId)) return subtabId;
+  const first = getTabSubtabNodes(tabId).find(n => subTabAllowed(n.id));
+  return first ? first.id : null;
+}
+const SUBTAB_SWITCHERS = {
+  'tab-master': 'switchSystemSubTab', 'tab-warehouse-ops': 'switchWarehouseOpsSubTab', 'tab-overview': 'switchOverviewSubTab',
+  'tab-order': 'switchOrderSubTab', 'tab-warehouse-admin': 'switchWarehouseAdminSubTab', 'tab-log': 'switchLogSubTab', 'tab-accounting': 'switchAccountingSubTab'
+};
+// 目前停在沒有權限的子分頁(例如預設子分頁被限制、或權限剛被調整)就導到第一個看得到的
+function ensureAllowedActiveSubTab(tabId){
+  const fn = SUBTAB_SWITCHERS[tabId];
+  const act = document.querySelector('#' + tabId + ' .subtab-content.active-subtab');
+  if(fn && act && !subTabAllowed(act.id) && typeof window[fn] === 'function') window[fn](null);
+}
+function subTabGuard(tabId, subtabId){ return resolveAllowedSubTab(tabId, subtabId); }
+
 function switchWarehouseOpsSubTab(subtabId){
-  if(subtabId === 'subtab-tx-verify' && typeof canVerifyOrders === 'function' && !canVerifyOrders()) subtabId = 'subtab-tx-register';
+  subtabId = subTabGuard('tab-warehouse-ops', subtabId);
+  if(!subtabId) return;
   const container = document.getElementById('tab-warehouse-ops');
   if(!container) return;
   if(subtabId !== 'subtab-tx-register' && (registerOutFlowType || txBatchItems.length > 0)){
@@ -491,6 +551,8 @@ function switchWarehouseOpsSubTab(subtabId){
   container.querySelectorAll('.subtab-content').forEach(el => el.classList.remove('active-subtab'));
   container.querySelectorAll('.subtab-btn').forEach(el => el.classList.remove('active'));
   if(subtabId === 'subtab-tx-verify'){ renderVerifyPage(); renderVerifyPageProductSelect(); }
+  if(subtabId === 'subtab-order-pending'){ populatePendingOrderPartyFilter(); renderPendingOrders(); }
+  if(subtabId === 'subtab-order-completed'){ populateCompletedOrderPartyFilter(); renderOrders(); }
   document.getElementById(subtabId).classList.add('active-subtab');
   document.getElementById('btn-' + subtabId).classList.add('active');
 }
@@ -506,6 +568,8 @@ function switchWarehouseAdminSubTab(subtabId){
     supplyPane = subtabId; subtabId = 'subtab-supply-list';
   }
   // 倉庫後台管理現在跟歷史紀錄一樣用下拉選單切換(沒有子分頁按鍵列),手機版不需要「子分頁選單」這一層
+  subtabId = subTabGuard('tab-warehouse-admin', subtabId);
+  if(!subtabId) return;
   document.body.classList.remove('mobile-subtab-menu-active');
   document.body.classList.remove('mobile-subtab-content-active');
   container.querySelectorAll('.subtab-content').forEach(el => el.classList.remove('active-subtab'));
@@ -530,7 +594,7 @@ function switchSupplyListPane(paneId){
     if(opt) opt.hidden = opt.disabled = !canParties;
   }
   if(!paneId) paneId = (sel && sel.value) || 'subtab-order-parties';
-  if(paneId === 'subtab-order-parties' && !canParties) paneId = 'subtab-purchase-mgmt-suppliers';
+  if(!subTabAllowed(paneId)){ const alt = ['subtab-order-parties', 'subtab-purchase-mgmt-suppliers', 'subtab-quicklist-mgmt'].find(subTabAllowed); if(alt) paneId = alt; }
   if(sel && sel.value !== paneId) sel.value = paneId;
   document.querySelectorAll('#subtab-supply-list .supply-pane').forEach(el => el.classList.toggle('active-pane', el.id === paneId));
   if(paneId === 'subtab-order-parties') renderPartiesTable();
@@ -543,6 +607,8 @@ function switchAccountingSubTab(subtabId){
   const container = document.getElementById('tab-accounting');
   if(!container) return;
   if((subtabId === 'subtab-acc-invoices' || subtabId === 'subtab-acc-create-invoice' || subtabId === 'subtab-acc-credit-notes') && typeof hideInvoiceEnabled !== 'undefined' && hideInvoiceEnabled) subtabId = 'subtab-price-setting';   // 隱藏 Invoice 功能時改到定價管理
+  subtabId = subTabGuard('tab-accounting', subtabId);
+  if(!subtabId) return;
   document.body.classList.remove('mobile-subtab-menu-active');
   document.body.classList.remove('mobile-subtab-content-active');
   container.querySelectorAll('.subtab-content').forEach(el => el.classList.remove('active-subtab'));
@@ -561,7 +627,6 @@ function switchAccountingSubTab(subtabId){
   if(subtabId === 'subtab-log-pricerec' && typeof psOpenRecordList === 'function') psOpenRecordList();
   if(subtabId === 'subtab-acc-settings'){
     if(typeof renderSystemCurrencySetting === 'function') renderSystemCurrencySetting();
-    if(typeof evRender === 'function') evRender();
     if(typeof psSyncAvgMethodUI === 'function') psSyncAvgMethodUI();
     if(typeof renderSellPriceSetting === 'function') renderSellPriceSetting();
     if(typeof invRenderSettings === 'function') invRenderSettings();
@@ -577,7 +642,6 @@ function switchAccSettingsTab(which){
   const bp = document.getElementById('accSetBtnPref'), bi = document.getElementById('accSetBtnItems');
   if(bp) bp.className = items ? 'btn ghost' : 'btn';
   if(bi) bi.className = items ? 'btn' : 'btn ghost';
-  if(items && typeof evRender === 'function') evRender();
 }
 function refreshAccountingSubTab(){
   const sel = document.getElementById('accountingSubtabSelect');
@@ -590,6 +654,8 @@ function switchLogSubTab(subtabId){
   const container = document.getElementById('tab-log');
   if(!container) return;
   // 歷史紀錄現在是下拉選單(沒有子分頁按鍵列),手機版不需要「子分頁選單」這一層,🏠 一次就回到最上層選單
+  subtabId = subTabGuard('tab-log', subtabId);
+  if(!subtabId) return;
   document.body.classList.remove('mobile-subtab-menu-active');
   document.body.classList.remove('mobile-subtab-content-active');
   container.querySelectorAll('.subtab-content').forEach(el => el.classList.remove('active-subtab'));
@@ -616,6 +682,8 @@ function refreshLogSubTab(){
 function switchOverviewSubTab(subtabId){
   const container = document.getElementById('tab-overview');
   if(!container) return;
+  subtabId = subTabGuard('tab-overview', subtabId);
+  if(!subtabId) return;
   document.body.classList.remove('mobile-subtab-menu-active');
   document.body.classList.add('mobile-subtab-content-active');
   container.querySelectorAll('.subtab-content').forEach(el => el.classList.remove('active-subtab'));
@@ -633,6 +701,8 @@ function switchOverviewSubTab(subtabId){
 function switchOrderSubTab(subtabId){
   const container = document.getElementById('tab-order');
   if(!container) return;
+  subtabId = subTabGuard('tab-order', subtabId);
+  if(!subtabId) return;
   document.body.classList.remove('mobile-subtab-menu-active');
   document.body.classList.add('mobile-subtab-content-active');
   container.querySelectorAll('.subtab-content').forEach(el => el.classList.remove('active-subtab'));
