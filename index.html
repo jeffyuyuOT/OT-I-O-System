@@ -2326,6 +2326,7 @@ body.no-cost-view .cost-col{display:none !important;}
             <div id="spMarginSettingMsg" class="msg"></div>
           </div>
         </div>
+        <div class="settings-card" id="avgCostMethodCard"></div>
         <div class="settings-card">
           <div class="section-title" data-i18n="secAccountingEmail">會計 Email</div>
           <p style="font-size:11.5px;color:var(--ink-soft);margin:0 0 12px;" data-i18n="accountingEmailHint">
@@ -3826,6 +3827,7 @@ async function loadData(){
     products = p ? JSON.parse(p.value) : [];
   } catch(e){ products = []; }
   if(typeof rcLoad === 'function') await rcLoad();
+  if(typeof psLoadAvgMethod === 'function'){ await psLoadAvgMethod(); psLoadMovements(); }
   if(typeof myobCardsLoad === 'function') await myobCardsLoad();
   try{
     const counterResult = await dbGet('orderCounter');

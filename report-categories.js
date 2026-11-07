@@ -136,13 +136,14 @@ function rcDelete(i){
 // ----- 完整備份 / 還原:會計報表分類、科目代碼、MYOB 卡片名稱、手動新增的庫存分類 -----
 // 舊備份沒有 acctSettings 時,不動目前的設定(這些是設定,不是交易資料)
 function acctSettingsBackupExport(){
-  return { reportCategories, reportCategoryAccounts: rcAccounts, myobCards: (typeof myobCards !== 'undefined') ? myobCards : {}, categoryManual: (typeof categoryManual !== 'undefined') ? categoryManual : [] };
+  return { reportCategories, reportCategoryAccounts: rcAccounts, myobCards: (typeof myobCards !== 'undefined') ? myobCards : {}, categoryManual: (typeof categoryManual !== 'undefined') ? categoryManual : [], avgCostMethod: (typeof psAvgMethod !== 'undefined') ? psAvgMethod : 'batch' };
 }
 async function acctSettingsBackupRestore(backup){
   const d = backup && backup.acctSettings; if(!d || typeof d !== 'object') return;
   if(Array.isArray(d.reportCategories)){ reportCategories = d.reportCategories.filter(x => typeof x === 'string' && x.trim()); await rcSave(); }
   if(d.reportCategoryAccounts && typeof d.reportCategoryAccounts === 'object' && !Array.isArray(d.reportCategoryAccounts)){ rcAccounts = d.reportCategoryAccounts; await rcSaveAccounts(); }
   if(d.myobCards && typeof d.myobCards === 'object' && !Array.isArray(d.myobCards) && typeof myobCards !== 'undefined'){ myobCards = d.myobCards; await dbSet('myobCards', JSON.stringify(myobCards)); }
+  if((d.avgCostMethod === 'moving' || d.avgCostMethod === 'batch') && typeof psAvgMethod !== 'undefined'){ psAvgMethod = d.avgCostMethod; await dbSet('avgCostMethod', psAvgMethod); }
   if(Array.isArray(d.categoryManual) && typeof categoryManual !== 'undefined'){ categoryManual = d.categoryManual.filter(x => typeof x === 'string' && x.trim()); await saveCategoryManual(); }
 }
 

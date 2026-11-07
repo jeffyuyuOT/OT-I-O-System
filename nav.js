@@ -562,6 +562,7 @@ function switchAccountingSubTab(subtabId){
   if(subtabId === 'subtab-acc-settings'){
     if(typeof renderSystemCurrencySetting === 'function') renderSystemCurrencySetting();
     if(typeof evRender === 'function') evRender();
+    if(typeof psSyncAvgMethodUI === 'function') psSyncAvgMethodUI();
     if(typeof renderSellPriceSetting === 'function') renderSellPriceSetting();
     if(typeof invRenderSettings === 'function') invRenderSettings();
     if(typeof renderAccountingEmailList === 'function') renderAccountingEmailList();

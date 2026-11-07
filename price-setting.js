@@ -55,7 +55,7 @@ function psEffCost(ci, sell){
 }
 // 平均成本 = 目前還有庫存的每個批次(剩餘量 × 單位成本)加總 ÷ 剩餘總量;沒有成本資料的批次不計入。
 // 期初匯入的批次沒有實際成本,跟成本價一樣用 Sell price ÷ 1.2 推算(est = true)。
-function psAvgCost(pid, sell){
+function psAvgCostBatches(pid, sell){
   if(typeof batchActive !== 'function' || !batchActive()) return null;
   let total = 0, qty = 0, est = false;
   batchItemsOfProduct(pid).forEach(it => {
@@ -69,6 +69,83 @@ function psAvgCost(pid, sell){
   });
   if(!(qty > 0)) return null;
   return { cost: spRound2(total / qty), est, qty };
+}
+// ---- 平均成本算法(會計設定 → Preference 選擇):batch = 目前庫存各批次的加權平均(預設);moving = 移動加權平均(MYOB 的算法)----
+// 移動加權平均:依日期重播這個商品的進貨與異動。每次進貨:新平均 = (現有數量 × 目前平均 + 新貨總金額) ÷ (現有數量 + 新貨數量);出貨/退回/調整只改數量,不改平均。
+// 庫存歸零後再進貨,平均就重新從新貨成本開始。沒有成本資料的批次進貨不影響平均;期初批次沒有實際成本,跟其他地方一樣用 Sell price ÷ 1.2 推算(est = true)。
+let psAvgMethod = 'batch';
+let psMovByItem = null;   // batch_item_id -> [{ id, qty, kind, date }];null = 還沒載入
+async function psLoadAvgMethod(){
+  try{ const r = await dbGet('avgCostMethod'); psAvgMethod = (r && r.value === 'moving') ? 'moving' : 'batch'; }catch(e){ psAvgMethod = 'batch'; }
+}
+async function psLoadMovements(force){
+  if(psAvgMethod !== 'moving' || (psMovByItem && !force)) return;
+  if(typeof batchActive !== 'function' || !batchActive()) return;
+  try{
+    const rows = await fetchAllPages(() => sb.from('batch_movements').select('id,batch_item_id,qty,kind,mv_date').order('id', { ascending: true }));
+    const m = {};
+    rows.forEach(r => { (m[r.batch_item_id] = m[r.batch_item_id] || []).push({ id: Number(r.id), qty: Number(r.qty), kind: r.kind, date: r.mv_date || '' }); });
+    psMovByItem = m;
+  }catch(e){ console.error('讀取批次異動失敗(平均成本改用目前批次算法)', e); psMovByItem = null; }
+}
+function psAvgCostMoving(pid, sell){
+  const items = batchItemsOfProduct(pid, true);
+  const ev = [];
+  items.forEach(it => {
+    let c = spTotalUnit(it);
+    if(it.isOpening && sell !== null && sell !== undefined) c = Number(sell) / 1.2;
+    const q = Number(it.qtyIn) || 0;
+    if(q > 0) ev.push({ date: it.batchDate || '', ord: 0, id: 0, kind: 'recv', qty: q, cost: c, est: !!it.isOpening });
+    (psMovByItem[it.id] || []).forEach(mv => {
+      if(mv.kind === 'convert_in') ev.push({ date: mv.date, ord: 0, id: mv.id, kind: 'recv', qty: mv.qty, cost: c, est: !!it.isOpening });   // 切換進來的量,用這個批次行的單位成本當作新進貨
+      else ev.push({ date: mv.date, ord: 1, id: mv.id, kind: 'mov', qty: mv.qty });
+    });
+  });
+  ev.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : (a.ord - b.ord) || (a.id - b.id)));
+  let onhand = 0, avg = null, est = false;
+  ev.forEach(e => {
+    if(e.kind === 'recv'){
+      if(e.cost === null || e.cost === undefined){ onhand += e.qty; return; }
+      avg = (onhand > 0 && avg !== null) ? (onhand * avg + e.qty * e.cost) / (onhand + e.qty) : e.cost;
+      onhand = Math.max(0, onhand) + e.qty;
+      if(e.est) est = true;
+    }else{
+      onhand = Math.max(0, onhand + e.qty);
+      if(onhand === 0) est = false;
+    }
+  });
+  if(avg === null || !(onhand > 0)) return null;
+  return { cost: spRound2(avg), est, qty: onhand };
+}
+function psAvgCost(pid, sell){
+  if(typeof batchActive !== 'function' || !batchActive()) return null;
+  if(psAvgMethod === 'moving' && psMovByItem) return psAvgCostMoving(pid, sell);
+  return psAvgCostBatches(pid, sell);
+}
+function psAvgHintText(){ return t(psAvgMethod === 'moving' ? 'psHintAvgMoving' : 'psHintAvg'); }
+function psSyncAvgMethodUI(){
+  const box = document.getElementById('avgCostMethodCard'); if(!box) return;
+  box.innerHTML = `<div class="section-title">${t('psAvgMethodTitle')} <span role="button" tabindex="0" class="info-icon" style="cursor:pointer;color:var(--ink-soft);font-size:14px;text-transform:none;" onclick="showInfoModal(t('psAvgMethodHelp'))">ⓘ</span></div>
+    <select onchange="psSetAvgMethod(this.value)" style="min-width:280px;">
+      <option value="batch" ${psAvgMethod === 'batch' ? 'selected' : ''}>${psEsc(t('psAvgMethodBatch'))}</option>
+      <option value="moving" ${psAvgMethod === 'moving' ? 'selected' : ''}>${psEsc(t('psAvgMethodMoving'))}</option>
+    </select>
+    <div id="psAvgMethodMsg" class="msg"></div>`;
+}
+async function psSetAvgMethod(v){
+  v = v === 'moving' ? 'moving' : 'batch';
+  const prev = psAvgMethod; psAvgMethod = v;
+  const msg = () => document.getElementById('psAvgMethodMsg');
+  try{
+    await dbSet('avgCostMethod', v);
+    if(v === 'moving'){ try{ if(typeof ensureBatchDataLoaded === 'function') await ensureBatchDataLoaded(); }catch(e){} await psLoadMovements(true); }
+    const m = msg(); if(m){ m.className = 'msg ok'; m.textContent = t('psAvgMethodSaved'); }
+  }catch(e){
+    console.error('儲存平均成本算法失敗', e); psAvgMethod = prev;
+    psSyncAvgMethodUI(); const m = msg(); if(m){ m.className = 'msg error'; m.textContent = t('psAvgMethodSaveFail'); }
+    return;
+  }
+  try{ psRenderPage(); }catch(e){}
 }
 // 目前選的成本基準(Margin 欄位、Apply margin 都用它)
 function psBasisEff(pid, sell, ci){
@@ -224,6 +301,7 @@ async function psOpenPage(){
   const root = document.getElementById('priceSettingRoot');
   if(root && typeof batchData !== 'undefined' && !batchData.loaded) root.innerHTML = `<div class="empty-note">${t('batchLoading')}</div>`;
   try{ if(typeof ensureBatchDataLoaded === 'function') await ensureBatchDataLoaded(); }catch(e){}
+  await psLoadMovements(true);
   psRenderPage();
 }
 function psCanEdit(){ return spIsSettingBasis() && canEditPrice(); }
@@ -302,7 +380,7 @@ function psRenderPage(){
       <button class="btn" id="psSaveBtn" onclick="psSave()" ${editable && dirtyCount > 0 ? '' : 'disabled'}>${t('btnSave')}${dirtyCount > 0 ? ' (' + dirtyCount + ')' : ''}</button>
     </div>
     <div id="psPageMsg" class="msg ${psPageMsgType}">${psEsc(psPageMsg)}</div>
-    ${list.length === 0 ? `<div class="empty-note">${t('psNoProducts')}</div>` : `<div style="overflow-x:auto;"><table class="stock-table"><thead><tr><th>${t('lblProduct')}</th><th class="num">Sell price</th><th class="num">${t('psColCost')} <span role="button" tabindex="0" class="info-icon" style="cursor:pointer;color:var(--ink-soft);font-size:14px;text-transform:none;" onclick="showInfoModal(t('psHintCost'))">ⓘ</span></th><th class="num">${t('psColAvgCost')} <span role="button" tabindex="0" class="info-icon" style="cursor:pointer;color:var(--ink-soft);font-size:14px;text-transform:none;" onclick="showInfoModal(t('psHintAvg'))">ⓘ</span></th><th class="num">Margin <span role="button" tabindex="0" class="info-icon" style="cursor:pointer;color:var(--ink-soft);font-size:14px;text-transform:none;" onclick="showInfoModal(t('psHintMargin'))">ⓘ</span></th></tr></thead><tbody>${rows}</tbody></table></div>`}`;
+    ${list.length === 0 ? `<div class="empty-note">${t('psNoProducts')}</div>` : `<div style="overflow-x:auto;"><table class="stock-table"><thead><tr><th>${t('lblProduct')}</th><th class="num">Sell price</th><th class="num">${t('psColCost')} <span role="button" tabindex="0" class="info-icon" style="cursor:pointer;color:var(--ink-soft);font-size:14px;text-transform:none;" onclick="showInfoModal(t('psHintCost'))">ⓘ</span></th><th class="num">${t('psColAvgCost')} <span role="button" tabindex="0" class="info-icon" style="cursor:pointer;color:var(--ink-soft);font-size:14px;text-transform:none;" onclick="showInfoModal(psAvgHintText())">ⓘ</span></th><th class="num">Margin <span role="button" tabindex="0" class="info-icon" style="cursor:pointer;color:var(--ink-soft);font-size:14px;text-transform:none;" onclick="showInfoModal(t('psHintMargin'))">ⓘ</span></th></tr></thead><tbody>${rows}</tbody></table></div>`}`;
 }
 // 這個商品正在出貨的批次有手動設定 margin,而且算出來的售價跟目前 Price Setting 的價格不同 → 回傳 { item, margin, suggested, cost }
 function psBatchMarginWarn(pid, shownSell){
@@ -723,4 +801,17 @@ Object.assign(I18N.en, {
   psHintCost: 'Cost (current batch): the unit cost of the batch currently being shipped. Shipping order: opening batch → earliest expiry → FIFO by purchase date.',
   psHintAvg: 'Average cost: sum of (remaining qty × unit cost) over the batches in stock ÷ total remaining qty. A batch stops counting once it is used up, and the figure moves whenever a new batch arrives.',
   psHintMargin: 'Margin: how much the Sell price is above the selected cost basis (batch cost or average cost), in %.'
+});
+
+Object.assign(I18N.zh, {
+  psAvgMethodTitle: '平均成本算法', psAvgMethodBatch: '目前庫存各批次的加權平均(預設)', psAvgMethodMoving: '移動加權平均(MYOB 的算法)',
+  psAvgMethodHelp: '兩種算法只影響 Pricing management 的 Average cost 欄位和以平均成本為基準的 Margin、Apply margin,不會改動任何庫存或帳務資料。\n\n【目前庫存各批次的加權平均】目前還有庫存的各批次(剩餘量 × 單位成本)加總 ÷ 剩餘總量。批次賣完就不再計入,反映手上實際剩下那幾批貨的成本。\n\n【移動加權平均】跟 MYOB 一樣:每次進貨後,新平均 = (現有數量 × 目前平均 + 新貨總金額) ÷ (現有數量 + 新貨數量),出貨不改變平均。新舊貨混在一起,比較平滑,但舊成本會持續影響平均;庫存歸零後再進貨就從新貨成本重新算。\n\n用哪一種請跟會計確認,要跟 MYOB 的庫存設定一致。',
+  psAvgMethodSaved: '已儲存。', psAvgMethodSaveFail: '儲存失敗,請再試一次。',
+  psHintAvgMoving: '平均成本(移動加權平均,跟 MYOB 一樣):每次進貨後,新平均 = (現有數量 × 目前平均 + 新貨總金額) ÷ (現有數量 + 新貨數量),出貨不改變平均;庫存歸零後再進貨就從新貨成本重新算。'
+});
+Object.assign(I18N.en, {
+  psAvgMethodTitle: 'Average cost method', psAvgMethodBatch: 'Weighted average of the batches in stock (default)', psAvgMethodMoving: 'Moving weighted average (like MYOB)',
+  psAvgMethodHelp: 'Both methods only affect the Average cost column in Pricing management and the Margin / Apply margin that use average cost as their basis. No stock or accounting data is changed.\n\n[Batches in stock] Sum of (remaining qty × unit cost) over the batches still in stock ÷ total remaining qty. A batch stops counting once it is used up, so it reflects the cost of the batches actually on hand.\n\n[Moving weighted average] Same as MYOB: after each receipt, new average = (qty on hand × current average + new goods total) ÷ (qty on hand + new qty). Shipping does not change the average. Old and new stock are blended, which is smoother but keeps old costs in the average; after stock reaches zero the next receipt starts the average over.\n\nPlease confirm with your accountant which one to use so it matches the MYOB inventory setting.',
+  psAvgMethodSaved: 'Saved.', psAvgMethodSaveFail: 'Save failed, please try again.',
+  psHintAvgMoving: 'Average cost (moving weighted average, as in MYOB): after each receipt, new average = (qty on hand × current average + new goods total) ÷ (qty on hand + new qty). Shipping does not change the average; after stock reaches zero the next receipt starts the average over.'
 });
