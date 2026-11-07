@@ -404,10 +404,7 @@ function switchTab(tabId){
   if(tabId === 'tab-log'){ refreshLogSubTab(); }
   if(tabId === 'tab-accounting'){ refreshAccountingSubTab(); }
   if(tabId === 'tab-warehouse-ops'){
-    renderProductSelect(); renderTxBatchList();
-    // 沒有「訂單核對」權限(會計預設)就藏起這個子分頁按鍵
-    populatePendingOrderPartyFilter(); renderPendingOrders();
-    populateCompletedOrderPartyFilter(); renderOrders();
+    refreshWarehouseOpsSubTab();   // 只畫目前顯示的那個子分頁
   }
   if(tabId === 'tab-order'){
     populatePartySelect(); renderOrderItemsTable(); renderOrderHistory();
@@ -550,11 +547,23 @@ function switchWarehouseOpsSubTab(subtabId){
   document.body.classList.add('mobile-subtab-content-active');
   container.querySelectorAll('.subtab-content').forEach(el => el.classList.remove('active-subtab'));
   container.querySelectorAll('.subtab-btn').forEach(el => el.classList.remove('active'));
+  document.getElementById(subtabId).classList.add('active-subtab');
+  document.getElementById('btn-' + subtabId).classList.add('active');
+  // 要先把子分頁顯示出來再畫:renderOrders 只畫「目前看得到」的清單(用 offsetParent 判斷),
+  // 子分頁還藏著就畫會是空白,得等下一次資料重新載入才會出現。
+  refreshWarehouseOpsSubTab(subtabId);
+}
+// 倉庫作業台:只重畫「目前這個子分頁」需要的內容(不用每次進來把待處理/已完成/核對全部畫一遍,比較快)。
+function refreshWarehouseOpsSubTab(subtabId){
+  if(!subtabId){
+    const c = document.getElementById('tab-warehouse-ops');
+    const a = c && c.querySelector('.subtab-content.active-subtab');
+    subtabId = a ? a.id : '';
+  }
+  if(subtabId === 'subtab-tx-register'){ renderProductSelect(); renderTxBatchList(); }
   if(subtabId === 'subtab-tx-verify'){ renderVerifyPage(); renderVerifyPageProductSelect(); }
   if(subtabId === 'subtab-order-pending'){ populatePendingOrderPartyFilter(); renderPendingOrders(); }
   if(subtabId === 'subtab-order-completed'){ populateCompletedOrderPartyFilter(); renderOrders(); }
-  document.getElementById(subtabId).classList.add('active-subtab');
-  document.getElementById('btn-' + subtabId).classList.add('active');
 }
 
 // 「倉庫後台管理」底下的子分頁切換(出貨方管理/進貨方管理/進貨預估/資料維護/掃描收據數據庫),
