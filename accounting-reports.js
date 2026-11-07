@@ -23,7 +23,17 @@ function arpCurrentFyStart(){
   const d = new Date(); const y = d.getFullYear(), m = d.getMonth() + 1;
   return m >= 7 ? y : y - 1;
 }
-function arpFyList(){ const out = []; for(let y = arpCurrentFyStart(); y >= 2024; y--) out.push(y); return out; }
+// 財年選單的最早年份:預設 2024,但如果 Invoice / 進貨單有更早的資料,就延伸到那一年(財年 7 月起算)
+function arpFyFloor(){
+  let floor = 2024;
+  const fyOf = d => { const m = /^(\d{4})-(\d{2})/.exec(d || ''); if(!m) return null; const y = Number(m[1]); return Number(m[2]) >= 7 ? y : y - 1; };
+  try{
+    (typeof invList !== 'undefined' ? invList : []).forEach(r => { const y = fyOf(r.invoice_date); if(y !== null && y >= 2000 && y < floor) floor = y; });
+    (typeof purchases !== 'undefined' ? purchases : []).forEach(p => { const y = fyOf(p.date); if(y !== null && y >= 2000 && y < floor) floor = y; });
+  }catch(e){}
+  return floor;
+}
+function arpFyList(){ const out = []; for(let y = arpCurrentFyStart(); y >= arpFyFloor(); y--) out.push(y); return out; }
 function arpFyLabel(y){ return 'FY' + String(y).slice(2) + '-' + String(y + 1).slice(2); }
 function arpRangeFor(fy, q){
   const y = Number(fy); if(!y) return { from: '', to: '' };
@@ -316,6 +326,8 @@ function arpOnDates(){
   arpFilter.from = (document.getElementById('arpFrom') || {}).value || '';
   arpFilter.to = (document.getElementById('arpTo') || {}).value || '';
   arpFilter.fy = ''; arpFilter.q = '';
+  // 結束日設在過去 = 要看那天的帳:庫存價值日期自動跟著用同一天(之後還是可以單獨改)
+  try{ const td = (typeof invToday === 'function') ? invToday() : ''; if(arpFilter.to && td && arpFilter.to < td) arpAsOf = arpFilter.to; }catch(e){}
   arpRefresh();
 }
 function arpClear(){ arpFilter = { from: '', to: '', fy: '', q: '' }; arpAsOf = ''; arpRefresh(); }

@@ -135,11 +135,36 @@ function rcDelete(i){
 
 // ----- 完整備份 / 還原:會計報表分類、科目代碼、MYOB 卡片名稱、手動新增的庫存分類 -----
 // 舊備份沒有 acctSettings 時,不動目前的設定(這些是設定,不是交易資料)
-function acctSettingsBackupExport(){
-  return { reportCategories, reportCategoryAccounts: rcAccounts, myobCards: (typeof myobCards !== 'undefined') ? myobCards : {}, categoryManual: (typeof categoryManual !== 'undefined') ? categoryManual : [], avgCostMethod: (typeof psAvgMethod !== 'undefined') ? psAvgMethod : 'batch' };
+// 其他會計/系統設定(app_data 原始字串):預設幣種、常用幣種與支出項目、會計 Email、Sell price 設定、批次到期警示天數
+const ACCT_APPDATA_KEYS = ['systemCurrency', 'purchaseCurrencies', 'purchaseExpenseNames', 'accountingEmails', 'sellPriceBasis', 'sellWarnMargin', 'batchDefaultMargin', 'batchExpiryWarnDays'];
+async function acctAppDataExport(){
+  const out = {};
+  for(const k of ACCT_APPDATA_KEYS){
+    try{ const r = await dbGet(k); if(r && r.value !== undefined && r.value !== null) out[k] = String(r.value); }catch(e){}
+  }
+  return out;
+}
+async function acctAppDataRestore(m){
+  if(!m || typeof m !== 'object' || Array.isArray(m)) return;
+  for(const k of ACCT_APPDATA_KEYS){
+    if(typeof m[k] !== 'string') continue;
+    try{ await dbSet(k, m[k]); }catch(e){ console.error('還原設定失敗:' + k, e); }
+  }
+  // 重新載入到畫面使用的變數
+  try{ if(typeof loadSystemCurrency === 'function') await loadSystemCurrency(); }catch(e){}
+  try{ if(typeof loadSellPriceSettings === 'function') await loadSellPriceSettings(); }catch(e){}
+  try{ if(typeof loadBatchExpiryWarnDays === 'function') await loadBatchExpiryWarnDays(); }catch(e){}
+  try{ if(typeof pcLoaded !== 'undefined'){ pcLoaded = false; pcLoading = false; if(typeof pcEnsureLoaded === 'function') await pcEnsureLoaded(); } }catch(e){}
+  try{ if(typeof accountingEmails !== 'undefined' && typeof m.accountingEmails === 'string'){ const a = JSON.parse(m.accountingEmails); if(Array.isArray(a)){ accountingEmails = a; if(typeof renderAccountingEmailList === 'function') renderAccountingEmailList(); } } }catch(e){}
+}
+async function acctSettingsBackupExport(){
+  return {
+    appData: await acctAppDataExport(),
+    reportCategories, reportCategoryAccounts: rcAccounts, myobCards: (typeof myobCards !== 'undefined') ? myobCards : {}, categoryManual: (typeof categoryManual !== 'undefined') ? categoryManual : [], avgCostMethod: (typeof psAvgMethod !== 'undefined') ? psAvgMethod : 'batch' };
 }
 async function acctSettingsBackupRestore(backup){
   const d = backup && backup.acctSettings; if(!d || typeof d !== 'object') return;
+  await acctAppDataRestore(d.appData);
   if(Array.isArray(d.reportCategories)){ reportCategories = d.reportCategories.filter(x => typeof x === 'string' && x.trim()); await rcSave(); }
   if(d.reportCategoryAccounts && typeof d.reportCategoryAccounts === 'object' && !Array.isArray(d.reportCategoryAccounts)){ rcAccounts = d.reportCategoryAccounts; await rcSaveAccounts(); }
   if(d.myobCards && typeof d.myobCards === 'object' && !Array.isArray(d.myobCards) && typeof myobCards !== 'undefined'){ myobCards = d.myobCards; await dbSet('myobCards', JSON.stringify(myobCards)); }

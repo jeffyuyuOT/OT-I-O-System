@@ -30,7 +30,7 @@ function evRange(fy, per){
 }
 function evRender(){
   const box = document.getElementById('evoPackCard'); if(!box) return;
-  const cur = evFyStart(); const fys = []; for(let y = cur; y >= 2024; y--) fys.push(y);
+  const cur = evFyStart(); const fys = []; const flo = (typeof arpFyFloor === 'function') ? arpFyFloor() : 2024; for(let y = cur; y >= flo; y--) fys.push(y);
   const monthOrder = [7, 8, 9, 10, 11, 12, 1, 2, 3, 4, 5, 6];
   const perOpts = [['all', t('evAllYear')], ['q1', tf('evQ', { n: 1 })], ['q2', tf('evQ', { n: 2 })], ['q3', tf('evQ', { n: 3 })], ['q4', tf('evQ', { n: 4 })]]
     .concat(monthOrder.map(m => ['m' + m, (lang === 'zh') ? tf('evMonth', { m }) : EV_MONTHS_EN[m - 1]]));

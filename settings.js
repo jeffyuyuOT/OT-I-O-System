@@ -47,7 +47,7 @@ async function runAutoBackup(){
   catch(e){ console.error('自動備份:讀取 Price Setting / 售價紀錄失敗,這份備份不含這些資料', e); }
   try{ if(typeof invExportForBackup === 'function' && currentUser && currentUser.role === 'admin'){ const iv = await invExportForBackup(); if(iv) backup.invoiceData = iv; } }
   catch(e){ console.error('自動備份:讀取 Invoice 失敗,這份備份不含 Invoice', e); }
-  try{ if(typeof acctSettingsBackupExport === 'function') backup.acctSettings = acctSettingsBackupExport(); }catch(e){ console.error('備份:讀取會計設定失敗', e); }
+  try{ if(typeof acctSettingsBackupExport === 'function') backup.acctSettings = await acctSettingsBackupExport(); }catch(e){ console.error('備份:讀取會計設定失敗', e); }
   const content = JSON.stringify(backup, null, 2);
 
   if(backupDirHandle){
@@ -632,7 +632,7 @@ async function exportFullBackup(){
     return;
   }
   const filename = `stock_ledger_backup_${todayISO()}.json`;
-  try{ if(typeof acctSettingsBackupExport === 'function') backup.acctSettings = acctSettingsBackupExport(); }catch(e){ console.error('備份:讀取會計設定失敗', e); }
+  try{ if(typeof acctSettingsBackupExport === 'function') backup.acctSettings = await acctSettingsBackupExport(); }catch(e){ console.error('備份:讀取會計設定失敗', e); }
   const content = JSON.stringify(backup, null, 2);
   const msg = document.getElementById('backupMsg');
 
