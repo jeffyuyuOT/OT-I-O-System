@@ -157,6 +157,25 @@ async function acctAppDataRestore(m){
   try{ if(typeof pcLoaded !== 'undefined'){ pcLoaded = false; pcLoading = false; if(typeof pcEnsureLoaded === 'function') await pcEnsureLoaded(); } }catch(e){}
   try{ if(typeof accountingEmails !== 'undefined' && typeof m.accountingEmails === 'string'){ const a = JSON.parse(m.accountingEmails); if(Array.isArray(a)){ accountingEmails = a; if(typeof renderAccountingEmailList === 'function') renderAccountingEmailList(); } } }catch(e){}
 }
+// Clear All Data / Clear Data, Keep Settings 用:
+//   清「跟商品、客戶資料綁在一起」的設定(報表分類、科目代碼、MYOB 卡名稱、手動新增的庫存分類);
+//   includePrefs = true(完全清除)時,連偏好也重設成預設值(幣種、平均成本算法、Sell price 設定、Invoice 格式與公司資料、批次到期警示天數)。
+// 這些設定都包含在完整備份裡,還原備份就會回來。
+async function acctSettingsWipe(includePrefs){
+  reportCategories = []; await rcSave();
+  rcAccounts = {}; await rcSaveAccounts();
+  if(typeof myobCards !== 'undefined'){ myobCards = {}; await dbSet('myobCards', '{}'); }
+  if(typeof categoryManual !== 'undefined'){ categoryManual = []; await saveCategoryManual(); }
+  if(typeof categoryOrder !== 'undefined'){ categoryOrder = ['未分類']; await saveCategoryOrder(); }
+  if(!includePrefs) return;
+  if(typeof psAvgMethod !== 'undefined'){ psAvgMethod = 'batch'; psMovByItem = null; await dbSet('avgCostMethod', 'batch'); }
+  if(typeof systemCurrency !== 'undefined'){ systemCurrency = 'AUD'; await dbSet('systemCurrency', 'AUD'); }
+  if(typeof pcCurrencies !== 'undefined'){ pcCurrencies = PC_DEFAULT_CURRENCIES.slice(); await dbSet('purchaseCurrencies', '[]'); }
+  if(typeof pcExpenseNames !== 'undefined'){ pcExpenseNames = []; await dbSet('purchaseExpenseNames', '[]'); }
+  if(typeof spSellBasis !== 'undefined'){ spSellBasis = 'batch'; spWarnMarginPct = 0; spDefaultMarginPct = 0; await dbSet('sellPriceBasis', 'batch'); await dbSet('sellWarnMargin', '0'); await dbSet('batchDefaultMargin', '0'); }
+  if(typeof batchExpiryWarnDays !== 'undefined'){ batchExpiryWarnDays = 30; await dbSet('batchExpiryWarnDays', '30'); }
+  if(typeof invSettings !== 'undefined'){ Object.keys(invSettings).forEach(k => { invSettings[k] = (k === 'codGraceDays') ? '7' : ''; }); await dbSet('invoiceSettings', JSON.stringify(invSettings)); }
+}
 async function acctSettingsBackupExport(){
   return {
     appData: await acctAppDataExport(),

@@ -491,7 +491,16 @@ function confirmClearAllData(){
     suppliers: purchaseSuppliers.length,
     emails: accountingEmails.length
   });
-  showConfirmModal(msg, async () => { await clearAllData(); });
+  showConfirmModal(msg + '\n\n' + t('confirmClearAllSettingsNote'), async () => { await clearAllData('full'); });
+}
+
+function confirmClearDataKeepSettings(){
+  closeRestoreDefaultModal();
+  const msg = tf('confirmClearDataKeepWarning', {
+    products: products.length, transactions: transactions.length, orders: orders.length, logs: inventoryLogs.length,
+    parties: shippingParties.length, suppliers: purchaseSuppliers.length, emails: accountingEmails.length
+  });
+  showConfirmModal(msg, async () => { await clearAllData('keep'); });
 }
 
 function confirmClearLogsResetOrders(){
@@ -505,7 +514,7 @@ function confirmClearLogsResetOrders(){
 
 // Clear All Data:商品主檔、進出貨紀錄、後台紀錄、訂單全部清空,訂單編號重設回 1。
 // 使用者管理、出貨方名單、分類順序、分頁順序等系統設定不受影響。
-async function clearAllData(){
+async function clearAllData(mode){
   try{
     // 先確認 clear_inventory_log 這個 RPC 真的能執行成功,再動 transactions/orders/products,
     // 避免「清到一半失敗」導致部分資料表已清空、部分還留著的不一致狀態。
@@ -533,6 +542,10 @@ async function clearAllData(){
     // 進貨預估紀錄(預估表記錄)也一起清掉;不然商品都清空了,紀錄裡的商品是孤兒資料
     try{ forecastRecords = []; await saveForecastRecords(); if(typeof renderForecastRecords === 'function') renderForecastRecords(); }
     catch(e){ acctClearFailed = true; console.error('清除進貨預估紀錄失敗', e); }
+
+    // 設定:完全清除('full')連偏好一起重設;保留設定('keep')只清跟商品 / 客戶綁在一起的設定(報表分類、科目代碼、MYOB 卡名稱)
+    try{ if(typeof acctSettingsWipe === 'function') await acctSettingsWipe(mode === 'full'); }
+    catch(e){ acctClearFailed = true; console.error('清除會計設定失敗', e); }
 
     shippingParties = [];
     await saveShippingParties();           // 出貨方管理整批存成一份 JSON,直接蓋成空陣列即可
@@ -1335,3 +1348,14 @@ function switchSettingsGroup(g){
 
 Object.assign(I18N.zh, { warnAcctClearFailed: '⚠ 部分會計資料(Invoice / 預付款 / 進貨付款 / 其他支出 / 進貨預估紀錄)沒有清乾淨,可能是對應的 SQL 還沒執行或連線失敗。請查看 console 的錯誤訊息,或到資料庫確認。' });
 Object.assign(I18N.en, { warnAcctClearFailed: '⚠ Some accounting data (invoices / prepayments / purchase payments / other expenses / purchase forecast records) was not fully cleared — the matching SQL may not have been run, or the connection failed. Check the console errors or the database.' });
+
+Object.assign(I18N.zh, {
+  btnClearDataKeepSettings: 'Clear Data, Keep Settings',
+  confirmClearAllSettingsNote: '同時會把所有設定重設成預設值:報表分類與科目代碼、預設幣種、平均成本算法、Sell price 設定、Invoice 格式與公司資料等。這些設定都在完整備份裡,還原備份會回來。',
+  confirmClearDataKeepWarning: '⚠ 這會清除 {products} 項商品、{transactions} 筆進出貨紀錄、{orders} 張訂單、{logs} 筆後台紀錄、{parties} 個出貨方、{suppliers} 個進貨方、{emails} 個會計 Email,以及 Invoice、Credit Note、預付款、進貨付款、其他支出、進貨預估紀錄、批次、庫存分布、收據掃描數據庫、會計報表分類與科目代碼,全部永久刪除,訂單編號會重設從 #000001 開始。\n\n會保留:預設幣種、常用幣種、平均成本算法、Sell price 設定、Invoice 格式與公司資料、批次到期警示天數。確定要繼續嗎?'
+});
+Object.assign(I18N.en, {
+  btnClearDataKeepSettings: 'Clear Data, Keep Settings',
+  confirmClearAllSettingsNote: 'All settings are also reset to defaults: report categories and account codes, default currency, average cost method, Sell price settings, Invoice format and company details, etc. These settings are included in a full backup, so restoring a backup brings them back.',
+  confirmClearDataKeepWarning: '⚠ This will permanently delete {products} product(s), {transactions} transaction(s), {orders} order(s), {logs} log entry(ies), {parties} shipping party(ies), {suppliers} purchase supplier(s), {emails} accounting email(s), plus invoices, credit notes, prepayments, purchase payments, other expenses, purchase forecast records, batches, stock locations, the receipt-scan database, and the report categories and account codes. The order number restarts from #000001.\n\nKept: default currency, common currencies, average cost method, Sell price settings, Invoice format and company details, batch expiry warning days. Continue?'
+});
