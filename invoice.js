@@ -901,13 +901,13 @@ function invExportListXlsx(key){
   key = key || 'main';
   if(typeof XLSX === 'undefined'){ showInfoModal(t('psImportNoXlsx')); return; }
   const list = invFilteredList(key);
-  const aoa = [['Invoice No', 'Invoice Date', 'Customer', 'Order No', 'Terms', 'Due Date', 'Sale Rep', 'Sale Amt (Ex. GST)', 'GST', 'Total Amt (Inc. GST)', 'Paid', 'Balance Due', 'Status', 'Currency']]
+  const aoa = [['Invoice No', 'Invoice Date', 'Customer', 'Order No', 'Terms', 'Due Date', 'Sale Rep', 'Sale Amt (Ex. GST)', 'GST', 'Credit Note (Inc. GST)', 'Total Amt (Inc. GST)', 'Paid', 'Balance Due', 'Status', 'Currency']]
     .concat(list.map(r => {
       const i = invRowInfo(r);
-      return [r.invoice_no, r.invoice_date, invCustLabel(r), r.order_no, r.payment_type === 'cod' ? 'COD' : (r.terms ? r.terms + ' Days' : ''), r.payment_type === 'cod' ? '' : r.due_date, r.sale_rep, Number(r.before_tax), Number(r.tax), i.total, i.paid, i.balance, ((I18N.en && I18N.en['invSt_' + i.status]) || i.status), r.currency];   // 匯出一律英文,方便會計/對外使用
+      return [r.invoice_no, r.invoice_date, invCustLabel(r), r.order_no, r.payment_type === 'cod' ? 'COD' : (r.terms ? r.terms + ' Days' : ''), r.payment_type === 'cod' ? '' : r.due_date, r.sale_rep, Number(r.before_tax), Number(r.tax), Math.round(Math.min(Number(r.credited) || 0, Number(r.total) || 0) * 100) / 100, i.total, i.paid, i.balance, ((I18N.en && I18N.en['invSt_' + i.status]) || i.status), r.currency];   // 匯出一律英文,方便會計/對外使用
     }));
   const ws = XLSX.utils.aoa_to_sheet(aoa);
-  ws['!cols'] = [{ wch: 12 }, { wch: 12 }, { wch: 30 }, { wch: 12 }, { wch: 10 }, { wch: 12 }, { wch: 16 }, { wch: 16 }, { wch: 10 }, { wch: 18 }, { wch: 12 }, { wch: 12 }, { wch: 10 }, { wch: 8 }];
+  ws['!cols'] = [{ wch: 12 }, { wch: 12 }, { wch: 30 }, { wch: 12 }, { wch: 10 }, { wch: 12 }, { wch: 16 }, { wch: 16 }, { wch: 10 }, { wch: 20 }, { wch: 18 }, { wch: 12 }, { wch: 12 }, { wch: 10 }, { wch: 8 }];
   const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, 'Invoices');
   XLSX.writeFile(wb, `invoices_${invToday()}.xlsx`);
 }
@@ -1402,28 +1402,41 @@ async function invPdfBlobFromSnap(snap){
     }).from(holder.firstElementChild).outputPdf('blob');
   } finally { holder.remove(); }
 }
+// 打包狀態(重畫清單時要能接回去):running = 正在打包,篩選欄位鎖住,按鈕與「取消」按鈕重畫後還在
+const invZipState = {};
+function invZipBtnEl(key){ return document.getElementById('invZipBtn_' + key); }
+function invApplyZipLock(key){
+  const st = invZipState[key]; if(!st || !st.running) return;
+  const btn = invZipBtnEl(key); if(!btn) return;
+  btn.disabled = true; btn.textContent = tf('invZipBusy', { done: st.done, total: st.total });
+  const root = btn.parentNode;
+  root.querySelectorAll('[id^="invFlt_' + key + '_"]').forEach(el => { el.disabled = true; });
+  root.querySelectorAll('button').forEach(b => { if(b.id !== 'invZipBtn_' + key && b.id !== 'invZipCancel_' + key && /btnClearFilter|clear/i.test(b.getAttribute('onclick') || '')) b.disabled = true; });
+  if(!document.getElementById('invZipCancel_' + key)){
+    const cb = document.createElement('button');
+    cb.id = 'invZipCancel_' + key; cb.className = 'btn ghost'; cb.style.alignSelf = 'flex-end'; cb.textContent = t('invZipCancel'); cb.disabled = !!st.cancelled;
+    cb.onclick = () => { st.cancelled = true; cb.disabled = true; };
+    btn.parentNode.insertBefore(cb, btn.nextSibling);
+  }
+}
+const _invRenderListOrig = invRenderList;
+invRenderList = function(key){ _invRenderListOrig(key); invApplyZipLock(key || 'main'); };
 async function invExportListZip(key){
   key = key || 'main';
-  const list = invFilteredList(key);
+  if(invZipState[key] && invZipState[key].running) return;
+  const list = invFilteredList(key);   // 按下按鈕當下的篩選結果,之後再改篩選不影響這次打包
   if(!list.length){ showInfoModal(t('invZipEmpty')); return; }
   if(typeof html2pdf === 'undefined' || typeof JSZip === 'undefined'){ showInfoModal(t('invZipNoLib')); return; }
   const run = async () => {
-    const btn = document.getElementById('invZipBtn_' + key);
-    const label = btn ? btn.textContent : '';
-    if(btn) btn.disabled = true;
-    let cancelled = false;
-    const cbtn = document.createElement('button');
-    cbtn.className = 'btn ghost'; cbtn.style.alignSelf = 'flex-end'; cbtn.textContent = t('invZipCancel');
-    cbtn.onclick = () => { cancelled = true; cbtn.disabled = true; };
-    if(btn && btn.parentNode) btn.parentNode.insertBefore(cbtn, btn.nextSibling);
-    const setBusy = (done) => { if(btn) btn.textContent = tf('invZipBusy', { done, total: list.length }); };
+    const st = invZipState[key] = { running: true, cancelled: false, done: 0, total: list.length };
+    const origLabel = t('invExportZip');
+    invApplyZipLock(key);
     try{
-      setBusy(0);
       const snaps = await invFetchSnapshots(list.map(r => r.id));
       const zip = new JSZip(); const idx = [['Invoice No', 'Invoice Date', 'Customer', 'Order No', 'Total (Inc. GST)', 'File', 'Note']]; const used = new Set();
-      let failed = 0, done = 0;
+      let failed = 0;
       for(const r of list){
-        if(cancelled) break;
+        if(st.cancelled) break;
         const snap = snaps.get(r.id); let fname = '', note = '';
         try{
           if(!snap) throw new Error('snapshot not found');
@@ -1433,17 +1446,20 @@ async function invExportListZip(key){
           zip.file(fname, await invPdfBlobFromSnap(snap));
         }catch(e){ failed++; fname = ''; note = 'FAILED: ' + (e.message || e); console.error('Invoice PDF 產生失敗', r.invoice_no, e); }
         idx.push([r.invoice_no, r.invoice_date, invCustLabel(r), r.order_no || '', invRowInfo(r).total, fname, note]);
-        setBusy(++done);
+        st.done++; invApplyZipLock(key);
       }
-      if(cancelled){ showInfoModal(t('invZipCancelled')); return; }
-      const csv = '\ufeff' + idx.map(row => row.map(c => { const v = String(c == null ? '' : c); return /[",\r\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; }).join(',')).join('\r\n');
+      if(st.cancelled){ showInfoModal(t('invZipCancelled')); return; }
+      const csv = '﻿' + idx.map(row => row.map(c => { const v = String(c == null ? '' : c); return /[",\r\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; }).join(',')).join('\r\n');
       zip.file('index.csv', csv);
       const blob = await zip.generateAsync({ type: 'blob' });
       const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `invoices_${invToday()}.zip`; document.body.appendChild(a); a.click();
       setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 2000);
       showInfoModal(tf('invZipDone', { n: list.length - failed }) + (failed ? '\n' + tf('invZipFail', { n: failed }) : ''));
     }catch(e){ console.error('Invoice 打包失敗', e); showInfoModal(String((e && e.message) || e)); }
-    finally{ cbtn.remove(); if(btn){ btn.disabled = false; btn.textContent = label; } }
+    finally{
+      st.running = false;
+      invRenderList(key);   // 重畫一次:解開篩選欄位、拿掉取消按鈕、按鈕文字還原
+    }
   };
   if(list.length > 20) showConfirmModal(tf('invZipConfirm', { n: list.length }), run); else return run();
 }
