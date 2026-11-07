@@ -71,6 +71,7 @@ function getSubTabLabel(btn){
 }
 // 排序面板用:依 key 找出子分頁(按鈕或下拉選項)顯示的名稱;找不到回傳 null
 function getSubTabLabelByKey(key){
+  if(String(key).startsWith('lookout:')) return (typeof lookoutCardLabel === 'function') ? lookoutCardLabel(key) : null;
   if(String(key).startsWith('opt:')){
     const v = key.slice(4);
     const opt = Array.from(document.querySelectorAll('.log-select-bar > select option')).find(o => o.value === v);
@@ -84,6 +85,7 @@ function getSubTabLabelByKey(key){
 
 // 目前畫面上某個主分頁的子分頁順序(按鈕 id 或 'opt:value' 陣列);沒有子分頁的主分頁回傳空陣列。
 function getCurrentSubTabKeys(tabId){
+  if(tabId === 'tab-lookout') return (typeof lookoutCardKeys === 'function') ? lookoutCardKeys() : [];
   const bar = getSubTabBar(tabId);
   if(bar) return getSubTabBarItems(bar).map(i => i.key);
   const sel = getSubTabSelect(tabId);
@@ -109,6 +111,7 @@ function orderSubTabItems(items, saved){
 
 function applySubTabOrder(){
   TAB_DEFS.forEach(def => {
+    if(def.id === 'tab-lookout'){ if(typeof renderLookout === 'function') renderLookout(); return; }   // Lookout 的「子分頁」是卡片,重畫即可
     const saved = Array.isArray(subTabOrder[def.id]) ? subTabOrder[def.id] : [];
     if(saved.length === 0) return;
     const bar = getSubTabBar(def.id);

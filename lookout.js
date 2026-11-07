@@ -68,8 +68,22 @@ const LOOKOUT_CARDS = [
     } }
 ];
 
+// 卡片順序:系統設置 → 調整分頁順序 → Lookout 展開後可排,存在 subTabOrder['tab-lookout'](key = 'lookout:' + 卡片 id)。
+// 存檔裡沒有的新卡片,插在預設順序中它前一張卡片的後面。
+function lookoutOrderedCards(){
+  const saved = (typeof subTabOrder !== 'undefined' && subTabOrder && Array.isArray(subTabOrder['tab-lookout'])) ? subTabOrder['tab-lookout'] : [];
+  const items = LOOKOUT_CARDS.map(function(c){ return { key: 'lookout:' + c.id, card: c }; });
+  if(saved.length === 0 || typeof orderSubTabItems !== 'function') return LOOKOUT_CARDS.slice();
+  return orderSubTabItems(items, saved).map(function(i){ return i.card; });
+}
+function lookoutCardKeys(){ return lookoutOrderedCards().map(function(c){ return 'lookout:' + c.id; }); }
+function lookoutCardLabel(key){
+  const c = LOOKOUT_CARDS.find(function(x){ return 'lookout:' + x.id === key; });
+  return c ? t(c.titleKey) : null;
+}
+
 function lookoutVisibleCards(){
-  return LOOKOUT_CARDS.filter(function(c){
+  return lookoutOrderedCards().filter(function(c){
     const tabs = Array.isArray(c.tab) ? c.tab : [c.tab];
     if(!tabs.some(lookoutTabAllowed)) return false;
     return typeof c.show === 'function' ? !!c.show() : true;
