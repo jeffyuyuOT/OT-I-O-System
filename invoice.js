@@ -868,6 +868,7 @@ function invRenderList(key){
       <div class="field" style="min-width:220px;"><label>${t('invFltSearch')}</label><input type="search" id="invFlt_${key}_q" value="${invEsc(f.q)}" oninput="invOnListFilter('${key}',true)" placeholder="${invEsc(t(key === 'party' ? 'invListSearchPhParty' : 'invListSearchPh'))}" /></div>
       <button class="btn ghost" onclick="invClearListFilter('${key}')" style="align-self:flex-end;">${t('btnClearFilter')}</button>
       <button class="btn ghost" onclick="invExportListXlsx('${key}')" style="align-self:flex-end;">${t('invExportList')}</button>
+      <button class="btn ghost" id="invZipBtn_${key}" onclick="invExportListZip('${key}')" style="align-self:flex-end;">${t('invExportZip')}</button>
     </div>
     ${list.length === 0 ? `<div class="empty-note">${t('invListEmpty')}</div>` : `<div style="font-size:11.5px;color:var(--ink-soft);margin-bottom:6px;">${t('invListClickHint')}</div>
     <div style="overflow-x:auto;"><table class="stock-table"><thead><tr><th>Invoice No</th><th>Invoice Date</th>${showCust ? `<th>${t('invColCustomer')}</th>` : ''}<th>${t('invColOrder')}</th><th class="num">${t('spTotalAmt')}</th><th class="num">${t('invColPaid')}</th><th class="num">${t('invColBalance')}</th><th>${t('invFltStatus')}</th><th></th></tr></thead>
@@ -1372,4 +1373,70 @@ function invCopyText(text, el){
   const done = () => { if(!el) return; const o = el.textContent; el.textContent = '✓'; setTimeout(() => { el.textContent = o; }, 1200); };
   const fallback = () => { const ta = document.createElement('textarea'); ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0'; document.body.appendChild(ta); ta.select(); try{ document.execCommand('copy'); }catch(e){} ta.remove(); done(); };
   if(navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(done, fallback); else fallback();
+}
+
+
+// ---------- 把目前篩選結果的 Invoice 打包成 PDF zip(對帳、留存用)----------
+Object.assign(I18N.zh, { invExportZip: '📦 下載 PDF 打包', invZipConfirm: '要產生 {n} 份 PDF 並打包成 zip,每份約需 1 秒左右,過程中請不要關閉頁面。要繼續嗎?', invZipBusy: '打包中 {done}/{total}…', invZipDone: '✓ 已打包 {n} 份 PDF', invZipFail: '{n} 份產生失敗(已列在 index.csv 的備註欄)', invZipEmpty: '目前篩選結果沒有 Invoice。', invZipNoLib: 'PDF 或 zip 元件載入失敗,請重新整理頁面再試一次。' });
+Object.assign(I18N.en, { invExportZip: '📦 Download PDFs (zip)', invZipConfirm: 'This will generate {n} PDF(s) and pack them into a zip. It takes about a second each; please keep the page open. Continue?', invZipBusy: 'Packing {done}/{total}…', invZipDone: '✓ Packed {n} PDF(s)', invZipFail: '{n} failed (noted in index.csv)', invZipEmpty: 'No invoices match the current filter.', invZipNoLib: 'The PDF or zip component failed to load. Please refresh and try again.' });
+async function invFetchSnapshots(ids){
+  const out = new Map();
+  for(let i = 0; i < ids.length; i += 40){
+    const { data, error } = await sb.from('invoices').select('id, snapshot').in('id', ids.slice(i, i + 40));
+    if(error) throw error;
+    (data || []).forEach(r => out.set(r.id, r.snapshot));
+  }
+  return out;
+}
+async function invPdfBlobFromSnap(snap){
+  const holder = document.createElement('div');
+  holder.style.cssText = 'position:fixed;left:-10000px;top:0;width:794px;background:#fff;';
+  holder.innerHTML = invDocHtml(snap, invSettings.logo);
+  document.body.appendChild(holder);
+  try{
+    invFitPages(holder, 'pdf');
+    return await html2pdf().set({
+      margin: 0, image: { type: 'jpeg', quality: 0.98 },
+      html2canvas: { scale: 2, useCORS: true }, jsPDF: { unit: 'pt', format: 'a4', orientation: 'portrait' },
+      pagebreak: { mode: ['css', 'legacy'], avoid: ['tr'] }
+    }).from(holder.firstElementChild).outputPdf('blob');
+  } finally { holder.remove(); }
+}
+async function invExportListZip(key){
+  key = key || 'main';
+  const list = invFilteredList(key);
+  if(!list.length){ showInfoModal(t('invZipEmpty')); return; }
+  if(typeof html2pdf === 'undefined' || typeof JSZip === 'undefined'){ showInfoModal(t('invZipNoLib')); return; }
+  const run = async () => {
+    const btn = document.getElementById('invZipBtn_' + key);
+    const label = btn ? btn.textContent : '';
+    if(btn) btn.disabled = true;
+    const setBusy = (done) => { if(btn) btn.textContent = tf('invZipBusy', { done, total: list.length }); };
+    try{
+      setBusy(0);
+      const snaps = await invFetchSnapshots(list.map(r => r.id));
+      const zip = new JSZip(); const idx = [['Invoice No', 'Invoice Date', 'Customer', 'Order No', 'Total (Inc. GST)', 'File', 'Note']]; const used = new Set();
+      let failed = 0, done = 0;
+      for(const r of list){
+        const snap = snaps.get(r.id); let fname = '', note = '';
+        try{
+          if(!snap) throw new Error('snapshot not found');
+          fname = invFileName(snap); let n = 2; const base = fname;
+          while(used.has(fname)) fname = base.replace(/\.pdf$/, '_' + (n++) + '.pdf');
+          used.add(fname);
+          zip.file(fname, await invPdfBlobFromSnap(snap));
+        }catch(e){ failed++; fname = ''; note = 'FAILED: ' + (e.message || e); console.error('Invoice PDF 產生失敗', r.invoice_no, e); }
+        idx.push([r.invoice_no, r.invoice_date, invCustLabel(r), r.order_no || '', invRowInfo(r).total, fname, note]);
+        setBusy(++done);
+      }
+      const csv = '\ufeff' + idx.map(row => row.map(c => { const v = String(c == null ? '' : c); return /[",\r\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; }).join(',')).join('\r\n');
+      zip.file('index.csv', csv);
+      const blob = await zip.generateAsync({ type: 'blob' });
+      const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `invoices_${invToday()}.zip`; document.body.appendChild(a); a.click();
+      setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 2000);
+      showInfoModal(tf('invZipDone', { n: list.length - failed }) + (failed ? '\n' + tf('invZipFail', { n: failed }) : ''));
+    }catch(e){ console.error('Invoice 打包失敗', e); showInfoModal(String((e && e.message) || e)); }
+    finally{ if(btn){ btn.disabled = false; btn.textContent = label; } }
+  };
+  if(list.length > 20) showConfirmModal(tf('invZipConfirm', { n: list.length }), run); else return run();
 }
