@@ -59,6 +59,32 @@ function canManageUsers(profile: any) {
   return tabs.includes("tab-master") && !restricted.includes("cap-manage-users");
 }
 
+async function pickUsernameAndRole(email: string, body: any) {
+  const base = email.split("@")[0].replace(/[^a-zA-Z0-9._-]/g, "") || "user";
+  let username = base;
+  for (let i = 2; i < 100; i++) {
+    const { data: clash } = await admin.from("profiles").select("id").eq("username", username).maybeSingle();
+    if (!clash) break;
+    username = base + i;
+  }
+  const role = ["admin", "accountant", "order", "inventory"].includes(body.role) ? body.role : "order";
+  return { username, role };
+}
+async function newProfileRow(userId: string, email: string, body: any, firstName: string, lastName: string, username?: string, role?: string) {
+  if (!username || !role) ({ username, role } = await pickUsernameAndRole(email, body));
+  return {
+    id: userId,
+    username,
+    role,
+    email,
+    first_name: firstName || null,
+    last_name: lastName || null,
+    tab_permissions: Array.isArray(body.tabPermissions) ? body.tabPermissions : [],
+    restricted_capabilities: Array.isArray(body.restrictedCapabilities) ? body.restrictedCapabilities : [],
+    assigned_party_ids: Array.isArray(body.assignedPartyIds) && body.assignedPartyIds.length ? body.assignedPartyIds : null,
+  };
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors() });
   try {
@@ -127,19 +153,20 @@ Deno.serve(async (req) => {
       const patch: Record<string, unknown> = { email };
       if (firstName) patch.first_name = firstName;
       if (lastName) patch.last_name = lastName;
-      await admin.from("profiles").update(patch).eq("id", userId);
+      const { data: hasProfile } = await admin.from("profiles").select("id").eq("id", userId).maybeSingle();
+      if (hasProfile) {
+        await admin.from("profiles").update(patch).eq("id", userId);
+      } else {
+        // 登入帳號存在、但 profile 不見了(例如之前在使用者管理刪掉使用者、登入帳號卻留著):重建 profile,
+        // 否則對方設好密碼登入時會顯示「這個帳號還沒有設定權限」,使用者管理也看不到這個人。
+        const { error: pErr } = await admin.from("profiles").upsert(await newProfileRow(userId, email, body, firstName, lastName));
+        if (pErr) return json({ error: "Profile save failed: " + pErr.message }, 500);
+      }
     } else {
       // ---- 全新帳號 ----
       isNew = true;
       linkType = "invite";
-      let base = email.split("@")[0].replace(/[^a-zA-Z0-9._-]/g, "") || "user";
-      let username = base;
-      for (let i = 2; i < 100; i++) {
-        const { data: clash } = await admin.from("profiles").select("id").eq("username", username).maybeSingle();
-        if (!clash) break;
-        username = base + i;
-      }
-      const role = ["admin", "accountant", "order", "inventory"].includes(body.role) ? body.role : "order";
+      const { username, role } = await pickUsernameAndRole(email, body);
       const { data: created, error: createErr } = await admin.auth.admin.createUser({
         email,
         email_confirm: false,
@@ -148,17 +175,7 @@ Deno.serve(async (req) => {
       });
       if (createErr || !created?.user) return json({ error: createErr?.message || "Could not create user" }, 500);
       userId = created.user.id;
-      const { error: profErr } = await admin.from("profiles").upsert({
-        id: userId,
-        username,
-        role,
-        email,
-        first_name: firstName || null,
-        last_name: lastName || null,
-        tab_permissions: Array.isArray(body.tabPermissions) ? body.tabPermissions : [],
-        restricted_capabilities: Array.isArray(body.restrictedCapabilities) ? body.restrictedCapabilities : [],
-        assigned_party_ids: Array.isArray(body.assignedPartyIds) && body.assignedPartyIds.length ? body.assignedPartyIds : null,
-      });
+      const { error: profErr } = await admin.from("profiles").upsert(await newProfileRow(userId, email, body, firstName, lastName, username, role));
       if (profErr) return json({ error: "Profile save failed: " + profErr.message }, 500);
     }
 
