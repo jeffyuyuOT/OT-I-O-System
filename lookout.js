@@ -42,12 +42,6 @@ const LOOKOUT_CARDS = [
       switchTab('tab-order-admin');
       switchOrderAdminSubTab('subtab-order-pending');
     } },
-  { id: 'verify', icon: '✅', titleKey: 'lookoutVerify', descKey: 'lookoutVerifyDesc', tab: 'tab-warehouse-ops',
-    show: function(){ return typeof canVerifyOrders === 'function' && canVerifyOrders(); },
-    go: function(){
-      switchTab('tab-warehouse-ops');
-      switchWarehouseOpsSubTab('subtab-tx-verify');
-    } },
   { id: 'stock-location', icon: '📍', titleKey: 'lookoutStockLocation', descKey: 'lookoutStockLocationDesc', tab: 'tab-overview',
     go: function(){
       switchTab('tab-overview');
