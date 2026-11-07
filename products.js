@@ -12,6 +12,10 @@ function deleteProduct(id){
   if(!hasCapability('cap-edit-overview')) return;
   const children = getChildProducts(id);
   const idsToDelete = [id, ...children.map(c => c.id)];
+  // 倉管員不能刪除連結會計資料的商品(會計新增的、或已出現在進貨單 / Invoice / Credit Note);會計與管理者不受限
+  if(!(typeof canSeeProductAcct === 'function' && canSeeProductAcct()) && productAcctLinked(idsToDelete)){
+    showInfoModal(t('prodDeleteAcctLinked')); return;
+  }
   const hasTx = transactions.some(t => idsToDelete.includes(t.productId));
   const warnMsg = children.length > 0
     ? `這個商品有 ${children.length} 個批量商品,刪除主商品會一併刪除所有批量商品${hasTx ? '及相關進出貨紀錄' : ''}。確定要刪除嗎?`
@@ -66,7 +70,10 @@ function openAddChildModal(parentId){
 
 // 新增一個全新的(不掛在任何主商品底下的)獨立商品——跟「編輯商品」共用同一個視窗跟表單,
 // 資訊填起來比原本分頁上那排小欄位清楚很多,也不用另外維護兩套「商品欄位長什麼樣子」的畫面。
+let addingProductFromAcct = false;
+function openAddNewProductFromAcct(){ openAddNewProductModal(); addingProductFromAcct = true; }
 function openAddNewProductModal(){
+  addingProductFromAcct = false;
   editingProductId = null;
   editingProductPhotoUrl = null;
   addingChildParentId = null;
@@ -210,7 +217,28 @@ function renderProductEditModalBody(p, opts){
       childExportCheckboxLocked = true;
     }
   }
+  const acctAdded = p.addedByAcct === true;      // 會計新增的商品:「已完成訂單匯出不顯示」鎖死不能勾選
+  const showAcctTab = (typeof canSeeProductAcct === 'function') && canSeeProductAcct();
+  const tabStrip = showAcctTab ? `<div style="display:flex;gap:6px;margin-bottom:12px;border-bottom:1px solid var(--line);">
+      <button type="button" id="prodTabBtnWh" class="btn" style="border-radius:6px 6px 0 0;" onclick="switchProductEditTab('wh')">${t('prodTabWarehouse')}</button>
+      <button type="button" id="prodTabBtnAcct" class="btn ghost" style="border-radius:6px 6px 0 0;" onclick="switchProductEditTab('acct')">${t('prodTabAccounting')}</button>
+    </div>` : '';
+  const acctPane = showAcctTab ? `<div id="prodPaneAcct" style="display:none;">
+    <div class="field-block">
+      <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-weight:400;">
+        <input type="checkbox" id="editProdGst" ${p.gst ? 'checked' : ''} />
+        <span>${t('fieldProductGst')}<span style="color:var(--ink-soft);font-weight:400;"> ${t('fieldProductGstHint')}</span></span>
+      </label>
+    </div>
+    <div class="field-block">
+      <label>${t('rcFieldLabel')}</label>
+      ${typeof rcSelectHtml === 'function' ? rcSelectHtml(p.reportCategory || '') : ''}
+      <div class="field-hint">${t('rcFieldHint')}</div>
+    </div>
+    ${acctAdded ? `<p style="font-size:12px;color:var(--ink-soft);margin:8px 0 0;">${t('prodAddedByAcctNote')}</p>` : ''}
+  </div>` : '';
   return `
+    ${tabStrip}<div id="prodPaneWh">
     ${isChild && parent ? `
     <div class="field-block">
       <label>上層商品(主商品)</label>
@@ -255,6 +283,7 @@ function renderProductEditModalBody(p, opts){
     <div class="field-block">
       <label>${t('fieldCategory')}</label>
       <select id="editProdCategory" style="width:100%;padding:8px;">${catOptions}</select>
+      <span class="del-link" style="display:inline-block;margin-top:4px;" onclick="addCategoryInProductModal()">${t('btnAddCategory')}</span>
     </div>
     `}
     <div class="field-block">
@@ -311,24 +340,32 @@ function renderProductEditModalBody(p, opts){
       </label>
     </div>
     ` : ''}
-    <div class="field-block">
+    ${(typeof batchActive === 'function' && batchActive()) ? `<div class="field-block">
       <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-weight:400;">
-        <input type="checkbox" id="editProdGst" ${p.gst ? 'checked' : ''} />
-        <span>${t('fieldProductGst')}<span style="color:var(--ink-soft);font-weight:400;"> ${t('fieldProductGstHint')}</span></span>
+        <input type="checkbox" id="editProdBatchTrack" ${p.batchTrack === false ? '' : 'checked'} />
+        <span>${t('fieldProductBatchTrack')}<span style="color:var(--ink-soft);font-weight:400;"> ${t('fieldProductBatchTrackHint')}</span></span>
       </label>
-    </div>
+    </div>` : ''}
+    ${(typeof paOn === 'function' && paOn() && !acctAdded) ? `<div class="field-block">
+      <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-weight:400;">
+        <input type="checkbox" id="editProdNoAcct" ${p.noAccounting === true ? 'checked' : ''} onchange="onProdNoAcctToggle(this)" />
+        <span>${t('fieldProductNoAcct')}<span style="color:var(--ink-soft);font-weight:400;"> ${t('fieldProductNoAcctHint')}</span></span>
+      </label>
+    </div>` : ''}
     ${showHideFromExportToggle ? `
     <div class="field-block">
-      <label style="display:flex;align-items:center;gap:6px;cursor:${childExportCheckboxLocked ? 'not-allowed' : 'pointer'};font-weight:400;">
-        <input type="checkbox" id="editProdHideFromExport" ${(p.hideFromCompletedOrderExport || childExportCheckboxForceChecked) ? 'checked' : ''} ${childExportCheckboxLocked ? 'disabled' : ''} onchange="toggleHideFromExportModeVisibility(this)" />
+      <label style="display:flex;align-items:center;gap:6px;cursor:${(childExportCheckboxLocked || acctAdded) ? 'not-allowed' : 'pointer'};font-weight:400;">
+        <input type="checkbox" id="editProdHideFromExport" ${(!acctAdded && (p.hideFromCompletedOrderExport || childExportCheckboxForceChecked || p.noAccounting === true)) ? 'checked' : ''} ${(childExportCheckboxLocked || p.noAccounting === true || acctAdded) ? 'disabled' : ''} onchange="toggleHideFromExportModeVisibility(this)" />
         <span>${t('fieldHideFromCompletedExport')}</span>
       </label>
+      <p id="hideFromExportNoAcctHint" style="display:${p.noAccounting === true ? 'block' : 'none'};font-size:11.5px;color:var(--ink-soft);margin:4px 0 0 22px;">${t('hideExportNoAcctHint')}</p>
+      ${acctAdded ? `<p style="font-size:11.5px;color:var(--ink-soft);margin:4px 0 0 22px;">${t('prodAcctAddedExportLocked')}</p>` : ''}
       ${childExportCheckboxLocked ? `<p style="font-size:11.5px;color:var(--ink-soft);margin:4px 0 0 22px;">${childExportCheckboxForceChecked ? t('hideExportChildForcedHint') : t('hideExportChildLockedHint')}</p>` : ''}
       ${hasChildrenForExportMode ? `
-      <div id="hideFromExportModeWrap" style="display:${p.hideFromCompletedOrderExport ? 'block' : 'none'};margin:8px 0 0 22px;">
-        <select id="editProdHideFromExportMode" onchange="toggleHideFromExportHintVisibility(this)">
+      <div id="hideFromExportModeWrap" style="display:${(p.hideFromCompletedOrderExport || p.noAccounting === true) ? 'block' : 'none'};margin:8px 0 0 22px;">
+        <select id="editProdHideFromExportMode" ${p.noAccounting === true ? 'disabled' : ''} onchange="toggleHideFromExportHintVisibility(this)">
           <option value="switchOnly" ${(!p.hideFromCompletedOrderExportMode || p.hideFromCompletedOrderExportMode === 'switchOnly') ? 'selected' : ''}>${t('hideExportModeSwitchOnly')}</option>
-          <option value="wholeFamily" ${p.hideFromCompletedOrderExportMode === 'wholeFamily' ? 'selected' : ''}>${t('hideExportModeWholeFamily')}</option>
+          <option value="wholeFamily" ${(p.hideFromCompletedOrderExportMode === 'wholeFamily' || p.noAccounting === true) ? 'selected' : ''}>${t('hideExportModeWholeFamily')}</option>
         </select>
         <p id="hideFromExportHint" style="display:${(!p.hideFromCompletedOrderExportMode || p.hideFromCompletedOrderExportMode === 'switchOnly') ? 'block' : 'none'};font-size:11.5px;color:var(--ink-soft);margin:6px 0 0;">${t('fieldHideFromCompletedExportHint')}</p>
       </div>
@@ -345,10 +382,33 @@ function renderProductEditModalBody(p, opts){
       <span class="del-link" style="color:var(--crit);" onclick="deleteProduct('${p.id}')">${t('btnDeleteProduct')}</span>
     </div>
     ` : ''}
+    </div>${acctPane}
   `;
 }
+function switchProductEditTab(which){
+  const wh = document.getElementById('prodPaneWh'), ac = document.getElementById('prodPaneAcct');
+  if(!wh || !ac) return;
+  wh.style.display = which === 'acct' ? 'none' : '';
+  ac.style.display = which === 'acct' ? '' : 'none';
+  const bw = document.getElementById('prodTabBtnWh'), ba = document.getElementById('prodTabBtnAcct');
+  if(bw) bw.className = 'btn' + (which === 'acct' ? ' ghost' : '');
+  if(ba) ba.className = 'btn' + (which === 'acct' ? '' : ' ghost');
+}
+
+// 商品有沒有連結會計資料:會計新增的商品,或出現在進貨單 / Invoice / Credit Note 的品項裡
+function productAcctLinked(ids){
+  const set = new Set(ids);
+  if(products.some(x => set.has(x.id) && x.addedByAcct === true)) return true;
+  const hit = arr => (arr || []).some(r => (r.items || []).some(it => it && set.has(it.productId)));
+  if(hit(typeof purchases !== 'undefined' ? purchases : [])) return true;
+  if(hit(typeof invList !== 'undefined' ? invList : [])) return true;
+  if(typeof arpRaw !== 'undefined' && arpRaw && hit(arpRaw.cns)) return true;
+  return false;
+}
+
 
 function closeProductEditModal(){
+  addingProductFromAcct = false;
   editingProductId = null;
   addingChildParentId = null;
   addingNewStandaloneProduct = false;
@@ -476,6 +536,9 @@ async function saveProductEditModal(){
       manualAvg: avgRaw === '' ? null : parseFloat(avgRaw),
       safetyStock: safetyRaw === '' ? null : parseFloat(safetyRaw),
       note, orderable: false, parentId: null, childWeight: null,
+      gst: (document.getElementById('editProdGst') || {}).checked === true ? true : undefined,
+      reportCategory: ((document.getElementById('editProdReportCategory') || {}).value || '') || undefined,
+      addedByAcct: addingProductFromAcct ? true : undefined,
       orderPageRemark: orderPageRemark || undefined,
       barcode: barcode || undefined,
       photoUrl: editingProductPhotoUrl || undefined,
@@ -509,17 +572,31 @@ async function saveProductEditModal(){
     if(hiddenEl) p.hidden = hiddenEl.checked;
     const gstEl = document.getElementById('editProdGst');
     if(gstEl) p.gst = gstEl.checked;
+    const rcEl = document.getElementById('editProdReportCategory');
+    if(rcEl){ if(rcEl.value) p.reportCategory = rcEl.value; else delete p.reportCategory; }
+    const batchTrkEl = document.getElementById('editProdBatchTrack');
+    if(batchTrkEl){ if(batchTrkEl.checked) delete p.batchTrack; else p.batchTrack = false; }
+    const noAcctEl = document.getElementById('editProdNoAcct');
+    if(noAcctEl){ if(noAcctEl.checked) p.noAccounting = true; else delete p.noAccounting; }
     const showInTotalEl = document.getElementById('editProdShowInTotal');
     if(showInTotalEl) applyTotalStockBasisChoice(p, showInTotalEl.checked);
     const hideFromExportEl = document.getElementById('editProdHideFromExport');
     if(hideFromExportEl){
-      p.hideFromCompletedOrderExport = hideFromExportEl.checked;
+      p.hideFromCompletedOrderExport = p.addedByAcct === true ? false : hideFromExportEl.checked;
       const modeEl = document.getElementById('editProdHideFromExportMode');
       if(modeEl) p.hideFromCompletedOrderExportMode = modeEl.value;
       // 主商品選了「整個家族都不顯示」的話,底下所有子商品自己的隱藏設定要跟著強制打勾——
       // 子商品自己的編輯畫面那個勾選框會被鎖住不能改,存檔的時候也要確保資料本身是一致的,
       // 不能出現「畫面上鎖住勾選,但資料庫裡其實沒存成勾選」這種不一致。
       if(!p.parentId && p.hideFromCompletedOrderExport && p.hideFromCompletedOrderExportMode === 'wholeFamily'){
+        getChildProducts(p.id).forEach(c => { c.hideFromCompletedOrderExport = true; });
+      }
+    }
+    // 「不入公司帳」連鎖:會計匯出自動不顯示,而且是「整個家族都不顯示」(底下的批量商品一起隱藏)
+    if(p.noAccounting === true){
+      p.hideFromCompletedOrderExport = true;
+      if(!p.parentId){
+        p.hideFromCompletedOrderExportMode = 'wholeFamily';
         getChildProducts(p.id).forEach(c => { c.hideFromCompletedOrderExport = true; });
       }
     }
@@ -1293,6 +1370,30 @@ function handleShowInTotalToggle(checkboxEl, productId){
   openShowInTotalPickerModal(checkboxEl, visibleCandidates);
 }
 
+// 商品視窗勾「不入公司帳」→ 「會計匯出不顯示」跟著勾選並鎖住,模式固定「整個家族都不顯示」;取消勾選則解鎖(不自動取消會計不匯出)
+function onProdNoAcctToggle(el){
+  const hide = document.getElementById('editProdHideFromExport');
+  const mode = document.getElementById('editProdHideFromExportMode');
+  const wrap = document.getElementById('hideFromExportModeWrap');
+  const hint = document.getElementById('hideFromExportNoAcctHint');
+  if(el.checked){
+    if(hide){ hide.checked = true; hide.disabled = true; }
+    if(mode){ mode.value = 'wholeFamily'; mode.disabled = true; toggleHideFromExportHintVisibility(mode); }
+    if(wrap) wrap.style.display = 'block';
+    if(hint) hint.style.display = 'block';
+  } else {
+    if(hide) hide.disabled = false;
+    if(mode) mode.disabled = false;
+    if(hint) hint.style.display = 'none';
+  }
+}
+// 商品是否不入公司帳:自己勾選,或主商品勾選(批量商品跟著主商品)
+function isOffBooksProduct(p){
+  if(!p) return false;
+  if(p.noAccounting === true) return true;
+  if(p.parentId){ const par = products.find(x => x.id === p.parentId); return !!(par && par.noAccounting === true); }
+  return false;
+}
 function toggleHideFromExportModeVisibility(checkboxEl){
   const wrap = document.getElementById('hideFromExportModeWrap');
   if(wrap) wrap.style.display = checkboxEl.checked ? 'block' : 'none';

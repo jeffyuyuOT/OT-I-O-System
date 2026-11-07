@@ -45,6 +45,7 @@ function setTxType(type){
     const emailInput = document.getElementById('purchaseEmailAddress');
     if(emailInput) emailInput.value = '';
   }
+  if(typeof paFormInit === 'function') paFormInit(type);   // 進貨帳務:入會計紀錄(取代寄送給會計)
   if(type === 'in'){
     partyLabel.textContent = t('partyLabelIn');
     partyInput.placeholder = t('partyPlaceholderIn');
@@ -121,8 +122,9 @@ function setTxType(type){
     const existingSection = document.getElementById('txExistingItemsSection');
     const postVerifySection = document.getElementById('txPostVerifyChangesSection');
     if(partyFieldWrap) partyFieldWrap.style.display = 'none';
-    if(mainGrid) mainGrid.style.gridTemplateColumns = '1fr 1.4fr';
-    if(noteLabel) noteLabel.textContent = t('txNoteRequiredLabel');
+    if(mainGrid) mainGrid.style.gridTemplateColumns = '1fr 1fr 1.4fr';
+    if(noteLabel) noteLabel.textContent = t('adjNoteOptionalLabel');
+    renderAdjReasonSelect();
     if(existingSection) existingSection.style.display = 'none';
     if(postVerifySection) postVerifySection.style.display = 'none';
     registerOutFlowType = '';
@@ -154,6 +156,46 @@ function setTxType(type){
   // 這兩個函式才會消失,造成使用者以為畫面卡住、要等一段時間才會更新。
   renderTxSubmitArea();
   renderTxBatchList();
+  const adjWrap = document.getElementById('txAdjReasonWrap');
+  if(adjWrap) adjWrap.style.display = type === 'adjustment' ? '' : 'none';
+}
+
+// ===== 庫存調整原因 =====
+// dir:'out' 只能減少庫存、'in' 只能增加庫存、'any' 不限。group 給會計報表(階段三)歸類用:
+// wastage=耗損、sample=樣品、internal=內部使用、stocktake=盤點差異、supplier_return=退供應商、other=其他。
+const ADJ_REASONS = [
+  { code: 'wastage_expired',   dir: 'out', group: 'wastage' },
+  { code: 'wastage_damaged',   dir: 'out', group: 'wastage' },
+  { code: 'donation_writeoff', dir: 'out', group: 'wastage' },
+  { code: 'sample',            dir: 'out', group: 'sample' },
+  { code: 'internal_use',      dir: 'out', group: 'internal' },
+  { code: 'return_supplier',   dir: 'out', group: 'supplier_return' },
+  { code: 'stocktake_loss',    dir: 'out', group: 'stocktake' },
+  { code: 'stocktake_gain',    dir: 'in',  group: 'stocktake' },
+  { code: 'other',             dir: 'any', group: 'other' }
+];
+function adjReasonInfo(code){ return ADJ_REASONS.find(r => r.code === code) || null; }
+function adjReasonLabel(code){ return code ? t('adjReason_' + code) : ''; }
+function renderAdjReasonSelect(){
+  const sel = document.getElementById('txAdjReason');
+  if(!sel) return;
+  const cur = sel.value;
+  sel.innerHTML = `<option value="">${t('adjReasonPick')}</option>` + ADJ_REASONS.map(r => `<option value="${r.code}">${adjReasonLabel(r.code)}</option>`).join('');
+  sel.value = cur && adjReasonInfo(cur) ? cur : '';
+  onAdjReasonChange();
+}
+function onAdjReasonChange(){
+  const sel = document.getElementById('txAdjReason');
+  const other = document.getElementById('txAdjReasonOther');
+  const hint = document.getElementById('txAdjReasonHint');
+  const info = sel ? adjReasonInfo(sel.value) : null;
+  if(other) other.style.display = info && info.code === 'other' ? '' : 'none';
+  if(hint) hint.textContent = info ? (info.dir === 'out' ? t('adjHint_decrease') : info.dir === 'in' ? t('adjHint_increase') : '') : '';
+}
+function adjReasonReset(){
+  const sel = document.getElementById('txAdjReason'); if(sel) sel.value = '';
+  const other = document.getElementById('txAdjReasonOther'); if(other) other.value = '';
+  onAdjReasonChange();
 }
 
 function showTxMainFormArea(visible){
@@ -813,8 +855,11 @@ function renderTxBatchList(){
   // 總價這欄只有在有收據掃描模組的時候才顯示——手動登記進出貨(沒掃描收據)本來就沒有「總價」
   // 這個概念,這欄存在的目的是讓人核對「掃描收據自動帶入商品」時有沒有把金額也正確抓進來,
   // 沒有這個模組就沒有意義,不用佔畫面空間。
-  const showAmountCol = hasFeature('receiptScanModule') && currentTxType === 'in'; // 金額只有進貨才用(出貨/入庫/調整不記金額),其他類型不顯示
+  const showAmountCol = hasFeature('receiptScanModule') && currentTxType === 'in' && (typeof canViewPrice !== 'function' || canViewPrice()); // 金額只有進貨才用(出貨/入庫/調整不記金額),其他類型不顯示
   // 出貨(新增訂單 / 載入待處理訂單加品項):顯示 Sell price(依出貨方 Discount 與預計批次),受系統設置開關控制
+  const showGstCol = showAmountCol && typeof paOn === 'function' && paOn();   // 進貨帳務:每個品項的 GST
+  if(showGstCol) paAutoFillGst(txBatchItems);
+  const lineExpCols = { batch: showBatchCols, amount: showAmountCol, gst: showGstCol };
   const showSellCol = typeof spEnabled === 'function' && spEnabled() && currentTxType === 'out' && (registerOutFlowType === 'new-order' || registerOutFlowType === 'load-pending' || registerOutFlowType === 'load-completed');
   const sellPartyId = showSellCol ? ((document.getElementById('txPartySelect') || {}).value || '') : '';
   // 同一個商品在清單裡出現不只一筆(常見情境:發票登記了5箱,後來因為缺貨開的 Credit Note
@@ -841,10 +886,11 @@ function renderTxBatchList(){
         </td>
         ${showSellCol ? `<td class="row-num tx-sell">${spTxItemPriceHtml(it, sellPartyId)}</td>` : ''}
         ${showSellCol ? `<td class="row-num tx-sell"><span style="${SP_TOTAL_PILL}">${spTxItemTotalHtml(it, sellPartyId)}</span></td>` : ''}
-        ${showBatchCols ? `<td class="row-num tx-exp" data-label="${t('batchColExpiry')}"><input type="date" class="order-qty-input" style="width:140px;" value="${it.expiry || ''}" onchange="updateTxBatchItemExpiry('${it.batchItemId}', this.value)" onblur="commitTxBatchItemExpiry('${it.batchItemId}')" /></td>
+        ${showBatchCols ? (!batchProductTracked(it.productId) ? '<td></td><td></td>' : `<td class="row-num tx-exp" data-label="${t('batchColExpiry')}"><input type="date" class="order-qty-input" style="width:140px;" value="${it.expiry || ''}" onchange="updateTxBatchItemExpiry('${it.batchItemId}', this.value)" onblur="commitTxBatchItemExpiry('${it.batchItemId}')" /></td>
         
-        ${(typeof batchLocCellHtml === 'function') ? batchLocCellHtml(it) : '<td></td>'}` : ''}
+        ${(typeof batchLocCellHtml === 'function') ? batchLocCellHtml(it) : '<td></td>'}`) : ''}
         ${showAmountCol ? `<td class="row-num tx-amt" data-label="${t('colAmount')}"><input type="number" class="order-qty-input" step="0.01" min="0" value="${(it.amount !== undefined && it.amount !== null) ? it.amount : ''}" placeholder="–" ${canEditPrice() ? '' : 'readonly'} onchange="updateTxBatchItemAmount('${it.batchItemId}', this.value)" /></td>` : ''}
+        ${showGstCol ? `<td class="row-num tx-gst" data-label="GST">${paProductOffBooks(it.productId) ? `<span style="font-size:11.5px;color:var(--ink-soft);">${t('paOffBooksShort')}</span>` : paGstSelectHtml(it.gst, "paSetTxItemGst('" + it.batchItemId + "', this.value)")}</td>` : ''}
         <td class="row-action">
           ${(typeof batchTxRowButtonHtml === 'function') ? batchTxRowButtonHtml(it) : ''}
           ${(showBatchCols && typeof batchTxDetailButtonHtml === 'function') ? batchTxDetailButtonHtml(it) : `<button onclick="openConversionFromTxBatch('${it.productId}')" title="${t('btnConvertBatchItem')}">🔄</button>`}
@@ -870,17 +916,20 @@ function renderTxBatchList(){
           ${showSellCol ? '<td></td><td></td>' : ''}
           ${showBatchCols ? '<td></td><td></td>' : ''}
           ${showAmountCol ? `<td class="row-num tx-amt">${netAmount !== null ? Number(netAmount).toFixed(2) : '–'}</td>` : ''}
+          ${showGstCol ? '<td></td>' : ''}
           <td class="row-action"></td>
         </tr>
       `;
     }
   });
+  const lineExpRowsHtml = (showAmountCol && typeof pcLineExpenseRowsHtml === 'function') ? (pcNonStockRowsHtml(lineExpCols) + pcLineExpenseRowsHtml(lineExpCols)) : '';
+  const lineExpAddBtn = (showAmountCol && typeof pcLineExpenseAddButtonHtml === 'function') ? pcLineExpenseAddButtonHtml() : '';
   container.innerHTML = `
     <table class="stock-table">
-      <thead><tr><th>${t('colProduct')}</th><th class="num">${t('colQty')}</th>${showSellCol ? `<th class="num">${t('spColUnitPrice')}</th><th class="num">${t('spColTotalPrice')}</th>` : ''}${showBatchCols ? `<th class="num">${t('batchColExpiry')}</th><th style="min-width:220px;padding-left:18px;">${t('batchLocTitle')}</th>` : ''}${showAmountCol ? `<th class="num">${t('colAmount')}${(typeof pcAmountColSuffix === 'function') ? pcAmountColSuffix() : ''}</th>` : ''}<th></th></tr></thead>
-      <tbody>${rowsHtml}</tbody>
+      <thead><tr><th>${t('colProduct')}</th><th class="num">${t('colQty')}</th>${showSellCol ? `<th class="num">${t('spColUnitPrice')}</th><th class="num">${t('spColTotalPrice')}</th>` : ''}${showBatchCols ? `<th class="num">${t('batchColExpiry')}</th><th style="min-width:220px;padding-left:18px;">${t('batchLocTitle')}</th>` : ''}${showAmountCol ? `<th class="num">${t('colAmount')}${(typeof pcAmountColSuffix === 'function') ? pcAmountColSuffix() : ''}</th>` : ''}${showGstCol ? '<th>GST</th>' : ''}<th></th></tr></thead>
+      <tbody>${rowsHtml}${lineExpRowsHtml}</tbody>
       ${showSellCol ? (() => { const tt = spTxItemsTotal(sellPartyId); const miss = tt.missing ? ` <span style="font-weight:400;font-size:11px;color:var(--ink-soft);">(${tf('spTotalMissing', { n: tt.missing })})</span>` : ''; const lead = (registerOutFlowType === 'load-pending' || registerOutFlowType === 'load-completed') ? t('spAddedItemsTotal') + ' · ' : ''; const tail = `<td colspan="${(showBatchCols ? 2 : 0) + (showAmountCol ? 1 : 0) + 1}"></td>`; const r = (lab, v, strong) => `<tr style="font-weight:${strong ? 700 : 600};"><td class="row-name" colspan="3" style="text-align:right;">${lab}</td><td class="row-num"><span style="${SP_TOTAL_PILL}">${spMoney(v)}</span></td>${tail}</tr>`; return `<tfoot>${r(lead + t('spSaleAmt') + miss, tt.sum, false)}${r(t('spGstAmt'), tt.gst, false)}${r(t('spTotalAmt'), spRound2(tt.sum + tt.gst), true)}</tfoot>`; })() : ''}
-    </table>
+    </table>${lineExpAddBtn}
   `;
 }
 
@@ -1438,6 +1487,7 @@ async function importStockItems(items, skippedRows, clearBlanksMode){
 }
 
 async function runStockImportCore(items, skippedRows, clearBlanksMode, dryRun){
+  if(!dryRun){ try{ if(typeof rcImportNormalize === 'function') await rcImportNormalize(items); }catch(e){ console.error('匯入:整理報表分類失敗', e); } }   // 預覽階段不動設定,確認匯入後才把新的報表分類加進清單
   skippedRows = skippedRows || [];
   clearBlanksMode = !!clearBlanksMode;
   const msg = document.getElementById('importMsg');
@@ -1485,7 +1535,12 @@ async function runStockImportCore(items, skippedRows, clearBlanksMode, dryRun){
         gst: item.gst === true,
         hidden: item.hidden === true,
         orderPageRemark: item.orderPageRemark || undefined,
-        barcode: item.barcode || undefined
+        barcode: item.barcode || undefined,
+        ...(item.reportCategory ? { reportCategory: item.reportCategory } : {}),
+        ...(item.noAccounting === true ? { noAccounting: true } : {}),
+        ...(item.batchTrack === false ? { batchTrack: false } : {}),
+        ...(item.noAccounting === true || item.hideAcctExport === true ? { hideFromCompletedOrderExport: true } : {}),
+        ...(item.noAccounting === true || (item.hideAcctExport === true && item.hideAcctMode) ? { hideFromCompletedOrderExportMode: item.noAccounting === true ? 'wholeFamily' : item.hideAcctMode } : {})
       });
       if(item.qty > 0){
         const tx = {
@@ -1533,11 +1588,27 @@ async function runStockImportCore(items, skippedRows, clearBlanksMode, dryRun){
     else if(clearBlanksMode && (item.weightKg === null || item.weightKg === undefined) && existing.weightKg !== null && existing.weightKg !== undefined){ changedFields.push(tf('importFieldChangeLine', {field: t('fieldWeightKg'), from: existing.weightKg, to: '(空白)'})); existing.weightKg = undefined; changed = true; }
     if(item.gst !== null && item.gst !== undefined && !!existing.gst !== item.gst){ changedFields.push(tf('importFieldChangeLine', {field: 'GST', from: !!existing.gst, to: item.gst})); existing.gst = item.gst; changed = true; }
     if(item.hidden !== null && item.hidden !== undefined && existing.hidden !== item.hidden){ changedFields.push(tf('importFieldChangeLine', {field: t('hideAction'), from: existing.hidden, to: item.hidden})); existing.hidden = item.hidden; changed = true; }
+    if(item.batchTrack !== null && item.batchTrack !== undefined && (existing.batchTrack !== false) !== item.batchTrack){ changedFields.push(tf('importFieldChangeLine', {field: 'Batch Tracking', from: existing.batchTrack !== false, to: item.batchTrack})); if(item.batchTrack) delete existing.batchTrack; else existing.batchTrack = false; changed = true; }
+    if(item.noAccounting !== null && item.noAccounting !== undefined && (existing.noAccounting === true) !== item.noAccounting){ changedFields.push(tf('importFieldChangeLine', {field: 'Not On Books', from: existing.noAccounting === true, to: item.noAccounting})); if(item.noAccounting) existing.noAccounting = true; else delete existing.noAccounting; changed = true; }
+    if(item.hideAcctExport !== null && item.hideAcctExport !== undefined && !!existing.hideFromCompletedOrderExport !== item.hideAcctExport && !(existing.noAccounting === true && !item.hideAcctExport)){ changedFields.push(tf('importFieldChangeLine', {field: 'Hide From Accounting Export', from: !!existing.hideFromCompletedOrderExport, to: item.hideAcctExport})); existing.hideFromCompletedOrderExport = item.hideAcctExport; changed = true; }
+    if(item.hideAcctMode && item.hideAcctMode !== existing.hideFromCompletedOrderExportMode && existing.noAccounting !== true && !existing.parentId){ existing.hideFromCompletedOrderExportMode = item.hideAcctMode; changed = true; }
+    if(existing.noAccounting === true){
+      existing.hideFromCompletedOrderExport = true;
+      if(!existing.parentId){
+        existing.hideFromCompletedOrderExportMode = 'wholeFamily';
+        products.forEach(c => { if(c.parentId === existing.id) c.hideFromCompletedOrderExport = true; });
+      }
+    } else if(!existing.parentId && existing.hideFromCompletedOrderExport && existing.hideFromCompletedOrderExportMode === 'wholeFamily'){
+      products.forEach(c => { if(c.parentId === existing.id) c.hideFromCompletedOrderExport = true; });
+    }
     if(item.autoConvertOnStockIn !== null && item.autoConvertOnStockIn !== undefined && existing.autoConvertOnStockIn !== item.autoConvertOnStockIn){ changedFields.push(tf('importFieldChangeLine', {field: t('fieldAutoConvertStockIn'), from: existing.autoConvertOnStockIn, to: item.autoConvertOnStockIn})); existing.autoConvertOnStockIn = item.autoConvertOnStockIn; changed = true; }
     if(item.orderPageRemark !== null && item.orderPageRemark !== undefined && existing.orderPageRemark !== item.orderPageRemark){ changedFields.push(tf('importFieldChangeLine', {field: t('fieldOrderPageRemark'), from: existing.orderPageRemark || '(空白)', to: item.orderPageRemark})); existing.orderPageRemark = item.orderPageRemark; changed = true; }
     else if(clearBlanksMode && (item.orderPageRemark === null || item.orderPageRemark === undefined) && existing.orderPageRemark){ changedFields.push(tf('importFieldChangeLine', {field: t('fieldOrderPageRemark'), from: existing.orderPageRemark, to: '(空白)'})); existing.orderPageRemark = undefined; changed = true; }
     if(item.barcode !== null && item.barcode !== undefined && existing.barcode !== item.barcode){ changedFields.push(tf('importFieldChangeLine', {field: t('fieldBarcode'), from: existing.barcode || '(空白)', to: item.barcode})); existing.barcode = item.barcode; changed = true; }
     else if(clearBlanksMode && (item.barcode === null || item.barcode === undefined) && existing.barcode){ changedFields.push(tf('importFieldChangeLine', {field: t('fieldBarcode'), from: existing.barcode, to: '(空白)'})); existing.barcode = undefined; changed = true; }
+
+    if(item.reportCategory !== null && item.reportCategory !== undefined && existing.reportCategory !== item.reportCategory){ changedFields.push(tf('importFieldChangeLine', {field: t('rcFieldLabel'), from: existing.reportCategory || '(空白)', to: item.reportCategory})); existing.reportCategory = item.reportCategory; changed = true; }
+    else if(clearBlanksMode && (item.reportCategory === null || item.reportCategory === undefined) && existing.reportCategory){ changedFields.push(tf('importFieldChangeLine', {field: t('rcFieldLabel'), from: existing.reportCategory, to: '(空白)'})); delete existing.reportCategory; changed = true; }
 
     // 庫存量欄位是選填:表格上這一列如果沒填庫存量(item.qty 是 null),完全不去比對/調整這個
     // 商品的庫存,只更新其他有填的欄位——這樣才能支援「只更新商品資料、不重新盤點庫存」的匯入,
@@ -1858,7 +1929,7 @@ async function submitTxBatchSimple(date, msg){
   if(currentTxType === 'in' && typeof pcValidate === 'function'){
     if(typeof pcPrepare === 'function') await pcPrepare(); // 海外採購:支出項目沒填金額 → 沿用同供應商上次的金額(預估)
     const pcErr = pcValidate();
-    if(pcErr){ msg.className = 'msg error'; msg.textContent = '⚠ ' + pcErr; return; }
+    if(pcErr){ msg.className = 'msg error'; msg.textContent = '⚠ ' + pcErr; if(typeof pcErrPopup !== 'undefined' && pcErrPopup && typeof showInfoModal === 'function') showInfoModal('⚠ ' + pcErr); return; }
   }
 
   // 進貨(type='in')的時候,如果這個品項是批量商品、而且開了「自動切換」,不直接加進這個批量
@@ -1884,12 +1955,11 @@ async function submitTxBatchSimple(date, msg){
   if(hasFeature('receiptScanModule')) await syncOcrMemoryToFinalParty(party);
 
   // 批次追蹤:進貨沒勾選「進入批次追蹤」、但清單裡有商品「之前已有批次紀錄」→ 先警示,確認才繼續
-  const batchTrackThis = currentTxType === 'in' && typeof batchFormTrackChecked === 'function' && batchFormTrackChecked();
-  if(currentTxType === 'in' && typeof batchActive === 'function' && batchActive() && !batchTrackThis){
-    try{ await ensureBatchDataLoaded(); }catch(e){}
-    const trackedNames = batchTrackedNamesInTxList();
-    if(trackedNames.length > 0 && !(await batchConfirmUntracked(trackedNames))) return;
-  }
+  // 批次追蹤由商品設定決定:清單裡有任何「批次追蹤」商品就建批次;沒開批次追蹤的商品不進批次(品項記 noBatch)
+  const batchTrackThis = currentTxType === 'in' && typeof batchActive === 'function' && batchActive() && txBatchItems.some(it => batchProductTracked(it.productId));
+
+  // 進貨帳務:有價錢的品項要有 GST;沒勾「入會計紀錄」卻有價錢 → 先確認
+  if(currentTxType === 'in' && typeof paPreSubmit === 'function' && !(await paPreSubmit(msg))) return;
 
   const purchaseId = currentTxType === 'in' ? genId() : null; // 一整批進貨(不管品項有幾個)共用同一個進貨單 ID
 
@@ -1998,16 +2068,21 @@ async function submitTxBatchSimple(date, msg){
             productId: p.parentId, sku: (parent && parent.sku) || '', name: (parent && parent.name) || p.name,
             unit: (parent && parent.unit) || p.unit, qty: it.qty * weight
           };
+          item.rcv = { productId: p.id, name: p.name, unit: p.unit || '', qty: it.qty };   // 收據上的單位/數量(歷史紀錄顯示用)
           if(it.amount) item.amount = it.amount;
           if(it.docType) item.docType = it.docType;
           if(it.sourceFilename) item.sourceFilename = it.sourceFilename;
-          if(batchTrackThis && it.expiry) item.expiry = it.expiry;
-          if(batchTrackThis && it.supplierLot) item.supplierLot = it.supplierLot;
+          const trk = batchTrackThis && batchProductTracked(it.productId);
+          if(batchTrackThis && !trk) item.noBatch = true;
+          if(trk && it.expiry) item.expiry = it.expiry;
+          if(trk && it.supplierLot) item.supplierLot = it.supplierLot;
           return item;
         }
         const item = { productId: it.productId, sku: it.sku || '', name: it.name, unit: it.unit, qty: it.qty };
-        if(batchTrackThis && it.expiry) item.expiry = it.expiry;
-        if(batchTrackThis && it.supplierLot) item.supplierLot = it.supplierLot;
+        const trk = batchTrackThis && batchProductTracked(it.productId);
+        if(batchTrackThis && !trk) item.noBatch = true;
+        if(trk && it.expiry) item.expiry = it.expiry;
+        if(trk && it.supplierLot) item.supplierLot = it.supplierLot;
         if(it.amount) item.amount = it.amount;
         if(it.docType) item.docType = it.docType;
         if(it.sourceFilename) item.sourceFilename = it.sourceFilename;
@@ -2017,6 +2092,7 @@ async function submitTxBatchSimple(date, msg){
       createdAt: new Date().toISOString()
     };
     if(batchTrackThis) purchase.batchTracked = true;
+    if(typeof paApplyToPurchase === 'function') paApplyToPurchase(purchase, txBatchItems);   // 入會計紀錄 / GST
     if(typeof pcApplyToPurchase === 'function') pcApplyToPurchase(purchase); // 幣種換算 + 其他支出分攤 → 底價/總價
     let purchaseSaved = false;
     try{ await upsertPurchase(purchase); purchases.push(purchase); purchaseSaved = true; }
@@ -2032,8 +2108,9 @@ async function submitTxBatchSimple(date, msg){
         catch(e){ console.error('記錄批次位置失敗', e); showInfoModal(t('batchLocSaveFailed')); }
       }
     }
-    if(typeof pcRememberExpenseNames === 'function' && purchase.costs) pcRememberExpenseNames(purchase.costs.expenses.map(e => e.name));
+    if(typeof pcRememberExpenseNames === 'function' && purchase.costs) pcRememberExpenseNames(purchase.costs.expenses.map(e => e.name).concat((purchase.lineExpenses || []).map(l => l.name)));
     if(typeof pcReset === 'function') pcReset();
+    if(typeof paFormReset === 'function') paFormReset();
     removePurchaseReceipt();
     // 這筆用的供應商名稱,如果「進貨方管理」清單裡還沒有(例如是透過「+ 新增供應商」臨時打的名字),
     // 跳視窗問要不要加入;要的話開出進貨方管理的編輯視窗(名稱已帶入),可以順便補聯繫人/電話/住址。
@@ -2589,8 +2666,17 @@ async function submitLoadCompletedFlow(date, msg){
 // 再次確認(因為會直接扣/加庫存,沒有訂單流程當中間的緩衝)。
 async function submitAdjustmentFlow(date, msg){
   if(txBatchItems.length === 0){ msg.className='msg error'; msg.textContent=t('errAddAtLeastOneItem'); return; }
-  const note = document.getElementById('txNote').value.trim();
-  if(!note){ msg.className='msg error'; msg.textContent=t('errNoteRequiredForAdjustment'); return; }
+  const reasonCode = (document.getElementById('txAdjReason') || {}).value || '';
+  const reasonInfo = adjReasonInfo(reasonCode);
+  if(!reasonInfo){ msg.className='msg error'; msg.textContent=t('errAdjReasonRequired'); return; }
+  const reasonOther = ((document.getElementById('txAdjReasonOther') || {}).value || '').trim();
+  if(reasonCode === 'other' && !reasonOther){ msg.className='msg error'; msg.textContent=t('errAdjReasonOtherRequired'); return; }
+  if(reasonInfo.dir === 'out' && txBatchItems.some(it => it.qty < 0)){ msg.className='msg error'; msg.textContent=t('errAdjReasonDecreaseOnly'); return; }
+  if(reasonInfo.dir === 'in' && txBatchItems.some(it => it.qty > 0)){ msg.className='msg error'; msg.textContent=t('errAdjReasonIncreaseOnly'); return; }
+  const extraNote = document.getElementById('txNote').value.trim();
+  // 備註文字 = 原因(其他則用手動輸入的文字)+ 選填附註;結構化的原因代碼另存在 adjReason。
+  const reasonText = reasonCode === 'other' ? `${adjReasonLabel('other').replace(/[((].*$/, '').trim()} - ${reasonOther}` : adjReasonLabel(reasonCode);
+  const note = extraNote ? `${reasonText} - ${extraNote}` : reasonText;
 
   showConfirmModal(t('confirmStockAdjustment'), async () => {
     // 庫存調整裡「減少」的品項(qty > 0,實際是 type='out')扣庫存之前,一樣先問清楚要從哪個
@@ -2606,7 +2692,7 @@ async function submitAdjustmentFlow(date, msg){
     }
 
     const newTxs = txBatchItems.map(it => ({
-      id: genId(), productId: it.productId, type: it.qty > 0 ? 'out' : 'restock', qty: Math.abs(it.qty), date, party: '', note: `${t('adjustmentNotePrefix')}${note}`
+      id: genId(), productId: it.productId, type: it.qty > 0 ? 'out' : 'restock', qty: Math.abs(it.qty), date, party: '', note: `${t('adjustmentNotePrefix')}${note}`, adjReason: reasonCode
     }));
     transactions.push(...newTxs);
     txBatchItems.forEach(it => { productStockMap[it.productId] = (productStockMap[it.productId]||0) - it.qty; });
@@ -2614,7 +2700,9 @@ async function submitAdjustmentFlow(date, msg){
     catch(e){
       newTxs.forEach(tx => { const i = transactions.indexOf(tx); if(i>=0) transactions.splice(i,1); });
       txBatchItems.forEach(it => { productStockMap[it.productId] = (productStockMap[it.productId]||0) + it.qty; });
-      msg.className='msg error'; msg.textContent='⚠ 提交失敗,請重新整理頁面再試一次。'; return;
+      msg.className='msg error';
+      msg.textContent = /adj_reason/.test(String((e && (e.message || e.details)) || '')) ? `⚠ ${t('errAdjNeedSql')}` : '⚠ 提交失敗,請重新整理頁面再試一次。';
+      return;
     }
     // 交易確定成功之後才處理位置扣除,避免庫存扣了/位置卻沒對應更新的不一致。
     if(adjustmentLocationChoices){
@@ -2628,6 +2716,7 @@ async function submitAdjustmentFlow(date, msg){
     // 本身就會重新渲染 txSubmitArea/txBatchList/productSelect,不用在這裡另外呼叫。
     txBatchItems = [];
     document.getElementById('txNote').value = '';
+    adjReasonReset();
     msg.className='msg ok'; msg.textContent = `✓ 已提交庫存調整,共 ${count} 項商品`;
     renderAll();
   });

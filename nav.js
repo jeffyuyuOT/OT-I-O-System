@@ -116,7 +116,15 @@ function applySubTabOrder(){
       return;
     }
     const sel = getSubTabSelect(def.id);
-    if(sel){
+    if(sel && sel.querySelector('optgroup')){
+      // 有分組的下拉(會計):只在各自的分組裡調整順序,不把選項搬出分組
+      const cur = sel.value;
+      sel.querySelectorAll('optgroup').forEach(g => {
+        const its = Array.from(g.children).map(o => ({ key: 'opt:' + o.value, el: o, opt: o }));
+        orderSubTabItems(its, saved).forEach(i => g.appendChild(i.el));
+      });
+      sel.value = cur;
+    } else if(sel){
       const cur = sel.value;
       orderSubTabItems(getSelectSubTabItems(sel), saved).forEach(i => sel.appendChild(i.el));
       sel.value = cur;
@@ -366,6 +374,7 @@ function showOnlyAllowedTabImmediately(){
 }
 
 function switchTab(tabId){
+  if(typeof applyCostVisibility === 'function') applyCostVisibility();
   const allowed = getCurrentUserTabPermissions();
   if(!allowed.includes(tabId)) return; // 防呆:使用者沒有這個分頁的權限
   if(tabId !== 'tab-overview' && typeof stockIncludePending !== 'undefined') { stockIncludePending = false; const mb = document.getElementById('stockIncludePendingMobile'); if(mb) mb.checked = false; } // 離開庫存總覽就自動取消「包含進貨預估」
@@ -543,14 +552,32 @@ function switchAccountingSubTab(subtabId){
   if(subtabId === 'subtab-acc-invoices' && typeof invOpenListPage === 'function') invOpenListPage();
   if(subtabId === 'subtab-acc-create-invoice' && typeof icOpenPage === 'function') icOpenPage();
   if(subtabId === 'subtab-acc-credit-notes' && typeof icCnOpenList === 'function') icCnOpenList(true);
+  if(subtabId === 'subtab-acc-purchases' && typeof paOpenPage === 'function') paOpenPage();
+  if(subtabId === 'subtab-acc-prepay' && typeof ppOpenPage === 'function') ppOpenPage();
+  if(subtabId === 'subtab-acc-expenses' && typeof oeOpenPage === 'function') oeOpenPage();
+  if(subtabId === 'subtab-acc-schedule' && typeof schOpenPage === 'function') schOpenPage();
+  if(subtabId === 'subtab-acc-reports' && typeof arpOpenPage === 'function') arpOpenPage();
   if(subtabId === 'subtab-price-setting' && typeof psOpenPage === 'function') psOpenPage();
   if(subtabId === 'subtab-log-pricerec' && typeof psOpenRecordList === 'function') psOpenRecordList();
   if(subtabId === 'subtab-acc-settings'){
     if(typeof renderSystemCurrencySetting === 'function') renderSystemCurrencySetting();
+    if(typeof evRender === 'function') evRender();
+    if(typeof psSyncAvgMethodUI === 'function') psSyncAvgMethodUI();
     if(typeof renderSellPriceSetting === 'function') renderSellPriceSetting();
     if(typeof invRenderSettings === 'function') invRenderSettings();
     if(typeof renderAccountingEmailList === 'function') renderAccountingEmailList();
   }
+}
+// 會計設定:Preference / Items & Data 兩個分頁(同一頁內切換)
+function switchAccSettingsTab(which){
+  const items = which === 'items';
+  const pp = document.getElementById('accSetPanePref'), pi = document.getElementById('accSetPaneItems');
+  if(pp) pp.style.display = items ? 'none' : '';
+  if(pi) pi.style.display = items ? '' : 'none';
+  const bp = document.getElementById('accSetBtnPref'), bi = document.getElementById('accSetBtnItems');
+  if(bp) bp.className = items ? 'btn ghost' : 'btn';
+  if(bi) bi.className = items ? 'btn' : 'btn ghost';
+  if(items && typeof evRender === 'function') evRender();
 }
 function refreshAccountingSubTab(){
   const sel = document.getElementById('accountingSubtabSelect');

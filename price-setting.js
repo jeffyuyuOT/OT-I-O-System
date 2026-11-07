@@ -13,6 +13,7 @@
 // ============================================================
 let psDraft = {};            // 還沒儲存的修改:{ 商品id: 數字 或 null(清空) }
 let psFilters = { type: '', val: '' };   // 篩選方式 type:''(不篩選)/ 'cat' / 'sup' / 'ql',val = 選到的分類/供應商/快捷清單
+let psMarginBasis = (function(){ try{ return localStorage.getItem('psMarginBasis') === 'avg' ? 'avg' : 'batch'; }catch(e){ return 'batch'; } })();   // Margin 欄位 / Apply margin 的成本基準:batch(出貨中批次成本)/ avg(平均成本)
 let psRoundMode = (function(){ try{ return localStorage.getItem('psRoundMode') || 'none'; }catch(e){ return 'none'; } })();   // Apply margin 的進位方式:none(小數兩位)/ up1(無條件進位到小數第一位)/ up0(無條件進位到整數)
 let psMarginInput = null;    // 頁面上 Apply margin 輸入框的值(字串);null = 用系統預設 margin
 let psPageMsg = '';          // 頁面上方的提示訊息(例如已套用到幾個商品)
@@ -51,6 +52,114 @@ function psEffCost(ci, sell){
     return { cost: spRound2(base), est: true };
   }
   return { cost: ci.cost, est: false };
+}
+// 平均成本 = 目前還有庫存的每個批次(剩餘量 × 單位成本)加總 ÷ 剩餘總量;沒有成本資料的批次不計入。
+// 期初匯入的批次沒有實際成本,跟成本價一樣用 Sell price ÷ 1.2 推算(est = true)。
+function psAvgCostBatches(pid, sell){
+  if(typeof batchActive !== 'function' || !batchActive()) return null;
+  let total = 0, qty = 0, est = false;
+  batchItemsOfProduct(pid).forEach(it => {
+    const c = spTotalUnit(it);
+    if(c === null) return;
+    const q = Number(it.remaining) || 0;
+    if(!(q > 0)) return;
+    let unit = c;
+    if(it.isOpening){ est = true; if(sell !== null && sell !== undefined) unit = Number(sell) / 1.2; }
+    total += unit * q; qty += q;
+  });
+  if(!(qty > 0)) return null;
+  return { cost: spRound2(total / qty), est, qty };
+}
+// ---- 平均成本算法(會計設定 → Preference 選擇):batch = 目前庫存各批次的加權平均(預設);moving = 移動加權平均(MYOB 的算法)----
+// 移動加權平均:依日期重播這個商品的進貨與異動。每次進貨:新平均 = (現有數量 × 目前平均 + 新貨總金額) ÷ (現有數量 + 新貨數量);出貨/退回/調整只改數量,不改平均。
+// 庫存歸零後再進貨,平均就重新從新貨成本開始。沒有成本資料的批次進貨不影響平均;期初批次沒有實際成本,跟其他地方一樣用 Sell price ÷ 1.2 推算(est = true)。
+let psAvgMethod = 'batch';
+let psMovByItem = null;   // batch_item_id -> [{ id, qty, kind, date }];null = 還沒載入
+async function psLoadAvgMethod(){
+  try{ const r = await dbGet('avgCostMethod'); psAvgMethod = (r && r.value === 'moving') ? 'moving' : 'batch'; }catch(e){ psAvgMethod = 'batch'; }
+}
+async function psLoadMovements(force){
+  if(psAvgMethod !== 'moving' || (psMovByItem && !force)) return;
+  if(typeof batchActive !== 'function' || !batchActive()) return;
+  try{
+    const rows = await fetchAllPages(() => sb.from('batch_movements').select('id,batch_item_id,qty,kind,mv_date').order('id', { ascending: true }));
+    const m = {};
+    rows.forEach(r => { (m[r.batch_item_id] = m[r.batch_item_id] || []).push({ id: Number(r.id), qty: Number(r.qty), kind: r.kind, date: r.mv_date || '' }); });
+    psMovByItem = m;
+  }catch(e){ console.error('讀取批次異動失敗(平均成本改用目前批次算法)', e); psMovByItem = null; }
+}
+function psAvgCostMoving(pid, sell){
+  const items = batchItemsOfProduct(pid, true);
+  const ev = [];
+  items.forEach(it => {
+    let c = spTotalUnit(it);
+    if(it.isOpening && sell !== null && sell !== undefined) c = Number(sell) / 1.2;
+    const q = Number(it.qtyIn) || 0;
+    if(q > 0) ev.push({ date: it.batchDate || '', ord: 0, id: 0, kind: 'recv', qty: q, cost: c, est: !!it.isOpening });
+    (psMovByItem[it.id] || []).forEach(mv => {
+      if(mv.kind === 'convert_in') ev.push({ date: mv.date, ord: 0, id: mv.id, kind: 'recv', qty: mv.qty, cost: c, est: !!it.isOpening });   // 切換進來的量,用這個批次行的單位成本當作新進貨
+      else ev.push({ date: mv.date, ord: 1, id: mv.id, kind: 'mov', qty: mv.qty });
+    });
+  });
+  ev.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : (a.ord - b.ord) || (a.id - b.id)));
+  let onhand = 0, avg = null, est = false;
+  ev.forEach(e => {
+    if(e.kind === 'recv'){
+      if(e.cost === null || e.cost === undefined){ onhand += e.qty; return; }
+      avg = (onhand > 0 && avg !== null) ? (onhand * avg + e.qty * e.cost) / (onhand + e.qty) : e.cost;
+      onhand = Math.max(0, onhand) + e.qty;
+      if(e.est) est = true;
+    }else{
+      onhand = Math.max(0, onhand + e.qty);
+      if(onhand === 0) est = false;
+    }
+  });
+  if(avg === null || !(onhand > 0)) return null;
+  return { cost: spRound2(avg), est, qty: onhand };
+}
+function psAvgCost(pid, sell){
+  if(typeof batchActive !== 'function' || !batchActive()) return null;
+  if(psAvgMethod === 'moving' && psMovByItem) return psAvgCostMoving(pid, sell);
+  return psAvgCostBatches(pid, sell);
+}
+function psAvgHintText(){ return t(psAvgMethod === 'moving' ? 'psHintAvgMoving' : 'psHintAvg'); }
+function psSyncAvgMethodUI(){
+  const box = document.getElementById('avgCostMethodCard'); if(!box) return;
+  box.innerHTML = `<div class="section-title">${t('psAvgMethodTitle')} <span role="button" tabindex="0" class="info-icon" style="cursor:pointer;color:var(--ink-soft);font-size:14px;text-transform:none;" onclick="showInfoModal(t('psAvgMethodHelp'))">ⓘ</span></div>
+    <select onchange="psSetAvgMethod(this.value)" style="min-width:280px;">
+      <option value="batch" ${psAvgMethod === 'batch' ? 'selected' : ''}>${psEsc(t('psAvgMethodBatch'))}</option>
+      <option value="moving" ${psAvgMethod === 'moving' ? 'selected' : ''}>${psEsc(t('psAvgMethodMoving'))}</option>
+    </select>
+    <div id="psAvgMethodMsg" class="msg"></div>`;
+}
+async function psSetAvgMethod(v){
+  v = v === 'moving' ? 'moving' : 'batch';
+  const prev = psAvgMethod; psAvgMethod = v;
+  const msg = () => document.getElementById('psAvgMethodMsg');
+  try{
+    await dbSet('avgCostMethod', v);
+    if(v === 'moving'){ try{ if(typeof ensureBatchDataLoaded === 'function') await ensureBatchDataLoaded(); }catch(e){} await psLoadMovements(true); }
+    const m = msg(); if(m){ m.className = 'msg ok'; m.textContent = t('psAvgMethodSaved'); }
+  }catch(e){
+    console.error('儲存平均成本算法失敗', e); psAvgMethod = prev;
+    psSyncAvgMethodUI(); const m = msg(); if(m){ m.className = 'msg error'; m.textContent = t('psAvgMethodSaveFail'); }
+    return;
+  }
+  try{ psRenderPage(); }catch(e){}
+}
+// 目前選的成本基準(Margin 欄位、Apply margin 都用它)
+function psBasisEff(pid, sell, ci){
+  if(psMarginBasis === 'avg'){ const a = psAvgCost(pid, sell); return a ? { cost: a.cost, est: a.est } : { cost: null, est: false }; }
+  return psEffCost(ci, sell);
+}
+function psBatchIconHtml(pid){
+  return ` <span class="batch-link" title="${psEsc(t('psBatchCostTitle'))}" style="cursor:pointer;" onclick="psShowBatchCostInfo('${psEsc(pid)}')">ⓘ</span>`;
+}
+function psShowBatchCostInfo(pid){
+  const ci = psCostInfo(pid);
+  if(!ci) return;
+  showInfoModal(tf('psBatchCostInfo', { batch: ci.isOpening ? t('batchOpening') : ci.batchNo, cost: ci.cost === null ? '–' : psFmt2(ci.cost) })
+    + (ci.isOpening && ci.cost !== null ? '\n\n' + t('psEstCostInfo') : ''));   // 期初批次的成本是推算的:同一個圖示一併說明
 }
 function psMarginFor(sell, eff){
   if(eff.est && sell !== null && sell !== undefined) return 20;   // 1.2 = 1 + 20%
@@ -146,12 +255,14 @@ function psBuildRecord(map, source, note){
     const ci = psCostInfo(p.id);
     const eff = psEffCost(ci, s);
     const k = eff.cost !== null ? eff.cost : null;
-    if(s === null && k === null) return;
+    const avg = psAvgCost(p.id, s);
+    if(s === null && k === null && !avg) return;
     const it = { p: p.id, n: p.name || '', u: p.unit || '', c: p.category || '未分類', s, k, b: ci ? ci.batchNo : '' };
     if(eff.est) it.e = 1;      // 成本是期初匯入推算的(Sell price ÷ 1.2)
+    if(avg){ it.a = avg.cost; if(avg.est) it.ae = 1; }   // 儲存當下的平均成本(舊紀錄沒有這個欄位)
     items.push(it);
   });
-  return { id: genId(), ts: new Date().toISOString(), by: psWho(), source: source || 'manual', note: note || '', items };
+  return { id: genId(), ts: new Date().toISOString(), by: psWho(), source: source || 'manual', note: note || '', basis: psMarginBasis === 'avg' ? 'avg' : 'batch', items };   // basis = 儲存當下 Margin 欄位依據的成本(舊紀錄沒有這個欄位 = batch)
 }
 async function psLoadIndex(force){
   if(psRecordIndex && !force) return psRecordIndex;
@@ -190,6 +301,7 @@ async function psOpenPage(){
   const root = document.getElementById('priceSettingRoot');
   if(root && typeof batchData !== 'undefined' && !batchData.loaded) root.innerHTML = `<div class="empty-note">${t('batchLoading')}</div>`;
   try{ if(typeof ensureBatchDataLoaded === 'function') await ensureBatchDataLoaded(); }catch(e){}
+  await psLoadMovements(true);
   psRenderPage();
 }
 function psCanEdit(){ return spIsSettingBasis() && canEditPrice(); }
@@ -224,18 +336,21 @@ function psRenderPage(){
     const sell = psShownSell(p.id, ci);
     const eff = psEffCost(ci, sell);
     const cost = eff.cost;
-    const m = psMarginFor(sell, eff);
+    const m = psMarginFor(sell, psBasisEff(p.id, sell, ci));
+    const avg = psAvgCost(p.id, sell);
     const edited = setting && Object.prototype.hasOwnProperty.call(psDraft, p.id) && (psDraft[p.id] === undefined ? null : psDraft[p.id]) !== psSavedSell(p.id);
     const sellCell = (setting && editable)
       ? `<input type="number" min="0" step="0.01" id="psSell_${psEsc(p.id)}" value="${sell === null || sell === undefined ? '' : Number(sell).toFixed(2)}" oninput="psOnSellInput('${psEsc(p.id)}', this.value)" style="width:100px;text-align:right;${edited ? 'background:#FFF8E1;' : ''}" />`
       : `<span>${psFmt2(sell)}</span>`;
-    const costCell = `<span id="psCostVal_${psEsc(p.id)}">${ci ? (cost === null ? `<span title="${psEsc(t('psNoCostHint'))}">–</span>` : psFmt2(cost) + (eff.est ? psEstIconHtml() : '')) : '–'}</span>` + (ci ? `<div style="font-size:10.5px;color:var(--ink-soft);">${ci.isOpening ? psEsc(t('batchOpening')) : psEsc(ci.batchNo)}</div>` : '');
+    const costCell = `<span id="psCostVal_${psEsc(p.id)}">${ci ? (cost === null ? `<span title="${psEsc(t('psNoCostHint'))}">–</span>` : psFmt2(cost)) : '–'}</span>` + (ci ? psBatchIconHtml(p.id) : '');
+    const avgCell = `<span id="psAvgVal_${psEsc(p.id)}">${avg ? psFmt2(avg.cost) + (avg.est ? psEstIconHtml() : '') : '–'}</span>`;
     const bw = setting ? psBatchMarginWarn(p.id, sell) : null;
     const bwHtml = bw ? ` <span class="batch-link" title="${psEsc(t('psBatchWarnTitle'))}" style="cursor:pointer;" onclick="psShowBatchMarginInfo('${psEsc(p.id)}')">🏷️⚠️</span>` : '';
     return `<tr>
       <td>${psEsc(p.name || '')}${bwHtml}${p.parentId ? ' <span style="color:var(--ink-soft);font-size:11px;">⧉</span>' : ''}<div style="font-size:10.5px;color:var(--ink-soft);">${psEsc(p.sku || '')}${p.unit ? ' · ' + psEsc(p.unit) : ''}</div></td>
       <td class="num">${sellCell}</td>
       <td class="num">${costCell}</td>
+      <td class="num">${avgCell}</td>
       <td class="num" id="psMargin_${psEsc(p.id)}">${psMarginHtml(m)}</td>
     </tr>`;
   }).join('');
@@ -249,6 +364,10 @@ function psRenderPage(){
     <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:0 0 10px;padding:10px 12px;border:1px solid var(--line);">
       <strong style="font-size:12.5px;">Margin</strong>
       <input id="psMarginInput" type="number" min="0" step="any" value="${psEsc(marginVal)}" oninput="psMarginInput=this.value" style="width:90px;" ${editable ? '' : 'disabled'} /><span>%</span>
+      <select onchange="psMarginBasis=this.value;try{localStorage.setItem('psMarginBasis',this.value);}catch(e){}psSetMsg('');psRenderPage();" style="font-size:12.5px;" ${editable ? '' : 'disabled'} title="${psEsc(t('psBasisTitle'))}">
+        <option value="batch" ${psMarginBasis === 'batch' ? 'selected' : ''}>${psEsc(t('psBasisBatch'))}</option>
+        <option value="avg" ${psMarginBasis === 'avg' ? 'selected' : ''}>${psEsc(t('psBasisAvg'))}</option>
+      </select>
       <select onchange="psRoundMode=this.value;try{localStorage.setItem('psRoundMode',this.value);}catch(e){}" style="font-size:12.5px;" ${editable ? '' : 'disabled'} title="${psEsc(t('psRoundTitle'))}">
         <option value="none" ${psRoundMode === 'none' ? 'selected' : ''}>${psEsc(t('psRoundNone'))}</option>
         <option value="up1" ${psRoundMode === 'up1' ? 'selected' : ''}>${psEsc(t('psRoundUp1'))}</option>
@@ -261,8 +380,7 @@ function psRenderPage(){
       <button class="btn" id="psSaveBtn" onclick="psSave()" ${editable && dirtyCount > 0 ? '' : 'disabled'}>${t('btnSave')}${dirtyCount > 0 ? ' (' + dirtyCount + ')' : ''}</button>
     </div>
     <div id="psPageMsg" class="msg ${psPageMsgType}">${psEsc(psPageMsg)}</div>
-    <div style="font-size:11.5px;color:var(--ink-soft);margin:0 0 8px;">${t('psColumnsHint')}</div>
-    ${list.length === 0 ? `<div class="empty-note">${t('psNoProducts')}</div>` : `<div style="overflow-x:auto;"><table class="stock-table"><thead><tr><th>${t('lblProduct')}</th><th class="num">Sell price</th><th class="num">${t('psColCost')}</th><th class="num">Margin</th></tr></thead><tbody>${rows}</tbody></table></div>`}`;
+    ${list.length === 0 ? `<div class="empty-note">${t('psNoProducts')}</div>` : `<div style="overflow-x:auto;"><table class="stock-table"><thead><tr><th>${t('lblProduct')}</th><th class="num">Sell price</th><th class="num">${t('psColCost')} <span role="button" tabindex="0" class="info-icon" style="cursor:pointer;color:var(--ink-soft);font-size:14px;text-transform:none;" onclick="showInfoModal(t('psHintCost'))">ⓘ</span></th><th class="num">${t('psColAvgCost')} <span role="button" tabindex="0" class="info-icon" style="cursor:pointer;color:var(--ink-soft);font-size:14px;text-transform:none;" onclick="showInfoModal(psAvgHintText())">ⓘ</span></th><th class="num">Margin <span role="button" tabindex="0" class="info-icon" style="cursor:pointer;color:var(--ink-soft);font-size:14px;text-transform:none;" onclick="showInfoModal(t('psHintMargin'))">ⓘ</span></th></tr></thead><tbody>${rows}</tbody></table></div>`}`;
 }
 // 這個商品正在出貨的批次有手動設定 margin,而且算出來的售價跟目前 Price Setting 的價格不同 → 回傳 { item, margin, suggested, cost }
 function psBatchMarginWarn(pid, shownSell){
@@ -319,9 +437,11 @@ function psOnSellInput(pid, raw){
   const ci = psCostInfo(pid);
   const eff = psEffCost(ci, psDraft[pid]);
   const cell = document.getElementById('psMargin_' + pid);
-  if(cell) cell.innerHTML = psMarginHtml(psMarginFor(psDraft[pid], eff));
+  if(cell) cell.innerHTML = psMarginHtml(psMarginFor(psDraft[pid], psBasisEff(pid, psDraft[pid], ci)));
+  const av = document.getElementById('psAvgVal_' + pid), avg = psAvgCost(pid, psDraft[pid]);
+  if(av && avg && avg.est) av.innerHTML = psFmt2(avg.cost) + psEstIconHtml();
   const cc = document.getElementById('psCostVal_' + pid);
-  if(cc && eff.est) cc.innerHTML = (eff.cost === null ? '–' : psFmt2(eff.cost)) + psEstIconHtml();
+  if(cc && eff.est) cc.textContent = (eff.cost === null ? '–' : psFmt2(eff.cost));
   const dirty = Object.keys(psDraft).filter(k => (psDraft[k] === undefined ? null : psDraft[k]) !== psSavedSell(k)).length;
   const sb2 = document.getElementById('psSaveBtn'), db2 = document.getElementById('psDiscardBtn');
   if(sb2){ sb2.disabled = dirty === 0; sb2.textContent = t('btnSave') + (dirty > 0 ? ' (' + dirty + ')' : ''); }
@@ -339,9 +459,18 @@ function psApplyMargin(){
   const list = psFilterProducts(psAllProducts(), psFilters, psSupplierMap());
   let done = 0, skipped = 0;
   list.forEach(p => {
-    const ci = psCostInfo(p.id);
-    if(!ci || ci.isOpening || ci.cost === null || !(ci.cost > 0)){ skipped++; return; }
-    const raw0 = ci.cost * (1 + m / 100);
+    let base;
+    if(psMarginBasis === 'avg'){
+      const a = psAvgCost(p.id, null);
+      // 平均成本含期初匯入推算的批次時,不是實際成本,不套用(跟批次成本基準的期初批次規則一致)
+      if(!a || a.est || !(a.cost > 0)){ skipped++; return; }
+      base = a.cost;
+    } else {
+      const ci = psCostInfo(p.id);
+      if(!ci || ci.isOpening || ci.cost === null || !(ci.cost > 0)){ skipped++; return; }
+      base = ci.cost;
+    }
+    const raw0 = base * (1 + m / 100);
     // 先取到小數第 6 位再進位,避免 12.3000000001 這種浮點誤差被多進一位
     const r6 = Math.round(raw0 * 1e6) / 1e6;
     psDraft[p.id] = psRoundMode === 'up0' ? Math.ceil(r6) : psRoundMode === 'up1' ? Math.ceil(Math.round(r6 * 10 * 1e6) / 1e6) / 10 : spRound2(raw0);
@@ -447,6 +576,7 @@ function psRenderRecordDetail(){
     <div style="margin:0 0 10px;"><button class="btn ghost" onclick="psRecBack()">← ${t('batchBackPrev')}</button></div>
     <div class="section-title" style="margin-top:0;">${psEsc(psFmtTime(rec.ts))} · ${psEsc(psSourceLabel(rec))}${rec.by ? ' · ' + psEsc(rec.by) : ''}</div>
     ${rec.note ? `<div style="font-size:12px;color:var(--ink-soft);margin-bottom:8px;">${psEsc(rec.note)}</div>` : ''}
+    <div style="font-size:12px;color:var(--ink-soft);margin-bottom:8px;">${t(rec.basis === 'avg' ? 'psRecBasisAvgNote' : 'psRecBasisBatchNote')}</div>
     <div class="filter-row" style="margin-bottom:10px;">
       ${psFilterSelectsHtml('psR', f, supMap, pseudo, 'psOnRecFilterChange()')}
       <div class="field" style="min-width:200px;"><label>${t('psSearchProduct')}</label><input type="search" id="psRQ" value="${psEsc(f.q)}" oninput="psOnRecSearch(this.value)" placeholder="${psEsc(t('psSearchProduct'))}" /></div>
@@ -461,20 +591,24 @@ function psRenderRecordTable(){
   if(!box || !psRecView) return;
   const f = psRecView.f;
   const items = psRecView.rec.items;
+  const avgBasis = psRecView.rec.basis === 'avg';
   const pseudo = items.map(i => ({ id: i.p, name: i.n, unit: i.u, category: i.c, sku: ((products || []).find(x => x.id === i.p) || {}).sku || '' }));
   const keep = new Set(psFilterProducts(pseudo, f, psSupplierMap()).map(p => p.id));
   const order = (typeof categoryOrder !== 'undefined' && Array.isArray(categoryOrder)) ? categoryOrder : [];
   const idx = c => { const k = order.indexOf(c || '未分類'); return k === -1 ? 9999 : k; };
   const rows = items.filter(i => keep.has(i.p)).sort((a, b) => (idx(a.c) - idx(b.c)) || String(a.n).localeCompare(String(b.n))).map(i => {
-    const m = i.e && i.s !== null && i.s !== undefined ? 20 : psMarginOf(i.s, i.k);
+    const m = avgBasis
+      ? (i.ae && i.s !== null && i.s !== undefined ? 20 : psMarginOf(i.s, i.a))
+      : (i.e && i.s !== null && i.s !== undefined ? 20 : psMarginOf(i.s, i.k));
     return `<tr>
       <td>${psEsc(i.n)}<div style="font-size:10.5px;color:var(--ink-soft);">${psEsc(catLabel(i.c || '未分類'))}${i.u ? ' · ' + psEsc(i.u) : ''}</div></td>
       <td class="num">${psFmt2(i.s)}</td>
       <td class="num">${i.k === null || i.k === undefined ? '–' : psFmt2(i.k)}${i.e ? psEstIconHtml() : ''}${i.b ? `<div style="font-size:10.5px;color:var(--ink-soft);">${psEsc(i.b)}</div>` : ''}</td>
+      <td class="num">${i.a === null || i.a === undefined ? '–' : psFmt2(i.a)}${i.ae ? psEstIconHtml() : ''}</td>
       <td class="num">${psMarginHtml(m)}</td>
     </tr>`;
   }).join('');
-  box.innerHTML = rows ? `<div style="overflow-x:auto;"><table class="stock-table"><thead><tr><th>${t('lblProduct')}</th><th class="num">Sell price</th><th class="num">${t('psRecColCostThen')}</th><th class="num">Margin</th></tr></thead><tbody>${rows}</tbody></table></div>` : `<div class="empty-note">${t('psNoProducts')}</div>`;
+  box.innerHTML = rows ? `<div style="overflow-x:auto;"><table class="stock-table"><thead><tr><th>${t('lblProduct')}</th><th class="num">Sell price</th><th class="num">${t('psRecColCostThen')}</th><th class="num">${t('psRecColAvgThen')}</th><th class="num">Margin<div style="font-size:10.5px;font-weight:400;">${t(avgBasis ? 'psRecBasisAvgShort' : 'psRecBasisBatchShort')}</div></th></tr></thead><tbody>${rows}</tbody></table></div>` : `<div class="empty-note">${t('psNoProducts')}</div>`;
 }
 
 // ============================================================
@@ -657,3 +791,27 @@ function psConfirmOpeningImport(files, updates, problems, problemText, say){
     }
   });
 }
+
+Object.assign(I18N.zh, {
+  psHintCost: '成本價(目前批次):目前正在出貨的批次的單位成本。出貨順序是:期初批次 → 先到期先出 → 進貨日 FIFO。',
+  psHintAvg: '平均成本:目前庫存各批次(剩餘量 × 單位成本)加總 ÷ 剩餘總量。批次出完就不再計入,每進新批次就會跟著調整。',
+  psHintMargin: 'Margin:Sell price 相對所選成本基準(批次成本或平均成本)多出的百分比。'
+});
+Object.assign(I18N.en, {
+  psHintCost: 'Cost (current batch): the unit cost of the batch currently being shipped. Shipping order: opening batch → earliest expiry → FIFO by purchase date.',
+  psHintAvg: 'Average cost: sum of (remaining qty × unit cost) over the batches in stock ÷ total remaining qty. A batch stops counting once it is used up, and the figure moves whenever a new batch arrives.',
+  psHintMargin: 'Margin: how much the Sell price is above the selected cost basis (batch cost or average cost), in %.'
+});
+
+Object.assign(I18N.zh, {
+  psAvgMethodTitle: '平均成本算法', psAvgMethodBatch: '目前庫存各批次的加權平均(預設)', psAvgMethodMoving: '移動加權平均(MYOB 的算法)',
+  psAvgMethodHelp: '兩種算法只影響 Pricing management 的 Average cost 欄位和以平均成本為基準的 Margin、Apply margin,不會改動任何庫存或帳務資料。\n\n【目前庫存各批次的加權平均】目前還有庫存的各批次(剩餘量 × 單位成本)加總 ÷ 剩餘總量。批次賣完就不再計入,反映手上實際剩下那幾批貨的成本。\n\n【移動加權平均】跟 MYOB 一樣:每次進貨後,新平均 = (現有數量 × 目前平均 + 新貨總金額) ÷ (現有數量 + 新貨數量),出貨不改變平均。新舊貨混在一起,比較平滑,但舊成本會持續影響平均;庫存歸零後再進貨就從新貨成本重新算。\n\n用哪一種請跟會計確認,要跟 MYOB 的庫存設定一致。',
+  psAvgMethodSaved: '已儲存。', psAvgMethodSaveFail: '儲存失敗,請再試一次。',
+  psHintAvgMoving: '平均成本(移動加權平均,跟 MYOB 一樣):每次進貨後,新平均 = (現有數量 × 目前平均 + 新貨總金額) ÷ (現有數量 + 新貨數量),出貨不改變平均;庫存歸零後再進貨就從新貨成本重新算。'
+});
+Object.assign(I18N.en, {
+  psAvgMethodTitle: 'Average cost method', psAvgMethodBatch: 'Weighted average of the batches in stock (default)', psAvgMethodMoving: 'Moving weighted average (like MYOB)',
+  psAvgMethodHelp: 'Both methods only affect the Average cost column in Pricing management and the Margin / Apply margin that use average cost as their basis. No stock or accounting data is changed.\n\n[Batches in stock] Sum of (remaining qty × unit cost) over the batches still in stock ÷ total remaining qty. A batch stops counting once it is used up, so it reflects the cost of the batches actually on hand.\n\n[Moving weighted average] Same as MYOB: after each receipt, new average = (qty on hand × current average + new goods total) ÷ (qty on hand + new qty). Shipping does not change the average. Old and new stock are blended, which is smoother but keeps old costs in the average; after stock reaches zero the next receipt starts the average over.\n\nPlease confirm with your accountant which one to use so it matches the MYOB inventory setting.',
+  psAvgMethodSaved: 'Saved.', psAvgMethodSaveFail: 'Save failed, please try again.',
+  psHintAvgMoving: 'Average cost (moving weighted average, as in MYOB): after each receipt, new average = (qty on hand × current average + new goods total) ÷ (qty on hand + new qty). Shipping does not change the average; after stock reaches zero the next receipt starts the average over.'
+});

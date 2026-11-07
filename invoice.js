@@ -151,6 +151,7 @@ function invBuildSnapshot(order, opts){
   (order.items || []).filter(it => !it.deleted && it.qty > 0).forEach(it => {
     const p = productsAll.find(x => x.id === it.productId) || null;
     if(wholeFamilyHidden.has(it.productId)) return;
+    if(p && typeof isOffBooksProduct === 'function' && isOffBooksProduct(p)) return;   // 商品設為「不入公司帳」(只做庫存管理):不列入 Invoice
     const pr = spPriceOrderItem(order, it);
     if(p && p.hideFromCompletedOrderExport && !p.parentId){
       // 主商品本身不列入;切換出去的批量商品改列在批量商品自己的行
@@ -186,7 +187,7 @@ function invBuildSnapshot(order, opts){
     company: { name: invSettings.companyName, abn: invSettings.abn, address: invSettings.address, phone: invSettings.phone, email: invSettings.email, website: invSettings.website },
     bank: { bankName: invSettings.bankName, accName: invSettings.bankAccName, bsb: invSettings.bsb, accNo: invSettings.accNo },
     customer: { name, billTo: (sp && sp.billTo) || '', email: (sp && sp.email) || '', abn: (sp && sp.abn) || '' },
-    ship: { name, address: (sp && (sp.shipTo !== undefined ? sp.shipTo : sp.address)) || '', contact: (sp && sp.contactPerson) || '' },
+    ship: { name, address: (sp && (sp.shipTo !== undefined ? sp.shipTo : sp.address)) || '', contact: (sp && sp.contactPerson) || '', phone: (sp && (sp.phone !== undefined ? sp.phone : (sp.contact || ''))) || '' },
     note: order.note || '', orderNo: order.orderNo || '',
     lines, beforeTax, tax, total: Math.round((beforeTax + tax) * 100) / 100, paid: 0, filtered: true,
     currency: (typeof getSystemCurrency === 'function') ? getSystemCurrency() : 'AUD'
@@ -266,6 +267,7 @@ function invDocHtml(snap, logoDataUrl){
         <div style="font-weight:700;">Ship To:</div>
         <div>${invEsc(sh.name)}</div>
         ${sh.contact ? `<div>${invEsc(sh.contact)}</div>` : ''}
+        ${sh.phone ? `<div>${invEsc(sh.phone)}</div>` : ''}
         <div>${invNl2br(sh.address)}</div>
       </td></tr></table>
 
@@ -866,11 +868,12 @@ function invRenderList(key){
       <div class="field" style="min-width:220px;"><label>${t('invFltSearch')}</label><input type="search" id="invFlt_${key}_q" value="${invEsc(f.q)}" oninput="invOnListFilter('${key}',true)" placeholder="${invEsc(t(key === 'party' ? 'invListSearchPhParty' : 'invListSearchPh'))}" /></div>
       <button class="btn ghost" onclick="invClearListFilter('${key}')" style="align-self:flex-end;">${t('btnClearFilter')}</button>
       <button class="btn ghost" onclick="invExportListXlsx('${key}')" style="align-self:flex-end;">${t('invExportList')}</button>
+      <button class="btn ghost" id="invZipBtn_${key}" onclick="invExportListZip('${key}')" style="align-self:flex-end;">${t('invExportZip')}</button>
     </div>
     ${list.length === 0 ? `<div class="empty-note">${t('invListEmpty')}</div>` : `<div style="font-size:11.5px;color:var(--ink-soft);margin-bottom:6px;">${t('invListClickHint')}</div>
     <div style="overflow-x:auto;"><table class="stock-table"><thead><tr><th>Invoice No</th><th>Invoice Date</th>${showCust ? `<th>${t('invColCustomer')}</th>` : ''}<th>${t('invColOrder')}</th><th class="num">${t('spTotalAmt')}</th><th class="num">${t('invColPaid')}</th><th class="num">${t('invColBalance')}</th><th>${t('invFltStatus')}</th><th></th></tr></thead>
-      <tbody>${rows}</tbody>
-      <tfoot><tr style="font-weight:700;"><td colspan="${showCust ? 4 : 3}" style="text-align:right;">${t('invListTotals')} (${list.length})</td><td class="num">${invMoney2(sum.g)}</td><td class="num">${invMoney2(sum.p)}</td><td class="num">${invMoney2(sum.bal)}</td><td colspan="2"></td></tr></tfoot></table></div>`}`;
+      <tbody>${rows}<tr style="font-weight:700;border-top:2px solid var(--line, #ccc);"><td colspan="${showCust ? 4 : 3}" style="text-align:right;">${t('invListTotals')} (${list.length})</td><td class="num">${invMoney2(sum.g)}</td><td class="num">${invMoney2(sum.p)}</td><td class="num">${invMoney2(sum.bal)}</td><td colspan="2"></td></tr></tbody>
+</table></div>`}`;
 }
 function invClearListFilter(key){
   invCtx[key].filter = { from: '', to: '', q: '', status: '', pay: '', rep: '' };
@@ -898,13 +901,13 @@ function invExportListXlsx(key){
   key = key || 'main';
   if(typeof XLSX === 'undefined'){ showInfoModal(t('psImportNoXlsx')); return; }
   const list = invFilteredList(key);
-  const aoa = [['Invoice No', 'Invoice Date', 'Customer', 'Order No', 'Terms', 'Due Date', 'Sale Rep', 'Sale Amt (Ex. GST)', 'GST', 'Total Amt (Inc. GST)', 'Paid', 'Balance Due', 'Status', 'Currency']]
+  const aoa = [['Invoice No', 'Invoice Date', 'Customer', 'Order No', 'Terms', 'Due Date', 'Sale Rep', 'Sale Amt (Ex. GST)', 'GST', 'Credit Note (Inc. GST)', 'Total Amt (Inc. GST)', 'Paid', 'Balance Due', 'Status', 'Currency']]
     .concat(list.map(r => {
       const i = invRowInfo(r);
-      return [r.invoice_no, r.invoice_date, invCustLabel(r), r.order_no, r.payment_type === 'cod' ? 'COD' : (r.terms ? r.terms + ' Days' : ''), r.payment_type === 'cod' ? '' : r.due_date, r.sale_rep, Number(r.before_tax), Number(r.tax), i.total, i.paid, i.balance, t('invSt_' + i.status), r.currency];
+      return [r.invoice_no, r.invoice_date, invCustLabel(r), r.order_no, r.payment_type === 'cod' ? 'COD' : (r.terms ? r.terms + ' Days' : ''), r.payment_type === 'cod' ? '' : r.due_date, r.sale_rep, Number(r.before_tax), Number(r.tax), Math.round(Math.min(Number(r.credited) || 0, Number(r.total) || 0) * 100) / 100, i.total, i.paid, i.balance, ((I18N.en && I18N.en['invSt_' + i.status]) || i.status), r.currency];   // 匯出一律英文,方便會計/對外使用
     }));
   const ws = XLSX.utils.aoa_to_sheet(aoa);
-  ws['!cols'] = [{ wch: 12 }, { wch: 12 }, { wch: 30 }, { wch: 12 }, { wch: 10 }, { wch: 12 }, { wch: 16 }, { wch: 16 }, { wch: 10 }, { wch: 18 }, { wch: 12 }, { wch: 12 }, { wch: 10 }, { wch: 8 }];
+  ws['!cols'] = [{ wch: 12 }, { wch: 12 }, { wch: 30 }, { wch: 12 }, { wch: 10 }, { wch: 12 }, { wch: 16 }, { wch: 16 }, { wch: 10 }, { wch: 20 }, { wch: 18 }, { wch: 12 }, { wch: 12 }, { wch: 10 }, { wch: 8 }];
   const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, 'Invoices');
   XLSX.writeFile(wb, `invoices_${invToday()}.xlsx`);
 }
@@ -1278,7 +1281,13 @@ async function invExportForBackup(){
     const creditNotes = (typeof icCnExportForBackup === 'function') ? await icCnExportForBackup() : null;   // Credit Note 表還沒建立時為 null
     let settings = null;   // Invoice 格式(公司資料、銀行資料、Logo 等)
     try{ const sr = await dbGet('invoiceSettings'); settings = sr && sr.value ? sr.value : null; }catch(e){}
-    return { invoices: data || [], payments, changes, creditNotes, settings, next: await invGetNextNo() };
+    let purchasePayments = null;   // 進貨付款記錄(OT custom 進貨帳務)
+    try{ if(typeof paBackupExport === 'function') purchasePayments = await paBackupExport(); }catch(e){}
+    let otherExpenses = null;   // 其他支出(獨立支出)
+    try{ if(typeof oeBackupExport === 'function') otherExpenses = await oeBackupExport(); }catch(e){}
+    let prepayments = null;   // 供應商預付款(含抵扣紀錄)
+    try{ if(typeof ppBackupExport === 'function') prepayments = await ppBackupExport(); }catch(e){}
+    return { invoices: data || [], payments, changes, creditNotes, settings, purchasePayments, otherExpenses, prepayments, next: await invGetNextNo() };
   }catch(e){
     if(invIsMissingFn(e)) return null;
     throw e;
@@ -1295,6 +1304,19 @@ async function invRestoreFromBackup(backup){
     // 舊備份沒有 Credit Note 資料時,要把現有的清掉(否則還原 Invoice 後它們會變成沒有對應 Invoice 的獨立 Credit Note)
     if(d.creditNotes) await icCnRestoreFromBackup(d.creditNotes); else if(typeof icCnClearAll === 'function') await icCnClearAll();
   }
+  if(typeof paBackupRestore === 'function'){
+    if(Array.isArray(d.purchasePayments)) await paBackupRestore(d.purchasePayments);
+    else if(typeof d.purchasePayments === 'undefined' && typeof paBackupClear === 'function') await paBackupClear();   // 舊備份(功能上線前)沒有進貨付款記錄:跟備份當時一樣,清掉
+  }
+  if(typeof ppBackupRestore === 'function'){
+    // 必須在進貨付款還原之後:抵扣紀錄綁著進貨付款。舊備份沒有預付款資料 → 跟備份當時一樣,清掉
+    if(d.prepayments && Array.isArray(d.prepayments.prepayments)) await ppBackupRestore(d.prepayments);
+    else if(typeof d.prepayments === 'undefined' && typeof ppBackupClear === 'function') await ppBackupClear();
+  }
+  if(typeof oeBackupRestore === 'function'){
+    if(Array.isArray(d.otherExpenses)) await oeBackupRestore(d.otherExpenses);
+    else if(typeof d.otherExpenses === 'undefined' && typeof oeBackupClear === 'function') await oeBackupClear();
+  }
   if(typeof d.settings === 'string' && d.settings){
     try{ await dbSet('invoiceSettings', d.settings); await loadInvoiceSettings(); }catch(e){ console.error(e); }
   }
@@ -1303,6 +1325,9 @@ async function invClearAll(){
   const { error } = await sb.rpc('invoice_clear_all');
   if(error && !invIsMissingFn(error)) throw error;
   if(typeof icCnClearAll === 'function') await icCnClearAll();
+  if(typeof ppBackupClear === 'function') await ppBackupClear();
+  if(typeof paBackupClear === 'function') await paBackupClear();
+  if(typeof oeBackupClear === 'function') await oeBackupClear();
 }
 
 
@@ -1348,4 +1373,90 @@ function invCopyText(text, el){
   const done = () => { if(!el) return; const o = el.textContent; el.textContent = '✓'; setTimeout(() => { el.textContent = o; }, 1200); };
   const fallback = () => { const ta = document.createElement('textarea'); ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0'; document.body.appendChild(ta); ta.select(); try{ document.execCommand('copy'); }catch(e){} ta.remove(); done(); };
   if(navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(done, fallback); else fallback();
+}
+
+
+// ---------- 把目前篩選結果的 Invoice 打包成 PDF zip(對帳、留存用)----------
+Object.assign(I18N.zh, { invExportZip: '📦 下載 PDF 打包', invZipConfirm: '要產生 {n} 份 PDF 並打包成 zip,每份約需 1 秒左右,過程中請不要關閉頁面。要繼續嗎?', invZipBusy: '上一輪資料打包中 {done}/{total}…', invZipDone: '✓ 已打包 {n} 份 PDF', invZipFail: '{n} 份產生失敗(已列在 index.csv 的備註欄)', invZipEmpty: '目前篩選結果沒有 Invoice。', invZipCancel: '取消', invZipCancelled: '已取消,沒有下載任何檔案。', invZipNoLib: 'PDF 或 zip 元件載入失敗,請重新整理頁面再試一次。' });
+Object.assign(I18N.en, { invExportZip: '📦 Download PDFs (zip)', invZipConfirm: 'This will generate {n} PDF(s) and pack them into a zip. It takes about a second each; please keep the page open. Continue?', invZipBusy: 'Previous batch packing {done}/{total}…', invZipDone: '✓ Packed {n} PDF(s)', invZipFail: '{n} failed (noted in index.csv)', invZipEmpty: 'No invoices match the current filter.', invZipCancel: 'Cancel', invZipCancelled: 'Cancelled. Nothing was downloaded.', invZipNoLib: 'The PDF or zip component failed to load. Please refresh and try again.' });
+async function invFetchSnapshots(ids){
+  const out = new Map();
+  for(let i = 0; i < ids.length; i += 40){
+    const { data, error } = await sb.from('invoices').select('id, snapshot').in('id', ids.slice(i, i + 40));
+    if(error) throw error;
+    (data || []).forEach(r => out.set(r.id, r.snapshot));
+  }
+  return out;
+}
+async function invPdfBlobFromSnap(snap){
+  const holder = document.createElement('div');
+  holder.style.cssText = 'position:fixed;left:-10000px;top:0;width:794px;background:#fff;';
+  holder.innerHTML = invDocHtml(snap, invSettings.logo);
+  document.body.appendChild(holder);
+  try{
+    invFitPages(holder, 'pdf');
+    return await html2pdf().set({
+      margin: 0, image: { type: 'jpeg', quality: 0.98 },
+      html2canvas: { scale: 2, useCORS: true }, jsPDF: { unit: 'pt', format: 'a4', orientation: 'portrait' },
+      pagebreak: { mode: ['css', 'legacy'], avoid: ['tr'] }
+    }).from(holder.firstElementChild).outputPdf('blob');
+  } finally { holder.remove(); }
+}
+// 打包狀態(重畫清單時要能接回去):running = 正在打包。打包期間可以照常改篩選;按鈕顯示「上一輪資料打包中」,「取消」按鈕重畫後還在
+const invZipState = {};
+function invZipBtnEl(key){ return document.getElementById('invZipBtn_' + key); }
+function invApplyZipLock(key){
+  const st = invZipState[key]; if(!st || !st.running) return;
+  const btn = invZipBtnEl(key); if(!btn) return;
+  btn.disabled = true; btn.textContent = tf('invZipBusy', { done: st.done, total: st.total });
+  if(!document.getElementById('invZipCancel_' + key)){
+    const cb = document.createElement('button');
+    cb.id = 'invZipCancel_' + key; cb.className = 'btn ghost'; cb.style.alignSelf = 'flex-end'; cb.textContent = t('invZipCancel'); cb.disabled = !!st.cancelled;
+    cb.onclick = () => { st.cancelled = true; cb.disabled = true; };
+    btn.parentNode.insertBefore(cb, btn.nextSibling);
+  }
+}
+const _invRenderListOrig = invRenderList;
+invRenderList = function(key){ _invRenderListOrig(key); invApplyZipLock(key || 'main'); };
+async function invExportListZip(key){
+  key = key || 'main';
+  if(invZipState[key] && invZipState[key].running) return;
+  const list = invFilteredList(key);   // 按下按鈕當下的篩選結果,之後再改篩選不影響這次打包
+  if(!list.length){ showInfoModal(t('invZipEmpty')); return; }
+  if(typeof html2pdf === 'undefined' || typeof JSZip === 'undefined'){ showInfoModal(t('invZipNoLib')); return; }
+  const run = async () => {
+    const st = invZipState[key] = { running: true, cancelled: false, done: 0, total: list.length };
+    const origLabel = t('invExportZip');
+    invApplyZipLock(key);
+    try{
+      const snaps = await invFetchSnapshots(list.map(r => r.id));
+      const zip = new JSZip(); const idx = [['Invoice No', 'Invoice Date', 'Customer', 'Order No', 'Total (Inc. GST)', 'File', 'Note']]; const used = new Set();
+      let failed = 0;
+      for(const r of list){
+        if(st.cancelled) break;
+        const snap = snaps.get(r.id); let fname = '', note = '';
+        try{
+          if(!snap) throw new Error('snapshot not found');
+          fname = invFileName(snap); let n = 2; const base = fname;
+          while(used.has(fname)) fname = base.replace(/\.pdf$/, '_' + (n++) + '.pdf');
+          used.add(fname);
+          zip.file(fname, await invPdfBlobFromSnap(snap));
+        }catch(e){ failed++; fname = ''; note = 'FAILED: ' + (e.message || e); console.error('Invoice PDF 產生失敗', r.invoice_no, e); }
+        idx.push([r.invoice_no, r.invoice_date, invCustLabel(r), r.order_no || '', invRowInfo(r).total, fname, note]);
+        st.done++; invApplyZipLock(key);
+      }
+      if(st.cancelled){ showInfoModal(t('invZipCancelled')); return; }
+      const csv = '﻿' + idx.map(row => row.map(c => { const v = String(c == null ? '' : c); return /[",\r\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; }).join(',')).join('\r\n');
+      zip.file('index.csv', csv);
+      const blob = await zip.generateAsync({ type: 'blob' });
+      const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `invoices_${invToday()}.zip`; document.body.appendChild(a); a.click();
+      setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 2000);
+      showInfoModal(tf('invZipDone', { n: list.length - failed }) + (failed ? '\n' + tf('invZipFail', { n: failed }) : ''));
+    }catch(e){ console.error('Invoice 打包失敗', e); showInfoModal(String((e && e.message) || e)); }
+    finally{
+      st.running = false;
+      invRenderList(key);   // 重畫一次:拿掉取消按鈕、按鈕文字還原
+    }
+  };
+  if(list.length > 20) showConfirmModal(tf('invZipConfirm', { n: list.length }), run); else return run();
 }

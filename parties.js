@@ -121,6 +121,7 @@ function openPartyEditModal(id){
   document.getElementById('partyBillToInput').value = sp ? (sp.billTo || '') : '';
   document.getElementById('partyShipToInput').value = sp ? (sp.shipTo !== undefined ? sp.shipTo : (sp.address || '')) : '';
   document.getElementById('partyAbnInput').value = sp ? (sp.abn || '') : '';
+  document.getElementById('partyMyobInput').value = sp ? (myobCards['c:' + sp.id] || '') : '';
   document.getElementById('partyPaymentTypeSelect').value = (sp && sp.paymentType === 'cod') ? 'cod' : 'bank';
   document.getElementById('partyPaymentTermSelect').value = String((sp && Number(sp.paymentTerm) > 0) ? Number(sp.paymentTerm) : 7);
   onPartyPaymentTypeChange();
@@ -176,6 +177,8 @@ async function savePartyEdit(){
   sp.discount = discount;
   delete sp.contact;   // 舊的「聯絡方式」欄位已拆成 聯繫人 / 聯繫電話,內容在上面已帶進 phone
   if(isNew){ sp.code = nextEntityCode('C', shippingParties); shippingParties.push(sp); }
+  const myobName = document.getElementById('partyMyobInput').value.trim();
+  if(!(await myobCardSet('c:' + sp.id, myobName))) showInfoModal(t('rcSaveFail'));
   editingPartyId = null;
   document.getElementById('partyEditModalOverlay').style.display = 'none';
   await saveShippingParties();
@@ -478,7 +481,7 @@ function renderSupplierManagementTable(){
   }
   const sorted = purchaseSuppliers.slice().sort((a, b) => a.name.localeCompare(b.name));
   container.innerHTML = `<table class="stock-table">
-    <thead><tr><th>${t('colCode')}</th><th>${t('fieldSupplierName')}</th><th>${t('fieldSupplierContact')}</th><th>${t('fieldSupplierPhone')}</th><th>${t('fieldSupplierAddress')}</th><th>${t('fieldSupplierNote')}</th><th></th></tr></thead>
+    <thead><tr><th>${t('colCode')}</th><th>${t('fieldSupplierName')}</th><th>${t('fieldSupplierContact')}</th><th>${t('fieldSupplierPhone')}</th><th>${t('fieldSupplierAddress')}</th><th>${t('fieldSupplierTerms')}</th><th>${t('fieldSupplierNote')}</th><th></th></tr></thead>
     <tbody>
       ${sorted.map(s => `
         <tr>
@@ -487,6 +490,7 @@ function renderSupplierManagementTable(){
           <td>${escapeHtmlForPrint(s.contact || '')}</td>
           <td>${escapeHtmlForPrint(s.phone || '')}</td>
           <td>${escapeHtmlForPrint(s.address || '')}</td>
+          <td>${(s.paymentTerms === null || s.paymentTerms === undefined) ? '' : escapeHtmlForPrint(tf('supplierTermsDays', { n: s.paymentTerms }))}</td>
           <td>${escapeHtmlForPrint(s.note || '')}</td>
           <td style="white-space:nowrap;text-align:right;">
             <span class="del-link" onclick="supplierGoPurchaseHistory('${s.id}')">${t('btnSupplierPurchaseHistory')}</span>
@@ -545,6 +549,17 @@ async function importSuppliersFromPurchases(){
   });
 }
 
+// MYOB 卡片名稱(出貨方 c:<id> / 進貨方 s:<id>)——存在 app_data 的 myobCards,不動資料表
+let myobCards = {};
+async function myobCardsLoad(){
+  try{ const r = await dbGet('myobCards'); if(r && r.value){ const o = JSON.parse(r.value); if(o && typeof o === 'object' && !Array.isArray(o)) myobCards = o; } }catch(e){}
+}
+async function myobCardSet(key, name){
+  const prev = myobCards[key];
+  if(name) myobCards[key] = name; else delete myobCards[key];
+  try{ await dbSet('myobCards', JSON.stringify(myobCards)); return true; }
+  catch(e){ console.error('儲存 MYOB 卡片名稱失敗', e); if(prev === undefined) delete myobCards[key]; else myobCards[key] = prev; return false; }
+}
 let editingSupplierId = null;
 function openSupplierEditModal(supplierId, prefillName){
   editingSupplierId = supplierId;
@@ -556,6 +571,8 @@ function openSupplierEditModal(supplierId, prefillName){
   document.getElementById('supplierPhoneInput').value = s ? s.phone || '' : '';
   document.getElementById('supplierAddressInput').value = s ? s.address || '' : '';
   document.getElementById('supplierNoteInput').value = s ? s.note || '' : '';
+  document.getElementById('supplierMyobInput').value = s ? (myobCards['s:' + s.id] || '') : '';
+  document.getElementById('supplierTermsInput').value = (s && s.paymentTerms !== null && s.paymentTerms !== undefined) ? s.paymentTerms : '';
   document.getElementById('supplierEditModalMsg').textContent = '';
   document.getElementById('supplierDeleteBtn').style.display = s ? '' : 'none';
   document.getElementById('supplierEditModalOverlay').style.display = 'flex';
@@ -571,6 +588,9 @@ async function saveSupplierEdit(){
   const phone = document.getElementById('supplierPhoneInput').value.trim();
   const address = document.getElementById('supplierAddressInput').value.trim();
   const note = document.getElementById('supplierNoteInput').value.trim();
+  const termsRaw = document.getElementById('supplierTermsInput').value.trim();
+  const terms = termsRaw === '' ? null : Math.round(Number(termsRaw));
+  if(termsRaw !== '' && (!isFinite(terms) || terms < 0 || terms > 730)){ msgEl.className = 'msg error'; msgEl.textContent = t('errSupplierTerms'); return; }
   if(!name){ msgEl.className = 'msg error'; msgEl.textContent = t('errEnterSupplierName'); return; }
   // 名稱不能跟其他供應商重複(資料庫本身也有唯一索引擋著,這裡先在前端擋一次,錯誤訊息比較
   // 好懂,不用等資料庫回傳一串技術性的錯誤)——編輯自己的話,名稱沒變不算重複。
@@ -579,8 +599,11 @@ async function saveSupplierEdit(){
   const s = editingSupplierId ? purchaseSuppliers.find(x => x.id === editingSupplierId) : { id: genId(), code: nextEntityCode('S', purchaseSuppliers) };
   const oldName = s.name;
   s.name = name; s.contact = contact; s.phone = phone; s.address = address; s.note = note;
+  s.termsCleared = (terms === null && s.paymentTerms !== null && s.paymentTerms !== undefined);
+  s.paymentTerms = terms;
   try{
     await upsertPurchaseSupplier(s);
+    if(!(await myobCardSet('s:' + s.id, document.getElementById('supplierMyobInput').value.trim()))) showInfoModal(t('rcSaveFail'));
     if(!editingSupplierId) purchaseSuppliers.push(s);
     // 改了名稱的話,之前收據辨識記憶對照表裡用舊名稱記錄的那些筆,一併同步改成新名稱,
     // 不然改名之後那些記憶會變成對照不到任何供應商、之後掃描還是會重新問一次。
@@ -1251,6 +1274,12 @@ function openSaveForecastModal(){
   const loadedRec = forecastLoadedRecordId ? forecastRecords.find(r => r.id === forecastLoadedRecordId) : null;
   if(!loadedRec) forecastLoadedRecordId = null;
   document.getElementById('saveForecastNameInput').value = loadedRec ? loadedRec.name : defaultForecastRecordName();
+  { const ss = document.getElementById('saveForecastSupplier');
+    if(ss){
+      const sups = (typeof purchaseSuppliers !== 'undefined' ? purchaseSuppliers : []).slice().sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+      ss.innerHTML = `<option value="">${t('optForecastNoSupplier')}</option>` + sups.map(x => `<option value="${escapeHtmlText(x.id)}">${escapeHtmlText(x.name || '')}</option>`).join('');
+      ss.value = (loadedRec && loadedRec.supplierId && sups.some(x => x.id === loadedRec.supplierId)) ? loadedRec.supplierId : '';
+    } }
   document.getElementById('saveForecastModalMsg').textContent = '';
   document.getElementById('saveForecastModalOverlay').style.display = 'flex';
   setTimeout(() => { const i = document.getElementById('saveForecastNameInput'); if(i){ i.focus(); i.select(); } }, 50);
@@ -1273,13 +1302,18 @@ async function confirmSaveForecast(){
       boxBasisId: forecastBoxBasis[p.id] || null
     };
   });
+  const forecastSupplierSel = (() => {
+    const v = ((document.getElementById('saveForecastSupplier') || {}).value || '');
+    const sp = v ? (typeof purchaseSuppliers !== 'undefined' ? purchaseSuppliers : []).find(x => x.id === v) : null;
+    return sp ? { id: sp.id, name: sp.name } : {};
+  })();
   const prev = forecastRecords.slice();
   const wasLoadedId = forecastLoadedRecordId;
   // 同樣名稱的記錄只留最新一筆(取代舊的,已匯入進貨單的記錄不動);名稱不同才會多出一筆。
   // 載入的預估表預設帶原本的名稱(見 openSaveForecastModal),所以不改名直接儲存就是取代原本那筆。
   const sameNameCount = forecastRecords.filter(r => !r.converted && (r.name || '').trim() === name).length;
   forecastRecords = forecastRecords.filter(r => r.converted || (r.name || '').trim() !== name);
-  forecastRecords.push({ id: 'fr_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), name, savedAt: new Date().toISOString(), items, note: (forecastNote || '').trim(), orderPlaced: !!forecastOrderPlaced });
+  forecastRecords.push({ id: 'fr_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), name, savedAt: new Date().toISOString(), items, note: (forecastNote || '').trim(), orderPlaced: !!forecastOrderPlaced, supplierId: forecastSupplierSel.id || undefined, supplierName: forecastSupplierSel.name || undefined });
   try{ await saveForecastRecords(); }
   catch(e){
     console.error('儲存進貨預估紀錄失敗', e);
@@ -1353,6 +1387,7 @@ function toggleForecastRecordsPanel(forceOpen){
   if(panel.style.display === 'none' || forceOpen === true){
     panel.style.display = 'block';
     loadForecastRecords().then(renderForecastRecords);
+    if(typeof ppOn === 'function' && ppOn()) ppLoad().then(renderForecastRecords);
   } else {
     panel.style.display = 'none';
   }
@@ -1395,6 +1430,7 @@ function forecastRecordDetailHtml(r){
   }
   return `<div style="padding:6px 4px 10px;">
     ${link}
+    ${r.supplierName ? `<div style="margin:6px 0;font-size:12.5px;color:var(--ink-soft);">${t('fieldForecastSupplier')}: ${escapeHtmlText(r.supplierName)}</div>` : ''}
     ${r.note ? `<div style="margin:6px 0;font-size:12.5px;color:var(--ink-soft);">${t('fieldForecastNote')}: ${escapeHtmlText(r.note)}</div>` : ''}
     ${rows ? `<table class="stock-table"><thead><tr><th>${t('colProductName')}</th><th class="num">${t('colForecastQtyExport')}</th><th>${t('colUnit')}</th></tr></thead><tbody>${rows}</tbody></table>` : `<div class="empty-note">${t('forecastRecordNoQtyItems')}</div>`}
   </div>`;
@@ -1422,12 +1458,13 @@ function forecastRecordsTableHtml(includeConverted){
             ? `<span class="del-link" title="${t('btnDeleteRecord')}" onclick="deleteForecastRecord('${r.id}')">✕</span>`
             : `<span class="del-link" style="color:var(--ink);" onclick="loadForecastRecord('${r.id}')">${t('btnLoadForecastRecord')}</span>
                <span class="del-link" style="margin-left:10px;" title="${t('btnDeleteRecord')}" onclick="deleteForecastRecord('${r.id}')">✕</span>
-               <span class="del-link" style="margin-left:10px;color:var(--ink);" onclick="loadForecastRecordToPurchase('${r.id}')">${t('btnLoadPurchaseRecord')}</span>`;
+               <span class="del-link" style="margin-left:10px;color:var(--ink);" onclick="loadForecastRecordToPurchase('${r.id}')">${t('btnLoadPurchaseRecord')}</span>
+               ${(typeof ppOn === 'function' && ppOn()) ? `<span class="del-link" style="margin-left:10px;color:var(--ink);" onclick="ppOpenForm('', '${r.id}')">${t('ppBtnRegister')}</span>` : ''}`;
           return `<tr style="cursor:pointer;" onclick="toggleForecastRecordExpand('${r.id}')">
             <td class="row-name"><span style="display:inline-block;width:14px;">${open ? '▾' : '▸'}</span>${escapeHtmlText(r.name)}${r.note ? ` <span class="del-link" style="margin-left:4px;" title="${t('fieldForecastNote')}" onclick="event.stopPropagation();showForecastRecordNote('${r.id}')">📝</span>` : ''}</td>
             <td>${escapeHtmlText(formatOrderDateTime(r.savedAt))}</td>
             <td>${tf('forecastRecordItemsCount', { q: withQty })}</td>
-            <td style="color:${stColor};font-weight:600;white-space:nowrap;">${forecastStatusLabel(st)}</td>
+            <td style="color:${stColor};font-weight:600;white-space:nowrap;">${forecastStatusLabel(st)}${(typeof ppOn === 'function' && ppOn() && ppForRecord(r.id).length) ? `<div style="font-size:11px;color:var(--ink-soft);font-weight:400;">${tf('ppPaidTag', { a: ppM(ppPaidForRecord(r.id)) })}</div>` : ''}</td>
             <td style="white-space:nowrap;text-align:right;" onclick="event.stopPropagation()">${acts}</td>
           </tr>${open ? `<tr><td colspan="5" style="background:var(--bg,#faf7f0);">${forecastRecordDetailHtml(r)}</td></tr>` : ''}`;
         }).join('')}
@@ -1519,6 +1556,10 @@ function loadForecastRecordToPurchase(id){
     switchWarehouseOpsSubTab('subtab-tx-register');
     setTxType('in');
     txBatchItems = [];
+    if(rec.supplierId && (typeof purchaseSuppliers !== 'undefined') && purchaseSuppliers.some(x => x.id === rec.supplierId)){
+      const hs = document.getElementById('txPartyHistorySelect');
+      if(hs){ hs.value = rec.supplierId; if(typeof onTxPartyHistorySelectChange === 'function') onTxPartyHistorySelectChange(rec.supplierId); }
+    }
     lines.forEach(({ prod, qty }) => {
       const ex = txBatchItems.find(x => x.productId === prod.id && !x.expiry);
       if(ex){ ex.qty += qty; return; }

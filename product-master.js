@@ -82,7 +82,12 @@ const MASTER_COLUMN_ALIASES = {
   gst: ['gst','含gst','包含gst','taxable'],
   autoConvertOnStockIn: ['autoconvert','autoconvertonstockin','自動切換','進貨自動切換'],
   orderPageRemark: ['orderpageremark','訂貨頁面附註','訂貨附註','orderremark'],
-  barcode: ['barcode','條碼','商品條碼','barcodenumber']
+  barcode: ['barcode','條碼','商品條碼','barcodenumber'],
+  noAccounting: ['notonbooks','noaccounting','不入公司帳','不入帳','offbooks'],
+  batchTrack: ['batchtracking','batchtrack','批次追蹤'],
+  hideAcctExport: ['hidefromaccountingexport','hidefromcompletedexport','會計匯出不顯示','會計不匯出'],
+  hideAcctMode: ['hidemode','hideexportmode','會計匯出不顯示模式','不顯示模式'],
+  reportCategory: ['reportcategory','report category','會計報表分類','報表分類','會計分類']
 };
 
 // Excel 儲存格裡的「是否隱藏」欄位,可能是真的布林值(true/false)、文字(TRUE/FALSE、Y/N、是/否),
@@ -243,6 +248,13 @@ function parseMasterExcelFile(){
         const colAutoConvert = findColumnIndex(headerRow, MASTER_COLUMN_ALIASES.autoConvertOnStockIn);
         const colOrderPageRemark = findColumnIndex(headerRow, MASTER_COLUMN_ALIASES.orderPageRemark);
         const colBarcode = findColumnIndex(headerRow, MASTER_COLUMN_ALIASES.barcode);
+        const colNoAcct = findColumnIndex(headerRow, MASTER_COLUMN_ALIASES.noAccounting);
+        const colBatchTrack = findColumnIndex(headerRow, MASTER_COLUMN_ALIASES.batchTrack);
+        const colHideAcct = findColumnIndex(headerRow, MASTER_COLUMN_ALIASES.hideAcctExport);
+        const colHideMode = findColumnIndex(headerRow, MASTER_COLUMN_ALIASES.hideAcctMode);
+        const colReportCat = findColumnIndex(headerRow, MASTER_COLUMN_ALIASES.reportCategory);
+        const boolCell = (c, row) => (c !== -1 && row[c] !== null && row[c] !== undefined && row[c] !== '') ? parseBoolLikeCell(row[c]) : null;
+        const modeCell = (c, row) => { if(c === -1 || row[c] === null || row[c] === undefined) return null; const v = String(row[c]).trim().toLowerCase(); if(!v) return null; return (v.includes('whole') || v.includes('整個')) ? 'wholeFamily' : ((v.includes('switch') || v.includes('僅')) ? 'switchOnly' : null); };
 
         if(colName === -1 || colQty === -1){
           fileErrors.push(`${file.name}:找不到「Name/品名」或「Stock/庫存量」欄位`);
@@ -298,6 +310,11 @@ function parseMasterExcelFile(){
             autoConvertOnStockIn: colAutoConvert !== -1 && row[colAutoConvert] !== null && row[colAutoConvert] !== undefined && row[colAutoConvert] !== '' ? parseBoolLikeCell(row[colAutoConvert]) : null,
             orderPageRemark: colOrderPageRemark !== -1 && row[colOrderPageRemark] !== null && row[colOrderPageRemark] !== undefined && String(row[colOrderPageRemark]).trim() !== '' ? String(row[colOrderPageRemark]).trim() : null,
             barcode: colBarcode !== -1 && row[colBarcode] !== null && row[colBarcode] !== undefined && String(row[colBarcode]).trim() !== '' ? String(row[colBarcode]).trim() : null,
+            noAccounting: boolCell(colNoAcct, row),
+            batchTrack: boolCell(colBatchTrack, row),
+            hideAcctExport: boolCell(colHideAcct, row),
+            hideAcctMode: modeCell(colHideMode, row),
+            reportCategory: colReportCat !== -1 && row[colReportCat] !== null && row[colReportCat] !== undefined && String(row[colReportCat]).trim() !== '' ? String(row[colReportCat]).trim() : null,
             _sourceFile: file.name, _sourceRow: excelRowNo
           });
         }
@@ -927,7 +944,7 @@ function showExportLogRecipients(id){
 // 有填的格子才會覆蓋系統的值;庫存量(Stock)有填而且跟系統不同,會自動產生一筆庫存調整。
 function downloadMasterImportTemplate(){
   if(typeof XLSX === 'undefined'){ showInfoModal('Excel 套件載入失敗,請重新整理頁面再試一次'); return; }
-  const headers = ['SKU','Name','Unit','Stock','Avg Monthly Sales','Category','Safety Stock','Note','Parent SKU','Child Weight','Box Length (cm)','Box Width (cm)','Box Height (cm)','Weight Kg','GST','Hidden','Auto Convert','Order Page Remark','Barcode'];
+  const headers = ['SKU','Name','Unit','Stock','Avg Monthly Sales','Category','Safety Stock','Note','Parent SKU','Child Weight','Box Length (cm)','Box Width (cm)','Box Height (cm)','Weight Kg','GST','Hidden','Auto Convert','Order Page Remark','Barcode','Not On Books','Batch Tracking','Hide From Accounting Export','Hide Mode','Report Category'];
   const skuById = Object.fromEntries(products.map(p => [p.id, p.sku || '']));
   const blank = v => (v === null || v === undefined) ? '' : v;
   const rows = products.map(p => [
@@ -949,10 +966,15 @@ function downloadMasterImportTemplate(){
     p.hidden ? 'TRUE' : 'FALSE',
     p.parentId ? (p.autoConvertOnStockIn ? 'TRUE' : 'FALSE') : '',
     p.orderPageRemark || '',
-    p.barcode || ''
+    p.barcode || '',
+    p.noAccounting ? 'TRUE' : 'FALSE',
+    p.batchTrack === false ? 'FALSE' : 'TRUE',
+    p.hideFromCompletedOrderExport ? 'TRUE' : 'FALSE',
+    p.hideFromCompletedOrderExport ? (p.hideFromCompletedOrderExportMode === 'wholeFamily' ? 'wholeFamily' : 'switchOnly') : '',
+    p.reportCategory || ''
   ]);
   const ws = XLSX.utils.aoa_to_sheet([headers, ...rows]);
-  ws['!cols'] = [{wch:16},{wch:34},{wch:8},{wch:8},{wch:12},{wch:14},{wch:10},{wch:24},{wch:14},{wch:10},{wch:10},{wch:10},{wch:10},{wch:10},{wch:6},{wch:8},{wch:10},{wch:24},{wch:16}];
+  ws['!cols'] = [{wch:16},{wch:34},{wch:8},{wch:8},{wch:12},{wch:14},{wch:10},{wch:24},{wch:14},{wch:10},{wch:10},{wch:10},{wch:10},{wch:10},{wch:6},{wch:8},{wch:10},{wch:24},{wch:16},{wch:12},{wch:12},{wch:16},{wch:14},{wch:18}];
   ws['!freeze'] = { xSplit: 0, ySplit: 1 };
   const guide = [
     ['欄位 / Column', '說明 / Notes'],
@@ -973,6 +995,11 @@ function downloadMasterImportTemplate(){
     ['Auto Convert', '只有 multipack 子商品用:進貨時是否自動切換成主商品。 / Multipack children only: auto-convert to the main product on stock-in.'],
     ['Order Page Remark', '訂貨頁面附註。 / Remark shown on the order page.'],
     ['Barcode', '條碼。 / Barcode.'],
+    ['Not On Books', 'TRUE = 不入公司帳(只做庫存管理,不進 Purchase List、不出現在 Invoice、不分攤其他支出);勾選時會連鎖設為「會計匯出不顯示」整個不顯示;空白 = 不動。 / TRUE = not on company books (stock tracking only); also forces hide-from-accounting-export for the whole family; blank = unchanged.'],
+    ['Batch Tracking', 'TRUE = 進貨時做批次/效期追蹤(預設);FALSE = 不追蹤;空白 = 不動。 / TRUE = track batches/expiry on stock-in (default); FALSE = do not; blank = unchanged.'],
+    ['Hide From Accounting Export', 'TRUE = 完成訂單的會計匯出不顯示此商品;空白 = 不動。 / TRUE hides from completed-order accounting export; blank = unchanged.'],
+    ['Hide Mode', 'switchOnly(僅此商品切換)或 wholeFamily(整個商品家族不顯示);空白 = 不動(TRUE 且未填預設 switchOnly)。 / switchOnly or wholeFamily; blank = unchanged.'],
+    ['Report Category', '會計報表分類(跟庫存總覽的 Category 是兩套)。填的名稱如果還不在清單裡會自動新增;空白 = 不動。 / Accounting report category (separate from the stock-overview Category). A new name is added to the list automatically; blank = unchanged.'],
     ['', ''],
     ['匯入規則 / Import rules', '預設:表格上空白的格子不會清空系統裡原本的資料,有填的格子才會覆蓋系統的值。匯入視窗勾選「空白就清空」才會清空。 / By default, blank cells never clear existing data; filled cells overwrite it. Tick "clear blanks" on the import page to clear.']
   ];

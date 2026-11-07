@@ -19,10 +19,12 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
 <style>
+#accountingSubtabSelect option{padding:7px 10px;min-height:34px;line-height:1.5;}
   :root{
     --bg:#EBE8E0;
     --panel:#F5F3EC;
@@ -622,7 +624,7 @@
      z-index,誰疊在上面純粹看 DOM 順序,這個共用的提示視窗剛好排在比較前面,會被後面開的
      modal(例如商品編輯視窗)蓋住,使用者當下完全看不到,要關掉那個視窗才會「突然」看到提示。
      這裡給它一個更高的 z-index,確保這個共用提示視窗永遠疊在最上面,不管當下還有哪個 modal 開著。 */
-  #confirmModalOverlay{ z-index:1200; }
+  #confirmModalOverlay{ z-index:1260; }
   /* 問「要從哪個位置扣」的這個小視窗(promptLocationChoice),常常是在「另一個 modal 還開著」
      的當下被跳出來問(例如切換批量商品數量時,轉換視窗本身就是一個 modal)——理由跟上面
      confirmModalOverlay 一樣,如果跟其他 modal 共用同一個 z-index,誰疊在上面純粹看 DOM
@@ -1093,6 +1095,8 @@
   @media (max-width:460px){
     .card-grid{ grid-template-columns:1fr; }
   }
+/* 沒有「訂單顯示價錢」權限的人(倉管員等)看不到成本 / 售價欄 */
+body.no-cost-view .cost-col{display:none !important;}
 </style>
 </head>
 <body>
@@ -1553,6 +1557,12 @@
           <label data-i18n="fieldInvoiceNo">Invoice 號碼(選填)</label>
           <input id="txInvoiceNo" type="text" placeholder="例如:INV-00123" data-i18n-placeholder="txInvoiceNoPlaceholderExample" />
         </div>
+        <div class="field" id="txAdjReasonWrap" style="display:none;">
+          <label data-i18n="adjReasonLabel">原因(必填)</label>
+          <select id="txAdjReason" onchange="onAdjReasonChange()"></select>
+          <input id="txAdjReasonOther" type="text" style="display:none;margin-top:6px;" placeholder="請輸入原因" data-i18n-placeholder="adjReasonOtherPh" />
+          <div id="txAdjReasonHint" style="font-size:11.5px;color:var(--ink-soft);margin-top:4px;"></div>
+        </div>
         <div class="field">
           <label id="txNoteLabel" data-i18n="txNoteSharedLabel">備註(選填)</label>
           <select id="txNoteTarget" style="display:none;margin-bottom:6px;" onchange="onTxNoteTargetChange(this.value)"></select>
@@ -1571,7 +1581,15 @@
         <input type="file" id="purchaseReceiptInput" accept="image/*,application/pdf,.xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel" multiple onchange="handlePurchaseReceiptUpload(this)" style="border:1px solid var(--line);background:#fff;border-radius:2px;padding:8px;font-family:'IBM Plex Mono',monospace;font-size:12px;" />
         <button type="button" id="btnOpenCameraCapture" class="btn ghost" onclick="openCameraCaptureModal(file => uploadPurchaseReceiptFiles([file]))" style="display:none;margin-left:6px;vertical-align:top;">📷 <span data-i18n="btnTakePhoto">拍照上傳</span></button>
             <div id="txBatchTrackWrap" style="display:none;"></div>
-            <span style="display:inline-flex;align-items:center;gap:8px;">
+            <span id="purchaseAccWrap" style="display:none;align-items:center;gap:8px;flex-wrap:wrap;">
+              <span class="cost-col" style="font-size:12px;color:var(--ink-soft);" data-i18n="paFormGstMode">金額</span>
+              <select id="purchaseGstMode" class="cost-col" style="font-size:12.5px;"><option value="ex" data-i18n="paGstModeEx">不含 GST</option><option value="inc" data-i18n="paGstModeInc">含 GST</option></select>
+              <span style="font-size:12px;color:var(--ink-soft);" data-i18n="paInvDateLbl">發票日期</span>
+              <input type="date" id="purchaseInvDate" style="font-size:12.5px;" />
+              <span class="cost-col" style="font-size:12px;color:var(--ink-soft);" data-i18n="paDueDateLbl">付款到期日</span>
+              <input type="date" id="purchaseDueDate" class="cost-col" style="font-size:12.5px;" />
+            </span>
+            <span id="purchaseEmailWrap" style="display:inline-flex;align-items:center;gap:8px;">
               <input type="checkbox" id="purchaseEmailToggle" onchange="togglePurchaseEmailFieldVisibility(this)" style="width:16px;height:16px;cursor:pointer;" />
               <label for="purchaseEmailToggle" style="font-size:12.5px;color:var(--ink);font-weight:600;cursor:pointer;white-space:nowrap;" data-i18n="chkEmailToAccounting">寄送給會計</label>
             </span>
@@ -2162,12 +2180,27 @@
   <div id="tab-accounting" class="tab-content">
     <div class="log-select-bar">
       <select id="accountingSubtabSelect" onchange="switchAccountingSubTab(this.value)">
-        <option value="subtab-acc-create-invoice" data-i18n="subtabAccCreateInvoice">Create Document</option>
-        <option value="subtab-acc-invoices" data-i18n="subtabAccInvoices">Invoice List</option>
-        <option value="subtab-acc-credit-notes" data-i18n="subtabAccCreditNotes">Credit Note List</option>
-        <option value="subtab-price-setting" data-i18n="subtabPriceSetting">定價管理</option>
-        <option value="subtab-log-pricerec" data-i18n="subtabLogPriceRecord">定價管理紀錄</option>
-        <option value="subtab-acc-settings" data-i18n="subtabAccSettings">會計設定</option>
+        <optgroup label="銷售" data-i18n-label="accGrpSales">
+          <option value="subtab-acc-create-invoice" data-i18n="subtabAccCreateInvoice">Create Document</option>
+          <option value="subtab-acc-invoices" data-i18n="subtabAccInvoices">Invoice List</option>
+          <option value="subtab-acc-credit-notes" data-i18n="subtabAccCreditNotes">Credit Note List</option>
+        </optgroup>
+        <optgroup label="採購與支出" data-i18n-label="accGrpPurchase">
+          <option value="subtab-acc-purchases" data-i18n="subtabAccPurchases">Purchase List</option>
+          <option value="subtab-acc-prepay" data-i18n="subtabAccPrepay">預付款</option>
+          <option value="subtab-acc-expenses" data-i18n="subtabAccExpenses">其他支出</option>
+        </optgroup>
+        <optgroup label="報表與排程" data-i18n-label="accGrpReports">
+          <option value="subtab-acc-reports" data-i18n="subtabAccReports">會計報表</option>
+          <option value="subtab-acc-schedule" data-i18n="subtabAccSchedule">付款與收款排程</option>
+        </optgroup>
+        <optgroup label="定價" data-i18n-label="accGrpPricing">
+          <option value="subtab-price-setting" data-i18n="subtabPriceSetting">定價管理</option>
+          <option value="subtab-log-pricerec" data-i18n="subtabLogPriceRecord">定價管理紀錄</option>
+        </optgroup>
+        <optgroup label="設定" data-i18n-label="accGrpSettings">
+          <option value="subtab-acc-settings" data-i18n="subtabAccSettings">會計設定</option>
+        </optgroup>
       </select>
     </div>
 
@@ -2185,6 +2218,41 @@
       </div>
     </div>
 
+    <div id="subtab-acc-schedule" class="subtab-content">
+      <div class="section">
+        <div class="toolbar"><div class="section-title" style="margin:0;" data-i18n="subtabAccSchedule">付款與收款排程</div></div>
+        <div id="paySchedRoot"></div>
+      </div>
+    </div>
+
+    <div id="subtab-acc-reports" class="subtab-content">
+      <div class="section">
+        <div class="toolbar"><div class="section-title" style="margin:0;" data-i18n="subtabAccReports">會計報表</div></div>
+        <div id="accReportsRoot"></div>
+      </div>
+    </div>
+
+    <div id="subtab-acc-expenses" class="subtab-content">
+      <div class="section">
+        <div class="toolbar"><div class="section-title" style="margin:0;" data-i18n="subtabAccExpenses">其他支出</div><button class="btn" onclick="oeOpenForm()" data-i18n="oeBtnAdd">新增其他支出</button></div>
+        <div id="otherExpensesRoot"></div>
+      </div>
+    </div>
+
+    <div id="subtab-acc-purchases" class="subtab-content">
+      <div class="section">
+        <div class="toolbar"><div class="section-title" style="margin:0;" data-i18n="subtabAccPurchases">Purchase List</div><button class="btn ghost" onclick="paNewPurchase()" data-i18n="paNewPurchase">＋ New purchase</button></div>
+        <div id="purchaseListRoot"></div>
+      </div>
+    </div>
+
+    <div id="subtab-acc-prepay" class="subtab-content">
+      <div class="section">
+        <div class="toolbar"><div class="section-title" style="margin:0;" data-i18n="ppTitle">供應商預付款</div><button class="btn ghost" onclick="ppOpenForm()" data-i18n="ppAdd">＋ 登記預付款</button></div>
+        <div id="prepaymentRoot"></div>
+      </div>
+    </div>
+
     <div id="subtab-acc-credit-notes" class="subtab-content">
       <div class="section">
         <div class="toolbar"><div class="section-title" style="margin:0;" data-i18n="subtabAccCreditNotes">Credit Note List</div></div>
@@ -2199,6 +2267,11 @@
 
     <div id="subtab-acc-settings" class="subtab-content">
       <div class="section-title" style="margin-top:0;" data-i18n="subtabAccSettings">會計設定</div>
+        <div style="display:flex;gap:6px;border-bottom:1px solid var(--line);margin:0 0 12px;">
+          <button type="button" id="accSetBtnPref" class="btn" style="border-radius:6px 6px 0 0;" onclick="switchAccSettingsTab('pref')">Preference</button>
+          <button type="button" id="accSetBtnItems" class="btn ghost" style="border-radius:6px 6px 0 0;" onclick="switchAccSettingsTab('items')">Items &amp; Data</button>
+        </div>
+        <div id="accSetPanePref">
         <div class="settings-card">
           <div class="section-title" data-i18n="secSystemCurrency">系統預設幣種</div>
           <p style="font-size:11.5px;color:var(--ink-soft);margin:0 0 8px;" data-i18n="systemCurrencyHint">進貨單的其他支出、海外採購都會統一換算成這個幣種,批次成本也以這個幣種記錄與顯示。更改只影響之後新建立的進貨單,已建立的進貨單與批次成本不會被換算。預設 AUD。</p>
@@ -2253,35 +2326,7 @@
             <div id="spMarginSettingMsg" class="msg"></div>
           </div>
         </div>
-        <div class="settings-card" id="importDataCard">
-        <div class="section-title" data-i18n="secImportData">匯入資料</div>
-        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:0 0 4px;">
-          <select id="importTemplateSelect" style="min-width:180px;">
-            <option value="master" data-i18n="optImportTemplateMaster">商品主檔範本</option>
-            <option value="price" data-i18n="optImportTemplatePrice">定價管理範本</option>
-          </select>
-          <button class="btn" onclick="downloadImportTemplate()" data-i18n="btnDownloadMasterTemplate">📄 下載匯入範本</button>
-        </div>
-
-        <hr class="divider" />
-
-        <div class="section-title" id="uploadFileTitle" style="margin-bottom:8px;"><span data-i18n="secUploadFile">上傳檔案</span></div>
-        <p style="font-size:12.5px;color:var(--ink-soft);margin:0 0 10px;" data-i18n="importByFilenameDesc">系統依檔名決定匯入哪一種:檔名含「price」的當作 Price setting 匯入,其他檔案當作商品主檔匯入。直接用下載的範本檔名即可。</p>
-        <div style="display:flex;align-items:center;gap:8px;margin:0 0 12px;">
-          <input type="checkbox" id="clearBlanksOnImport" style="width:16px;height:16px;cursor:pointer;" />
-          <label for="clearBlanksOnImport" style="font-size:12.5px;color:var(--ink);cursor:pointer;" data-i18n="clearBlanksOnImportLabel">表格裡選填欄位如果是空白,就清空現有商品對應的資料(預設不勾選,空白欄位維持現有商品原本的值不變)</label>
-        </div>
-        <div class="form-grid" style="grid-template-columns:1fr auto;">
-          <div class="field">
-            <label data-i18n="fieldSelectFiles">選擇檔案(檔案在不同資料夾可分次加選)</label>
-            <input type="file" id="masterImportFile" accept=".xlsx,.xls" multiple onchange="addMasterFiles(this.files)" style="border:1px solid var(--line);background:#fff;border-radius:2px;padding:8px;font-family:'IBM Plex Mono',monospace;font-size:12px;width:100%;" />
-          </div>
-          <button class="btn" onclick="parseMasterExcelFile()" data-i18n="btnParseImport">解析並匯入</button>
-        </div>
-        <div id="masterFileList" class="file-chip-list"></div>
-        <div id="importMsg" class="msg"></div>
-        <div id="priceImportMsg" class="msg"></div>
-        </div>
+        <div class="settings-card" id="avgCostMethodCard"></div>
         <div class="settings-card">
           <div class="section-title" data-i18n="secAccountingEmail">會計 Email</div>
           <p style="font-size:11.5px;color:var(--ink-soft);margin:0 0 12px;" data-i18n="accountingEmailHint">
@@ -2324,6 +2369,44 @@
           </div>
           <div style="margin-top:12px;"><button class="btn" onclick="invSaveSettings()" data-i18n="btnSave">儲存</button></div>
           <div id="invSettingsMsg" class="msg"></div>
+        </div>
+        </div>
+        <div id="accSetPaneItems" style="display:none;">
+        <div class="settings-card">
+          <div class="section-title" data-i18n="secAccProducts">商品</div>
+          <p style="font-size:11.5px;color:var(--ink-soft);margin:0 0 8px;" data-i18n="accProductsHint">會計新增的商品:會計匯出一定顯示、倉管員不能刪除。</p>
+          <button class="btn ghost" onclick="openAddNewProductFromAcct()" data-i18n="btnAddProductAcct">＋ 新增商品</button>
+        </div>
+        <div class="settings-card" id="evoPackCard"></div>
+        <div class="settings-card" id="importDataCard">
+        <div class="section-title" data-i18n="secImportData">匯入資料</div>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:0 0 4px;">
+          <select id="importTemplateSelect" style="min-width:180px;">
+            <option value="master" data-i18n="optImportTemplateMaster">商品主檔範本</option>
+            <option value="price" data-i18n="optImportTemplatePrice">定價管理範本</option>
+          </select>
+          <button class="btn" onclick="downloadImportTemplate()" data-i18n="btnDownloadMasterTemplate">📄 下載匯入範本</button>
+        </div>
+
+        <hr class="divider" />
+
+        <div class="section-title" id="uploadFileTitle" style="margin-bottom:8px;"><span data-i18n="secUploadFile">上傳檔案</span></div>
+        <p style="font-size:12.5px;color:var(--ink-soft);margin:0 0 10px;" data-i18n="importByFilenameDesc">系統依檔名決定匯入哪一種:檔名含「price」的當作 Price setting 匯入,其他檔案當作商品主檔匯入。直接用下載的範本檔名即可。</p>
+        <div style="display:flex;align-items:center;gap:8px;margin:0 0 12px;">
+          <input type="checkbox" id="clearBlanksOnImport" style="width:16px;height:16px;cursor:pointer;" />
+          <label for="clearBlanksOnImport" style="font-size:12.5px;color:var(--ink);cursor:pointer;" data-i18n="clearBlanksOnImportLabel">表格裡選填欄位如果是空白,就清空現有商品對應的資料(預設不勾選,空白欄位維持現有商品原本的值不變)</label>
+        </div>
+        <div class="form-grid" style="grid-template-columns:1fr auto;">
+          <div class="field">
+            <label data-i18n="fieldSelectFiles">選擇檔案(檔案在不同資料夾可分次加選)</label>
+            <input type="file" id="masterImportFile" accept=".xlsx,.xls" multiple onchange="addMasterFiles(this.files)" style="border:1px solid var(--line);background:#fff;border-radius:2px;padding:8px;font-family:'IBM Plex Mono',monospace;font-size:12px;width:100%;" />
+          </div>
+          <button class="btn" onclick="parseMasterExcelFile()" data-i18n="btnParseImport">解析並匯入</button>
+        </div>
+        <div id="masterFileList" class="file-chip-list"></div>
+        <div id="importMsg" class="msg"></div>
+        <div id="priceImportMsg" class="msg"></div>
+        </div>
         </div>
     </div>
 
@@ -2760,6 +2843,10 @@
       <label data-i18n="fieldForecastRecordName">紀錄名稱</label>
       <input type="text" id="saveForecastNameInput" maxlength="80" style="width:100%;" onkeydown="if(event.key==='Enter') confirmSaveForecast()" />
     </div>
+    <div class="field-block">
+      <label data-i18n="fieldForecastSupplier">進貨方(選填)</label>
+      <select id="saveForecastSupplier" style="width:100%;padding:8px;"></select>
+    </div>
     <div id="saveForecastModalMsg" class="msg"></div>
     <div class="modal-actions">
       <button class="btn ghost" onclick="closeSaveForecastModal()" data-i18n="btnCancel">取消</button>
@@ -2852,6 +2939,18 @@
       <button type="button" class="btn ghost" style="margin-top:8px;font-size:12px;" onclick="scanReceiptForEditPurchase()" data-i18n="btnScanReceiptToFillQty">🔍 用收據掃描帶入數量/金額</button>
       <div id="editPurchaseScanMsg" style="font-size:11.5px;margin-top:4px;"></div>
       <div id="editPurchaseScanUnmatchedWrap" style="font-size:11.5px;margin-top:4px;color:var(--warn-dark);"></div>
+    </div>
+    <div class="field-block" id="editPurchaseAccWrap" style="display:none;">
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+        <input type="checkbox" id="editPurchaseAccToggle" style="width:16px;height:16px;cursor:pointer;" />
+        <label for="editPurchaseAccToggle" style="font-size:12.5px;font-weight:600;cursor:pointer;margin:0;" data-i18n="chkInAccounting">入會計紀錄</label>
+        <span style="font-size:12px;color:var(--ink-soft);" data-i18n="paFormGstMode">金額</span>
+        <select id="editPurchaseGstMode" style="font-size:12.5px;"><option value="ex" data-i18n="paGstModeEx">不含 GST</option><option value="inc" data-i18n="paGstModeInc">含 GST</option></select>
+        <span style="font-size:12px;color:var(--ink-soft);" data-i18n="paInvDateLbl">發票日期</span>
+        <input type="date" id="editPurchaseInvDate" style="font-size:12.5px;" />
+        <span style="font-size:12px;color:var(--ink-soft);" data-i18n="paDueDateLbl">付款到期日</span>
+        <input type="date" id="editPurchaseDueDate" style="font-size:12.5px;" />
+      </div>
     </div>
     <div class="field-block">
       <label data-i18n="purchaseItemsLabel">品項</label>
@@ -3017,6 +3116,10 @@
       <input type="text" id="partyAbnInput" style="width:100%;" />
     </div>
     <div class="field-block">
+      <label data-i18n="fieldMyobCard">MYOB 卡片名稱(選填)</label>
+      <input type="text" id="partyMyobInput" style="width:100%;" />
+    </div>
+    <div class="field-block">
       <label data-i18n="fieldPaymentType">Payment type</label>
       <select id="partyPaymentTypeSelect" style="width:100%;" onchange="onPartyPaymentTypeChange()">
         <option value="bank">Bank Transfer</option>
@@ -3082,6 +3185,15 @@
     <div class="field-block">
       <label data-i18n="fieldSupplierAddress">住址(選填)</label>
       <input type="text" id="supplierAddressInput" style="width:100%;" />
+    </div>
+    <div class="field-block">
+      <label data-i18n="fieldMyobCard">MYOB 卡片名稱(選填)</label>
+      <input type="text" id="supplierMyobInput" style="width:100%;" />
+    </div>
+    <div class="field-block">
+      <label data-i18n="fieldSupplierTerms">付款天數 Payment terms(選填,天)</label>
+      <input type="number" id="supplierTermsInput" min="0" max="730" step="1" style="width:140px;" placeholder="例如:30" />
+      <div style="font-size:11.5px;color:var(--ink-soft);margin-top:3px;" data-i18n="supplierTermsHint">進貨單沒填付款到期日時,到期日 = 發票日期 + 這個天數。0 = 發票日當天到期。</div>
     </div>
     <div class="field-block">
       <label data-i18n="fieldSupplierNote">附註(選填,例如送貨時間、限制)</label>
@@ -3232,6 +3344,13 @@
 <script src="price-setting.js"></script>
 <script src="invoice.js"></script>
 <script src="invoice-create.js"></script>
+<script src="purchase-accounting.js"></script>
+<script src="prepayments.js"></script>
+<script src="report-categories.js"></script>
+<script src="evidence-pack.js"></script>
+<script src="other-expenses.js"></script>
+<script src="accounting-reports.js"></script>
+<script src="payment-schedule.js"></script>
 <script src="purchase-costs.js"></script>
 <script src="parties.js"></script>
 <script src="account-requests.js"></script>
@@ -3691,7 +3810,7 @@ async function loadData(){
     'disableDirectVerify','hideInvoice','accountingEmails','accountingEmail','stockLocationMode','stockLocationEnabledFields',
     'stockLocationShowOnPickingSlip','productSortMode','productManualRank','completedExportFormat',
     'hideMultipackIconOnOrderPage','categoryOrder','tabOrder','subTabOrder','quickLists','forecastPrefs','forecastRecords','exportEmailLogs',
-    'historyRangeMonths']);
+    'historyRangeMonths','reportCategories','reportCategoryAccounts','categoryManual','myobCards']);
   // 送貨單/進貨單/後台紀錄屬於歷史類資料,第一次用到(開對應分頁、備份…)才載入,見 db.js ensure*Loaded
   const tablesP = Promise.all([loadProductStock(), loadProductLocations(), loadReceiptLineMappings(), loadPurchaseSuppliers()]);
   // 歷史資料顯示範圍(管理員設定)決定要載入幾個月的交易/訂單,所以要等設定值先讀到
@@ -3707,6 +3826,9 @@ async function loadData(){
     const p = await dbGet('products');
     products = p ? JSON.parse(p.value) : [];
   } catch(e){ products = []; }
+  if(typeof rcLoad === 'function') await rcLoad();
+  if(typeof psLoadAvgMethod === 'function'){ await psLoadAvgMethod(); psLoadMovements(); }
+  if(typeof myobCardsLoad === 'function') await myobCardsLoad();
   try{
     const counterResult = await dbGet('orderCounter');
     orderCounter = counterResult ? (parseInt(counterResult.value, 10) || 0) : 0;

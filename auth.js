@@ -77,6 +77,10 @@ function canViewPrice(){
 // 會計(accountant)身分:跟管理者差不多,但不預設帶系統管理分頁(幣種、定價設定、Invoice 格式、匯入資料在「會計」分頁的「會計設定」)
 function isAccountantUser(){ return !!currentUser && currentUser.role === 'accountant'; }
 // 開 Invoice 的權限:管理者、會計
+// 商品視窗的「會計」分頁(GST…)只有會計與管理者看得到;倉管員看不到
+function canSeeProductAcct(){ return !!currentUser && (currentUser.role === 'admin' || currentUser.role === 'accountant'); }
+// 沒有「訂單顯示價錢」權限的人(倉管員等):批次頁的成本 / 售價 / 庫存價值欄用 CSS 隱藏
+function applyCostVisibility(){ try{ document.body.classList.toggle('no-cost-view', !(typeof canViewPrice === 'function' && canViewPrice())); }catch(e){} }
 function isInvoiceRole(){ return !!currentUser && (currentUser.role === 'admin' || currentUser.role === 'accountant'); }
 // Invoice 功能的總開關:身分是管理者/會計,而且沒有在系統設置勾選「隱藏 Invoice 功能」
 function canCreateInvoice(){ return isInvoiceRole() && !(typeof hideInvoiceEnabled !== 'undefined' && hideInvoiceEnabled); }
@@ -218,6 +222,7 @@ async function handleLoginSubmit(e){
   currentUser = profile;
   document.getElementById('loginScreen').style.display = 'none';
   document.getElementById('appLoadingOverlay').style.display = 'flex';
+  if(typeof applyCostVisibility === 'function') applyCostVisibility();
   showOnlyAllowedTabImmediately();
   await startApp();
   document.getElementById('appLoadingOverlay').style.display = 'none';

@@ -110,7 +110,7 @@ function renderPurchaseLog(){
           <tr>
             <td colspan="${showBatchCol ? 5 : 4}" style="background:#fff;">
               ${orderBlockHtml('items', 'orderBlockItems', `<table class="stock-table" style="margin:2px 0;background:transparent;">
-                <thead><tr><th>${t('colProduct')}</th><th class="num">${t('colQty')}</th>${(p.items || []).some(it => it.amount) ? `<th class="num">${(p.costs && p.costs.expensesAud > 0) ? t('colBasePrice') : t('colAmount')}</th>` : ''}${(p.costs && p.costs.expensesAud > 0) ? `<th class="num">${t('colTotalPrice')}</th>` : ''}</tr></thead>
+                <thead><tr><th>${t('colProduct')}</th><th class="num">${t('colQty')}</th>${(p.items || []).some(it => it.amount) ? `<th class="num">${(typeof pcPurchaseTotals === 'function' && p.costs && pcPurchaseTotals(p).expenses > 0) ? t('colBasePrice') : t('colAmount')}</th>` : ''}${(typeof pcPurchaseTotals === 'function' && p.costs && pcPurchaseTotals(p).expenses > 0) ? `<th class="num">${t('colTotalPrice')}</th>` : ''}</tr></thead>
                 <tbody>
                   ${(p.items || []).map(it => {
                     const isCreditNote = it.docType === 'credit_note';
@@ -118,10 +118,13 @@ function renderPurchaseLog(){
                     const badge = isCreditNote ? ` <span style="color:var(--crit);font-weight:600;font-size:11px;">(${t('docTypeCreditNoteBadge')})</span>` : '';
                     const amountCell = (p.items || []).some(x => x.amount)
                       ? `<td class="num">${it.amount ? Number(isCreditNote ? -it.amount : it.amount).toFixed(2) : '–'}</td>` : '';
-                    const totalCell = (p.costs && p.costs.expensesAud > 0)
-                      ? `<td class="num"><strong>${(typeof pcItemPrices === 'function' && pcItemPrices(it).total !== null) ? pcItemPrices(it).total.toFixed(2) : '–'}</strong></td>` : '';
-                    return `<tr><td>${escapeHtmlForPrint(it.name)}${badge}</td><td class="num">${displayQty} ${escapeHtmlForPrint(it.unit || '')}</td>${amountCell}${totalCell}</tr>`;
-                  }).join('')}
+                    const totalCell = (typeof pcPurchaseTotals === 'function' && p.costs && pcPurchaseTotals(p).expenses > 0)
+                      ? `<td class="num"><strong>${(typeof pcItemPrices === 'function' && pcItemPrices(it).total !== null) ? pcItemPrices(it).total.toFixed(2) : '–'}</strong>${(it.totalAmount !== undefined && it.totalAmount !== null && !isCreditNote) ? ` <span class="batch-info-icon" style="cursor:pointer;" title="${escapeHtmlForPrint(t('pcPdTitle'))}" onclick="pcShowItemPrice('${p.id}','item',${(p.items || []).indexOf(it)})">ⓘ</span>` : ''}</td>` : '';
+                    const rq = it.rcv ? `${isCreditNote ? -it.rcv.qty : it.rcv.qty} ${escapeHtmlForPrint(it.rcv.unit || '')}` : `${displayQty} ${escapeHtmlForPrint(it.unit || '')}`;
+                    const swNote = it.rcv ? `<div style="color:var(--ink-soft);font-size:11px;">${escapeHtmlForPrint(tf('purchaseConvertedNote', { name: it.name, qty: displayQty, unit: it.unit || '' }))}</div>` : '';
+                    const shownName = (it.rcv && it.rcv.name) ? it.rcv.name : it.name;
+                    return `<tr><td>${escapeHtmlForPrint(shownName)}${badge}${swNote}</td><td class="num">${rq}</td>${amountCell}${totalCell}</tr>`;
+                  }).join('')}${(p.nonStockItems || []).map(n => `<tr style="background:var(--bg-soft,#f5f5f0);"><td>${escapeHtmlForPrint(n.name || '')} <span style="color:var(--ink-soft);font-size:11px;">(${t('pcNonStockBadge')})</span></td><td class="num">${n.qty} ${escapeHtmlForPrint(n.unit || '')}</td>${(p.items || []).some(x => x.amount) ? `<td class="num">${Number(n.amount || 0).toFixed(2)}</td>` : ''}${(typeof pcPurchaseTotals === 'function' && p.costs && pcPurchaseTotals(p).expenses > 0) ? (n.totalAmount !== undefined && n.totalAmount !== null ? `<td class="num"><strong>${Number(n.totalAmount).toFixed(2)}</strong> <span class="batch-info-icon" style="cursor:pointer;" title="${escapeHtmlForPrint(t('pcPdTitle'))}" onclick="pcShowItemPrice('${p.id}','ns',${(p.nonStockItems || []).indexOf(n)})">ⓘ</span></td>` : '<td class="num">–</td>') : ''}</tr>`).join('')}${(p.lineExpenses || []).map(l => `<tr style="background:var(--bg-soft,#f5f5f0);"><td>${escapeHtmlForPrint(l.name || '')} <span style="color:var(--ink-soft);font-size:11px;">(${t('pcLineExpBadge')})</span></td><td class="num"></td>${(p.items || []).some(x => x.amount) ? `<td class="num">${Number(l.amount || 0).toFixed(2)}</td>` : ''}${(typeof pcPurchaseTotals === 'function' && p.costs && pcPurchaseTotals(p).expenses > 0) ? '<td class="num">–</td>' : ''}</tr>`).join('')}
                 </tbody>
               </table>${(p.costs && typeof pcPurchaseTotals === 'function') ? (() => { const tt = pcPurchaseTotals(p); return `<div style="font-size:12.5px;margin-top:4px;display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;"><span>${t('lblInvoiceSubtotal')}: <strong>${tt.base.toFixed(2)}</strong>${tt.expenses > 0 ? ` + ${t('lblOtherExpensesTotal')}: <strong>${tt.expenses.toFixed(2)}</strong> = ${t('lblPurchaseGrandTotal')}: <strong>${tt.total.toFixed(2)}</strong>` : ''} ${p.costs.baseCurrency || 'AUD'}${p.costs.overseas ? ` (${tf('pcInvoiceCurrencyShort', { cur: p.costs.currency })})` : ''}</span>${(typeof pcHasOriginalData === 'function' && pcHasOriginalData(p)) ? `<button class="btn ghost" style="font-size:12px;" onclick="pcOpenOriginalModal('${p.id}')">${t('pcViewOriginal')}</button>` : ''}</div>`; })() : ''}`)}
               ${p.note ? orderBlockHtml('remark', 'orderBlockRemark', `<p style="font-size:12.5px;color:var(--ink);margin:0;">${tf('purchaseNoteLabel', { note: escapeHtmlForPrint(p.note) })}</p>`) : ''}
@@ -152,22 +155,25 @@ function getPurchaseReceiptFileList(p){
 }
 
 function buildPurchaseWorkbook(p){
+  // 不入公司帳的商品(商品主檔設定)不列入會計用的進貨單檔案;非入庫商品與收據上的其他支出另外成列
+  const exportItems = (p.items || []).filter(it => !it.noAcct);
+  const nsItems = p.nonStockItems || [], lineItems = p.lineExpenses || [];
   const productMap = Object.fromEntries(products.map(pp => [pp.id, pp]));
   const supplier = p.partyName || p.partyId || '';
-  const hasAnyAmount = (p.items || []).some(it => it.amount);
-  const hasAnyDocType = (p.items || []).some(it => it.docType);
+  const hasAnyAmount = exportItems.some(it => it.amount) || nsItems.length > 0 || lineItems.length > 0 || ((p.costs && p.costs.expenses) || []).length > 0;
+  const hasAnyDocType = exportItems.some(it => it.docType);
 
   const aoa = [];
   aoa.push([`Supplier: ${supplier}`, `Invoice No.: ${p.invoiceNo || ''}`]);
   aoa.push([`Date: ${p.date || ''}`]);
-  const hasOrig = (p.items || []).some(it => it.origCurrency);
+  const hasOrig = exportItems.some(it => it.origCurrency) || nsItems.some(n => n.origCurrency) || lineItems.some(l => l.origCurrency) || ((p.costs && p.costs.expenses) || []).some(e => e.currency && e.currency !== ((p.costs && p.costs.baseCurrency) || 'AUD'));
   const headerRow = ['SKU', 'Name', 'Qty', 'Unit'];
   // 第二期:Base Price = 發票商品本身的金額(AUD);Total Price = Base Price + 分攤到的其他支出。沒有其他支出時兩者相同。
   if(hasAnyAmount) headerRow.push('Base Price', 'Base Unit Price', 'Other Expenses (allocated)', 'Total Price', 'Total Unit Price');
   if(hasAnyAmount && hasOrig) headerRow.push('Invoice Amount (orig.)', 'Invoice Currency', `FX Rate (to ${(p.costs && p.costs.baseCurrency) || 'AUD'})`);
   if(hasAnyDocType) headerRow.push('Document');
   aoa.push(headerRow);
-  (p.items || []).forEach(it => {
+  exportItems.forEach(it => {
     const prod = productMap[it.productId];
     const isCreditNote = it.docType === 'credit_note';
     // Credit Note 這筆在匯出報表裡顯示成負數——存進資料裡的 qty/amount 本身是正數(對應收據上
@@ -201,15 +207,31 @@ function buildPurchaseWorkbook(p){
     aoa.push(row);
   });
 
+  // 非入庫商品、收據上的其他支出:跟商品一樣成列(金額已含在發票金額裡),標示類別
+  const r2x = x => Math.round(x * 100) / 100;
+  const pushExtraRow = (name, qty, unit, amount, origAmount, origCur, fx) => {
+    const row = ['', name, qty, unit];
+    if(hasAnyAmount){
+      row.push(r2x(amount), qty ? r2x(amount / qty) : '', 0, r2x(amount), qty ? r2x(amount / qty) : '');
+      if(hasOrig){ row.push(origAmount !== undefined ? origAmount : '', origCur || '', fx || ''); }
+    }
+    if(hasAnyDocType) row.push('');
+    aoa.push(row);
+  };
+  nsItems.forEach(n => pushExtraRow(`${n.name} (Non-stock)`, n.qty, n.unit || '', Number(n.amount) || 0, n.origAmount, n.origCurrency, n.fxRate));
+  lineItems.forEach(l => pushExtraRow(`${l.name} (Other expense)`, '', '', Number(l.amount) || 0, l.origAmount, l.origCurrency, l.fxRate));
+  // 跟此進貨單相關的其他支出(運費、報關等,通常付給其他廠商):同樣成列,標示 Related expense
+  const relItems = (p.costs && p.costs.expenses) || [];
+  const relBase = (p.costs && p.costs.baseCurrency) || 'AUD';
+  relItems.forEach(e => pushExtraRow(`${e.name} (Related expense${e.payee ? " - " + e.payee : ""})`, '', '', Number(e.aud) || 0, e.currency !== relBase ? e.amount : undefined, e.currency !== relBase ? e.currency : '', e.currency !== relBase ? e.rate : ''));
+
   // 第二期:底價 / 其他支出 / 總價 合計(AUD),其他支出逐項列出(含原幣別與匯率)
   if(hasAnyAmount && typeof pcPurchaseTotals === 'function'){
     const tt = pcPurchaseTotals(p);
     aoa.push([]);
     aoa.push(['Invoice Items (Base Price)', '', '', '', tt.base]);
+    if(tt.lineExpenses > 0) aoa.push(['Invoice Expenses (on receipt)', '', '', '', tt.lineExpenses]);
     if(p.costs && p.costs.expenses && p.costs.expenses.length){
-      p.costs.expenses.forEach(e => {
-        aoa.push([`Other Expense: ${e.name}`, '', '', '', e.aud, `${e.amount} ${e.currency}${e.currency !== ((p.costs && p.costs.baseCurrency) || 'AUD') ? ' @ ' + e.rate : ''}`]);
-      });
       const basisName = { volume: 'Volume', weight: 'Weight', boxes: 'Boxes', amount: 'Amount' }[p.costs.basis] || p.costs.basis;
       aoa.push(['Allocated by', basisName]);
     }
@@ -225,7 +247,7 @@ function buildPurchaseWorkbook(p){
   // 額外附加的加總視圖,方便只想看最終結果的人一眼看到淨值,不用自己拿計算機把發票跟退貨的
   // 數字兜起來。
   const byProduct = {};
-  (p.items || []).forEach(it => { (byProduct[it.productId] = byProduct[it.productId] || []).push(it); });
+  exportItems.forEach(it => { (byProduct[it.productId] = byProduct[it.productId] || []).push(it); });
   const multiLineProductIds = Object.keys(byProduct).filter(pid => byProduct[pid].length > 1);
   if(multiLineProductIds.length > 0){
     aoa.push([]);
@@ -512,6 +534,7 @@ function populateEditPurchasePartySelect(currentName, currentSupplierId){
   editPurchaseTargetId = purchaseId;
   editPurchaseWorkingReceiptFiles = getPurchaseReceiptFileList(p).slice();
   editPurchaseWorkingItems = (p.items || []).map(it => ({...it}));
+  if(typeof paEditLoad === 'function') paEditLoad(p);   // 進貨帳務:入會計紀錄 / GST
   document.getElementById('editPurchaseDateInput').value = p.date || '';
   { const _amt = document.getElementById('editPurchaseAddItemAmount'); if(_amt){ _amt.disabled = !canEditPrice(); if(!canEditPrice()) _amt.value = ''; } }
   populateEditPurchasePartySelect(p.partyName || p.partyId || '', p.supplierId || '');
@@ -626,6 +649,7 @@ function renderEditPurchaseItemsList(){
           <span style="width:70px;">${t('colQty')}</span>
           <span style="width:46px;flex:none;visibility:hidden;">${t('colQty')}</span>
           <span style="width:90px;">${t('colAmount')} (${escapeHtmlForPrint(typeof getSystemCurrency === 'function' ? getSystemCurrency() : 'AUD')})</span>
+          ${(typeof paOn === 'function' && paOn()) ? '<span style="width:92px;">GST</span>' : ''}
           <span style="visibility:hidden;">${t('btnRemoveItem')}</span>
         </div>`;
   wrap.innerHTML = `
@@ -642,9 +666,10 @@ function renderEditPurchaseItemsList(){
           <input type="number" value="${it.qty}" min="0" step="any" style="width:70px;" oninput="updateEditPurchaseItemQty(${i}, this.value)" />
           <span style="font-size:11.5px;color:var(--ink-soft);width:46px;flex:none;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtmlForPrint(it.unit || '')}</span>
           <input type="number" value="${it.amount !== undefined && it.amount !== null ? it.amount : ''}" min="0" step="any" placeholder="$" style="width:90px;" ${canEditPrice() ? '' : 'readonly title="' + t('priceReadOnlyTitle') + '"'} oninput="updateEditPurchaseItemAmount(${i}, this.value)" />
+          ${(typeof paOn === 'function' && paOn()) ? (it.noAcct ? '<span style="font-size:11.5px;color:var(--ink-soft);">' + t('paOffBooksShort') + '</span>' : paGstSelectHtml(it.gst, 'paEditSetGst(' + i + ', this.value)')) : ''}
           <span class="del-link" onclick="removeEditPurchaseItem(${i})">${t('btnRemoveItem')}</span>
          </div>
-         ${editPurchaseIsBatchTracked() ? `<div style="display:flex;align-items:center;gap:8px;margin-top:4px;flex-wrap:wrap;">
+         ${(editPurchaseIsBatchTracked() && !it.noBatch) ? `<div style="display:flex;align-items:center;gap:8px;margin-top:4px;flex-wrap:wrap;">
           <span style="font-size:11.5px;color:var(--ink-soft);">${t('batchColExpiry')}</span>
           <input type="date" value="${it.expiry || ''}" title="${t('batchColExpiry')}" style="width:122px;" onchange="updateEditPurchaseItemExpiry(${i}, this.value)" />
           <span style="font-size:11.5px;color:var(--ink-soft);">${t('batchLotLabel')}</span>
@@ -717,6 +742,7 @@ function updateEditPurchaseItemQty(index, value){
   if(!it) return;
   const n = parseFloat(value);
   it.qty = Number.isFinite(n) ? n : 0;
+  delete it.rcv;   // 數量被改過,收據原始單位/數量不再準確 → 退回顯示主商品單位
 }
 function updateEditPurchaseItemAmount(index, value){
   if(!canEditPrice()) return; // 沒有「編輯價錢」權限只能看不能改
@@ -761,6 +787,7 @@ function addEditPurchaseItem(){
     if(amountVal !== undefined) existing.amount = (existing.amount || 0) + amountVal;
   } else {
     const item = { productId, sku: p.sku || '', name: p.name, unit: p.unit, qty };
+    if(typeof batchProductTracked === 'function' && editPurchaseIsBatchTracked() && !batchProductTracked(productId)) item.noBatch = true;
     if(amountVal !== undefined) item.amount = amountVal;
     editPurchaseWorkingItems.push(item);
   }
@@ -965,6 +992,11 @@ async function confirmEditPurchase(){
     const { _scanUpdated, batchNote, ...rest } = it;
     return rest;
   });
+  if(typeof paEditCheck === 'function'){
+    paAutoFillGst(cleanItems);
+    const paErr = paEditCheck(cleanItems);
+    if(paErr){ msgEl.className = 'msg error'; msgEl.textContent = '⚠ ' + paErr; return; }
+  }
   // 比較品項有沒有真的改過:正規化成只留下影響庫存/金額的欄位、排序後再比較,不受「使用者
   // 只是把某一列刪掉又加回來、順序跟原本不一樣」這種操作影響——只要最終內容一樣,就不算改過,
   // 不需要白白重新產生一次 transactions。
@@ -977,7 +1009,7 @@ async function confirmEditPurchase(){
     expiry: it.expiry || null,
     supplierLot: it.supplierLot || null
   })).sort((a,b) => `${a.productId}|${a.docType}|${a.sourceFilename}|${a.expiry}`.localeCompare(`${b.productId}|${b.docType}|${b.sourceFilename}|${b.expiry}`));
-  const itemsChanged = JSON.stringify(normalizeForCompare(p.items || [])) !== JSON.stringify(normalizeForCompare(cleanItems));
+  let itemsChanged = JSON.stringify(normalizeForCompare(p.items || [])) !== JSON.stringify(normalizeForCompare(cleanItems));
 
   // 批次追蹤:數量不能低於這個批次已經出貨的量(最後以資料庫為準)
   if(p.batchTracked && typeof batchValidatePurchaseEdit === 'function'){
@@ -992,6 +1024,7 @@ async function confirmEditPurchase(){
     const costRes = pcEditApply(p, cleanItems);
     if(costRes.error){ msgEl.className = 'msg error'; msgEl.textContent = '⚠ ' + costRes.error; return; }
     costsChanged = !!costRes.changed;
+    if(costRes.converted) itemsChanged = true;   // 轉成海外採購:金額換算成澳幣,連帶重建進貨庫存紀錄
   }
 
   msgEl.className = 'msg'; msgEl.textContent = t('savingMsg');
@@ -1003,6 +1036,7 @@ async function confirmEditPurchase(){
   p.invoiceNo = invoiceVal;
   p.note = noteVal;
   p.items = cleanItems;
+  if(typeof paEditApply === 'function') paEditApply(p);   // 入會計紀錄 / GST 模式
   p.receiptFiles = editPurchaseWorkingReceiptFiles.slice();
   delete p.receiptUrl; // 舊格式欄位一旦編輯過就統一改用新的 receiptFiles 陣列,不留舊欄位造成混淆
   delete p.receiptFilename;
