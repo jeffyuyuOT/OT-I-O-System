@@ -68,7 +68,7 @@ const LOOKOUT_CARDS = [
       switchTab('tab-accounting');
       switchAccountingSubTab('subtab-acc-create-invoice');
     } },
-  { id: 'forecast', icon: '🔮', titleKey: 'subtabTxForecast', descKey: 'lookoutForecastDesc', tab: ['tab-warehouse-admin', 'tab-log'],
+  { id: 'forecast', icon: '🫡', titleKey: 'subtabTxForecast', descKey: 'lookoutForecastDesc', tab: ['tab-warehouse-admin', 'tab-log'],
     go: function(){ lookoutOpenForecastChoice(); } },
   { id: 'tx-log', icon: '🧾', titleKey: 'lookoutTxLog', descKey: 'lookoutTxLogDesc', tab: 'tab-log',
     go: function(){

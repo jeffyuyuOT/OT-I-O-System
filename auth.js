@@ -57,7 +57,7 @@ const CAPABILITY_DEFS = [
 //   · 原本有 tab-order-admin、沒有 tab-warehouse-ops:給倉庫作業台,但關掉「登記進出貨」「訂單核對」,只留訂單子分頁
 //   · 原本有 tab-warehouse-ops、沒有 tab-order-admin:關掉「待處理訂單」「已完成訂單」,維持原本看到的內容
 //   · 兩個都有:全部開放
-function migratePermsV2(tabPerms, restricted){
+function migratePermsV2(tabPerms, restricted, role){
   const tabs = Array.isArray(tabPerms) ? tabPerms.slice() : [];
   let rc = Array.isArray(restricted) ? restricted.slice() : [];
   if(rc.includes('perm-v2')) return { tabPermissions: tabs.filter(id => id !== 'tab-order-admin'), restrictedCapabilities: rc };
@@ -72,6 +72,10 @@ function migratePermsV2(tabPerms, restricted){
   } else if(hadOps && !hadAdmin){
     add('cap-orders-pending'); add('cap-orders-completed');
   }
+  // 舊版「角色預設分頁會自動補進去」的行為,改成在這裡一次補齊;之後(有 perm-v2 標記)存檔的分頁清單就是準的,
+  // 管理者在樹狀權限取消勾選的分頁不會再被補回來。
+  const allIds = TAB_DEFS.map(d => d.id);
+  (ROLE_DEFAULT_TABS[role] || []).forEach(id => { if(allIds.includes(id) && !out.includes(id)) out.push(id); });
   rc.push('perm-v2');
   return { tabPermissions: out, restrictedCapabilities: rc };
 }
@@ -151,7 +155,7 @@ function emailToUsername(email){
 async function fetchProfileForUser(authUser){
   const { data, error } = await sb.from('profiles').select('*').eq('id', authUser.id).maybeSingle();
   if(error || !data) return null;
-  const mig = migratePermsV2(data.tab_permissions, data.restricted_capabilities);
+  const mig = migratePermsV2(data.tab_permissions, data.restricted_capabilities, data.role);
   return {
     id: authUser.id,
     username: data.username,
@@ -186,9 +190,9 @@ async function loadUsers(){
     id: row.id,
     username: row.username,
     role: row.role,
-    tabPermissions: migratePermsV2(row.tab_permissions, row.restricted_capabilities).tabPermissions,
+    tabPermissions: migratePermsV2(row.tab_permissions, row.restricted_capabilities, row.role).tabPermissions,
     assignedPartyIds: Array.isArray(row.assigned_party_ids) ? row.assigned_party_ids : [],
-    restrictedCapabilities: migratePermsV2(row.tab_permissions, row.restricted_capabilities).restrictedCapabilities,
+    restrictedCapabilities: migratePermsV2(row.tab_permissions, row.restricted_capabilities, row.role).restrictedCapabilities,
     firstName: row.first_name || '',
     lastName: row.last_name || '',
     email: row.email || ''
@@ -371,34 +375,65 @@ function capCheckedFor(c, restrictedCapabilities, role){
     : (c.special === 'viewprice' ? canViewPriceFor(role, restrictedCapabilities)
     : (c.special === 'verify' ? canVerifyOrdersFor(role, restrictedCapabilities) : !restrictedCapabilities.includes(c.id)));
 }
-function capRowHtml(userId, c, restrictedCapabilities, role, disabled){
+function capRowHtml(userId, c, restrictedCapabilities, role, disabled, depth){
+  const label = c.label != null ? c.label : t(c.labelKey);
   return `
-    <label style="display:flex;align-items:flex-start;gap:6px;max-width:100%;font-size:12.5px;${disabled ? 'opacity:.45;' : ''}">
-      <input type="checkbox" data-cap-id="${c.id}" id="modalCap_${userId}_${c.id}" ${capCheckedFor(c, restrictedCapabilities, role) ? 'checked' : ''} ${disabled ? 'disabled' : ''} />
-      <span>${t(c.labelKey)}</span>
+    <label style="display:flex;align-items:flex-start;gap:6px;max-width:100%;font-size:12.5px;margin-left:${(depth || 0) * 18}px;${disabled ? 'opacity:.45;' : ''}">
+      <input type="checkbox" data-cap-id="${c.id}" id="modalCap_${userId}_${c.id.replace(/[^\w-]/g, '_')}" ${capCheckedFor(c, restrictedCapabilities, role) ? 'checked' : ''} ${disabled ? 'disabled' : ''} />
+      <span>${label.replace(/</g, '&lt;')}</span>
     </label>`;
+}
+// 子分頁 / 下拉選項節點 → 權限列(遞迴,「供應與清單管理」底下的出貨方 / 進貨方 / 快捷清單縮排一層)
+function subtabRowsHtml(userId, nodes, restrictedCapabilities, role, disabled, depth){
+  return nodes.map(n => {
+    const key = subTabPermKey(n.id);
+    const def = CAPABILITY_DEFS.find(c => c.id === key) || { id: key };
+    return capRowHtml(userId, Object.assign({}, def, { label: n.label }), restrictedCapabilities, role, disabled, depth)
+      + subtabRowsHtml(userId, n.children || [], restrictedCapabilities, role, disabled, (depth || 0) + 1);
+  }).join('');
+}
+function countNodes(nodes){ return nodes.reduce((a, n) => a + 1 + countNodes(n.children || []), 0); }
+// 主分頁底下的項目:子分頁 / 下拉選項,再加上不是子分頁的細部功能(例如庫存總覽的編輯商品)
+function tabKidsHtml(userId, def, restrictedCapabilities, role, disabled){
+  const nodes = getTabSubtabNodes(def.id);
+  const used = new Set(Object.values(SUBTAB_PERM_KEY_OVERRIDE));
+  const extras = CAPABILITY_DEFS.filter(c => c.parentTab === def.id && !used.has(c.id));
+  const html = subtabRowsHtml(userId, nodes, restrictedCapabilities, role, disabled, 0)
+    + extras.map(c => capRowHtml(userId, c, restrictedCapabilities, role, disabled, 0)).join('');
+  return { html, count: countNodes(nodes) + extras.length };
+}
+function togglePermNode(el){
+  const node = el.closest('.perm-node');
+  const kids = node && node.querySelector('.perm-kids');
+  if(!kids) return;
+  const open = kids.style.display === 'none';
+  kids.style.display = open ? 'flex' : 'none';
+  const arrow = node.querySelector('.perm-arrow');
+  if(arrow) arrow.textContent = open ? '▾' : '▸';
 }
 function permTreeHtml(userId, tabPermissions, restrictedCapabilities, role){
   const tabsHtml = TAB_DEFS.map(def => {
     const on = tabPermissions.includes(def.id);
-    const kids = CAPABILITY_DEFS.filter(c => c.parentTab === def.id);
+    const kids = tabKidsHtml(userId, def, restrictedCapabilities, role, !on);
     return `
-    <div class="perm-node" style="margin:0 0 10px;">
-      <label style="display:flex;align-items:center;gap:6px;font-weight:700;">
+    <div class="perm-node" style="margin:0 0 8px;">
+      <div style="display:flex;align-items:center;gap:8px;">
         <input type="checkbox" data-tab-id="${def.id}" id="modalPerm_${userId}_${def.id}" ${on ? 'checked' : ''} />
-        ${t(def.labelKey)}
-      </label>
-      ${kids.length ? `<div class="perm-kids" data-parent-tab="${def.id}" style="margin:4px 0 0 22px;padding-left:10px;border-left:2px solid var(--line);display:flex;flex-direction:column;gap:4px;">
-        ${kids.map(c => capRowHtml(userId, c, restrictedCapabilities, role, !on)).join('')}
+        <span style="font-weight:700;${kids.count ? 'cursor:pointer;' : ''}flex:1;user-select:none;" ${kids.count ? 'onclick="togglePermNode(this)"' : ''}>
+          ${t(def.labelKey)}${kids.count ? ` <span class="perm-arrow" style="color:var(--ink-soft);font-weight:400;">▸</span> <span style="color:var(--ink-soft);font-weight:400;font-size:11.5px;">(${kids.count})</span>` : ''}
+        </span>
+      </div>
+      ${kids.count ? `<div class="perm-kids" data-parent-tab="${def.id}" style="display:none;margin:6px 0 2px 22px;padding-left:10px;border-left:2px solid var(--line);flex-direction:column;gap:5px;">
+        ${kids.html}
       </div>` : ''}
     </div>`;
   }).join('');
   const globals = CAPABILITY_DEFS.filter(c => !c.parentTab);
   const globalHtml = globals.length ? `
-    <div class="perm-node" style="margin:14px 0 0;padding-top:10px;border-top:1px solid var(--line);">
-      <div style="font-weight:700;margin-bottom:4px;">${t('permGlobalGroup')}</div>
-      <div style="margin-left:22px;display:flex;flex-direction:column;gap:4px;">
-        ${globals.map(c => capRowHtml(userId, c, restrictedCapabilities, role, false)).join('')}
+    <div class="perm-node" style="margin:12px 0 0;padding-top:10px;border-top:1px solid var(--line);">
+      <div style="font-weight:700;margin-bottom:6px;">${t('permGlobalGroup')}</div>
+      <div style="margin-left:22px;display:flex;flex-direction:column;gap:5px;">
+        ${globals.map(c => capRowHtml(userId, c, restrictedCapabilities, role, false, 0)).join('')}
       </div>
     </div>` : '';
   return tabsHtml + globalHtml;
@@ -427,7 +462,7 @@ function collectRestrictedCapabilities(capsWrap){
 }
 
 function renderUserEditModalBody(u){
-  const tabPermissions = u.tabPermissions || [];
+  const tabPermissions = u.role === 'admin' ? TAB_DEFS.map(d => d.id) : (u.tabPermissions || []);   // 管理者一律看得到全部分頁
   const restrictedCapabilities = u.restrictedCapabilities || [];
   const partyIds = u.assignedPartyIds || [];
   const q = s => (s||'').replace(/"/g,'&quot;');
