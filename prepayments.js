@@ -12,7 +12,7 @@ Object.assign(I18N.zh, {
   ppSumPaidFy: '預付', ppSumAppliedFy: '抵扣', ppFltFrom: '從', ppFltTo: '到', ppFltAll: '全部', ppFltOpen: '有餘額', ppFltUsed: '已用完', ppFltClear: '清除篩選', ppEmptyFiltered: '沒有符合篩選的預付款。', ppColDate: '付款日期', ppColSupplier: '進貨方', ppColForecast: '預估紀錄', ppColAmount: '金額', ppColApplied: '已抵扣', ppColBalance: '餘額', ppColNote: '方式 / 備註',
   ppFormAdd: '登記預付款', ppFormEdit: '修改預付款', ppFSupplier: '進貨方', ppFForecast: '連結進貨預估紀錄(選填)', ppFNone: '不連結', ppFDate: '付款日期', ppFAmount: '金額', ppFMethod: '付款方式', ppFNote: '備註',
   ppFRefund: '這是供應商退回預付款(取消訂單)', ppFPickSupplier: '請選擇進貨方', ppFBadAmount: '金額必須大於 0', ppFBadDate: '請填付款日期',
-  ppRefundTag: '退回', ppAppliedTo: '抵扣', ppViewForecast: '查看預估紀錄', ppForecastGone: '預估紀錄已不存在(名稱:{n})',
+  ppRefundTag: '退回', ppAppliedTo: '抵扣', ppViewForecast: '查看預估紀錄', ppForecastGone: '預估紀錄已不存在(名稱:{n})', ppForecastGoneOpt: '{n}(已刪除)',
   ppDeleteConfirm: '確定刪除這筆預付款?', ppErrInUse: '這筆預付款已經抵扣過進貨單,不能刪除或把金額改得比已抵扣的少。請先到進貨單的付款記錄刪除抵扣的那一筆。',
   ppErrExceeds: '退回金額超過這個進貨方目前的預付款餘額。', ppNeedSql: '請先在 Supabase 執行 sql/supplier_prepayments.sql 才能使用預付款。', ppSaveFailed: '儲存失敗,請再試一次。',
   ppApplyTitle: '用預付款抵扣', ppApplyPick: '選擇預付款', ppApplyAmount: '抵扣金額', ppApplyBtn: '抵扣', ppApplyBad: '抵扣金額必須大於 0,不能超過預付款餘額,也不能超過這張進貨單的未付金額。',
@@ -26,7 +26,7 @@ Object.assign(I18N.en, {
   ppSumPaidFy: 'prepaid', ppSumAppliedFy: 'applied', ppFltFrom: 'From', ppFltTo: 'To', ppFltAll: 'All', ppFltOpen: 'With balance', ppFltUsed: 'Fully applied', ppFltClear: 'Clear filters', ppEmptyFiltered: 'No prepayments match the filters.', ppColDate: 'Paid on', ppColSupplier: 'Supplier', ppColForecast: 'Forecast record', ppColAmount: 'Amount', ppColApplied: 'Applied', ppColBalance: 'Balance', ppColNote: 'Method / note',
   ppFormAdd: 'Add prepayment', ppFormEdit: 'Edit prepayment', ppFSupplier: 'Supplier', ppFForecast: 'Linked purchase forecast record (optional)', ppFNone: 'None', ppFDate: 'Paid on', ppFAmount: 'Amount', ppFMethod: 'Method', ppFNote: 'Note',
   ppFRefund: 'Supplier refunded a prepayment (order cancelled)', ppFPickSupplier: 'Please choose a supplier', ppFBadAmount: 'Amount must be above 0', ppFBadDate: 'Please enter the payment date',
-  ppRefundTag: 'Refund', ppAppliedTo: 'Applied to', ppViewForecast: 'View forecast record', ppForecastGone: 'Forecast record no longer exists (name: {n})',
+  ppRefundTag: 'Refund', ppAppliedTo: 'Applied to', ppViewForecast: 'View forecast record', ppForecastGone: 'Forecast record no longer exists (name: {n})', ppForecastGoneOpt: '{n} (deleted)',
   ppDeleteConfirm: 'Delete this prepayment?', ppErrInUse: 'This prepayment has already been applied to a purchase, so it cannot be deleted or reduced below the applied amount. Delete the applied payment on the purchase first.',
   ppErrExceeds: 'The refund is more than this supplier\'s current prepayment balance.', ppNeedSql: 'Run sql/supplier_prepayments.sql in Supabase first to use prepayments.', ppSaveFailed: 'Save failed, please try again.',
   ppApplyTitle: 'Apply a prepayment', ppApplyPick: 'Prepayment', ppApplyAmount: 'Amount to apply', ppApplyBtn: 'Apply', ppApplyBad: 'The amount must be above 0, not more than the prepayment balance, and not more than this purchase\'s unpaid amount.',
@@ -182,7 +182,7 @@ async function ppOpenForm(id, forecastId){
     <div class="section-title" style="margin-top:0;">${ed ? t('ppFormEdit') : t('ppFormAdd')}</div>
     <div class="form-grid" style="grid-template-columns:1fr 1fr;gap:8px;">
       <div class="field" style="grid-column:1/3;"><label>${t('ppFSupplier')}</label><select id="ppFSup" ${(!ed && recSup(ppEdit.forecastId)) ? 'disabled' : ''}><option value="">${t('ppFPickSupplier')}</option>${sups.map(s => `<option value="${ppEsc(s.name)}" data-id="${ppEsc(s.id)}" ${s.name === supV ? 'selected' : ''}>${ppEsc(s.name)}</option>`).join('')}</select></div>
-      <div class="field" style="grid-column:1/3;"><label>${t('ppFForecast')}</label><select id="ppFForecast" onchange="ppOnForecastPick(this.value)"><option value="">${t('ppFNone')}</option>${recs.map(r => `<option value="${ppEsc(r.id)}" ${r.id === ppEdit.forecastId ? 'selected' : ''}>${ppEsc(r.name)}</option>`).join('')}</select></div>
+      <div class="field" style="grid-column:1/3;"><label>${t('ppFForecast')}</label><select id="ppFForecast" onchange="ppOnForecastPick(this.value)"><option value="">${t('ppFNone')}</option>${recs.map(r => `<option value="${ppEsc(r.id)}" ${r.id === ppEdit.forecastId ? 'selected' : ''}>${ppEsc(r.name)}</option>`).join('')}${(ppEdit.forecastId && !recs.some(r => r.id === ppEdit.forecastId)) ? `<option value="${ppEsc(ppEdit.forecastId)}" selected>${ppEsc(tf('ppForecastGoneOpt', { n: (ed && ed.forecast_name) || '' }))}</option>` : ''}</select></div>
       <div class="field"><label>${t('ppFDate')}</label><input type="date" id="ppFDate" value="${ppEsc(ed ? ed.pay_date : paToday())}" /></div>
       <div class="field"><label>${t('ppFAmount')}</label><input type="number" id="ppFAmount" step="0.01" min="0" value="${ed ? ppM(Math.abs(ed.amount)) : ''}" placeholder="0.00" /></div>
       <div class="field"><label>${t('ppFMethod')}</label><select id="ppFMethod">${methods.map(m => `<option value="${ppEsc(m)}" ${m === methodV ? 'selected' : ''}>${ppEsc(m)}</option>`).join('')}</select></div>
