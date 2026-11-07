@@ -68,7 +68,7 @@ const LOOKOUT_CARDS = [
       switchTab('tab-accounting');
       switchAccountingSubTab('subtab-acc-create-invoice');
     } },
-  { id: 'forecast', icon: '<svg viewBox="0 0 24 24" width="1em" height="1em" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6.5" cy="16" r="3.8"/><circle cx="17.5" cy="16" r="3.8"/><path d="M10.3 16h3.4"/><path d="M3.2 14 5.5 5.5h3L9 9M20.8 14l-2.3-8.5h-3L15 9"/><path d="M9 9h6"/></svg>', titleKey: 'subtabTxForecast', descKey: 'lookoutForecastDesc', tab: ['tab-warehouse-admin', 'tab-log'],
+  { id: 'forecast', icon: '🫡', titleKey: 'subtabTxForecast', descKey: 'lookoutForecastDesc', tab: ['tab-warehouse-admin', 'tab-log'],
     go: function(){ lookoutOpenForecastChoice(); } },
   { id: 'export', icon: '📤', titleKey: 'lookoutExport', descKey: 'lookoutExportDesc', tab: ['tab-overview', 'tab-warehouse-admin'],
     go: function(){ lookoutOpenExportChoice(); } },
