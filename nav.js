@@ -409,18 +409,18 @@ function switchTab(tabId){
   if(tabId === 'tab-warehouse-ops'){
     renderProductSelect(); renderTxBatchList();
     // 沒有「訂單核對」權限(會計預設)就藏起這個子分頁按鍵
-    const vBtn = document.getElementById('btn-subtab-tx-verify');
-    if(vBtn) vBtn.style.display = (typeof canVerifyOrders === 'function' && !canVerifyOrders()) ? 'none' : '';
+    applyWarehouseOpsSubTabVisibility();
+    populatePendingOrderPartyFilter(); renderPendingOrders();
+    populateCompletedOrderPartyFilter(); renderOrders();
+    // 目前停在沒有權限的子分頁(例如權限剛被調整)就導到第一個看得到的
+    const activeSub = document.querySelector('#tab-warehouse-ops .subtab-content.active-subtab');
+    if(activeSub && !warehouseOpsSubTabAllowed(activeSub.id)) switchWarehouseOpsSubTab(null);
   }
   if(tabId === 'tab-order'){
     populatePartySelect(); renderOrderItemsTable(); renderOrderHistory();
     const cartSection = document.getElementById('orderCartSection');
     const formSection = document.getElementById('orderFormSection');
     if(cartSection && formSection){ cartSection.style.display = 'none'; formSection.style.display = ''; }
-  }
-  if(tabId === 'tab-order-admin'){
-    populatePendingOrderPartyFilter(); renderPendingOrders();
-    populateCompletedOrderPartyFilter(); renderOrders();
   }
   if(tabId === 'tab-warehouse-admin'){
     renderPartiesTable(); renderForecastTable(); populateExportPartySelect(); renderExportProductList();
@@ -450,22 +450,6 @@ function switchTab(tabId){
 }
 
 
-// 訂貨後台管理分頁(tab-order-admin)自己的子分頁切換,只在它自己的容器裡找
-// .subtab-content/.subtab-btn,不會動到其他分頁(系統管理、庫存管理)那幾組子分頁的顯示狀態
-// (幾組子分頁共用同一套 CSS class,但各自獨立)。
-function switchOrderAdminSubTab(subtabId){
-  if(subtabId === 'subtab-order-parties' && !hasCapability('cap-manage-parties')) return;
-  const container = document.getElementById('tab-order-admin');
-  if(!container) return;
-  document.body.classList.remove('mobile-subtab-menu-active'); // 手機版:點了子分頁按鍵,離開「只顯示子分頁按鍵」的狀態
-  document.body.classList.add('mobile-subtab-content-active'); // 改成「顯示內容、隱藏子分頁按鍵」的狀態
-  container.querySelectorAll('.subtab-content').forEach(el => el.classList.remove('active-subtab'));
-  container.querySelectorAll('.subtab-btn').forEach(el => el.classList.remove('active'));
-  document.getElementById(subtabId).classList.add('active-subtab');
-  document.getElementById('btn-' + subtabId).classList.add('active');
-  if(subtabId === 'subtab-order-completed'){ populateCompletedOrderPartyFilter(); renderOrders(); }
-}
-
 // 系統管理分頁(tab-master)自己的子分頁切換,只在它自己的容器裡找 .subtab-content/.subtab-btn,
 // 不會動到其他分頁那幾組子分頁的顯示狀態(共用同一套 CSS class,但各自獨立)。
 function switchSystemSubTab(subtabId){
@@ -482,8 +466,33 @@ function switchSystemSubTab(subtabId){
 
 // 倉庫作業台分頁(tab-warehouse-ops)自己的子分頁切換,只在它自己的容器裡找 .subtab-content/.subtab-btn,
 // 不會動到其他分頁那幾組子分頁的顯示狀態(共用同一套 CSS class,但各自獨立)。
+// 倉庫作業台各子分頁對應的細部功能權限(沒有對應權限的人看不到那個子分頁按鍵)
+const WAREHOUSE_OPS_SUBTAB_CAPS = {
+  'subtab-tx-register': 'cap-tx-register',
+  'subtab-order-pending': 'cap-orders-pending',
+  'subtab-order-completed': 'cap-orders-completed',
+  'subtab-tx-verify': 'cap-order-verify'
+};
+function warehouseOpsSubTabAllowed(subtabId){
+  const cap = WAREHOUSE_OPS_SUBTAB_CAPS[subtabId];
+  return !cap || (typeof hasCapability === 'function' && hasCapability(cap));
+}
+function applyWarehouseOpsSubTabVisibility(){
+  Object.keys(WAREHOUSE_OPS_SUBTAB_CAPS).forEach(id => {
+    const btn = document.getElementById('btn-' + id);
+    if(!btn) return;
+    const holder = btn.parentElement && btn.parentElement.tagName === 'SPAN' ? btn.parentElement : btn;   // 待處理訂單按鍵外面包了一層(數字徽章)
+    holder.style.display = warehouseOpsSubTabAllowed(id) ? '' : 'none';
+  });
+}
+function firstAllowedWarehouseOpsSubTab(){
+  return Object.keys(WAREHOUSE_OPS_SUBTAB_CAPS).find(warehouseOpsSubTabAllowed) || null;
+}
 function switchWarehouseOpsSubTab(subtabId){
-  if(subtabId === 'subtab-tx-verify' && typeof canVerifyOrders === 'function' && !canVerifyOrders()) subtabId = 'subtab-tx-register';
+  if(!warehouseOpsSubTabAllowed(subtabId)){
+    subtabId = firstAllowedWarehouseOpsSubTab();
+    if(!subtabId) return;
+  }
   const container = document.getElementById('tab-warehouse-ops');
   if(!container) return;
   if(subtabId !== 'subtab-tx-register' && (registerOutFlowType || txBatchItems.length > 0)){
@@ -497,6 +506,8 @@ function switchWarehouseOpsSubTab(subtabId){
   container.querySelectorAll('.subtab-content').forEach(el => el.classList.remove('active-subtab'));
   container.querySelectorAll('.subtab-btn').forEach(el => el.classList.remove('active'));
   if(subtabId === 'subtab-tx-verify'){ renderVerifyPage(); renderVerifyPageProductSelect(); }
+  if(subtabId === 'subtab-order-pending'){ populatePendingOrderPartyFilter(); renderPendingOrders(); }
+  if(subtabId === 'subtab-order-completed'){ populateCompletedOrderPartyFilter(); renderOrders(); }
   document.getElementById(subtabId).classList.add('active-subtab');
   document.getElementById('btn-' + subtabId).classList.add('active');
 }

@@ -12,6 +12,7 @@ function lookoutTabAllowed(tabId){
 
 const LOOKOUT_CARDS = [
   { id: 'new-order', icon: '🛒', titleKey: 'lookoutNewOrder', descKey: 'lookoutNewOrderDesc', tab: 'tab-warehouse-ops',
+    show: function(){ return hasCapability('cap-tx-register'); },
     go: function(){
       switchTab('tab-warehouse-ops');
       switchWarehouseOpsSubTab('subtab-tx-register');
@@ -21,6 +22,7 @@ const LOOKOUT_CARDS = [
       setTxOutFlowType('new-order');
     } },
   { id: 'receive', icon: '📥', titleKey: 'lookoutReceive', descKey: 'lookoutReceiveDesc', tab: 'tab-warehouse-ops',
+    show: function(){ return hasCapability('cap-tx-register'); },
     go: function(){
       switchTab('tab-warehouse-ops');
       switchWarehouseOpsSubTab('subtab-tx-register');
@@ -37,10 +39,17 @@ const LOOKOUT_CARDS = [
       switchTab('tab-warehouse-admin');
       switchWarehouseAdminSubTab('subtab-purchase-mgmt-suppliers');
     } },
-  { id: 'pending-orders', icon: '📋', titleKey: 'lookoutPending', descKey: 'lookoutPendingDesc', tab: 'tab-order-admin',
+  { id: 'pending-orders', icon: '📋', titleKey: 'lookoutPending', descKey: 'lookoutPendingDesc', tab: 'tab-warehouse-ops',
+    show: function(){ return hasCapability('cap-orders-pending'); },
     go: function(){
-      switchTab('tab-order-admin');
-      switchOrderAdminSubTab('subtab-order-pending');
+      switchTab('tab-warehouse-ops');
+      switchWarehouseOpsSubTab('subtab-order-pending');
+    } },
+  { id: 'completed-orders', icon: '📑', titleKey: 'subtabCompletedOrders', descKey: 'lookoutCompletedDesc', tab: 'tab-warehouse-ops',
+    show: function(){ return hasCapability('cap-orders-completed'); },
+    go: function(){
+      switchTab('tab-warehouse-ops');
+      switchWarehouseOpsSubTab('subtab-order-completed');
     } },
   { id: 'stock-location', icon: '📍', titleKey: 'lookoutStockLocation', descKey: 'lookoutStockLocationDesc', tab: 'tab-overview',
     go: function(){

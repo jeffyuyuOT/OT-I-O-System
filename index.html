@@ -784,7 +784,7 @@
 
     /* 從選單首頁點進一個有子分頁的分頁時,先只顯示子分頁按鍵、不顯示任何子分頁內容
        (即使某個子分頁預設是 active-subtab 也一樣先蓋掉),點了子分頁按鍵才顯示內容
-       (見 switchSystemSubTab / switchWarehouseOpsSubTab / switchOrderSubTab / switchOrderAdminSubTab
+       (見 switchSystemSubTab / switchWarehouseOpsSubTab / switchOrderSubTab
        裡移除這個 class 的地方)。 */
     body.mobile-subtab-menu-active .subtab-content{ display:none !important; }
 
@@ -1479,6 +1479,11 @@ body.no-cost-view .cost-col{display:none !important;}
   <div id="tab-warehouse-ops" class="tab-content">
     <div class="subtab-bar">
       <button class="subtab-btn active" onclick="switchWarehouseOpsSubTab('subtab-tx-register')" id="btn-subtab-tx-register" data-i18n="subtabTxRegister">登記進出貨</button>
+      <span style="position:relative;flex:1;display:inline-flex;">
+        <button class="subtab-btn" style="width:100%;" onclick="switchWarehouseOpsSubTab('subtab-order-pending')" id="btn-subtab-order-pending" data-i18n="subtabPendingOrders">待處理訂單</button>
+        <span id="pendingOrderCountBadge" class="mobile-notify-badge" style="display:none;"></span>
+      </span>
+      <button class="subtab-btn" onclick="switchWarehouseOpsSubTab('subtab-order-completed')" id="btn-subtab-order-completed" data-i18n="subtabCompletedOrders">已完成訂單</button>
       <button class="subtab-btn" onclick="switchWarehouseOpsSubTab('subtab-tx-verify')" id="btn-subtab-tx-verify" data-i18n="subtabTxVerify">訂單核對</button>
     </div>
 
@@ -1727,6 +1732,49 @@ body.no-cost-view .cost-col{display:none !important;}
     </div>
     </div>
 
+
+    <div id="subtab-order-pending" class="subtab-content section">
+      <div class="section-title" style="margin:0 0 10px;" data-i18n="subtabPendingOrders">待處理訂單</div>
+      <p style="font-size:12.5px;color:var(--ink-soft);margin:0 0 14px;" data-i18n="pendingOrdersDesc">
+        這裡是還沒「核對」的訂單,還沒真的扣庫存,只會先佔用「可訂數量」的額度。核對通過後會自動移到「已完成訂單」並正式扣庫存。
+      </p>
+      <div class="form-grid" style="grid-template-columns:1fr 160px 160px;margin-bottom:14px;">
+        <div class="field">
+          <label data-i18n="fieldShippingParty">出貨方</label>
+          <select id="pendingOrderPartyFilter" onchange="renderPendingOrders()">
+            <option value="" data-i18n="optAllParties">全部出貨方</option>
+          </select>
+        </div>
+        <div class="field">
+          <label data-i18n="fieldFrom">從</label>
+          <input type="date" id="pendingOrderDateFrom" onchange="renderPendingOrders()" />
+        </div>
+        <div class="field">
+          <label data-i18n="fieldTo">到</label>
+          <input type="date" id="pendingOrderDateTo" onchange="renderPendingOrders()" />
+        </div>
+      </div>
+      <div id="pendingOrdersList">
+        <div class="empty-note" data-i18n="noPendingOrders">還沒有符合條件的待處理訂單。</div>
+      </div>
+    </div>
+
+    <div id="subtab-order-completed" class="subtab-content section">
+      <div class="section-title" style="margin:0 0 6px;" data-i18n="subtabCompletedOrders">已完成訂單</div>
+      <p data-hint-always="1" style="font-size:12.5px;color:var(--ink-soft);margin:0 0 10px;" data-i18n="completedOrders30DayNote">此頁面僅顯示最近 30 天的紀錄,如果要看之前的紀錄,請到「歷史紀錄」→「已完成訂單」查閱。</p>
+      <div class="form-grid" style="grid-template-columns:1fr auto;margin-bottom:14px;">
+        <div class="field">
+          <label data-i18n="fieldShippingParty">出貨方</label>
+          <select id="recentCompletedOrderPartyFilter" onchange="renderOrders()">
+            <option value="" data-i18n="optAllParties">全部出貨方</option>
+          </select>
+        </div>
+        <button class="btn ghost" onclick="document.getElementById('recentCompletedOrderPartyFilter').value='';renderOrders()" style="align-self:flex-end;" data-i18n="btnClearFilter">清除篩選</button>
+      </div>
+      <div id="recentCompletedOrdersList">
+        <div class="empty-note" data-i18n="noCompletedOrders">還沒有任何已完成的訂單。</div>
+      </div>
+    </div>
   </div>
 
   <div id="tab-overview" class="tab-content">
@@ -2137,62 +2185,6 @@ body.no-cost-view .cost-col{display:none !important;}
     </div>
 
     </div>
-    </div>
-  </div>
-
-  <div id="tab-order-admin" class="tab-content">
-    <div class="section">
-      <div class="section-title" style="margin-bottom:12px;" data-i18n="secOrderAdmin">訂貨後台管理</div>
-      <div class="subtab-bar">
-        <span style="position:relative;flex:1;display:inline-flex;">
-          <button class="subtab-btn active" style="width:100%;" onclick="switchOrderAdminSubTab('subtab-order-pending')" id="btn-subtab-order-pending" data-i18n="subtabPendingOrders">待處理訂單</button>
-          <span id="pendingOrderCountBadge" class="mobile-notify-badge" style="display:none;"></span>
-        </span>
-        <button class="subtab-btn" onclick="switchOrderAdminSubTab('subtab-order-completed')" id="btn-subtab-order-completed" data-i18n="subtabCompletedOrders">已完成訂單</button>
-      </div>
-
-      <div id="subtab-order-pending" class="subtab-content active-subtab">
-        <div class="section-title" style="margin:0 0 10px;" data-i18n="subtabPendingOrders">待處理訂單</div>
-        <p style="font-size:12.5px;color:var(--ink-soft);margin:0 0 14px;" data-i18n="pendingOrdersDesc">
-          這裡是還沒「核對」的訂單,還沒真的扣庫存,只會先佔用「可訂數量」的額度。核對通過後會自動移到「已完成訂單」並正式扣庫存。
-        </p>
-        <div class="form-grid" style="grid-template-columns:1fr 160px 160px;margin-bottom:14px;">
-          <div class="field">
-            <label data-i18n="fieldShippingParty">出貨方</label>
-            <select id="pendingOrderPartyFilter" onchange="renderPendingOrders()">
-              <option value="" data-i18n="optAllParties">全部出貨方</option>
-            </select>
-          </div>
-          <div class="field">
-            <label data-i18n="fieldFrom">從</label>
-            <input type="date" id="pendingOrderDateFrom" onchange="renderPendingOrders()" />
-          </div>
-          <div class="field">
-            <label data-i18n="fieldTo">到</label>
-            <input type="date" id="pendingOrderDateTo" onchange="renderPendingOrders()" />
-          </div>
-        </div>
-        <div id="pendingOrdersList">
-          <div class="empty-note" data-i18n="noPendingOrders">還沒有符合條件的待處理訂單。</div>
-        </div>
-      </div>
-
-      <div id="subtab-order-completed" class="subtab-content">
-        <div class="section-title" style="margin:0 0 6px;" data-i18n="subtabCompletedOrders">已完成訂單</div>
-        <p data-hint-always="1" style="font-size:12.5px;color:var(--ink-soft);margin:0 0 10px;" data-i18n="completedOrders30DayNote">此頁面僅顯示最近 30 天的紀錄,如果要看之前的紀錄,請到「歷史紀錄」→「已完成訂單」查閱。</p>
-        <div class="form-grid" style="grid-template-columns:1fr auto;margin-bottom:14px;">
-          <div class="field">
-            <label data-i18n="fieldShippingParty">出貨方</label>
-            <select id="recentCompletedOrderPartyFilter" onchange="renderOrders()">
-              <option value="" data-i18n="optAllParties">全部出貨方</option>
-            </select>
-          </div>
-          <button class="btn ghost" onclick="document.getElementById('recentCompletedOrderPartyFilter').value='';renderOrders()" style="align-self:flex-end;" data-i18n="btnClearFilter">清除篩選</button>
-        </div>
-        <div id="recentCompletedOrdersList">
-          <div class="empty-note" data-i18n="noCompletedOrders">還沒有任何已完成的訂單。</div>
-        </div>
-      </div>
     </div>
   </div>
 

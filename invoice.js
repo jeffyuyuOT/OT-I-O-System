@@ -1349,8 +1349,8 @@ function invGotoOrder(orderId){
   try{ if(typeof invCloseDetails === 'function') invCloseDetails(); }catch(e){}
   expandedOrderIds.add(orderId);
   if(isPreVerificationStatus(o) && !o.deleted){
-    switchTab('tab-order-admin');
-    switchOrderAdminSubTab('subtab-order-pending');
+    switchTab('tab-warehouse-ops');
+    switchWarehouseOpsSubTab('subtab-order-pending');
     ['pendingOrderPartyFilter','pendingOrderDateFrom','pendingOrderDateTo'].forEach(id => { const e = document.getElementById(id); if(e) e.value = ''; });
     renderPendingOrders();
   } else {
