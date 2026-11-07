@@ -321,8 +321,8 @@ function paRenderList(){
       <div class="field"><label>${t('invFltStatus')}</label>${sel('paFlt_status', f.status, [['', t('invFltAll')], ['unpaid', t('invSt_unpaid')], ['partial', t('invSt_partial')], ['paid', t('invSt_paid')], ['overpaid', t('invSt_overpaid')]])}</div>
       <div class="field" style="min-width:220px;"><label>${t('invFltSearch')}</label><input type="search" id="paFlt_q" value="${paEsc(f.q)}" oninput="paOnFilter(true)" placeholder="${paEsc(t('paSearchPh'))}" /></div>
       <button class="btn ghost" onclick="paClearFilter()" style="align-self:flex-end;">${t('btnClearFilter')}</button>
-      <button class="btn ghost" onclick="paExportXlsx()" style="align-self:flex-end;">${t('accExportXlsx')}</button>
-      <button class="btn ghost" id="evBtn" onclick="evDownload()" style="align-self:flex-end;" title="${paEsc(t('evHint'))}">${t('evPackBtn')}</button>
+      <button class="btn ghost exp-btn" onclick="paExportXlsx()" style="align-self:flex-end;">${t('accExportXlsx')}</button>
+      <button class="btn ghost exp-btn" id="evBtn" onclick="evDownload()" style="align-self:flex-end;" title="${paEsc(t('evHint'))}">${t('evPackBtn')}</button>
       <button class="btn ghost" id="evCancelBtn" style="display:none;align-self:flex-end;" onclick="evCancelRun()">${t('evCancel')}</button>
     </div>
     <div id="evMsg" style="font-size:12px;color:var(--ink-soft);margin:-4px 0 8px;"></div>

@@ -867,8 +867,8 @@ function invRenderList(key){
       <div class="field"><label>Sale Rep</label>${sel('invFlt_' + key + '_rep', f.rep, [['', t('invFltAll')]].concat(reps.map(x => [x, x])))}</div>
       <div class="field" style="min-width:220px;"><label>${t('invFltSearch')}</label><input type="search" id="invFlt_${key}_q" value="${invEsc(f.q)}" oninput="invOnListFilter('${key}',true)" placeholder="${invEsc(t(key === 'party' ? 'invListSearchPhParty' : 'invListSearchPh'))}" /></div>
       <button class="btn ghost" onclick="invClearListFilter('${key}')" style="align-self:flex-end;">${t('btnClearFilter')}</button>
-      <button class="btn ghost" onclick="invExportListXlsx('${key}')" style="align-self:flex-end;">${t('invExportList')}</button>
-      <button class="btn ghost" id="invZipBtn_${key}" onclick="invExportListZip('${key}')" style="align-self:flex-end;">${t('invExportZip')}</button>
+      <button class="btn ghost exp-btn" onclick="invExportListXlsx('${key}')" style="align-self:flex-end;">${t('invExportList')}</button>
+      <button class="btn ghost exp-btn" id="invZipBtn_${key}" onclick="invExportListZip('${key}')" style="align-self:flex-end;">${t('invExportZip')}</button>
     </div>
     ${list.length === 0 ? `<div class="empty-note">${t('invListEmpty')}</div>` : `<div style="font-size:11.5px;color:var(--ink-soft);margin-bottom:6px;">${t('invListClickHint')}</div>
     <div style="overflow-x:auto;"><table class="stock-table"><thead><tr><th>Invoice No</th><th>Invoice Date</th>${showCust ? `<th>${t('invColCustomer')}</th>` : ''}<th>${t('invColOrder')}</th><th class="num">${t('spTotalAmt')}</th><th class="num">${t('invColPaid')}</th><th class="num">${t('invColBalance')}</th><th>${t('invFltStatus')}</th><th></th></tr></thead>
