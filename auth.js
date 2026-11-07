@@ -142,10 +142,10 @@ const ROLE_DEFAULT_TABS = {
   order: ['tab-order'],   // 訂貨用戶只有訂貨分頁(不帶 Lookout)
   inventory: ['tab-lookout', 'tab-warehouse-ops', 'tab-overview', 'tab-warehouse-admin', 'tab-log']
 };
-// 新帳號 / 切換身分時的預設細部限制(清單裡的 = 取消勾選)。倉庫管理員:歷史紀錄的「匯出紀錄」「後台紀錄」預設不開。
+// 新帳號 / 切換身分時的預設細部限制(清單裡的 = 取消勾選)。倉庫管理員:歷史紀錄的「匯出紀錄」預設不開。
 // 價錢相關(編輯價錢、訂單顯示價錢)倉庫管理員本來就預設不允許,不用列在這裡。
 const ROLE_DEFAULT_RESTRICTED = {
-  inventory: ['sub:subtab-log-exports', 'sub:subtab-log-inventory']
+  inventory: ['sub:subtab-log-exports']
 };
 function roleDefaultRestricted(role){ return (ROLE_DEFAULT_RESTRICTED[role] || []).slice(); }
 
