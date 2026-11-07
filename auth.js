@@ -652,17 +652,25 @@ function deleteUserRow(userId){
     showInfoModal('至少要留一個帳號能進到「系統管理 → 使用者管理」,不然之後沒有人可以再管理帳號了。');
     return;
   }
-  showConfirmModal(`確定要移除使用者「${u.username}」的權限嗎?(這只會移除他在這個 App 的權限資料,若要完全刪除登入帳號,還要到 Supabase 後台的 Authentication → Users 一併刪除)`, async () => {
-    const { error } = await sb.from('profiles').delete().eq('id', userId);
+  showConfirmModal(`確定要刪除使用者「${u.username}」嗎?(會一併刪除他的登入帳號,刪除後不能復原;他過去的出貨、進貨、訂單紀錄不受影響)`, async () => {
     const msg = document.getElementById('userMsg');
-    if(error){
-      msg.className = 'msg error';
-      msg.textContent = '刪除失敗:' + error.message;
-      return;
+    // 先請 Edge Function 一起刪登入帳號 + profile;函式還是舊版(沒有刪除功能)或失敗時,退回只刪 profile 並提醒
+    let loginRemoved = false, fnErr = '';
+    try{ await callInviteFunction({ action: 'delete', userId }); loginRemoved = true; }
+    catch(e){ fnErr = (e && e.message) || String(e); }
+    if(!loginRemoved){
+      const { error } = await sb.from('profiles').delete().eq('id', userId);
+      if(error){
+        msg.className = 'msg error';
+        msg.textContent = '刪除失敗:' + error.message;
+        return;
+      }
     }
     users = users.filter(x => x.id !== userId);
-    msg.className = 'msg ok';
-    msg.textContent = `✓ 已移除使用者「${u.username}」的權限`;
+    msg.className = loginRemoved ? 'msg ok' : 'msg error';
+    msg.textContent = loginRemoved
+      ? `✓ 已刪除使用者「${u.username}」(含登入帳號)`
+      : `已移除使用者「${u.username}」的權限資料,但登入帳號沒有刪掉(${fnErr})。請確認 invite-user 函式已更新,或到 Supabase 的 Authentication → Users 手動刪除。`;
     renderUsersTab();
   });
 }

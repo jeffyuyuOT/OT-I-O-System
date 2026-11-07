@@ -88,8 +88,6 @@ async function newProfileRow(userId: string, email: string, body: any, firstName
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors() });
   try {
-    if (!RESEND_API_KEY) return json({ error: "RESEND_API_KEY not configured" }, 500);
-
     // 1. 驗證呼叫者
     const jwt = (req.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
     const { data: callerData, error: callerErr } = await admin.auth.getUser(jwt);
@@ -98,6 +96,22 @@ Deno.serve(async (req) => {
     if (!canManageUsers(callerProfile)) return json({ error: "Not allowed" }, 403);
 
     const body = await req.json();
+
+    // 刪除使用者:連登入帳號一起清掉(前端只能刪 profile,登入帳號要 service role)。
+    if (body.action === "delete") {
+      const targetId = String(body.userId || "");
+      if (!targetId) return json({ error: "Missing userId" }, 400);
+      if (targetId === callerData.user.id) return json({ error: "Cannot delete the signed-in account" }, 400);
+      await admin.from("profiles").delete().eq("id", targetId);
+      const { error: delErr } = await admin.auth.admin.deleteUser(targetId);
+      // 登入帳號本來就不存在(例如之前刪過)不算失敗
+      if (delErr && !/not found|user_not_found/i.test(String((delErr as any).message || "") + String((delErr as any).code || ""))) {
+        return json({ error: "Could not delete the login account: " + delErr.message }, 500);
+      }
+      return json({ ok: true, deleted: targetId });
+    }
+
+    if (!RESEND_API_KEY) return json({ error: "RESEND_API_KEY not configured" }, 500);
     const email = String(body.email || "").trim().toLowerCase();
     const appUrl = String(body.appUrl || "").replace(/[?#].*$/, "");
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return json({ error: "Invalid email address" }, 400);
