@@ -70,7 +70,7 @@ const LOOKOUT_CARDS = [
     } },
   { id: 'forecast', icon: '<svg viewBox="0 0 24 24" width="1em" height="1em" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6.5" cy="16" r="3.8"/><circle cx="17.5" cy="16" r="3.8"/><path d="M10.3 16h3.4"/><path d="M3.2 14 5.5 5.5h3L9 9M20.8 14l-2.3-8.5h-3L15 9"/><path d="M9 9h6"/></svg>', titleKey: 'subtabTxForecast', descKey: 'lookoutForecastDesc', tab: ['tab-warehouse-admin', 'tab-log'],
     go: function(){ lookoutOpenForecastChoice(); } },
-  { id: 'export', icon: '📤', titleKey: 'lookoutExport', descKey: 'lookoutExportDesc', tab: ['tab-overview', 'tab-accounting'],
+  { id: 'export', icon: '📤', titleKey: 'lookoutExport', descKey: 'lookoutExportDesc', tab: ['tab-overview', 'tab-warehouse-admin'],
     go: function(){ lookoutOpenExportChoice(); } },
   { id: 'tx-log', icon: '🧾', titleKey: 'lookoutTxLog', descKey: 'lookoutTxLogDesc', tab: 'tab-log',
     go: function(){
@@ -163,7 +163,7 @@ function lookoutOpenForecastChoice(){
   lookoutOpenChoice('subtabTxForecast', opts);
 }
 
-// 匯出檔案:匯出庫存(庫存總覽 → Action → 匯出庫存數量視窗)或匯出報表(會計 → 會計報表)
+// 匯出檔案:匯出庫存(庫存總覽 → Action → 匯出庫存數量視窗)或匯出報表(倉庫後台管理 → 資料維護 → 匯出報表)
 function lookoutOpenExportChoice(){
   const opts = [];
   if(lookoutTabAllowed('tab-overview')) opts.push({ label: t('lookoutExportStock'), go: function(){
@@ -171,9 +171,9 @@ function lookoutOpenExportChoice(){
     switchOverviewSubTab('subtab-overview-summary');
     if(typeof openStockExportModal === 'function') openStockExportModal();
   } });
-  if(lookoutTabAllowed('tab-accounting')) opts.push({ label: t('lookoutExportReport'), go: function(){
-    switchTab('tab-accounting');
-    switchAccountingSubTab('subtab-acc-reports');
+  if(lookoutTabAllowed('tab-warehouse-admin')) opts.push({ label: t('lookoutExportReport'), go: function(){
+    switchTab('tab-warehouse-admin');
+    switchWarehouseAdminSubTab('subtab-tx-data');
   } });
   lookoutOpenChoice('lookoutExport', opts);
 }
