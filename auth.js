@@ -8,6 +8,8 @@
 // ===== 分頁定義 =====
 
 const TAB_DEFS = [
+  // Lookout:常用功能快捷入口(卡片),排第一;沒有自己的資料,卡片依其他分頁權限顯示
+  { id: 'tab-lookout', labelKey: 'tabLookout' },
   { id: 'tab-master', labelKey: 'tabMaster' },
   { id: 'tab-warehouse-ops', labelKey: 'tabWarehouseOps' },
   { id: 'tab-overview', labelKey: 'tabOverview' },
@@ -105,8 +107,8 @@ function userDisplayName(u){
 const ROLE_DEFAULT_TABS = {
   admin: TAB_DEFS.map(d => d.id),
   accountant: TAB_DEFS.map(d => d.id).filter(id => id !== 'tab-master' && id !== 'tab-order'),   // 不帶訂貨(那是出貨方下單用的頁面;會計從訂貨後台管理看訂單)、不帶系統管理(會計用的設定在「會計」分頁的「會計設定」);倉庫作業台要帶(會計要登記進貨、出貨),但「訂單核對」預設隱藏(cap-order-verify)
-  order: ['tab-order'],
-  inventory: ['tab-warehouse-ops', 'tab-overview', 'tab-order-admin', 'tab-warehouse-admin', 'tab-log']
+  order: ['tab-order'],   // 訂貨用戶只有訂貨分頁(不帶 Lookout)
+  inventory: ['tab-lookout', 'tab-warehouse-ops', 'tab-overview', 'tab-order-admin', 'tab-warehouse-admin', 'tab-log']
 };
 
 // Turn a plain username into the placeholder email Supabase Auth needs.

@@ -10,7 +10,8 @@ function syncTabOrder(){
   const allIds = TAB_DEFS.map(d => d.id);
   if(!Array.isArray(tabOrder)) tabOrder = [];
   tabOrder = tabOrder.filter(id => allIds.includes(id));
-  allIds.forEach(id => { if(!tabOrder.includes(id)) tabOrder.push(id); });
+  // 新分頁自動補進順序:Lookout 補在最前面,其他補在最後
+  allIds.forEach(id => { if(!tabOrder.includes(id)){ if(id === 'tab-lookout') tabOrder.unshift(id); else tabOrder.push(id); } });
 }
 
 async function saveTabOrder(){
@@ -271,6 +272,7 @@ function renderTabBar(){
     switchTab(visibleIds[0]);
   }
   renderMobileHomeMenu(visibleIds);
+  if(typeof renderLookout === 'function') renderLookout();
 }
 
 // 手機版「選單首頁」:把每個看得到的分頁變成一個一個大按鍵(顏色輪流用一組固定色盤,同一個分頁
@@ -398,6 +400,7 @@ function switchTab(tabId){
   // some browsers don't reliably reflect <select> option updates made while the tab was
   // display:none, so re-render whichever tab just became visible
   if(tabId === 'tab-overview'){ populateCategoryDropdowns(); renderStockCards(); }
+  if(tabId === 'tab-lookout' && typeof renderLookout === 'function') renderLookout();
   if(tabId === 'tab-log'){ refreshLogSubTab(); }
   if(tabId === 'tab-accounting'){ refreshAccountingSubTab(); }
   if(tabId === 'tab-warehouse-ops'){

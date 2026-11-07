@@ -1097,6 +1097,17 @@
   }
 /* 沒有「訂單顯示價錢」權限的人(倉管員等)看不到成本 / 售價欄 */
 body.no-cost-view .cost-col{display:none !important;}
+  /* Lookout 分頁:快捷入口卡片 */
+  .lookout-grid{ display:grid; grid-template-columns:repeat(auto-fill,minmax(230px,1fr)); gap:14px; margin-top:6px; }
+  .lookout-card{ display:flex; align-items:flex-start; gap:12px; text-align:left; width:100%; padding:16px; background:var(--panel); border:1px solid var(--line); border-radius:8px; cursor:pointer; font-family:inherit; color:var(--ink); transition:border-color .12s, box-shadow .12s, transform .12s; }
+  .lookout-card:hover{ border-color:var(--yellow-dark); box-shadow:0 2px 8px rgba(0,0,0,0.10); transform:translateY(-1px); }
+  .lookout-card:active{ transform:none; }
+  .lookout-card-icon{ font-size:26px; line-height:1; flex:0 0 auto; }
+  .lookout-card-body{ display:flex; flex-direction:column; gap:4px; min-width:0; }
+  .lookout-card-title{ font-size:14.5px; font-weight:700; }
+  .lookout-card-desc{ font-size:12px; color:var(--ink-soft); line-height:1.45; }
+  .lookout-empty{ font-size:13px; color:var(--ink-soft); padding:12px 0; }
+  @media (max-width:700px){ .lookout-grid{ grid-template-columns:1fr; } }
 </style>
 </head>
 <body>
@@ -1179,6 +1190,14 @@ body.no-cost-view .cost-col{display:none !important;}
   <div class="panel">
     <div id="mobileHomeMenu" class="mobile-home-menu"></div>
     <div class="tab-bar" id="tabBar"></div>
+
+    <div id="tab-lookout" class="tab-content">
+      <div class="section">
+        <div class="section-title" data-i18n="tabLookout">Lookout</div>
+        <p style="font-size:12.5px;color:var(--ink-soft);margin:0 0 12px;" data-i18n="lookoutDesc">常用功能的快捷入口,點一下直接跳到對應的畫面。</p>
+        <div id="lookoutRoot" class="lookout-grid"></div>
+      </div>
+    </div>
 
     <div id="tab-master" class="tab-content active-tab">
     <div class="section">
@@ -3333,6 +3352,7 @@ body.no-cost-view .cost-col{display:none !important;}
 <script src="db.js"></script>
 <script src="auth.js"></script>
 <script src="nav.js"></script>
+<script src="lookout.js"></script>
 <script src="settings.js"></script>
 <script src="purchases.js"></script>
 <script src="products.js"></script>
