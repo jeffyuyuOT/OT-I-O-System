@@ -57,6 +57,8 @@ begin
     if coalesce(v_inv.credited, 0) + coalesce((p_snapshot->>'total')::numeric, 0) > v_inv.total + 0.004 then raise exception 'credit_exceeds'; end if;
   end if;
   select next_no into v_n from public.credit_note_counter where id = 1 for update;
+  -- 計數器落後(例如還原備份後)時,往現有最大編號之後接,避免編號重複
+  v_n := greatest(coalesce(v_n, 1), coalesce((select max(regexp_replace(cn_no, '\D', '', 'g')::bigint) from public.credit_notes), 0) + 1);
   v_no := 'CN' || lpad(v_n::text, 8, '0');
   update public.credit_note_counter set next_no = v_n + 1 where id = 1;
   v_snap := p_snapshot || jsonb_build_object('no', v_no, 'id', v_id, 'docType', 'credit_note');
@@ -140,7 +142,7 @@ begin
   if not public.is_admin_user() then raise exception 'invoice_forbidden'; end if;
   delete from public.credit_notes where true;
   insert into public.credit_notes select * from jsonb_populate_recordset(null::public.credit_notes, coalesce(p_rows, '[]'::jsonb));
-  update public.credit_note_counter set next_no = greatest(coalesce(p_next, 1), 1) where id = 1;
+  update public.credit_note_counter set next_no = greatest(coalesce(p_next, 1), 1, coalesce((select max(regexp_replace(cn_no, '\D', '', 'g')::bigint) from public.credit_notes), 0) + 1) where id = 1;
   update public.invoices i set credited = coalesce((select sum(total) from public.credit_notes c where c.invoice_id = i.id), 0) where true;
 end $$;
 create or replace function public.credit_notes_clear_all() returns void
