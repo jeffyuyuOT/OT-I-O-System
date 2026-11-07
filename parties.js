@@ -1339,8 +1339,8 @@ async function confirmSaveForecast(){
   }
   closeSaveForecastModal();
   const msg = document.getElementById('forecastMsg');
-  if(wasLoadedId || sameNameCount > 0){
-    // 載入的預估表(或取代了同名記錄)儲存後就離開那筆記錄:數量、附註清空,變成一份新的預估表。
+  {
+    // 儲存後一律離開這份預估表:數量、附註清空,變成一份新的預估表(不管是載入的、取代同名記錄、或新存的)。
     forecastLoadedRecordId = null;
     forecastQtyDraft = {};
     forecastNote = '';
