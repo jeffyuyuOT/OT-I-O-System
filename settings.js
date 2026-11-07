@@ -40,6 +40,8 @@ async function runAutoBackup(){
     exportEmailLogs,
     purchaseSuppliers
   };
+  try{ await loadReceiptLineMappings(); backup.receiptLineMappings = receiptLineMappings; }
+  catch(e){ console.error('自動備份:讀取收據掃描記憶失敗,這份備份不含收據掃描記憶', e); }
   try{ const bt = await batchExportForBackup(); if(bt) backup.batchTracking = bt; }
   catch(e){ console.error('自動備份:讀取批次資料失敗,這份備份不含批次資料', e); }
   try{ backup.productLocations = await exportProductLocationsForBackup(); }
@@ -225,6 +227,10 @@ async function restoreFromBackupFolder(){
     if(Array.isArray(backup.purchaseSuppliers)){
       try{ await replaceAllPurchaseSuppliers(backup.purchaseSuppliers); }
       catch(e){ console.error('還原進貨方失敗', e); }
+    }
+    if(Array.isArray(backup.receiptLineMappings)){
+      try{ await replaceAllReceiptLineMappings(backup.receiptLineMappings); }
+      catch(e){ console.error('還原收據掃描記憶失敗', e); }
     }
     const seqSynced = await syncOrderNoSequenceAfterRestore(orders);
     // 這個資料夾既然能讀,順便記起來,之後自動備份也直接寫進同一個地方。
@@ -634,6 +640,8 @@ async function exportFullBackup(){
     purchases,
     purchaseSuppliers
   };
+  try{ await loadReceiptLineMappings(); backup.receiptLineMappings = receiptLineMappings; }
+  catch(e){ console.error('匯出備份:讀取收據掃描記憶失敗,這份備份不含收據掃描記憶', e); }
   const msg0 = document.getElementById('backupMsg');
   try{ backup.productLocations = await exportProductLocationsForBackup(); }
   catch(e){ console.error('匯出備份:讀取庫存分布失敗,這份備份不含庫存分布', e); }
@@ -757,6 +765,11 @@ function importFullBackup(){
         if(Array.isArray(backup.purchaseSuppliers)){
           try{ await replaceAllPurchaseSuppliers(backup.purchaseSuppliers); }
           catch(e){ console.error('還原進貨方失敗', e); }
+        }
+        // 收據掃描記憶對照表(舊備份沒有這個欄位 = 不動目前的記憶)
+        if(Array.isArray(backup.receiptLineMappings)){
+          try{ await replaceAllReceiptLineMappings(backup.receiptLineMappings); }
+          catch(e){ console.error('還原收據掃描記憶失敗', e); }
         }
         if(Array.isArray(backup.purchases) && backup.purchases.length > 0){
           try{ for(const p of backup.purchases) await upsertPurchase(p); }

@@ -560,6 +560,19 @@ async function clearAllProductLocations(){
   if(error){ console.error('清空庫存分布失敗', error); throw error; }
 }
 
+// 備份還原用:收據掃描記憶對照表是獨立資料表,備份要另外帶、還原要另外寫回(先清空再分批寫入)。
+async function replaceAllReceiptLineMappings(list){
+  await clearAllReceiptLineMappings();
+  const rows = (Array.isArray(list) ? list : [])
+    .filter(m => m && m.id && m.normalizedText && m.productId)
+    .map(receiptMappingToRow);
+  for(let i = 0; i < rows.length; i += 500){
+    const { error } = await sb.from('receipt_line_mappings').upsert(rows.slice(i, i + 500));
+    if(error){ console.error('還原收據掃描記憶失敗', error); throw error; }
+  }
+  await loadReceiptLineMappings();
+}
+
 async function clearAllReceiptLineMappings(){
   const { error } = await sb.from('receipt_line_mappings').delete().not('id', 'is', null);
   if(error){ console.error('清空收據掃描記憶失敗', error); throw error; }

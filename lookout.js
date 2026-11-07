@@ -59,6 +59,12 @@ const LOOKOUT_CARDS = [
       switchTab('tab-overview');
       switchOverviewSubTab('subtab-overview-batch');
     } },
+  { id: 'create-doc', icon: '📄', titleKey: 'subtabAccCreateInvoice', descKey: 'lookoutCreateDocDesc', tab: 'tab-accounting',
+    show: function(){ return typeof canCreateInvoice === 'function' && canCreateInvoice(); },
+    go: function(){
+      switchTab('tab-accounting');
+      switchAccountingSubTab('subtab-acc-create-invoice');
+    } },
   { id: 'tx-log', icon: '🧾', titleKey: 'lookoutTxLog', descKey: 'lookoutTxLogDesc', tab: 'tab-log',
     go: function(){
       switchTab('tab-log');
