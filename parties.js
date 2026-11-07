@@ -561,6 +561,7 @@ async function myobCardSet(key, name){
   catch(e){ console.error('儲存 MYOB 卡片名稱失敗', e); if(prev === undefined) delete myobCards[key]; else myobCards[key] = prev; return false; }
 }
 let editingSupplierId = null;
+let supplierEditOnSaved = null;   // 從別的視窗(例如儲存預估表)開啟新增進貨方時,存好後要做的事
 function openSupplierEditModal(supplierId, prefillName){
   editingSupplierId = supplierId;
   const s = supplierId ? purchaseSuppliers.find(x => x.id === supplierId) : null;
@@ -578,7 +579,7 @@ function openSupplierEditModal(supplierId, prefillName){
   document.getElementById('supplierEditModalOverlay').style.display = 'flex';
 }
 function closeSupplierEditModal(){
-  editingSupplierId = null;
+  editingSupplierId = null; supplierEditOnSaved = null;
   document.getElementById('supplierEditModalOverlay').style.display = 'none';
 }
 async function saveSupplierEdit(){
@@ -617,7 +618,9 @@ async function saveSupplierEdit(){
     }
     renderSupplierManagementTable();
     populateTxPartyHistorySelect();
+    const onSaved = supplierEditOnSaved;
     closeSupplierEditModal();
+    if(onSaved){ try{ onSaved(s); }catch(e){ console.error(e); } }
   } catch(e){
     console.error('儲存供應商失敗', e);
     msgEl.className = 'msg error';
@@ -1277,12 +1280,25 @@ function openSaveForecastModal(){
   { const ss = document.getElementById('saveForecastSupplier');
     if(ss){
       const sups = (typeof purchaseSuppliers !== 'undefined' ? purchaseSuppliers : []).slice().sort((a, b) => (a.name || '').localeCompare(b.name || ''));
-      ss.innerHTML = `<option value="">${t('optForecastNoSupplier')}</option>` + sups.map(x => `<option value="${escapeHtmlText(x.id)}">${escapeHtmlText(x.name || '')}</option>`).join('');
-      ss.value = (loadedRec && loadedRec.supplierId && sups.some(x => x.id === loadedRec.supplierId)) ? loadedRec.supplierId : '';
+      saveForecastFillSuppliers((loadedRec && loadedRec.supplierId && sups.some(x => x.id === loadedRec.supplierId)) ? loadedRec.supplierId : '');
     } }
   document.getElementById('saveForecastModalMsg').textContent = '';
   document.getElementById('saveForecastModalOverlay').style.display = 'flex';
   setTimeout(() => { const i = document.getElementById('saveForecastNameInput'); if(i){ i.focus(); i.select(); } }, 50);
+}
+// 儲存預估表的進貨方下拉:最後一個選項可以直接新增進貨方,存好後自動選取
+function saveForecastFillSuppliers(selectedId){
+  const ss = document.getElementById('saveForecastSupplier'); if(!ss) return;
+  const sups = (typeof purchaseSuppliers !== 'undefined' ? purchaseSuppliers : []).slice().sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+  ss.innerHTML = `<option value="">${t('optForecastNoSupplier')}</option>` + sups.map(x => `<option value="${escapeHtmlText(x.id)}">${escapeHtmlText(x.name || '')}</option>`).join('') + `<option value="__new__">${t('optForecastNewSupplier')}</option>`;
+  ss.value = (selectedId && sups.some(x => x.id === selectedId)) ? selectedId : '';
+}
+let saveForecastPrevSupplier = '';
+function onSaveForecastSupplierChange(ss){
+  if(ss.value !== '__new__'){ saveForecastPrevSupplier = ss.value; return; }
+  ss.value = saveForecastPrevSupplier || '';
+  supplierEditOnSaved = s => { saveForecastFillSuppliers(s.id); saveForecastPrevSupplier = s.id; };
+  openSupplierEditModal(null, '');
 }
 function closeSaveForecastModal(){
   document.getElementById('saveForecastModalOverlay').style.display = 'none';
