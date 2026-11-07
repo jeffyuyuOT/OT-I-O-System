@@ -66,10 +66,10 @@ async function evDownload(){
     if(!list.length){ evMsg(t('evNone'), true); return; }
     const tasks = [];
     list.forEach(p => getPurchaseReceiptFileList(p).forEach((f, i) => tasks.push({ p, f, i })));
-    const idx = [['Purchase date', 'Supplier', 'Invoice no.', 'Purchase ID', 'Attachment count', 'Files', 'Note']];
+    const idx = [['Purchase date', 'Supplier', 'Invoice no.', 'Attachment count', 'Files', 'Note']];
     const stem = `purchase-attachments_${evFyLabel(Number(fy))}_${per}`;
     if(!tasks.length){
-      list.forEach(p => idx.push([p.date, p.partyName || p.partyId || '', p.invoiceNo || '', p.id, 0, '', '']));
+      list.forEach(p => idx.push([p.date, p.partyName || p.partyId || '', p.invoiceNo || '', 0, '', '']));
       evSaveBlob(new Blob([evCsv(idx)], { type: 'text/csv;charset=utf-8' }), stem + '_index.csv');
       evMsg(t('evNoFiles')); return;
     }
@@ -88,7 +88,7 @@ async function evDownload(){
       done++;
     }
     if(evCancelled){ evMsg(t('evCancelled')); return; }
-    list.forEach(p => { const r = res.get(p.id) || { files: [], notes: [] }; idx.push([p.date, p.partyName || p.partyId || '', p.invoiceNo || '', p.id, getPurchaseReceiptFileList(p).length, r.files.join(' | '), r.notes.join(' | ')]); });
+    list.forEach(p => { const r = res.get(p.id) || { files: [], notes: [] }; idx.push([p.date, p.partyName || p.partyId || '', p.invoiceNo || '', getPurchaseReceiptFileList(p).length, r.files.join(' | '), r.notes.join(' | ')]); });
     zip.file('index.csv', evCsv(idx));
     evMsg(tf('evBusy', { done: tasks.length, total: tasks.length }));
     const blob = await zip.generateAsync({ type: 'blob' });
