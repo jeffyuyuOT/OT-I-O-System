@@ -457,6 +457,18 @@ async function upsertPurchaseSupplier(s){
   if(error){ console.error('儲存進貨方失敗', error); throw error; }
   scheduleAutoBackup();
 }
+// 備份還原用:進貨方是獨立資料表(不像出貨方整批存成 JSON),備份要另外帶、還原要另外寫回。
+// 還原 = 先清空再逐筆寫回(備份裡的 id 保留,進貨單的 supplierId 才對得上)。
+async function replaceAllPurchaseSuppliers(list){
+  await clearAllPurchaseSuppliers();
+  const rows = Array.isArray(list) ? list : [];
+  for(const sup of rows){
+    if(!sup || !sup.id || !sup.name) continue;
+    const { id, name, code, contact, phone, address, note, paymentTerms } = sup;
+    await upsertPurchaseSupplier({ id, name, code, contact, phone, address, note, paymentTerms });
+  }
+  await loadPurchaseSuppliers();
+}
 async function deletePurchaseSupplierRow(id){
   const { error } = await sb.from('purchase_suppliers').delete().eq('id', id);
   if(error){ console.error('刪除進貨方失敗', error); throw error; }
