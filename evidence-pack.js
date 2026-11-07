@@ -5,12 +5,12 @@
 //  · 附件本身存在 Supabase Storage(purchase-receipts),完整資料備份只含網址,所以報稅用的紀錄靠這個另外留一份
 // ============================================================
 Object.assign(I18N.zh, {
-  evTitle: '附件打包下載', evHint: '把某個期間進貨單的附件(發票、收據)打包成 zip 下載,另附一份進貨單清單 index.csv。完整資料備份只含附件的網址,不含檔案本身,報稅用的紀錄建議每季或每年下載保存。',
+  evSecTitle: '期間匯出', evSecHint: '依財年與期間匯出會計資料。需要篩選條件的清單匯出(例如 Invoice List 的 Excel 與 PDF 打包)在各自的分頁。', evTitle: '進貨單附件打包', evHint: '把某個期間進貨單的附件(發票、收據)打包成 zip 下載,另附一份進貨單清單 index.csv。完整資料備份只含附件的網址,不含檔案本身,報稅用的紀錄建議每季或每年下載保存。',
   evFy: '財年', evPeriod: '期間', evAllYear: '全年', evQ: '第 {n} 季', evMonth: '{m} 月', evDownload: '下載 zip', evBusy: '打包中… {done}/{total}',
   evCancel: '取消', evCancelled: '已取消,沒有下載任何檔案。', evNone: '這個期間沒有進貨單。', evNoFiles: '這個期間的進貨單都沒有附件,只下載清單 index.csv。', evNoZip: '打包元件載入失敗,請重新整理頁面再試。', evDone: '完成:{files} 個附件、{n} 張進貨單。', evFailed: '{n} 個附件下載失敗(已列在 index.csv 的備註欄)。'
 });
 Object.assign(I18N.en, {
-  evTitle: 'Download attachments pack', evHint: 'Download a zip of the purchase attachments (invoices, receipts) for a period, plus an index.csv listing the purchases. The full data backup only keeps attachment links, not the files, so download this each quarter or year for tax records.',
+  evSecTitle: 'Period exports', evSecHint: 'Export accounting data by financial year and period. Exports that need filters (such as the Invoice List Excel and PDF pack) are on their own pages.', evTitle: 'Purchase attachments pack', evHint: 'Download a zip of the purchase attachments (invoices, receipts) for a period, plus an index.csv listing the purchases. The full data backup only keeps attachment links, not the files, so download this each quarter or year for tax records.',
   evFy: 'Financial year', evPeriod: 'Period', evAllYear: 'Full year', evQ: 'Quarter {n}', evMonth: '{m}', evDownload: 'Download zip', evBusy: 'Packing… {done}/{total}',
   evCancel: 'Cancel', evCancelled: 'Cancelled. Nothing was downloaded.', evNone: 'No purchases in this period.', evNoFiles: 'None of the purchases in this period have attachments; downloading index.csv only.', evNoZip: 'The zip component failed to load. Please refresh and try again.', evDone: 'Done: {files} attachment(s), {n} purchase(s).', evFailed: '{n} attachment(s) failed to download (noted in index.csv).'
 });
@@ -35,7 +35,9 @@ function evRender(){
   const perOpts = [['all', t('evAllYear')], ['q1', tf('evQ', { n: 1 })], ['q2', tf('evQ', { n: 2 })], ['q3', tf('evQ', { n: 3 })], ['q4', tf('evQ', { n: 4 })]]
     .concat(monthOrder.map(m => ['m' + m, (lang === 'zh') ? tf('evMonth', { m }) : EV_MONTHS_EN[m - 1]]));
   const keepFy = (document.getElementById('evFySel') || {}).value, keepPer = (document.getElementById('evPerSel') || {}).value;
-  box.innerHTML = `<div class="section-title">${t('evTitle')}</div>
+  box.innerHTML = `<div class="section-title">${t('evSecTitle')}</div>
+    <p style="font-size:11.5px;color:var(--ink-soft);margin:0 0 12px;">${t('evSecHint')}</p>
+    <div style="font-weight:600;font-size:13px;margin:0 0 4px;">${t('evTitle')}</div>
     <p style="font-size:11.5px;color:var(--ink-soft);margin:0 0 8px;">${t('evHint')}</p>
     <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
       <label style="font-size:12px;">${t('evFy')} <select id="evFySel">${fys.map(y => `<option value="${y}">${evFyLabel(y)}</option>`).join('')}</select></label>
