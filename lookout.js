@@ -65,6 +65,8 @@ const LOOKOUT_CARDS = [
       switchTab('tab-accounting');
       switchAccountingSubTab('subtab-acc-create-invoice');
     } },
+  { id: 'forecast', icon: '🔮', titleKey: 'subtabTxForecast', descKey: 'lookoutForecastDesc', tab: ['tab-warehouse-admin', 'tab-log'],
+    go: function(){ lookoutOpenForecastChoice(); } },
   { id: 'tx-log', icon: '🧾', titleKey: 'lookoutTxLog', descKey: 'lookoutTxLogDesc', tab: 'tab-log',
     go: function(){
       switchTab('tab-log');
@@ -74,7 +76,8 @@ const LOOKOUT_CARDS = [
 
 function lookoutVisibleCards(){
   return LOOKOUT_CARDS.filter(function(c){
-    if(!lookoutTabAllowed(c.tab)) return false;
+    const tabs = Array.isArray(c.tab) ? c.tab : [c.tab];
+    if(!tabs.some(lookoutTabAllowed)) return false;
     return typeof c.show === 'function' ? !!c.show() : true;
   });
 }
@@ -102,4 +105,37 @@ function renderLookout(){
       '</span>' +
     '</button>';
   }).join('');
+}
+
+// 進貨預估:點進去先選「新增進貨預估」(倉庫後台管理 → 進貨預估)或「進貨預估紀錄」(歷史紀錄),
+// 沒有對應分頁權限的選項不顯示。
+function lookoutOpenForecastChoice(){
+  const old = document.getElementById('lookoutForecastOverlay'); if(old) old.remove();
+  const opts = [];
+  if(lookoutTabAllowed('tab-warehouse-admin')) opts.push({ label: t('lookoutForecastNew'), go: function(){
+    switchTab('tab-warehouse-admin');
+    switchWarehouseAdminSubTab('subtab-tx-forecast');
+  } });
+  if(lookoutTabAllowed('tab-log')) opts.push({ label: t('subtabLogForecast'), go: function(){
+    switchTab('tab-log');
+    switchLogSubTab('subtab-log-forecast');
+  } });
+  if(opts.length === 0) return;
+  window.__lookoutForecastOpts = opts;
+  const ov = document.createElement('div');
+  ov.id = 'lookoutForecastOverlay'; ov.className = 'modal-overlay'; ov.style.display = 'flex'; ov.style.zIndex = '1150';
+  ov.onclick = function(e){ if(e.target === ov) ov.remove(); };
+  ov.innerHTML = '<div class="modal-box" style="max-width:min(420px,92vw);">' +
+    '<div class="section-title" style="margin-top:0;">' + t('subtabTxForecast') + '</div>' +
+    '<div style="display:flex;flex-direction:column;gap:10px;margin-top:6px;">' +
+    opts.map(function(o, i){ return '<button class="btn" onclick="lookoutForecastPick(' + i + ')">' + o.label + '</button>'; }).join('') +
+    '</div>' +
+    '<div class="modal-actions"><button class="btn ghost" onclick="document.getElementById(\'lookoutForecastOverlay\').remove()">' + t('btnCancel') + '</button></div>' +
+    '</div>';
+  document.body.appendChild(ov);
+}
+function lookoutForecastPick(i){
+  const o = (window.__lookoutForecastOpts || [])[i];
+  const ov = document.getElementById('lookoutForecastOverlay'); if(ov) ov.remove();
+  if(o) try{ o.go(); }catch(e){ console.error('Lookout 跳轉失敗', e); }
 }
