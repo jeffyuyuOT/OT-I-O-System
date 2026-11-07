@@ -869,6 +869,7 @@ function invRenderList(key){
       <button class="btn ghost" onclick="invClearListFilter('${key}')" style="align-self:flex-end;">${t('btnClearFilter')}</button>
       <button class="btn ghost exp-btn" onclick="invExportListXlsx('${key}')" style="align-self:flex-end;">${t('invExportList')}</button>
       <button class="btn ghost exp-btn" id="invZipBtn_${key}" onclick="invExportListZip('${key}')" style="align-self:flex-end;">${t('invExportZip')}</button>
+      <span class="batch-info-icon" style="align-self:flex-end;margin:0 0 8px 0;" title="${invEsc(t('invZipHelp'))}" onclick="showInfoModal(t('invZipHelp'))">ⓘ</span>
     </div>
     ${list.length === 0 ? `<div class="empty-note">${t('invListEmpty')}</div>` : `<div style="font-size:11.5px;color:var(--ink-soft);margin-bottom:6px;">${t('invListClickHint')}</div>
     <div style="overflow-x:auto;"><table class="stock-table"><thead><tr><th>Invoice No</th><th>Invoice Date</th>${showCust ? `<th>${t('invColCustomer')}</th>` : ''}<th>${t('invColOrder')}</th><th class="num">${t('spTotalAmt')}</th><th class="num">${t('invColPaid')}</th><th class="num">${t('invColBalance')}</th><th>${t('invFltStatus')}</th><th></th></tr></thead>
@@ -1380,8 +1381,8 @@ function invCopyText(text, el){
 
 
 // ---------- 把目前篩選結果的 Invoice 打包成 PDF zip(對帳、留存用)----------
-Object.assign(I18N.zh, { invExportZip: '📦 下載 PDF 打包', invZipConfirm: '要產生 {n} 份 PDF 並打包成 zip,每份約需 1 秒左右,過程中請不要關閉頁面。要繼續嗎?', invZipBusy: '上一輪資料打包中 {done}/{total}…', invZipDone: '✓ 已打包 {n} 份 PDF', invZipFail: '{n} 份產生失敗(已列在 index.csv 的備註欄)', invZipEmpty: '目前篩選結果沒有 Invoice。', invZipCancel: '取消', invZipCancelled: '已取消,沒有下載任何檔案。', invZipNoLib: 'PDF 或 zip 元件載入失敗,請重新整理頁面再試一次。' });
-Object.assign(I18N.en, { invExportZip: '📦 Download PDFs (zip)', invZipConfirm: 'This will generate {n} PDF(s) and pack them into a zip. It takes about a second each; please keep the page open. Continue?', invZipBusy: 'Previous batch packing {done}/{total}…', invZipDone: '✓ Packed {n} PDF(s)', invZipFail: '{n} failed (noted in index.csv)', invZipEmpty: 'No invoices match the current filter.', invZipCancel: 'Cancel', invZipCancelled: 'Cancelled. Nothing was downloaded.', invZipNoLib: 'The PDF or zip component failed to load. Please refresh and try again.' });
+Object.assign(I18N.zh, { invZipHelp: '把目前篩選到的每一張 Invoice 各產生一份 PDF,打包成一個 zip 下載;zip 裡另有 index.csv,列出每張 Invoice 的編號、日期、客戶、訂單號、金額和對應的 PDF 檔名(產生失敗的會註記)。', invExportZip: '📦 下載 PDF 打包', invZipConfirm: '要產生 {n} 份 PDF 並打包成 zip,每份約需 1 秒左右,過程中請不要關閉頁面。要繼續嗎?', invZipBusy: '上一輪資料打包中 {done}/{total}…', invZipDone: '✓ 已打包 {n} 份 PDF', invZipFail: '{n} 份產生失敗(已列在 index.csv 的備註欄)', invZipEmpty: '目前篩選結果沒有 Invoice。', invZipCancel: '取消', invZipCancelled: '已取消,沒有下載任何檔案。', invZipNoLib: 'PDF 或 zip 元件載入失敗,請重新整理頁面再試一次。' });
+Object.assign(I18N.en, { invZipHelp: 'Generates one PDF for every Invoice in the current results and packs them into a single zip. The zip also contains index.csv listing each invoice number, date, customer, order no., amount and its PDF file name (failures are noted).', invExportZip: '📦 Download PDFs (zip)', invZipConfirm: 'This will generate {n} PDF(s) and pack them into a zip. It takes about a second each; please keep the page open. Continue?', invZipBusy: 'Previous batch packing {done}/{total}…', invZipDone: '✓ Packed {n} PDF(s)', invZipFail: '{n} failed (noted in index.csv)', invZipEmpty: 'No invoices match the current filter.', invZipCancel: 'Cancel', invZipCancelled: 'Cancelled. Nothing was downloaded.', invZipNoLib: 'The PDF or zip component failed to load. Please refresh and try again.' });
 async function invFetchSnapshots(ids){
   const out = new Map();
   for(let i = 0; i < ids.length; i += 40){

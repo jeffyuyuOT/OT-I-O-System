@@ -323,6 +323,7 @@ function paRenderList(){
       <button class="btn ghost" onclick="paClearFilter()" style="align-self:flex-end;">${t('btnClearFilter')}</button>
       <button class="btn ghost exp-btn" onclick="paExportXlsx()" style="align-self:flex-end;">${t('accExportXlsx')}</button>
       <button class="btn ghost exp-btn" id="evBtn" onclick="evDownload()" style="align-self:flex-end;" title="${paEsc(t('evHint'))}">${t('evPackBtn')}</button>
+      <span class="batch-info-icon" style="align-self:flex-end;margin:0 0 8px 0;" title="${paEsc(t('evPackHelp'))}" onclick="showInfoModal(t('evPackHelp'))">ⓘ</span>
       <button class="btn ghost" id="evCancelBtn" style="display:none;align-self:flex-end;" onclick="evCancelRun()">${t('evCancel')}</button>
     </div>
     <div id="evMsg" style="font-size:12px;color:var(--ink-soft);margin:-4px 0 8px;"></div>
