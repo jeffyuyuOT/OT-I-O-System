@@ -288,5 +288,6 @@ async function ppBackupRestore(d){
   if(error) throw error;
 }
 async function ppBackupClear(){
-  try{ await sb.rpc('prepayments_clear_all'); }catch(e){ /* 還沒執行 SQL:沒有這張表就不用清 */ }
+  // 還沒執行 SQL(函式不存在)= 沒有這張表,不用清;其他錯誤要丟出去,讓呼叫的地方顯示警告
+  const _r = await sb.rpc('prepayments_clear_all'); if(_r && _r.error && !(typeof invIsMissingFn === 'function' && invIsMissingFn(_r.error))) throw _r.error;
 }
