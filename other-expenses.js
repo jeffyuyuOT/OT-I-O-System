@@ -277,7 +277,7 @@ async function oeBackupRestore(rows){
   const { error } = await sb.rpc('other_expenses_restore_all', { p_rows: rows });
   if(error) throw error;
 }
-async function oeBackupClear(){ try{ await sb.rpc('other_expenses_clear_all'); }catch(e){} }
+async function oeBackupClear(){ const _r = await sb.rpc('other_expenses_clear_all'); if(_r && _r.error && !(typeof invIsMissingFn === 'function' && invIsMissingFn(_r.error))) throw _r.error; }
 
 function oeApplyVisibility(){
   const sel = document.getElementById('accountingSubtabSelect'); if(!sel) return;

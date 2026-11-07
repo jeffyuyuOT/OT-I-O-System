@@ -513,7 +513,8 @@ async function clearAllData(){
 
     const locLogCleared = await locationLogReplace([]);   // 清空庫存分布紀錄(歷史紀錄 → 庫存分布紀錄)
     try{ if(typeof psClearAll === 'function') await psClearAll(); }catch(e){ console.error('清除 Price Setting / 售價紀錄失敗', e); }
-    try{ if(typeof invClearAll === 'function') await invClearAll(); }catch(e){ console.error('清除 Invoice 失敗', e); }
+    let acctClearFailed = false;
+    try{ if(typeof invClearAll === 'function') await invClearAll(); }catch(e){ acctClearFailed = true; console.error('清除 Invoice / 會計資料失敗', e); }
     await batchClearAll();                 // 清空批次追蹤三張表(batches / batch_items / batch_movements);放在動 transactions 之前,失敗時其他資料不會被清到一半
     await replaceAllTransactions([]);      // 清空 transactions 表 + 重建庫存快取為空
     await replaceAllOrders([]);            // 清空 orders 表
@@ -528,6 +529,10 @@ async function clearAllData(){
 
     products = [];
     await saveProducts();
+
+    // 進貨預估紀錄(預估表記錄)也一起清掉;不然商品都清空了,紀錄裡的商品是孤兒資料
+    try{ forecastRecords = []; await saveForecastRecords(); if(typeof renderForecastRecords === 'function') renderForecastRecords(); }
+    catch(e){ acctClearFailed = true; console.error('清除進貨預估紀錄失敗', e); }
 
     shippingParties = [];
     await saveShippingParties();           // 出貨方管理整批存成一份 JSON,直接蓋成空陣列即可
@@ -556,7 +561,7 @@ async function clearAllData(){
     renderSupplierManagementTable();
     renderAccountingEmailList();
     if(hasFeature('receiptScanModule')) renderOcrDbProductSelect();
-    showInfoModal(t('restoreDefaultSuccessAll') + (locLogCleared ? '' : '\n\n' + t('warnLocLogNeedSql')));
+    showInfoModal(t('restoreDefaultSuccessAll') + (locLogCleared ? '' : '\n\n' + t('warnLocLogNeedSql')) + (acctClearFailed ? '\n\n' + t('warnAcctClearFailed') : ''));
   } catch(e){
     console.error('Clear All Data 失敗', e);
     showInfoModal(batchIsMissingFunctionError(e) ? t('warnBatchClearNeedSql') : t('restoreDefaultError'));
@@ -1327,3 +1332,6 @@ function switchSettingsGroup(g){
   settingsGroupCurrent = g;
   applySettingsGroup();
 }
+
+Object.assign(I18N.zh, { warnAcctClearFailed: '⚠ 部分會計資料(Invoice / 預付款 / 進貨付款 / 其他支出 / 進貨預估紀錄)沒有清乾淨,可能是對應的 SQL 還沒執行或連線失敗。請查看 console 的錯誤訊息,或到資料庫確認。' });
+Object.assign(I18N.en, { warnAcctClearFailed: '⚠ Some accounting data (invoices / prepayments / purchase payments / other expenses / purchase forecast records) was not fully cleared — the matching SQL may not have been run, or the connection failed. Check the console errors or the database.' });

@@ -1325,9 +1325,13 @@ async function invClearAll(){
   const { error } = await sb.rpc('invoice_clear_all');
   if(error && !invIsMissingFn(error)) throw error;
   if(typeof icCnClearAll === 'function') await icCnClearAll();
-  if(typeof ppBackupClear === 'function') await ppBackupClear();
-  if(typeof paBackupClear === 'function') await paBackupClear();
-  if(typeof oeBackupClear === 'function') await oeBackupClear();
+  // 預付款、進貨付款、其他支出:每一項都試,最後如果有失敗再丟出錯誤(不要因為其中一項失敗就跳過後面的)
+  let firstErr = null;
+  for(const fn of [typeof ppBackupClear === 'function' ? ppBackupClear : null, typeof paBackupClear === 'function' ? paBackupClear : null, typeof oeBackupClear === 'function' ? oeBackupClear : null]){
+    if(!fn) continue;
+    try{ await fn(); }catch(e){ console.error('清除會計資料失敗', e); if(!firstErr) firstErr = e; }
+  }
+  if(firstErr) throw firstErr;
 }
 
 
