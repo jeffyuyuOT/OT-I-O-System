@@ -94,7 +94,7 @@ create or replace function public.invoice_restore_all(p_rows jsonb, p_next bigin
 language plpgsql security definer set search_path = public as $$
 begin
   if not public.is_admin_user() then raise exception 'invoice_forbidden'; end if;
-  delete from public.invoices;
+  delete from public.invoices where true;
   insert into public.invoices
     select * from jsonb_populate_recordset(null::public.invoices, coalesce(p_rows, '[]'::jsonb));
   update public.invoice_counter set next_no = greatest(coalesce(p_next, 1), 1) where id = 1;
@@ -103,7 +103,7 @@ create or replace function public.invoice_clear_all() returns void
 language plpgsql security definer set search_path = public as $$
 begin
   if not public.is_admin_user() then raise exception 'invoice_forbidden'; end if;
-  delete from public.invoices;
+  delete from public.invoices where true;
   update public.invoice_counter set next_no = 1 where id = 1;
 end $$;
 
