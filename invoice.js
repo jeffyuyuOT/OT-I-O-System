@@ -1377,8 +1377,8 @@ function invCopyText(text, el){
 
 
 // ---------- 把目前篩選結果的 Invoice 打包成 PDF zip(對帳、留存用)----------
-Object.assign(I18N.zh, { invExportZip: '📦 下載 PDF 打包', invZipConfirm: '要產生 {n} 份 PDF 並打包成 zip,每份約需 1 秒左右,過程中請不要關閉頁面。要繼續嗎?', invZipBusy: '打包中 {done}/{total}…', invZipDone: '✓ 已打包 {n} 份 PDF', invZipFail: '{n} 份產生失敗(已列在 index.csv 的備註欄)', invZipEmpty: '目前篩選結果沒有 Invoice。', invZipCancel: '取消', invZipCancelled: '已取消,沒有下載任何檔案。', invZipNoLib: 'PDF 或 zip 元件載入失敗,請重新整理頁面再試一次。' });
-Object.assign(I18N.en, { invExportZip: '📦 Download PDFs (zip)', invZipConfirm: 'This will generate {n} PDF(s) and pack them into a zip. It takes about a second each; please keep the page open. Continue?', invZipBusy: 'Packing {done}/{total}…', invZipDone: '✓ Packed {n} PDF(s)', invZipFail: '{n} failed (noted in index.csv)', invZipEmpty: 'No invoices match the current filter.', invZipCancel: 'Cancel', invZipCancelled: 'Cancelled. Nothing was downloaded.', invZipNoLib: 'The PDF or zip component failed to load. Please refresh and try again.' });
+Object.assign(I18N.zh, { invExportZip: '📦 下載 PDF 打包', invZipConfirm: '要產生 {n} 份 PDF 並打包成 zip,每份約需 1 秒左右,過程中請不要關閉頁面。要繼續嗎?', invZipBusy: '上一輪資料打包中 {done}/{total}…', invZipDone: '✓ 已打包 {n} 份 PDF', invZipFail: '{n} 份產生失敗(已列在 index.csv 的備註欄)', invZipEmpty: '目前篩選結果沒有 Invoice。', invZipCancel: '取消', invZipCancelled: '已取消,沒有下載任何檔案。', invZipNoLib: 'PDF 或 zip 元件載入失敗,請重新整理頁面再試一次。' });
+Object.assign(I18N.en, { invExportZip: '📦 Download PDFs (zip)', invZipConfirm: 'This will generate {n} PDF(s) and pack them into a zip. It takes about a second each; please keep the page open. Continue?', invZipBusy: 'Previous batch packing {done}/{total}…', invZipDone: '✓ Packed {n} PDF(s)', invZipFail: '{n} failed (noted in index.csv)', invZipEmpty: 'No invoices match the current filter.', invZipCancel: 'Cancel', invZipCancelled: 'Cancelled. Nothing was downloaded.', invZipNoLib: 'The PDF or zip component failed to load. Please refresh and try again.' });
 async function invFetchSnapshots(ids){
   const out = new Map();
   for(let i = 0; i < ids.length; i += 40){
@@ -1402,16 +1402,13 @@ async function invPdfBlobFromSnap(snap){
     }).from(holder.firstElementChild).outputPdf('blob');
   } finally { holder.remove(); }
 }
-// 打包狀態(重畫清單時要能接回去):running = 正在打包,篩選欄位鎖住,按鈕與「取消」按鈕重畫後還在
+// 打包狀態(重畫清單時要能接回去):running = 正在打包。打包期間可以照常改篩選;按鈕顯示「上一輪資料打包中」,「取消」按鈕重畫後還在
 const invZipState = {};
 function invZipBtnEl(key){ return document.getElementById('invZipBtn_' + key); }
 function invApplyZipLock(key){
   const st = invZipState[key]; if(!st || !st.running) return;
   const btn = invZipBtnEl(key); if(!btn) return;
   btn.disabled = true; btn.textContent = tf('invZipBusy', { done: st.done, total: st.total });
-  const root = btn.parentNode;
-  root.querySelectorAll('[id^="invFlt_' + key + '_"]').forEach(el => { el.disabled = true; });
-  root.querySelectorAll('button').forEach(b => { if(b.id !== 'invZipBtn_' + key && b.id !== 'invZipCancel_' + key && /btnClearFilter|clear/i.test(b.getAttribute('onclick') || '')) b.disabled = true; });
   if(!document.getElementById('invZipCancel_' + key)){
     const cb = document.createElement('button');
     cb.id = 'invZipCancel_' + key; cb.className = 'btn ghost'; cb.style.alignSelf = 'flex-end'; cb.textContent = t('invZipCancel'); cb.disabled = !!st.cancelled;
@@ -1458,7 +1455,7 @@ async function invExportListZip(key){
     }catch(e){ console.error('Invoice 打包失敗', e); showInfoModal(String((e && e.message) || e)); }
     finally{
       st.running = false;
-      invRenderList(key);   // 重畫一次:解開篩選欄位、拿掉取消按鈕、按鈕文字還原
+      invRenderList(key);   // 重畫一次:拿掉取消按鈕、按鈕文字還原
     }
   };
   if(list.length > 20) showConfirmModal(tf('invZipConfirm', { n: list.length }), run); else return run();
