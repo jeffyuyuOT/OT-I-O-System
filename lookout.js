@@ -48,10 +48,10 @@ const LOOKOUT_CARDS = [
       switchTab('tab-warehouse-ops');
       switchWarehouseOpsSubTab('subtab-tx-verify');
     } },
-  { id: 'overview', icon: '📦', titleKey: 'lookoutOverview', descKey: 'lookoutOverviewDesc', tab: 'tab-overview',
+  { id: 'stock-location', icon: '📍', titleKey: 'lookoutStockLocation', descKey: 'lookoutStockLocationDesc', tab: 'tab-overview',
     go: function(){
       switchTab('tab-overview');
-      switchOverviewSubTab('subtab-overview-summary');
+      switchOverviewSubTab('subtab-overview-location');
     } },
   { id: 'batch', icon: '🏷️', titleKey: 'lookoutBatch', descKey: 'lookoutBatchDesc', tab: 'tab-overview',
     show: function(){ return typeof hasFeature === 'function' && hasFeature('batchTracking'); },
