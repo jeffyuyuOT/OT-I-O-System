@@ -904,7 +904,7 @@ function invExportListXlsx(key){
   const aoa = [['Invoice No', 'Invoice Date', 'Customer', 'Order No', 'Terms', 'Due Date', 'Sale Rep', 'Sale Amt (Ex. GST)', 'GST', 'Total Amt (Inc. GST)', 'Paid', 'Balance Due', 'Status', 'Currency']]
     .concat(list.map(r => {
       const i = invRowInfo(r);
-      return [r.invoice_no, r.invoice_date, invCustLabel(r), r.order_no, r.payment_type === 'cod' ? 'COD' : (r.terms ? r.terms + ' Days' : ''), r.payment_type === 'cod' ? '' : r.due_date, r.sale_rep, Number(r.before_tax), Number(r.tax), i.total, i.paid, i.balance, t('invSt_' + i.status), r.currency];
+      return [r.invoice_no, r.invoice_date, invCustLabel(r), r.order_no, r.payment_type === 'cod' ? 'COD' : (r.terms ? r.terms + ' Days' : ''), r.payment_type === 'cod' ? '' : r.due_date, r.sale_rep, Number(r.before_tax), Number(r.tax), i.total, i.paid, i.balance, ((I18N.en && I18N.en['invSt_' + i.status]) || i.status), r.currency];   // 匯出一律英文,方便會計/對外使用
     }));
   const ws = XLSX.utils.aoa_to_sheet(aoa);
   ws['!cols'] = [{ wch: 12 }, { wch: 12 }, { wch: 30 }, { wch: 12 }, { wch: 10 }, { wch: 12 }, { wch: 16 }, { wch: 16 }, { wch: 10 }, { wch: 18 }, { wch: 12 }, { wch: 12 }, { wch: 10 }, { wch: 8 }];
