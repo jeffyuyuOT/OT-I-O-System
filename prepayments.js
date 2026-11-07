@@ -64,6 +64,10 @@ function ppBalanceAsOf(D){
   const used = ppApps.filter(a => a.apply_date && a.apply_date <= D).reduce((s, a) => s + Number(a.amount), 0);
   return ppR2(paid - used);
 }
+// 連結的預估紀錄已被刪除?(預估紀錄載入完成之後才判斷,避免還沒載入就全部標成已刪除)
+let ppFcLoaded = false;
+function ppForecastGone(fid){ return !!fid && ppFcLoaded && !(typeof forecastRecords !== 'undefined' ? forecastRecords : []).some(x => x.id === fid); }
+function ppForecastLabel(r){ return r.forecast_name ? (ppForecastGone(r.forecast_id) ? tf('ppForecastGoneOpt', { n: r.forecast_name }) : r.forecast_name) : ''; }
 function ppForRecord(forecastId){ return ppRows.filter(r => r.forecast_id === forecastId); }
 function ppPaidForRecord(forecastId){ return ppR2(ppForRecord(forecastId).reduce((s, r) => s + Number(r.amount), 0)); }
 function ppErrMsg(e){
@@ -81,7 +85,7 @@ async function ppOpenPage(){
   if(!ppOn()){ root.innerHTML = ''; return; }
   root.innerHTML = `<div class="empty-note">${t('batchLoading')}</div>`;
   try{ if(typeof ensurePurchasesLoaded === 'function') await ensurePurchasesLoaded(); }catch(e){}
-  try{ if(typeof loadForecastRecords === 'function') await loadForecastRecords(); }catch(e){}
+  try{ if(typeof loadForecastRecords === 'function'){ await loadForecastRecords(); ppFcLoaded = true; } }catch(e){}
   await ppLoad();
   ppRender();
 }
@@ -110,7 +114,7 @@ function ppExportXlsx(){
   const aoa = [['Date', 'Supplier', 'Forecast', 'Amount', 'Applied', 'Balance', 'Method', 'Note', 'Created by']]
     .concat(ppFiltered().slice().sort((a, b) => (b.pay_date || '').localeCompare(a.pay_date || '')).map(r => {
       const refund = Number(r.amount) < 0, used = ppAppliedOf(r.id);
-      return [r.pay_date || '', r.party_name || '', r.forecast_name || '', Number(r.amount), refund ? '' : used, refund ? '' : ppR2(Number(r.amount) - used), r.method || '', r.note || '', r.created_by || ''];
+      return [r.pay_date || '', r.party_name || '', ppForecastLabel(r), Number(r.amount), refund ? '' : used, refund ? '' : ppR2(Number(r.amount) - used), r.method || '', r.note || '', r.created_by || ''];
     }));
   accExportXlsx(aoa, 'Prepayments', 'prepayments', [12, 28, 24, 12, 12, 12, 14, 30, 16]);
 }
@@ -134,7 +138,7 @@ function ppRender(){
       const open = ppOpenApps.has(a.id);
       return `<div style="cursor:pointer;" onclick="ppToggleApp('${ppEsc(a.id)}')">${open ? '▾' : '▸'} ${ppEsc(paDmy(a.apply_date))} · ${ppM(a.amount)}</div>` + (open ? `<div style="color:var(--ink);padding-left:12px;">${t('ppAppliedTo')} ${ppEsc(purName(a.purchase_id) || '?')}</div>` : '');
     }).join('');
-    const fr = r.forecast_id ? `<span class="del-link" style="color:var(--ink);" onclick="ppViewForecast('${ppEsc(r.forecast_id)}','${ppEsc(r.forecast_name || '')}')">${ppEsc(r.forecast_name || '–')}</span>` : '–';
+    const fr = r.forecast_id ? `<span class="del-link" style="color:var(--ink);" onclick="ppViewForecast('${ppEsc(r.forecast_id)}','${ppEsc(r.forecast_name || '')}')">${ppEsc(ppForecastLabel(r) || '–')}</span>` : '–';
     return `<tr>
       <td style="white-space:nowrap;">${ppEsc(paDmy(r.pay_date))}</td><td>${ppEsc(r.party_name)}${refund ? ` <span style="font-size:11px;color:#6b3fa0;font-weight:700;">${t('ppRefundTag')}</span>` : ''}</td><td>${fr}</td>
       <td class="num">${ppM(r.amount)}</td><td class="num">${refund ? '–' : ppM(used)}${apps ? `<div style="font-size:10.5px;color:var(--ink-soft);text-align:right;">${apps}</div>` : ''}</td><td class="num"><b>${refund ? '–' : ppM(bal)}</b></td>
