@@ -1377,8 +1377,8 @@ function invCopyText(text, el){
 
 
 // ---------- 把目前篩選結果的 Invoice 打包成 PDF zip(對帳、留存用)----------
-Object.assign(I18N.zh, { invExportZip: '📦 下載 PDF 打包', invZipConfirm: '要產生 {n} 份 PDF 並打包成 zip,每份約需 1 秒左右,過程中請不要關閉頁面。要繼續嗎?', invZipBusy: '打包中 {done}/{total}…', invZipDone: '✓ 已打包 {n} 份 PDF', invZipFail: '{n} 份產生失敗(已列在 index.csv 的備註欄)', invZipEmpty: '目前篩選結果沒有 Invoice。', invZipNoLib: 'PDF 或 zip 元件載入失敗,請重新整理頁面再試一次。' });
-Object.assign(I18N.en, { invExportZip: '📦 Download PDFs (zip)', invZipConfirm: 'This will generate {n} PDF(s) and pack them into a zip. It takes about a second each; please keep the page open. Continue?', invZipBusy: 'Packing {done}/{total}…', invZipDone: '✓ Packed {n} PDF(s)', invZipFail: '{n} failed (noted in index.csv)', invZipEmpty: 'No invoices match the current filter.', invZipNoLib: 'The PDF or zip component failed to load. Please refresh and try again.' });
+Object.assign(I18N.zh, { invExportZip: '📦 下載 PDF 打包', invZipConfirm: '要產生 {n} 份 PDF 並打包成 zip,每份約需 1 秒左右,過程中請不要關閉頁面。要繼續嗎?', invZipBusy: '打包中 {done}/{total}…', invZipDone: '✓ 已打包 {n} 份 PDF', invZipFail: '{n} 份產生失敗(已列在 index.csv 的備註欄)', invZipEmpty: '目前篩選結果沒有 Invoice。', invZipCancel: '取消', invZipCancelled: '已取消,沒有下載任何檔案。', invZipNoLib: 'PDF 或 zip 元件載入失敗,請重新整理頁面再試一次。' });
+Object.assign(I18N.en, { invExportZip: '📦 Download PDFs (zip)', invZipConfirm: 'This will generate {n} PDF(s) and pack them into a zip. It takes about a second each; please keep the page open. Continue?', invZipBusy: 'Packing {done}/{total}…', invZipDone: '✓ Packed {n} PDF(s)', invZipFail: '{n} failed (noted in index.csv)', invZipEmpty: 'No invoices match the current filter.', invZipCancel: 'Cancel', invZipCancelled: 'Cancelled. Nothing was downloaded.', invZipNoLib: 'The PDF or zip component failed to load. Please refresh and try again.' });
 async function invFetchSnapshots(ids){
   const out = new Map();
   for(let i = 0; i < ids.length; i += 40){
@@ -1411,6 +1411,11 @@ async function invExportListZip(key){
     const btn = document.getElementById('invZipBtn_' + key);
     const label = btn ? btn.textContent : '';
     if(btn) btn.disabled = true;
+    let cancelled = false;
+    const cbtn = document.createElement('button');
+    cbtn.className = 'btn ghost'; cbtn.style.alignSelf = 'flex-end'; cbtn.textContent = t('invZipCancel');
+    cbtn.onclick = () => { cancelled = true; cbtn.disabled = true; };
+    if(btn && btn.parentNode) btn.parentNode.insertBefore(cbtn, btn.nextSibling);
     const setBusy = (done) => { if(btn) btn.textContent = tf('invZipBusy', { done, total: list.length }); };
     try{
       setBusy(0);
@@ -1418,6 +1423,7 @@ async function invExportListZip(key){
       const zip = new JSZip(); const idx = [['Invoice No', 'Invoice Date', 'Customer', 'Order No', 'Total (Inc. GST)', 'File', 'Note']]; const used = new Set();
       let failed = 0, done = 0;
       for(const r of list){
+        if(cancelled) break;
         const snap = snaps.get(r.id); let fname = '', note = '';
         try{
           if(!snap) throw new Error('snapshot not found');
@@ -1429,6 +1435,7 @@ async function invExportListZip(key){
         idx.push([r.invoice_no, r.invoice_date, invCustLabel(r), r.order_no || '', invRowInfo(r).total, fname, note]);
         setBusy(++done);
       }
+      if(cancelled){ showInfoModal(t('invZipCancelled')); return; }
       const csv = '\ufeff' + idx.map(row => row.map(c => { const v = String(c == null ? '' : c); return /[",\r\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; }).join(',')).join('\r\n');
       zip.file('index.csv', csv);
       const blob = await zip.generateAsync({ type: 'blob' });
@@ -1436,7 +1443,7 @@ async function invExportListZip(key){
       setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 2000);
       showInfoModal(tf('invZipDone', { n: list.length - failed }) + (failed ? '\n' + tf('invZipFail', { n: failed }) : ''));
     }catch(e){ console.error('Invoice 打包失敗', e); showInfoModal(String((e && e.message) || e)); }
-    finally{ if(btn){ btn.disabled = false; btn.textContent = label; } }
+    finally{ cbtn.remove(); if(btn){ btn.disabled = false; btn.textContent = label; } }
   };
   if(list.length > 20) showConfirmModal(tf('invZipConfirm', { n: list.length }), run); else return run();
 }

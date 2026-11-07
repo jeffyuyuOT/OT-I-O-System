@@ -7,12 +7,12 @@
 Object.assign(I18N.zh, {
   evTitle: '附件打包下載', evHint: '把某個期間進貨單的附件(發票、收據)打包成 zip 下載,另附一份進貨單清單 index.csv。完整資料備份只含附件的網址,不含檔案本身,報稅用的紀錄建議每季或每年下載保存。',
   evFy: '財年', evPeriod: '期間', evAllYear: '全年', evQ: '第 {n} 季', evMonth: '{m} 月', evDownload: '下載 zip', evBusy: '打包中… {done}/{total}',
-  evNone: '這個期間沒有進貨單。', evNoFiles: '這個期間的進貨單都沒有附件,只下載清單 index.csv。', evNoZip: '打包元件載入失敗,請重新整理頁面再試。', evDone: '完成:{files} 個附件、{n} 張進貨單。', evFailed: '{n} 個附件下載失敗(已列在 index.csv 的備註欄)。'
+  evCancel: '取消', evCancelled: '已取消,沒有下載任何檔案。', evNone: '這個期間沒有進貨單。', evNoFiles: '這個期間的進貨單都沒有附件,只下載清單 index.csv。', evNoZip: '打包元件載入失敗,請重新整理頁面再試。', evDone: '完成:{files} 個附件、{n} 張進貨單。', evFailed: '{n} 個附件下載失敗(已列在 index.csv 的備註欄)。'
 });
 Object.assign(I18N.en, {
   evTitle: 'Download attachments pack', evHint: 'Download a zip of the purchase attachments (invoices, receipts) for a period, plus an index.csv listing the purchases. The full data backup only keeps attachment links, not the files, so download this each quarter or year for tax records.',
   evFy: 'Financial year', evPeriod: 'Period', evAllYear: 'Full year', evQ: 'Quarter {n}', evMonth: '{m}', evDownload: 'Download zip', evBusy: 'Packing… {done}/{total}',
-  evNone: 'No purchases in this period.', evNoFiles: 'None of the purchases in this period have attachments; downloading index.csv only.', evNoZip: 'The zip component failed to load. Please refresh and try again.', evDone: 'Done: {files} attachment(s), {n} purchase(s).', evFailed: '{n} attachment(s) failed to download (noted in index.csv).'
+  evCancel: 'Cancel', evCancelled: 'Cancelled. Nothing was downloaded.', evNone: 'No purchases in this period.', evNoFiles: 'None of the purchases in this period have attachments; downloading index.csv only.', evNoZip: 'The zip component failed to load. Please refresh and try again.', evDone: 'Done: {files} attachment(s), {n} purchase(s).', evFailed: '{n} attachment(s) failed to download (noted in index.csv).'
 });
 const EV_MONTHS_EN = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 function evEsc(s){ return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
@@ -41,6 +41,7 @@ function evRender(){
       <label style="font-size:12px;">${t('evFy')} <select id="evFySel">${fys.map(y => `<option value="${y}">${evFyLabel(y)}</option>`).join('')}</select></label>
       <label style="font-size:12px;">${t('evPeriod')} <select id="evPerSel">${perOpts.map(([v, l]) => `<option value="${v}">${evEsc(l)}</option>`).join('')}</select></label>
       <button class="btn ghost" id="evBtn" onclick="evDownload()">${t('evDownload')}</button>
+      <button class="btn ghost" id="evCancelBtn" style="display:none;" onclick="evCancelRun()">${t('evCancel')}</button>
       <span id="evMsg" style="font-size:12px;color:var(--ink-soft);"></span></div>`;
   if(keepFy) document.getElementById('evFySel').value = keepFy;
   if(keepPer) document.getElementById('evPerSel').value = keepPer;
@@ -52,10 +53,13 @@ function evSaveBlob(blob, name){
   const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name; document.body.appendChild(a); a.click();
   setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 2000);
 }
+let evCancelled = false;
+function evCancelRun(){ evCancelled = true; const c = document.getElementById('evCancelBtn'); if(c) c.disabled = true; }
 async function evDownload(){
   const fy = document.getElementById('evFySel').value, per = document.getElementById('evPerSel').value;
   const rg = evRange(fy, per);
   const btn = document.getElementById('evBtn'); btn.disabled = true; evMsg('…');
+  evCancelled = false; const cb = document.getElementById('evCancelBtn'); if(cb){ cb.disabled = false; cb.style.display = ''; }
   try{
     await ensurePurchasesLoaded();
     const list = purchases.filter(p => p.date && p.date >= rg.from && p.date <= rg.to).sort((a, b) => (a.date + (a.partyName || '')).localeCompare(b.date + (b.partyName || '')));
@@ -72,6 +76,7 @@ async function evDownload(){
     if(typeof JSZip === 'undefined'){ evMsg(t('evNoZip'), true); return; }
     const zip = new JSZip(); let done = 0, failed = 0; const res = new Map();   // purchase id → { files:[], notes:[] }
     for(const { p, f, i } of tasks){
+      if(evCancelled) break;
       const r = res.get(p.id) || { files: [], notes: [] }; res.set(p.id, r);
       evMsg(tf('evBusy', { done, total: tasks.length }));
       const base = evSafe(f.filename) || ('file-' + (i + 1));
@@ -82,6 +87,7 @@ async function evDownload(){
       }catch(e){ failed++; r.notes.push('FAILED: ' + base + ' (' + (e.message || e) + ')'); console.error('附件下載失敗', f.url, e); }
       done++;
     }
+    if(evCancelled){ evMsg(t('evCancelled')); return; }
     list.forEach(p => { const r = res.get(p.id) || { files: [], notes: [] }; idx.push([p.date, p.partyName || p.partyId || '', p.invoiceNo || '', p.id, getPurchaseReceiptFileList(p).length, r.files.join(' | '), r.notes.join(' | ')]); });
     zip.file('index.csv', evCsv(idx));
     evMsg(tf('evBusy', { done: tasks.length, total: tasks.length }));
@@ -89,5 +95,5 @@ async function evDownload(){
     evSaveBlob(blob, stem + '.zip');
     evMsg(tf('evDone', { files: tasks.length - failed, n: list.length }) + (failed ? ' ' + tf('evFailed', { n: failed }) : ''), failed > 0);
   }catch(e){ console.error('附件打包失敗', e); evMsg(String(e && e.message || e), true); }
-  finally{ btn.disabled = false; }
+  finally{ btn.disabled = false; const c2 = document.getElementById('evCancelBtn'); if(c2) c2.style.display = 'none'; }
 }
