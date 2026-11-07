@@ -142,6 +142,12 @@ const ROLE_DEFAULT_TABS = {
   order: ['tab-order'],   // 訂貨用戶只有訂貨分頁(不帶 Lookout)
   inventory: ['tab-lookout', 'tab-warehouse-ops', 'tab-overview', 'tab-warehouse-admin', 'tab-log']
 };
+// 新帳號 / 切換身分時的預設細部限制(清單裡的 = 取消勾選)。倉庫管理員:歷史紀錄的「匯出紀錄」「後台紀錄」預設不開。
+// 價錢相關(編輯價錢、訂單顯示價錢)倉庫管理員本來就預設不允許,不用列在這裡。
+const ROLE_DEFAULT_RESTRICTED = {
+  inventory: ['sub:subtab-log-exports', 'sub:subtab-log-inventory']
+};
+function roleDefaultRestricted(role){ return (ROLE_DEFAULT_RESTRICTED[role] || []).slice(); }
 
 // Turn a plain username into the placeholder email Supabase Auth needs.
 function usernameToEmail(username){
@@ -536,7 +542,7 @@ function onModalRoleChange(userId){
   const role = document.getElementById('modalUserRole').value;
   const perms = (ROLE_DEFAULT_TABS[role] || []).slice();
   const wrap = document.getElementById('modalCapabilitiesWrap');
-  if(wrap) wrap.innerHTML = permTreeHtml(userId, perms, [], role); // 換身分 → 分頁與細部權限(含編輯價錢)回到該身分的預設值
+  if(wrap) wrap.innerHTML = permTreeHtml(userId, perms, roleDefaultRestricted(role).concat('perm-v2'), role); // 換身分 → 分頁與細部權限(含編輯價錢)回到該身分的預設值
   attachModalTabPermListeners(userId);
 }
 
@@ -783,7 +789,7 @@ async function confirmUserInvite(){
     firstName: (document.getElementById('inviteFirstName').value || '').trim(),
     lastName: (document.getElementById('inviteLastName').value || '').trim(),
     tabPermissions: (ROLE_DEFAULT_TABS[role] || []).slice(),
-    restrictedCapabilities: [], // 編輯價錢:管理者預設允許、其他身分預設不允許(見 canEditPriceFor)
+    restrictedCapabilities: roleDefaultRestricted(role).concat('perm-v2'), // 帶 perm-v2 才不會在第一次登入被當成舊帳號重新遷移;價錢權限:管理者預設允許、其他身分預設不允許(見 canEditPriceFor)
     assignedPartyIds: Array.from(document.querySelectorAll('#invitePartyChecks input:checked')).map(el => el.dataset.partyId)
   };
   const btn = document.getElementById('btnConfirmUserInvite');
