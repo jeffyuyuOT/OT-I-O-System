@@ -752,7 +752,7 @@ async function icCnRestoreFromBackup(d){
 }
 async function icCnClearAll(){
   const { error } = await sb.rpc('credit_notes_clear_all');
-  if(error && !invIsMissingFn(error)) console.error(error);
+  if(error && !invIsMissingFn(error)) throw error;
 }
 
 // ============================================================

@@ -1322,15 +1322,14 @@ async function invRestoreFromBackup(backup){
   }
 }
 async function invClearAll(){
-  const { error } = await sb.rpc('invoice_clear_all');
-  if(error && !invIsMissingFn(error)) throw error;
-  if(typeof icCnClearAll === 'function') await icCnClearAll();
-  // 預付款、進貨付款、其他支出:每一項都試,最後如果有失敗再丟出錯誤(不要因為其中一項失敗就跳過後面的)
+  // 每一項都試,最後如果有失敗再丟出第一個錯誤:不要因為 Invoice 清除失敗(例如不是管理員)就跳過後面的 Credit Note、預付款、進貨付款、其他支出
   let firstErr = null;
-  for(const fn of [typeof ppBackupClear === 'function' ? ppBackupClear : null, typeof paBackupClear === 'function' ? paBackupClear : null, typeof oeBackupClear === 'function' ? oeBackupClear : null]){
-    if(!fn) continue;
-    try{ await fn(); }catch(e){ console.error('清除會計資料失敗', e); if(!firstErr) firstErr = e; }
-  }
+  const run = async fn => { try{ await fn(); }catch(e){ console.error('清除會計資料失敗', e); if(!firstErr) firstErr = e; } };
+  await run(async () => { const { error } = await sb.rpc('invoice_clear_all'); if(error && !invIsMissingFn(error)) throw error; });
+  if(typeof icCnClearAll === 'function') await run(icCnClearAll);
+  if(typeof ppBackupClear === 'function') await run(ppBackupClear);
+  if(typeof paBackupClear === 'function') await run(paBackupClear);
+  if(typeof oeBackupClear === 'function') await run(oeBackupClear);
   if(firstErr) throw firstErr;
 }
 
