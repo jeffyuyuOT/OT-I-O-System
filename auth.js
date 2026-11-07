@@ -426,7 +426,7 @@ function permTreeHtml(userId, tabPermissions, restrictedCapabilities, role){
       <div style="display:flex;align-items:center;gap:8px;">
         <input type="checkbox" data-tab-id="${def.id}" id="modalPerm_${userId}_${def.id}" ${on ? 'checked' : ''} />
         <span style="font-weight:700;${kids.count ? 'cursor:pointer;' : ''}flex:1;user-select:none;" ${kids.count ? 'onclick="togglePermNode(this)"' : ''}>
-          ${t(def.labelKey)}${kids.count ? ` <span class="perm-arrow" style="color:var(--ink-soft);font-weight:400;">▸</span> <span style="color:var(--ink-soft);font-weight:400;font-size:11.5px;">(${kids.count})</span>` : ''}
+          ${t(def.labelKey)}${kids.count ? ` <span class="perm-arrow" style="color:var(--ink-soft);font-weight:400;">▸</span> <span style="color:var(--ink-soft);font-weight:400;font-size:11.5px;" class="perm-count">(${kids.count})</span>` : ''}
         </span>
       </div>
       ${kids.count ? `<div class="perm-kids" data-parent-tab="${def.id}" style="display:none;margin:6px 0 2px 22px;padding-left:10px;border-left:2px solid var(--line);flex-direction:column;gap:5px;">
@@ -547,6 +547,20 @@ function onModalRoleChange(userId){
 }
 
 // 分頁勾選一改變,細部功能權限清單也要跟著增減(因為某個功能是掛在某個分頁底下的)。
+// 每個主分頁旁的 (x/y):y = 底下子分頁/選項/細部功能總數,x = 目前勾選的數量(主分頁沒勾 = 全部不能用,x 顯示 0)。
+function updatePermCounts(wrap){
+  if(!wrap) return;
+  wrap.querySelectorAll('.perm-node').forEach(node => {
+    const kids = node.querySelector('.perm-kids');
+    const badge = node.querySelector('.perm-count');
+    if(!kids || !badge) return;
+    const boxes = kids.querySelectorAll('input[type="checkbox"]');
+    const top = node.querySelector('input[data-tab-id]');
+    const on = top ? top.checked : true;
+    let x = 0; boxes.forEach(b => { if(on && b.checked) x++; });
+    badge.textContent = '(' + x + '/' + boxes.length + ')';
+  });
+}
 function attachModalTabPermListeners(userId){
   const wrap = document.getElementById('modalCapabilitiesWrap');
   if(!wrap) return;
@@ -557,6 +571,8 @@ function attachModalTabPermListeners(userId){
       kids.querySelectorAll('input[data-cap-id]').forEach(k => { k.disabled = !cb.checked; k.closest('label').style.opacity = cb.checked ? '' : '.45'; });
     });
   });
+  wrap.addEventListener('change', () => updatePermCounts(wrap));
+  updatePermCounts(wrap);
 }
 
 async function saveUserEditModal(){
