@@ -302,8 +302,7 @@ function psRenderPage(){
       <button class="btn" id="psSaveBtn" onclick="psSave()" ${editable && dirtyCount > 0 ? '' : 'disabled'}>${t('btnSave')}${dirtyCount > 0 ? ' (' + dirtyCount + ')' : ''}</button>
     </div>
     <div id="psPageMsg" class="msg ${psPageMsgType}">${psEsc(psPageMsg)}</div>
-    <div style="font-size:11.5px;color:var(--ink-soft);margin:0 0 8px;">${t('psColumnsHint')}</div>
-    ${list.length === 0 ? `<div class="empty-note">${t('psNoProducts')}</div>` : `<div style="overflow-x:auto;"><table class="stock-table"><thead><tr><th>${t('lblProduct')}</th><th class="num">Sell price</th><th class="num">${t('psColCost')}</th><th class="num">${t('psColAvgCost')}</th><th class="num">Margin</th></tr></thead><tbody>${rows}</tbody></table></div>`}`;
+    ${list.length === 0 ? `<div class="empty-note">${t('psNoProducts')}</div>` : `<div style="overflow-x:auto;"><table class="stock-table"><thead><tr><th>${t('lblProduct')}</th><th class="num">Sell price</th><th class="num">${t('psColCost')} <span role="button" tabindex="0" class="info-icon" style="cursor:pointer;color:var(--ink-soft);font-size:14px;text-transform:none;" onclick="showInfoModal(t('psHintCost'))">ⓘ</span></th><th class="num">${t('psColAvgCost')} <span role="button" tabindex="0" class="info-icon" style="cursor:pointer;color:var(--ink-soft);font-size:14px;text-transform:none;" onclick="showInfoModal(t('psHintAvg'))">ⓘ</span></th><th class="num">Margin <span role="button" tabindex="0" class="info-icon" style="cursor:pointer;color:var(--ink-soft);font-size:14px;text-transform:none;" onclick="showInfoModal(t('psHintMargin'))">ⓘ</span></th></tr></thead><tbody>${rows}</tbody></table></div>`}`;
 }
 // 這個商品正在出貨的批次有手動設定 margin,而且算出來的售價跟目前 Price Setting 的價格不同 → 回傳 { item, margin, suggested, cost }
 function psBatchMarginWarn(pid, shownSell){
@@ -714,3 +713,14 @@ function psConfirmOpeningImport(files, updates, problems, problemText, say){
     }
   });
 }
+
+Object.assign(I18N.zh, {
+  psHintCost: '成本價(目前批次):目前正在出貨的批次的單位成本。出貨順序是:期初批次 → 先到期先出 → 進貨日 FIFO。',
+  psHintAvg: '平均成本:目前庫存各批次(剩餘量 × 單位成本)加總 ÷ 剩餘總量。批次出完就不再計入,每進新批次就會跟著調整。',
+  psHintMargin: 'Margin:Sell price 相對所選成本基準(批次成本或平均成本)多出的百分比。'
+});
+Object.assign(I18N.en, {
+  psHintCost: 'Cost (current batch): the unit cost of the batch currently being shipped. Shipping order: opening batch → earliest expiry → FIFO by purchase date.',
+  psHintAvg: 'Average cost: sum of (remaining qty × unit cost) over the batches in stock ÷ total remaining qty. A batch stops counting once it is used up, and the figure moves whenever a new batch arrives.',
+  psHintMargin: 'Margin: how much the Sell price is above the selected cost basis (batch cost or average cost), in %.'
+});
