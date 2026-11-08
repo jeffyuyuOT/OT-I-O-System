@@ -55,6 +55,7 @@ function stmtRenderForm(){
     <div class="toolbar" style="margin:10px 0;gap:8px;justify-content:flex-start;">
       <button class="btn" onclick="stmtPrint()">${t('stmtPrint')}</button>
       <button class="btn ghost" onclick="stmtOpenPay()">${t('stmtRecordPay')}</button>
+      <button class="btn ghost" onclick="stmtOpenLog()">${t('stmtLog')}</button>
     </div>
     <div id="stmtOut"></div>`;
 }
@@ -134,11 +135,13 @@ function stmtCompute(key, invs, cns, pays, asOf){
   Object.keys(ag).forEach(k => { ag[k] = stmtR2(ag[k]); });
   const total = stmtR2(ag.cur + ag.d30 + ag.d60 + ag.d90 + ag.d91 - ag.credit);
   const first = invs[0];
-  return { key, asOf, blocks, unapplied, ag, total, sp: first ? invPartyOf(first) : null, name: first ? invCustLabel(first) : '', from };
+  const sp0 = first ? invPartyOf(first) : null;
+  const keep = o => ({ id: o.id, invoice_no: o.invoice_no, invoice_date: o.invoice_date, order_no: o.order_no });
+  return { key, asOf, blocks: blocks.map(b => Object.assign({}, b, { r: keep(b.r) })), unapplied: unapplied.map(u => ({ c: { cn_no: u.c.cn_no, cn_date: u.c.cn_date }, avail: u.avail })), ag, total, partyId: sp0 ? sp0.id : '', sp: sp0 ? { abn: sp0.abn || '', billTo: sp0.billTo || '', code: sp0.code || '' } : null, name: first ? invCustLabel(first) : '', from, settings: Object.assign({}, invSettings, { logo: '' }) };
 }
-function stmtRef(d){ return 'ST' + String(d.asOf || '').replace(/-/g, '') + (d.sp && d.sp.code ? '-' + d.sp.code : ''); }
+function stmtRef(d){ return d.stNo || ''; }
 function stmtDocHtml(d){
-  const s = invSettings || {}, sp = d.sp || {};
+  const s = Object.assign({}, d.settings || invSettings || {}, { logo: (invSettings || {}).logo }), sp = d.sp || {};
   const th = 'padding:5px 6px;border-bottom:1.5px solid #333;text-align:left;font-size:11.5px;';
   const td = 'padding:3px 6px;font-size:11.5px;vertical-align:top;';
   const num = 'text-align:right;white-space:nowrap;';
@@ -170,7 +173,7 @@ function stmtDocHtml(d){
       <div style="text-align:right;">
         <div style="font-size:22px;font-weight:700;letter-spacing:1px;">STATEMENT</div>
         <div style="font-size:11.5px;margin-top:4px;">Statement date: <b>${invEsc(invIsoToDmy(d.asOf))}</b></div>
-        <div style="font-size:11.5px;">Statement No.: <b>${invEsc(stmtRef(d))}</b></div>
+        ${stmtRef(d) ? `<div style="font-size:11.5px;">Statement No.: <b>${invEsc(stmtRef(d))}</b></div>` : ''}
       </div>
     </div>
     <div style="margin:14px 0 12px;font-size:12px;line-height:1.5;">
@@ -182,11 +185,31 @@ function stmtDocHtml(d){
     <table style="margin:16px 0 0 auto;border-collapse:collapse;border:1px solid #999;"><thead><tr>${['Current', '1-30 Days', '31-60 Days', '61-90 Days', '90+ Days', 'Credit'].map(h => `<th style="${ac}border-bottom:1px solid #999;font-weight:700;">${h}</th>`).join('')}</tr></thead>
       <tbody><tr>${[a.cur, a.d30, a.d60, a.d90, a.d91].map(v => `<td style="${ac}">${invMoney2(v)}</td>`).join('')}<td style="${ac}color:#1d7a3c;">${a.credit ? '(' + invMoney2(a.credit) + ')' : '0.00'}</td></tr></tbody></table>
     <div style="margin-top:8px;text-align:right;font-size:14px;font-weight:700;">TOTAL AMOUNT DUE &nbsp; $${stmtMoney(d.total)}</div>
-    ${bk.length ? `<div style="margin-top:18px;border-top:1px solid #ccc;padding-top:8px;font-size:11.5px;line-height:1.5;"><div style="font-weight:700;">Payment details</div>${bk.map(x => `<div>${invEsc(x)}</div>`).join('')}<div style="color:#555;">Please quote Statement No. ${invEsc(stmtRef(d))} or your invoice number(s) as the payment reference.</div></div>` : ''}
+    ${bk.length ? `<div style="margin-top:18px;border-top:1px solid #ccc;padding-top:8px;font-size:11.5px;line-height:1.5;"><div style="font-weight:700;">Payment details</div>${bk.map(x => `<div>${invEsc(x)}</div>`).join('')}<div style="color:#555;">Please quote ${stmtRef(d) ? 'Statement No. ' + invEsc(stmtRef(d)) + ' or ' : ''}your invoice number(s) as the payment reference.</div></div>` : ''}
   </div>`;
 }
-function stmtPrint(){
+// 存檔(產生 ST 號碼);同一份畫面已經存過就沿用同一個號碼
+async function stmtEnsureSaved(){
+  if(!stmtData) return false;
+  if(stmtData.stNo) return true;
+  try{
+    const snap = JSON.parse(JSON.stringify(stmtData));
+    const { data, error } = await sb.rpc('statement_save', { p_snapshot: snap, p_party_id: stmtData.partyId || '' });
+    if(error) throw error;
+    stmtData.stNo = data && data.st_no;
+    const out = document.getElementById('stmtOut');
+    if(out && stmtData) out.innerHTML = `<div style="overflow:auto;border:1px solid var(--line);background:#eee;padding:8px;">${stmtDocHtml(stmtData)}</div>`;
+    try{ logInventoryAction('order_edit', `Statement ${stmtData.stNo} saved (${stmtData.name}, ${stmtData.asOf})`, ''); }catch(e){}
+    return true;
+  }catch(e){
+    console.error('Statement 存檔失敗', e);
+    showInfoModal(invIsMissingFn(e) || (e && e.code === '42P01') ? t('stmtNeedSql') : t('stmtSaveFailed'));
+    return false;
+  }
+}
+async function stmtPrint(){
   if(!stmtData){ showInfoModal(t('stmtPickFirst')); return; }
+  if(!(await stmtEnsureSaved())) return;
   const iframe = document.createElement('iframe');
   iframe.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0;';
   document.body.appendChild(iframe);
@@ -199,10 +222,12 @@ function stmtPrint(){
 }
 
 // ---------- 依 Statement 登記付款(一筆總額,由舊到新分配到各張未付清的 Invoice) ----------
-function stmtOpenPay(){
+async function stmtOpenPay(){
   if(!stmtData){ showInfoModal(t('stmtPickFirst')); return; }
+  if(stmtData._saved){ showInfoModal(t('stmtRegenFirst')); return; }
   const open = stmtData.blocks.filter(b => b.balance > 0.004);
   if(!open.length){ showInfoModal(t('stmtNoOpen')); return; }
+  if(!(await stmtEnsureSaved())) return;   // 先存檔拿到 Statement 號碼,付款備註才有號碼可以查
   const invTot = stmtR2(open.reduce((s, b) => s + b.balance, 0));
   const tot = Math.max(0, Math.min(invTot, stmtData.total));   // 預設 = Statement 的 TOTAL AMOUNT DUE(已扣掉未使用的 Credit Note)
   const credit = stmtR2(invTot - tot);
@@ -279,4 +304,38 @@ async function stmtPaySave(){
     msg.textContent = (done ? tf('stmtPayPartial', { n: done, m: items.length }) + ' ' : '') + (invIsMissingFn(e) ? t('invPayNeedSql') : t('invPaidFailed'));
     if(done) invList = [];
   }
+}
+
+// ---------- Statement 紀錄(已存檔的快照) ----------
+let stmtLogRows = [];
+async function stmtOpenLog(){
+  const out = document.getElementById('stmtOut'); if(!out) return;
+  out.innerHTML = `<div class="empty-note">${t('batchLoading')}</div>`;
+  try{
+    const { data, error } = await sb.from('statements').select('id,st_no,customer,as_of,total_due,created_by,created_at').order('created_at', { ascending: false }).limit(1000);
+    if(error) throw error;
+    stmtLogRows = data || [];
+    stmtRenderLog('');
+  }catch(e){
+    console.error('讀取 Statement 紀錄失敗', e);
+    out.innerHTML = `<div class="msg error">${invIsMissingFn(e) || (e && e.code === '42P01') ? t('stmtNeedSql') : t('invLoadFailed')}</div>`;
+  }
+}
+function stmtRenderLog(q){
+  const out = document.getElementById('stmtOut'); if(!out) return;
+  const k = (q || '').trim().toLowerCase();
+  const rows = stmtLogRows.filter(r => !k || [r.st_no, r.customer].join(' ').toLowerCase().includes(k));
+  out.innerHTML = `<div class="field" style="max-width:320px;"><input type="text" id="stmtLogQ" value="${invEsc(q || '')}" placeholder="${invEsc(t('stmtLogSearch'))}" oninput="stmtRenderLog(this.value);const i=document.getElementById('stmtLogQ');i.focus();i.setSelectionRange(i.value.length,i.value.length)" /></div>
+    ${rows.length ? `<div style="overflow-x:auto;"><table class="stock-table"><thead><tr><th>Statement No.</th><th>${t('icFieldParty')}</th><th>${t('stmtAsOf')}</th><th class="num">${t('stmtAmountDue')}</th><th>${t('invDtCreated')}</th></tr></thead><tbody>
+      ${rows.map(r => `<tr style="cursor:pointer;" onclick="stmtViewSaved('${invEsc(r.id)}')"><td><b>${invEsc(r.st_no)}</b></td><td>${invEsc(r.customer || '')}</td><td>${invEsc(invIsoToDmy(r.as_of))}</td><td class="num">${invMoney2(r.total_due)}</td><td>${invEsc(r.created_by || '')}${r.created_at ? ' · ' + invEsc(invIsoToDmy(String(r.created_at).slice(0, 10))) : ''}</td></tr>`).join('')}
+    </tbody></table></div>` : `<div class="empty-note">${t('stmtLogEmpty')}</div>`}`;
+}
+async function stmtViewSaved(id){
+  try{
+    const { data, error } = await sb.from('statements').select('snapshot').eq('id', id).maybeSingle();
+    if(error || !data) throw error || new Error('not found');
+    stmtData = data.snapshot; stmtData._saved = true;
+    const out = document.getElementById('stmtOut');
+    out.innerHTML = `<div class="toolbar" style="margin:0 0 8px;"><button class="btn ghost" onclick="stmtOpenLog()">← ${t('stmtLog')}</button></div><div style="overflow:auto;border:1px solid var(--line);background:#eee;padding:8px;">${stmtDocHtml(stmtData)}</div>`;
+  }catch(e){ console.error(e); showInfoModal(t('invLoadFailed')); }
 }
