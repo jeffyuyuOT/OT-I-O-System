@@ -75,7 +75,7 @@ function icRenderNew(){
       <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:8px;">
         <div class="section-title" style="margin:0;flex:1;">${t('icFieldItems')}</div>
         ${fromInv && icState.cnInv ? `<button class="btn ghost" onclick="icOpenInvoiceItems()">${t('icPickFromInvoice')}</button>` : ''}
-        ${(!cn && !icState.loaded.length) ? '' : `<button class="btn ghost" onclick="icOpenProductPicker()">＋ ${t('icAddProduct')}</button>`}
+        ${!cn ? '' : `<button class="btn ghost" onclick="icOpenProductPicker()">＋ ${t('icAddProduct')}</button>`}
         ${cn ? '' : `<button class="btn ghost" onclick="icOpenLoadOrders()">⇩ ${t('icLoadOrder')}</button>`}
         <button class="btn ghost" onclick="icOpenCustomItem()">＋ ${t('icAddCustom')}</button>
       </div>
@@ -163,10 +163,17 @@ function icRenderTotals(){
 // ---------- New Invoice:載入現有訂單 ----------
 function icLoadedHtml(){
   if(icIsCn() || !icState.loaded.length) return '';
-  const head = icState.loaded.map((o, i) => `<span style="display:inline-block;margin:0 8px 4px 0;"><b>${invEsc(o.no || '')}</b> <span class="del-link" title="${invEsc(t('icUnloadOrder'))}" onclick="icUnloadOrder(${i})">✕</span></span>`).join('');
+  const head = icState.loaded.map((o, i) => `<span style="display:inline-block;margin:0 8px 4px 0;"><b>${invEsc(o.no || '')}</b> <span style="color:#1a56b0;text-decoration:underline;cursor:pointer;font-size:12px;" onclick="icEditLoadedOrder('${invEsc(o.id)}')">${invEsc(t('icEditOrder'))}</span> <span class="del-link" title="${invEsc(t('icUnloadOrder'))}" onclick="icUnloadOrder(${i})">✕</span></span>`).join('');
   const rows = icState.loaded.map(o => o.lines.map(l => `<tr style="color:var(--ink-soft);"><td>${invEsc(l.desc)}${l.sku ? `<div style="font-size:11px;">${invEsc(l.sku)}</div>` : ''}<div style="font-size:11px;">${invEsc(o.no || '')}</div></td><td>${invEsc(l.qty)} ${invEsc(l.unit || '')}</td><td>${invMoney2(l.disc > 0 ? icR2(l.amount / (Number(l.qty) || 1)) : l.price)}</td><td class="num">${invMoney2(l.amount)}</td></tr>`).join('')).join('');
   return `<div style="font-size:12.5px;margin-bottom:4px;">${invEsc(t('icLoadedOrders'))}: ${head}</div>
     <div style="overflow-x:auto;margin-bottom:8px;"><table class="stock-table"><thead><tr><th>${t('icColItem')}</th><th>${t('icColQty')}</th><th>${t('icColPrice')}</th><th class="num">${t('icColAmount')}</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+}
+// 載入的訂單要改庫存商品:跳到那張訂單的編輯頁面;已簽收的訂單不能編輯
+function icEditLoadedOrder(orderId){
+  const o = orders.find(x => x.id === orderId);
+  if(!o || o.deleted) return;
+  if(o.signedAt){ showInfoModal(tf('icOrderSignedNoEdit', { no: o.orderNo || '' })); return; }
+  editOrderViaRegister(orderId, orderStatus(o) === 'confirmed' ? 'completed' : 'pending');
 }
 function icUnloadOrder(i){ icState.loaded.splice(i, 1); icRenderNew(); }
 let icLoadSel = new Set();
