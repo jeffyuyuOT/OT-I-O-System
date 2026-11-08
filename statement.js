@@ -203,12 +203,15 @@ function stmtOpenPay(){
   if(!stmtData){ showInfoModal(t('stmtPickFirst')); return; }
   const open = stmtData.blocks.filter(b => b.balance > 0.004);
   if(!open.length){ showInfoModal(t('stmtNoOpen')); return; }
-  const tot = stmtR2(open.reduce((s, b) => s + b.balance, 0));
+  const invTot = stmtR2(open.reduce((s, b) => s + b.balance, 0));
+  const tot = Math.max(0, Math.min(invTot, stmtData.total));   // 預設 = Statement 的 TOTAL AMOUNT DUE(已扣掉未使用的 Credit Note)
+  const credit = stmtR2(invTot - tot);
   const ov = document.createElement('div');
   ov.id = 'stmtPayOverlay'; ov.className = 'modal-overlay'; ov.style.display = 'flex'; ov.style.zIndex = '1250';
   ov.innerHTML = `<div class="modal-box" style="max-width:min(560px,96vw);max-height:92vh;overflow:auto;">
     <div class="section-title" style="margin-top:0;">${t('stmtRecordPay')} · ${invEsc(stmtData.name)}</div>
     <p style="font-size:11.5px;color:var(--ink-soft);margin:0 0 8px;">${t('stmtPayHint')}</p>
+    ${credit > 0.004 ? `<div style="font-size:12px;margin:0 0 8px;padding:6px 10px;border:1px solid var(--line);border-radius:8px;">${t('stmtInvOpen')}: <b>${invMoney2(invTot)}</b> − ${t('stmtUnappliedCredit')}: <b>${invMoney2(credit)}</b> = ${t('stmtAmountDue')}: <b>${invMoney2(tot)}</b><div style="color:var(--ink-soft);margin-top:2px;">${t('stmtCreditStays')}</div></div>` : ''}
     <div class="form-grid" style="grid-template-columns:1fr 1fr;gap:8px;">
       <div class="field"><label>${t('invPayDate')}</label><input type="date" id="stmtPayDate" value="${invEsc(invToday())}" /></div>
       <div class="field"><label>${t('invPayAmount')}</label><input type="number" id="stmtPayAmt" min="0.01" step="0.01" value="${invMoney2(tot)}" oninput="stmtAllocate()" /></div>
