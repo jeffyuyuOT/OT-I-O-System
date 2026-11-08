@@ -137,7 +137,7 @@ function stmtCompute(key, invs, cns, pays, asOf){
   const first = invs[0];
   const sp0 = first ? invPartyOf(first) : null;
   const keep = o => ({ id: o.id, invoice_no: o.invoice_no, invoice_date: o.invoice_date, order_no: o.order_no });
-  return { key, asOf, blocks: blocks.map(b => Object.assign({}, b, { r: keep(b.r) })), unapplied: unapplied.map(u => ({ c: { cn_no: u.c.cn_no, cn_date: u.c.cn_date }, avail: u.avail })), ag, total, partyId: sp0 ? sp0.id : '', sp: sp0 ? { abn: sp0.abn || '', billTo: sp0.billTo || '', code: sp0.code || '' } : null, name: first ? invCustLabel(first) : '', from, settings: Object.assign({}, invSettings, { logo: '' }) };
+  return { key, asOf, blocks: blocks.map(b => Object.assign({}, b, { r: keep(b.r) })), unapplied: unapplied.map(u => ({ c: { id: u.c.id, cn_no: u.c.cn_no, cn_date: u.c.cn_date }, avail: u.avail })), ag, total, partyId: sp0 ? sp0.id : '', sp: sp0 ? { abn: sp0.abn || '', billTo: sp0.billTo || '', code: sp0.code || '' } : null, name: first ? invCustLabel(first) : '', from, settings: Object.assign({}, invSettings, { logo: '' }) };
 }
 function stmtRef(d){ return d.stNo || ''; }
 function stmtDocHtml(d){
@@ -221,42 +221,67 @@ async function stmtPrint(){
   setTimeout(go, 300);
 }
 
-// ---------- 依 Statement 登記付款(一筆總額,由舊到新分配到各張未付清的 Invoice) ----------
+// ---------- 依 Statement 登記付款 ----------
+// 一次結清:未使用的 Credit Note(與其他 Invoice 多收的金額)先由舊到新抵扣各張未付清的 Invoice,
+// 剩下的金額再用客人實際付的總額由舊到新分配。抵扣用 invoice_apply_credit,付款用 invoice_payment_save。
+let stmtPay = null;   // { open, srcs }
 async function stmtOpenPay(){
   if(!stmtData){ showInfoModal(t('stmtPickFirst')); return; }
   if(stmtData._saved){ showInfoModal(t('stmtRegenFirst')); return; }
   const open = stmtData.blocks.filter(b => b.balance > 0.004);
   if(!open.length){ showInfoModal(t('stmtNoOpen')); return; }
   if(!(await stmtEnsureSaved())) return;   // 先存檔拿到 Statement 號碼,付款備註才有號碼可以查
-  const invTot = stmtR2(open.reduce((s, b) => s + b.balance, 0));
-  const tot = Math.max(0, Math.min(invTot, stmtData.total));   // 預設 = Statement 的 TOTAL AMOUNT DUE(已扣掉未使用的 Credit Note)
-  const credit = stmtR2(invTot - tot);
+  const srcs = [];
+  stmtData.unapplied.forEach(u => srcs.push({ type: 'cn', id: u.c.id, label: 'Credit Note ' + u.c.cn_no, avail: u.avail }));
+  stmtData.blocks.filter(b => b.balance < -0.004).forEach(b => srcs.push({ type: 'invoice', id: b.r.id, label: 'INV' + b.r.invoice_no + ' ' + t('invOverAmount'), avail: stmtR2(-b.balance) }));
+  stmtPay = { open, srcs };
   const ov = document.createElement('div');
   ov.id = 'stmtPayOverlay'; ov.className = 'modal-overlay'; ov.style.display = 'flex'; ov.style.zIndex = '1250';
-  ov.innerHTML = `<div class="modal-box" style="max-width:min(560px,96vw);max-height:92vh;overflow:auto;">
+  ov.innerHTML = `<div class="modal-box" style="max-width:min(600px,96vw);max-height:92vh;overflow:auto;">
     <div class="section-title" style="margin-top:0;">${t('stmtRecordPay')} · ${invEsc(stmtData.name)}</div>
     <p style="font-size:11.5px;color:var(--ink-soft);margin:0 0 8px;">${t('stmtPayHint')}</p>
-    ${credit > 0.004 ? `<div style="font-size:12px;margin:0 0 8px;padding:6px 10px;border:1px solid var(--line);border-radius:8px;">${t('stmtInvOpen')}: <b>${invMoney2(invTot)}</b> − ${t('stmtUnappliedCredit')}: <b>${invMoney2(credit)}</b> = ${t('stmtAmountDue')}: <b>${invMoney2(tot)}</b><div style="color:var(--ink-soft);margin-top:2px;">${t('stmtCreditStays')}</div></div>` : ''}
+    ${srcs.length ? `<label style="display:flex;gap:8px;align-items:flex-start;font-size:12.5px;margin:0 0 8px;cursor:pointer;"><input type="checkbox" id="stmtUseCredit" checked style="width:auto;margin:3px 0 0;" onchange="stmtPlan()" /><span>${t('stmtUseCredit')}<br><span style="color:var(--ink-soft);">${srcs.map(x => invEsc(x.label) + ' ' + invMoney2(x.avail)).join(' · ')}</span></span></label>` : ''}
     <div class="form-grid" style="grid-template-columns:1fr 1fr;gap:8px;">
       <div class="field"><label>${t('invPayDate')}</label><input type="date" id="stmtPayDate" value="${invEsc(invToday())}" /></div>
-      <div class="field"><label>${t('invPayAmount')}</label><input type="number" id="stmtPayAmt" min="0.01" step="0.01" value="${invMoney2(tot)}" oninput="stmtAllocate()" /></div>
+      <div class="field"><label>${t('stmtCashAmt')}</label><input type="number" id="stmtPayAmt" min="0" step="0.01" oninput="stmtAllocate()" /></div>
       <div class="field"><label>${t('invPayMethod')}</label><select id="stmtPayMethod">${INV_PAY_METHODS.map(m => `<option>${invEsc(m)}</option>`).join('')}</select></div>
       <div class="field"><label>${t('colNote')}</label><input type="text" id="stmtPayNote" value="${invEsc(stmtRef(stmtData))}" /></div>
     </div>
-    <div style="overflow-x:auto;margin-top:8px;"><table class="stock-table"><thead><tr><th>Invoice</th><th class="num">${t('invColBalance')}</th><th class="num">${t('invPayAmount')}</th></tr></thead><tbody>
-      ${open.map((b, i) => `<tr><td>INV${invEsc(b.r.invoice_no)} · ${invEsc(invIsoToDmy(b.r.invoice_date))}</td><td class="num">${invMoney2(b.balance)}</td><td class="num"><input type="number" class="stmtAlloc" data-i="${i}" data-max="${b.balance}" min="0" step="0.01" style="width:100px;text-align:right;" oninput="stmtAllocSum()" /></td></tr>`).join('')}
+    <div style="overflow-x:auto;margin-top:8px;"><table class="stock-table"><thead><tr><th>Invoice</th><th class="num">${t('invColBalance')}</th><th class="num">${t('stmtCreditCol')}</th><th class="num">${t('invPayAmount')}</th></tr></thead><tbody>
+      ${open.map((b, i) => `<tr><td>INV${invEsc(b.r.invoice_no)} · ${invEsc(invIsoToDmy(b.r.invoice_date))}</td><td class="num">${invMoney2(b.balance)}</td><td class="num stmtCr" data-i="${i}"></td><td class="num"><input type="number" class="stmtAlloc" data-i="${i}" min="0" step="0.01" style="width:100px;text-align:right;" oninput="stmtAllocSum()" /></td></tr>`).join('')}
     </tbody></table></div>
     <div id="stmtAllocInfo" style="font-size:12px;margin-top:6px;"></div>
     <div id="stmtPayMsg" class="msg"></div>
     <div class="modal-actions"><button class="btn ghost" onclick="document.getElementById('stmtPayOverlay').remove()">${t('btnCancel')}</button><button class="btn" id="stmtPayBtn" onclick="stmtPaySave()">${t('invPayAddBtn')}</button></div>
   </div>`;
   document.body.appendChild(ov);
+  stmtPlan(true);
+}
+// 抵扣計畫:每個額度來源由舊到新蓋掉各張 Invoice 的未收
+function stmtCreditPlan(){
+  const use = !!(document.getElementById('stmtUseCredit') || {}).checked;
+  const bal = stmtPay.open.map(b => b.balance), plan = [];
+  if(use) stmtPay.srcs.forEach(src => {
+    let left = src.avail;
+    bal.forEach((v, i) => { const take = stmtR2(Math.min(left, v)); if(take > 0.004){ plan.push({ src, i, amt: take }); bal[i] = stmtR2(v - take); left = stmtR2(left - take); } });
+  });
+  return { plan, rest: bal };
+}
+function stmtPlan(first){
+  const { plan, rest } = stmtCreditPlan();
+  document.querySelectorAll('#stmtPayOverlay .stmtCr').forEach(td => {
+    const i = +td.dataset.i, c = stmtR2(stmtPay.open[i].balance - rest[i]);
+    td.textContent = c > 0.004 ? '-' + invMoney2(c) : '';
+  });
+  document.querySelectorAll('#stmtPayOverlay .stmtAlloc').forEach(inp => { inp.dataset.max = rest[+inp.dataset.i]; });
+  const amt = document.getElementById('stmtPayAmt');
+  if(amt) amt.value = invMoney2(stmtR2(rest.reduce((s, v) => s + v, 0)));
   stmtAllocate();
 }
 function stmtAllocate(){
   let left = stmtR2(Number((document.getElementById('stmtPayAmt') || {}).value) || 0);
   document.querySelectorAll('#stmtPayOverlay .stmtAlloc').forEach(inp => {
-    const mx = Number(inp.dataset.max), v = Math.max(0, Math.min(mx, left));
+    const mx = Number(inp.dataset.max) || 0, v = Math.max(0, Math.min(mx, left));
     inp.value = v > 0 ? invMoney2(v) : ''; left = stmtR2(left - v);
   });
   stmtAllocSum();
@@ -274,34 +299,40 @@ async function stmtPaySave(){
   const method = (document.getElementById('stmtPayMethod') || {}).value || '';
   const note = ((document.getElementById('stmtPayNote') || {}).value || '').trim();
   const amt = stmtR2(Number((document.getElementById('stmtPayAmt') || {}).value) || 0);
-  const open = stmtData.blocks.filter(b => b.balance > 0.004);
+  const { plan, rest } = stmtCreditPlan();
   const items = []; let sum = 0;
   document.querySelectorAll('#stmtPayOverlay .stmtAlloc').forEach(inp => {
-    const v = stmtR2(Number(inp.value) || 0), b = open[+inp.dataset.i];
-    if(v > 0 && b){ items.push({ b, v }); sum += v; }
+    const v = stmtR2(Number(inp.value) || 0), i = +inp.dataset.i;
+    if(v > 0){ items.push({ b: stmtPay.open[i], v, max: rest[i] }); sum += v; }
   });
   sum = stmtR2(sum);
   const bad = k => { msg.className = 'msg error'; msg.textContent = t(k); };
   if(!date) return bad('invPayBadDate');
-  if(!(amt > 0) || !items.length) return bad('invPayBadAmount');
+  if(!plan.length && !(amt > 0)) return bad('invPayBadAmount');
   if(Math.abs(sum - amt) > 0.004) return bad('stmtAllocMismatch');
-  if(items.some(x => x.v > x.b.balance + 0.004)) return bad('invPaidTooMuch');
+  if(items.some(x => x.v > x.max + 0.004)) return bad('invPaidTooMuch');
   const btn = document.getElementById('stmtPayBtn'); if(btn) btn.disabled = true;
-  let done = 0;
+  let done = 0; const total = plan.length + items.length;
   try{
+    for(const x of plan){
+      const { error } = await sb.rpc('invoice_apply_credit', { p_invoice_id: stmtPay.open[x.i].r.id, p_source_type: x.src.type, p_source_id: x.src.id, p_amount: x.amt, p_date: date });
+      if(error) throw error;
+      done++;
+    }
     for(const x of items){
       const { error } = await sb.rpc('invoice_payment_save', { p_invoice_id: x.b.r.id, p_payment_id: null, p_date: date, p_amount: x.v, p_method: method, p_note: note });
       if(error) throw error;
       done++;
     }
-    try{ logInventoryAction('order_edit', `Statement payment ${invMoney2(amt)} (${method}) allocated to ${items.map(x => 'INV' + x.b.r.invoice_no).join(', ')}`, ''); }catch(e){}
+    try{ logInventoryAction('order_edit', `Statement ${stmtRef(stmtData)} payment ${invMoney2(amt)} (${method}), credit applied ${invMoney2(plan.reduce((s, x) => s + x.amt, 0))}`, ''); }catch(e){}
     document.getElementById('stmtPayOverlay').remove();
+    invList = []; if(typeof icCnRows !== 'undefined') icCnRows = null;
     await stmtOpenPage();
   }catch(e){
     console.error('Statement 登記付款失敗', e);
     if(btn) btn.disabled = false;
     msg.className = 'msg error';
-    msg.textContent = (done ? tf('stmtPayPartial', { n: done, m: items.length }) + ' ' : '') + (invIsMissingFn(e) ? t('invPayNeedSql') : t('invPaidFailed'));
+    msg.textContent = (done ? tf('stmtPayPartial', { n: done, m: total }) + ' ' : '') + (invIsMissingFn(e) ? t('invPayNeedSql') : t('invPaidFailed'));
     if(done) invList = [];
   }
 }
