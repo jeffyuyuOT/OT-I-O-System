@@ -1526,6 +1526,13 @@ body.no-cost-view .cost-col{display:none !important;}
       <div id="txOutFlowTypeRow" style="display:none;margin:0;">
         <div style="display:flex;gap:28px;align-items:flex-start;flex-wrap:wrap;">
           <div class="field">
+            <label data-i18n="lblOutKind">出貨種類</label>
+            <select id="txOutKind" onchange="setTxOutKind(this.value)">
+              <option value="order" data-i18n="optOutKindOrder">一般訂單</option>
+              <option value="nonsales" data-i18n="optOutKindNonSales">非銷售出庫單</option>
+            </select>
+          </div>
+          <div class="field" id="txOutFlowTypeField">
             <label data-i18n="lblOutFlowType">出貨類型</label>
             <select id="txOutFlowType" onchange="setTxOutFlowType(this.value)">
               <option value="" data-i18n="optSelectOutFlowType">— 請選擇 —</option>
@@ -1588,6 +1595,10 @@ body.no-cost-view .cost-col{display:none !important;}
           <select id="txAdjReason" onchange="onAdjReasonChange()"></select>
           <input id="txAdjReasonOther" type="text" style="display:none;margin-top:6px;" placeholder="請輸入原因" data-i18n-placeholder="adjReasonOtherPh" />
           <div id="txAdjReasonHint" style="font-size:11.5px;color:var(--ink-soft);margin-top:4px;"></div>
+        </div>
+        <div class="field" id="txNsRecipientWrap" style="display:none;">
+          <label data-i18n="nsRecipientLabel">領貨人(選填)</label>
+          <input id="txNsRecipient" type="text" placeholder="例如:Amy" data-i18n-placeholder="nsRecipientPh" />
         </div>
         <div class="field">
           <label id="txNoteLabel" data-i18n="txNoteSharedLabel">備註(選填)</label>
@@ -2440,6 +2451,7 @@ body.no-cost-view .cost-col{display:none !important;}
         <option value="subtab-log-completed" data-i18n="subtabCompletedOrders">已完成訂單</option>
         <option value="subtab-log-forecast" data-i18n="subtabLogForecast">進貨預估紀錄</option>
         <option value="subtab-log-tx" data-i18n="subtabLogTx" selected>進出貨紀錄</option>
+        <option value="subtab-log-nonsales" data-i18n="subtabLogNonSales">非銷售出庫單</option>
         <option value="subtab-log-convert" data-i18n="subtabLogConvert">切換紀錄</option>
         <option value="subtab-log-location" data-i18n="subtabLogLocation">庫存分布紀錄</option>
         <option value="subtab-log-exports" data-i18n="subtabLogExports">匯出紀錄</option>
@@ -2569,6 +2581,23 @@ body.no-cost-view .cost-col{display:none !important;}
         <div class="section-title" style="margin:0 0 6px;" data-i18n="subtabLogExports">匯出紀錄</div>
         <p style="font-size:12.5px;color:var(--ink-soft);margin:0 0 12px;" data-i18n="exportLogDesc">這裡列出匯出報表時選擇「匯出並寄出 email」的紀錄:標題、附加的匯出檔案,以及寄出的時間。</p>
         <div id="exportLogContainer"></div>
+      </div>
+    </div>
+
+    <div id="subtab-log-nonsales" class="subtab-content">
+      <div class="section">
+        <div class="toolbar">
+          <div class="section-title" style="margin:0;"><span data-i18n="subtabLogNonSales">非銷售出庫單</span></div>
+        </div>
+        <p style="font-size:12.5px;color:var(--ink-soft);margin:0 0 12px;" data-i18n="nsLogDesc">列出所有非銷售出庫單(樣品、內部使用等),可重新列印領貨單。</p>
+        <div class="filter-row">
+          <div class="field"><label data-i18n="lblFromDate">從日期</label><input type="date" id="nsLogDateFrom" onchange="renderNonSalesSlipLog()" /></div>
+          <div class="field"><label data-i18n="lblToDate">到日期</label><input type="date" id="nsLogDateTo" onchange="renderNonSalesSlipLog()" /></div>
+          <div class="field"><label data-i18n="adjReasonLabel">原因</label><select id="nsLogReasonFilter" onchange="renderNonSalesSlipLog()"></select></div>
+          <div class="field"><label data-i18n="nsSearchLabel">搜尋</label><input type="text" id="nsLogSearch" oninput="renderNonSalesSlipLog()" /></div>
+          <button class="btn ghost" onclick="nsClearLogFilters()" data-i18n="btnClearFilter">清除篩選</button>
+        </div>
+        <div id="nonSalesSlipLogTable"></div>
       </div>
     </div>
 
@@ -3369,6 +3398,7 @@ body.no-cost-view .cost-col{display:none !important;}
 <script src="account-requests.js"></script>
 <script src="quick-lists.js"></script>
 <script src="stock-location.js"></script>
+<script src="non-sales-slip.js"></script>
 <script src="logs.js"></script>
 <script src="stock-overview.js"></script>
 <script src="product-master.js"></script>

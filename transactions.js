@@ -11,6 +11,7 @@
 // ============================================================
 function setTxType(type){
   currentTxType = type;
+  if(type !== 'out') registerOutKind = 'order';   // 離開「出貨」就回到預設的一般訂單
   // 切換類型時,把上一個類型送出後留下的訊息(不管是成功的綠字、還是失敗的紅字)一起清掉——
   // 不然切到新的類型,畫面上還留著「已提交 xxx」這種跟目前畫面對不上的殘留訊息,容易誤導使用者
   // 以為剛剛這個類型也送出過了。
@@ -88,7 +89,8 @@ function setTxType(type){
     // 現有訂單,還要再選出是哪一張)下面的主表單區塊才會出現——避免使用者還沒決定清楚要做
     // 哪一種操作,就先動手填日期/加商品,結果選了類型才發現整個表單邏輯不一樣要重填。
     if(outFlowRow) outFlowRow.style.display = '';
-    setTxOutFlowType(registerOutFlowType || '');
+    if(registerOutKind === 'nonsales'){ setTxOutFlowType(''); nsApplyLayout(); }
+    else { setTxOutFlowType(registerOutFlowType || ''); nsApplyLayout(); }
   } else if(type === 'delivery'){
     if(partyHistorySelect) partyHistorySelect.style.display = 'none';
     partyLabel.textContent = t('partyLabelOut');
@@ -157,18 +159,21 @@ function setTxType(type){
   renderTxSubmitArea();
   renderTxBatchList();
   const adjWrap = document.getElementById('txAdjReasonWrap');
-  if(adjWrap) adjWrap.style.display = type === 'adjustment' ? '' : 'none';
+  if(adjWrap) adjWrap.style.display = (type === 'adjustment' || (type === 'out' && registerOutKind === 'nonsales')) ? '' : 'none';
+  const nsRecWrap = document.getElementById('txNsRecipientWrap');
+  if(nsRecWrap) nsRecWrap.style.display = (type === 'out' && registerOutKind === 'nonsales') ? '' : 'none';
 }
 
 // ===== 庫存調整原因 =====
 // dir:'out' 只能減少庫存、'in' 只能增加庫存、'any' 不限。group 給會計報表(階段三)歸類用:
 // wastage=耗損、sample=樣品、internal=內部使用、stocktake=盤點差異、supplier_return=退供應商、other=其他。
+// slip:true = 需要實際拿貨的原因(樣品、內部使用、捐贈),改在「出貨 → 非銷售出庫單」登記並列印領貨單,不再出現在庫存調整;'other' 兩邊都有。
 const ADJ_REASONS = [
   { code: 'wastage_expired',   dir: 'out', group: 'wastage' },
   { code: 'wastage_damaged',   dir: 'out', group: 'wastage' },
-  { code: 'donation_writeoff', dir: 'out', group: 'wastage' },
-  { code: 'sample',            dir: 'out', group: 'sample' },
-  { code: 'internal_use',      dir: 'out', group: 'internal' },
+  { code: 'donation_writeoff', dir: 'out', group: 'wastage', slip: true },
+  { code: 'sample',            dir: 'out', group: 'sample', slip: true },
+  { code: 'internal_use',      dir: 'out', group: 'internal', slip: true },
   { code: 'return_supplier',   dir: 'out', group: 'supplier_return' },
   { code: 'stocktake_loss',    dir: 'out', group: 'stocktake' },
   { code: 'stocktake_gain',    dir: 'in',  group: 'stocktake' },
@@ -180,7 +185,8 @@ function renderAdjReasonSelect(){
   const sel = document.getElementById('txAdjReason');
   if(!sel) return;
   const cur = sel.value;
-  sel.innerHTML = `<option value="">${t('adjReasonPick')}</option>` + ADJ_REASONS.map(r => `<option value="${r.code}">${adjReasonLabel(r.code)}</option>`).join('');
+  const slipMode = (typeof nsIsSlipMode === 'function') && nsIsSlipMode();
+  sel.innerHTML = `<option value="">${t('adjReasonPick')}</option>` + ADJ_REASONS.filter(r => slipMode ? (r.slip || r.code === 'other') : !r.slip).map(r => `<option value="${r.code}">${adjReasonLabel(r.code)}</option>`).join('');
   sel.value = cur && adjReasonInfo(cur) ? cur : '';
   onAdjReasonChange();
 }
@@ -245,6 +251,7 @@ function onTxPartyHistorySelectChange(value){
 }
 
 function resetRegisterOutFlow(){
+  if(typeof nsResetKindUi === 'function') nsResetKindUi();
   registerOutFlowType = '';
   registerLoadedOrderId = null;
   txBatchItems = [];
@@ -406,6 +413,10 @@ function renderTxSubmitArea(){
   }
   if(currentTxType !== 'out'){
     area.innerHTML = `<button class="btn" onclick="submitTxBatch()">${t('btnRegister')}</button>`;
+    return;
+  }
+  if(registerOutKind === 'nonsales'){
+    area.innerHTML = `<button class="btn" onclick="submitTxBatch()">${t('btnNsConfirmPrint')}</button>`;
     return;
   }
   if(registerOutFlowType === 'new-order'){
@@ -797,6 +808,7 @@ function addToTxBatch(){
   if(!productId){ msg.className='msg error'; msg.textContent='請先新增並選擇商品'; return; }
   if(!qty || isNaN(qty)){ msg.className='msg error'; msg.textContent=t('errAddItemQtyNonZero'); return; }
   if(!Number.isInteger(qty)){ msg.className='msg error'; msg.textContent=t('errQtyMustBeInteger'); return; }
+  if(registerOutKind === 'nonsales' && currentTxType === 'out' && qty < 0){ msg.className='msg error'; msg.textContent=t('errNsQtyPositive'); return; }
   const p = products.find(x => x.id === productId);
   if(!p) return;
   // 批次追蹤:進貨時「同商品同有效期」才合併,不同有效期分行列出
@@ -1754,6 +1766,8 @@ async function submitTxBatch(action){
       await submitTxBatchSimple(date, msg);
       return;
     }
+
+    if(registerOutKind === 'nonsales'){ await submitNonSalesSlip(date, msg); return; }
 
     if(!registerOutFlowType){
       msg.className = 'msg error'; msg.textContent = t('errSelectOutFlowTypeFirst');

@@ -70,6 +70,8 @@ const LOOKOUT_CARDS = [
     } },
   { id: 'forecast', icon: '🫡', titleKey: 'subtabTxForecast', descKey: 'lookoutForecastDesc', tab: ['tab-warehouse-admin', 'tab-log'],
     go: function(){ lookoutOpenForecastChoice(); } },
+  { id: 'nonsales', icon: '📝', titleKey: 'subtabLogNonSales', descKey: 'lookoutNonSalesDesc', tab: ['tab-warehouse-ops', 'tab-log'],
+    go: function(){ lookoutOpenNonSalesChoice(); } },
   { id: 'export', icon: '📤', titleKey: 'lookoutExport', descKey: 'lookoutExportDesc', tab: ['tab-overview', 'tab-warehouse-admin'],
     go: function(){ lookoutOpenExportChoice(); } },
   { id: 'tx-log', icon: '🧾', titleKey: 'lookoutTxLog', descKey: 'lookoutTxLogDesc', tab: 'tab-log',
@@ -161,6 +163,23 @@ function lookoutOpenForecastChoice(){
     switchLogSubTab('subtab-log-forecast');
   } });
   lookoutOpenChoice('subtabTxForecast', opts);
+}
+
+// 非銷售出庫單:「新增非銷售出庫單」(倉庫作業台 → 登記進出貨 → 出貨 → 非銷售出庫單)或「非銷售出庫單紀錄」(歷史紀錄)
+function lookoutOpenNonSalesChoice(){
+  const opts = [];
+  if(lookoutTabAllowed('tab-warehouse-ops')) opts.push({ label: t('lookoutNonSalesNew'), go: function(){
+    switchTab('tab-warehouse-ops');
+    switchWarehouseOpsSubTab('subtab-tx-register');
+    setTxType('out');
+    const sel = document.getElementById('txOutKind'); if(sel) sel.value = 'nonsales';
+    setTxOutKind('nonsales');
+  } });
+  if(lookoutTabAllowed('tab-log')) opts.push({ label: t('lookoutNonSalesLog'), go: function(){
+    switchTab('tab-log');
+    switchLogSubTab('subtab-log-nonsales');
+  } });
+  lookoutOpenChoice('subtabLogNonSales', opts);
 }
 
 // 匯出檔案:匯出庫存(庫存總覽 → Action → 匯出庫存數量視窗)或匯出報表(倉庫後台管理 → 資料維護 → 匯出報表)

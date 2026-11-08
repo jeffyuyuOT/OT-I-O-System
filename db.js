@@ -262,7 +262,8 @@ function ensureOrdersLoadedFrom(dateStr){
 // 需要「全部歷史資料」的動作(備份、匯出…)呼叫這個
 async function ensureAllDataLoaded(){
   await Promise.all([ensureTransactionsLoadedFrom(''), ensureOrdersLoadedFrom(''),
-    ensureInventoryLogLoaded(), ensureDeliveryNotesLoaded(), ensurePurchasesLoaded()]);
+    ensureInventoryLogLoaded(), ensureDeliveryNotesLoaded(), ensurePurchasesLoaded(),
+    (typeof ensureNonSalesSlipsLoaded === 'function' ? ensureNonSalesSlipsLoaded() : Promise.resolve())]);
 }
 // Supabase's row-level security (see supplier_restriction_migration.sql)
 // silently limits a supplier-restricted user's reach here — they only ever
