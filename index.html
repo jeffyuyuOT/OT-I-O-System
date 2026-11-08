@@ -1110,6 +1110,8 @@ body.no-cost-view .cost-col{display:none !important;}
   .lookout-card-desc{ font-size:12px; color:var(--ink-soft); line-height:1.45; }
   .lookout-empty{ font-size:13px; color:var(--ink-soft); padding:12px 0; }
   @media (max-width:700px){ .lookout-grid{ grid-template-columns:1fr; } }
+  /* 所有「清除篩選」按鈕:寬度只比文字多一點點 */
+  button[data-i18n="btnClearFilter"]{ width:auto; padding:6px 10px; white-space:nowrap; justify-self:start; }
 </style>
 </head>
 <body>
@@ -1734,7 +1736,15 @@ body.no-cost-view .cost-col{display:none !important;}
       <p style="font-size:12.5px;color:var(--ink-soft);margin:0 0 14px;" data-i18n="pendingOrdersDesc">
         這裡是還沒「核對」的訂單,還沒真的扣庫存,只會先佔用「可訂數量」的額度。核對通過後會自動移到「已完成訂單」並正式扣庫存。
       </p>
-      <div class="form-grid" style="grid-template-columns:minmax(120px,200px) minmax(120px,200px) 150px 150px;margin-bottom:14px;">
+      <div class="form-grid" style="grid-template-columns:150px 150px minmax(120px,200px) minmax(120px,200px) auto;margin-bottom:14px;">
+        <div class="field">
+          <label data-i18n="fieldFrom">從</label>
+          <input type="date" id="pendingOrderDateFrom" onchange="renderPendingOrders()" />
+        </div>
+        <div class="field">
+          <label data-i18n="fieldTo">到</label>
+          <input type="date" id="pendingOrderDateTo" onchange="renderPendingOrders()" />
+        </div>
         <div class="field">
           <label data-i18n="fieldShippingParty">出貨方</label>
           <select id="pendingOrderPartyFilter" onchange="renderPendingOrders()">
@@ -1745,14 +1755,7 @@ body.no-cost-view .cost-col{display:none !important;}
           <label data-i18n="fieldOrderNoSearch">訂單號</label>
           <input type="text" id="pendingOrderNoSearch" oninput="renderPendingOrders()" data-i18n-placeholder="phOrderNoSearch" placeholder="搜尋訂單號…" />
         </div>
-        <div class="field">
-          <label data-i18n="fieldFrom">從</label>
-          <input type="date" id="pendingOrderDateFrom" onchange="renderPendingOrders()" />
-        </div>
-        <div class="field">
-          <label data-i18n="fieldTo">到</label>
-          <input type="date" id="pendingOrderDateTo" onchange="renderPendingOrders()" />
-        </div>
+        <button class="btn ghost" onclick="clearPendingOrderFilters()" style="align-self:flex-end;" data-i18n="btnClearFilter">清除篩選</button>
       </div>
       <div id="pendingOrdersList">
         <div class="empty-note" data-i18n="noPendingOrders">還沒有符合條件的待處理訂單。</div>
@@ -2461,7 +2464,15 @@ body.no-cost-view .cost-col{display:none !important;}
 
       <div id="subtab-log-completed" class="subtab-content">
         <div class="section-title" style="margin:0 0 10px;" data-i18n="subtabCompletedOrders">已完成訂單</div>
-        <div class="form-grid" style="grid-template-columns:minmax(120px,200px) minmax(120px,200px) 150px 150px auto;margin-bottom:14px;">
+        <div class="form-grid" style="grid-template-columns:150px 150px minmax(120px,200px) minmax(120px,200px) auto;margin-bottom:14px;">
+          <div class="field">
+            <label data-i18n="fieldFrom">從</label>
+            <input type="date" id="completedOrderDateFrom" onchange="onCompletedOrderDateFromChange()" />
+          </div>
+          <div class="field">
+            <label data-i18n="fieldTo">到</label>
+            <input type="date" id="completedOrderDateTo" onchange="renderOrders()" />
+          </div>
           <div class="field">
             <label data-i18n="fieldShippingParty">出貨方</label>
             <select id="completedOrderPartyFilter" onchange="renderOrders()">
@@ -2471,14 +2482,6 @@ body.no-cost-view .cost-col{display:none !important;}
           <div class="field">
             <label data-i18n="fieldOrderNoSearch">訂單號</label>
             <input type="text" id="completedOrderNoSearch" oninput="renderOrders()" data-i18n-placeholder="phOrderNoSearch" placeholder="搜尋訂單號…" />
-          </div>
-          <div class="field">
-            <label data-i18n="fieldFrom">從</label>
-            <input type="date" id="completedOrderDateFrom" onchange="onCompletedOrderDateFromChange()" />
-          </div>
-          <div class="field">
-            <label data-i18n="fieldTo">到</label>
-            <input type="date" id="completedOrderDateTo" onchange="renderOrders()" />
           </div>
           <button class="btn ghost" onclick="clearCompletedOrderFilters()" style="align-self:flex-end;" data-i18n="btnClearFilter">清除篩選</button>
         </div>

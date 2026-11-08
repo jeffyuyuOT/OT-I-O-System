@@ -1631,6 +1631,10 @@ async function orderAssignPartySave(orderId){
   logInventoryAction('order_edit', `Order ${order.orderNo || orderId} - shipping party set to ${order.partyName}`, order.orderNo);
   renderAll();
 }
+function clearPendingOrderFilters(){
+  ['pendingOrderDateFrom', 'pendingOrderDateTo', 'pendingOrderPartyFilter', 'pendingOrderNoSearch'].forEach(id => { const el = document.getElementById(id); if(el) el.value = ''; });
+  renderPendingOrders();
+}
 function orderNoMatches(o, q){
   q = String(q || '').trim().toLowerCase().replace(/^#/, '');
   if(!q) return true;
