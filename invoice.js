@@ -486,6 +486,17 @@ function invRefreshModalAfterCreate(){
     if(ttl && invModal.snap.docType === 'credit_note') ttl.textContent = 'Credit Note · ' + invModal.snap.no;
     else if(ttl) ttl.textContent = 'Invoice' + ((order && order.orderNo) || invModal.snap.orderNo ? ' · ' + ((order && order.orderNo) || invModal.snap.orderNo) : '');
     const hint = ov.querySelector('p'); if(hint) hint.remove();
+    // 建立完成後,底部按鈕也要跟著變成「已建立」的樣子:取消→關閉(避免以為是取消建立)、Paid Today→Payments、儲存 PDF→匯出
+    const btns = ov.querySelectorAll('.modal-actions button');
+    btns.forEach(b => {
+      const oc = b.getAttribute('onclick') || '';
+      if(oc.indexOf('invCloseModal()') === 0 && oc.length < 20) b.textContent = t('btnClose');
+      else if(oc.indexOf('invOpenPaidPrompt') >= 0){
+        if(invModal.snap.docType !== 'credit_note' && invModal.snap.id){ b.textContent = t('invBtnPayments'); b.setAttribute('onclick', 'invOpenPayments(invModal.snap.id)'); }
+        else b.remove();
+      }
+      else if(oc.indexOf('invDoSavePdf') >= 0) b.textContent = t('invBtnExport');
+    });
   }
 }
 function invFileName(snap){ return `${snap.docType === 'credit_note' ? 'CreditNote' : 'Invoice'}_${snap.no}_${String((snap.customer && snap.customer.name) || '').replace(/[^\w\-]+/g, '_').slice(0, 30)}.pdf`; }
