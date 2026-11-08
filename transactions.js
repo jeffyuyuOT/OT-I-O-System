@@ -162,6 +162,7 @@ function setTxType(type){
   if(adjWrap) adjWrap.style.display = (type === 'adjustment' || (type === 'out' && registerOutKind === 'nonsales')) ? '' : 'none';
   const nsRecWrap = document.getElementById('txNsRecipientWrap');
   if(nsRecWrap) nsRecWrap.style.display = (type === 'out' && registerOutKind === 'nonsales') ? '' : 'none';
+  if(typeof nsUpdateAdjSlipUi === 'function') nsUpdateAdjSlipUi();
 }
 
 // ===== 庫存調整原因 =====
@@ -174,7 +175,7 @@ const ADJ_REASONS = [
   { code: 'donation_writeoff', dir: 'out', group: 'wastage', slip: true },
   { code: 'sample',            dir: 'out', group: 'sample', slip: true },
   { code: 'internal_use',      dir: 'out', group: 'internal', slip: true },
-  { code: 'return_supplier',   dir: 'out', group: 'supplier_return' },
+  { code: 'return_supplier',   dir: 'out', group: 'supplier_return', slip: true },
   { code: 'stocktake_loss',    dir: 'out', group: 'stocktake' },
   { code: 'stocktake_gain',    dir: 'in',  group: 'stocktake' },
   { code: 'other',             dir: 'any', group: 'other' }
@@ -196,6 +197,7 @@ function onAdjReasonChange(){
   const hint = document.getElementById('txAdjReasonHint');
   const info = sel ? adjReasonInfo(sel.value) : null;
   if(other) other.style.display = info && info.code === 'other' ? '' : 'none';
+  if(typeof nsUpdateAdjSlipUi === 'function') nsUpdateAdjSlipUi();
   if(hint) hint.textContent = info ? (info.dir === 'out' ? t('adjHint_decrease') : info.dir === 'in' ? t('adjHint_increase') : '') : '';
 }
 function adjReasonReset(){
@@ -423,7 +425,6 @@ function renderTxSubmitArea(){
     area.innerHTML = `
       <button class="btn" onclick="submitTxBatch('pending')">${t('btnMergeToPending')}</button>
       <button class="btn" onclick="submitTxBatch('completed')">${t('btnMergeToCompleted')}</button>
-      <button class="btn ghost" onclick="submitTxBatch('direct')">${t('btnDirectShip')}</button>
     `;
   } else if(registerOutFlowType === 'load-pending'){
     const disabled = registerLoadedOrderId ? '' : 'disabled';
@@ -2691,8 +2692,19 @@ async function submitAdjustmentFlow(date, msg){
   // 備註文字 = 原因(其他則用手動輸入的文字)+ 選填附註;結構化的原因代碼另存在 adjReason。
   const reasonText = reasonCode === 'other' ? `${adjReasonLabel('other').replace(/[((].*$/, '').trim()} - ${reasonOther}` : adjReasonLabel(reasonCode);
   const note = extraNote ? `${reasonText} - ${extraNote}` : reasonText;
+  // 耗損(過期/損壞)可勾「這批需要列印領貨單」:同時建立一張非銷售出庫單、列印領貨單,領貨人必填
+  const wantSlip = !!((document.getElementById('txAdjSlip') || {}).checked) && NS_ADJ_SLIP_REASONS.includes(reasonCode);
+  const slipRecipient = ((document.getElementById('txNsRecipient') || {}).value || '').trim();
+  if(wantSlip && !slipRecipient){ msg.className='msg error'; msg.textContent=t('errNsRecipientRequired'); return; }
 
   showConfirmModal(t('confirmStockAdjustment'), async () => {
+    let slipPw = null, slipNo = '';
+    if(wantSlip){
+      slipPw = window.open('', '_blank');   // 在確認的當下同步開啟,才不會被擋彈出視窗
+      try{ await ensureNonSalesSlipsLoaded(); slipNo = await nsNextNo(); }
+      catch(e){ try{ if(slipPw) slipPw.close(); }catch(_){} msg.className='msg error'; msg.textContent=`⚠ ${t('errNsNeedSql')}`; return; }
+    }
+    const closeSlipWin = () => { try{ if(slipPw) slipPw.close(); }catch(e){} };
     // 庫存調整裡「減少」的品項(qty > 0,實際是 type='out')扣庫存之前,一樣先問清楚要從哪個
     // 位置扣——「增加」的品項(qty < 0,type='restock')不用問,新增的庫存一律先算未分布。
     const decreaseItems = txBatchItems.filter(it => it.qty > 0);
@@ -2701,12 +2713,14 @@ async function submitAdjustmentFlow(date, msg){
       try{
         adjustmentLocationChoices = await resolveLocationChoicesForItems(decreaseItems.map(it => ({ productId: it.productId, qty: it.qty, batchPicks: it.batchPicks })));
       } catch(e){
+        closeSlipWin();
         return; // 使用者取消了位置選擇,整個提交中止
       }
     }
 
+    const slipSuffix = wantSlip ? ` · ${t('nsNotePrefix')}${slipNo}` : '';
     const newTxs = txBatchItems.map(it => ({
-      id: genId(), productId: it.productId, type: it.qty > 0 ? 'out' : 'restock', qty: Math.abs(it.qty), date, party: '', note: `${t('adjustmentNotePrefix')}${note}`, adjReason: reasonCode
+      id: genId(), productId: it.productId, type: it.qty > 0 ? 'out' : 'restock', qty: Math.abs(it.qty), date, party: '', note: `${t('adjustmentNotePrefix')}${note}${slipSuffix}`, adjReason: reasonCode
     }));
     transactions.push(...newTxs);
     txBatchItems.forEach(it => { productStockMap[it.productId] = (productStockMap[it.productId]||0) - it.qty; });
@@ -2714,6 +2728,7 @@ async function submitAdjustmentFlow(date, msg){
     catch(e){
       newTxs.forEach(tx => { const i = transactions.indexOf(tx); if(i>=0) transactions.splice(i,1); });
       txBatchItems.forEach(it => { productStockMap[it.productId] = (productStockMap[it.productId]||0) + it.qty; });
+      closeSlipWin();
       msg.className='msg error';
       msg.textContent = /adj_reason/.test(String((e && (e.message || e.details)) || '')) ? `⚠ ${t('errAdjNeedSql')}` : '⚠ 提交失敗,請重新整理頁面再試一次。';
       return;
@@ -2722,8 +2737,15 @@ async function submitAdjustmentFlow(date, msg){
     if(adjustmentLocationChoices){
       await applyLocationDeductions(adjustmentLocationChoices);
     }
-    logInventoryAction('tx_out', `Logged stock adjustment: ${txBatchItems.length} item(s) — ${note}`, null);
+    logInventoryAction('tx_out', `Logged stock adjustment: ${txBatchItems.length} item(s) — ${note}${slipSuffix}`, null);
     const count = txBatchItems.length;
+    let slipSaved = true;
+    if(wantSlip){
+      slipSaved = await nsSaveAndPrintSlip({ no: slipNo, date, reasonCode, reasonText, reasonOther, extraNote, recipient: slipRecipient,
+        items: txBatchItems, txIds: newTxs.map(x => x.id), pw: slipPw });
+      const rec = document.getElementById('txNsRecipient'); if(rec) rec.value = '';
+      const chk = document.getElementById('txAdjSlip'); if(chk) chk.checked = false;
+    }
     // 提交完之後留在「庫存調整」這個頂層類型上,方便連續登記好幾筆調整——只清空這次的品項清單
     // 跟備註,不去動出貨方欄位隱藏/兩欄版面這些跟「庫存調整」綁在一起的畫面設定(那些是
     // setTxType('adjustment') 負責的,不需要在這裡重複呼叫或退回舊的出貨流程邏輯)。renderAll()
@@ -2731,7 +2753,8 @@ async function submitAdjustmentFlow(date, msg){
     txBatchItems = [];
     document.getElementById('txNote').value = '';
     adjReasonReset();
-    msg.className='msg ok'; msg.textContent = `✓ 已提交庫存調整,共 ${count} 項商品`;
+    msg.className = slipSaved ? 'msg ok' : 'msg error';
+    msg.textContent = slipSaved ? `✓ 已提交庫存調整,共 ${count} 項商品${wantSlip ? '(' + slipNo + ')' : ''}` : `⚠ ${t('errNsSlipSaveFailed')} ${slipNo}`;
     renderAll();
   });
 }

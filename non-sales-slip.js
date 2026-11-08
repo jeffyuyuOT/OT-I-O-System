@@ -97,6 +97,7 @@ function nsResetKindUi(){
 async function submitNonSalesSlip(date, msg){
   await ensureNonSalesSlipsLoaded();
   if(!date){ msg.className = 'msg error'; msg.textContent = '請選擇日期'; return; }
+  if(!((document.getElementById('txNsRecipient') || {}).value || '').trim()){ msg.className = 'msg error'; msg.textContent = t('errNsRecipientRequired'); return; }
   if(txBatchItems.length === 0){ msg.className = 'msg error'; msg.textContent = t('errAddAtLeastOneItem'); return; }
   const reasonCode = (document.getElementById('txAdjReason') || {}).value || '';
   const reasonInfo = adjReasonInfo(reasonCode);
@@ -138,19 +139,9 @@ async function submitNonSalesSlip(date, msg){
     }
     if(locChoices) await applyLocationDeductions(locChoices);
 
-    const slip = {
-      id: genId(), no, date, reason: reasonCode, reasonText, reasonOther, note: extraNote, recipient,
-      createdBy: (currentUser && currentUser.username) || '', createdAt: new Date().toISOString(),
-      items: txBatchItems.map(it => ({ productId: it.productId, sku: it.sku || '', name: it.name, unit: it.unit, qty: it.qty })),
-      txIds: newTxs.map(x => x.id)
-    };
-    let saved = true;
-    try{ await upsertNonSalesSlips([slip]); nonSalesSlips.push(slip); }
-    catch(e){ saved = false; nonSalesSlips.push(slip); }
-    logInventoryAction('tx_out', `Non-sales outbound slip ${no}: ${slip.items.length} item(s) — ${reasonText}`, null);
-
-    nsWriteSlipToWindow(slip, pw);
-    const count = slip.items.length;
+    const saved = await nsSaveAndPrintSlip({ no, date, reasonCode, reasonText, reasonOther, extraNote, recipient,
+      items: txBatchItems, txIds: newTxs.map(x => x.id), pw });
+    const count = txBatchItems.length;
     txBatchItems = [];
     document.getElementById('txNote').value = '';
     const rec = document.getElementById('txNsRecipient'); if(rec) rec.value = '';
@@ -159,6 +150,38 @@ async function submitNonSalesSlip(date, msg){
     msg.textContent = saved ? `✓ ${t('nsSubmitted')} ${no}(${count})` : `⚠ ${t('errNsSlipSaveFailed')} ${no}`;
     renderAll();
   });
+}
+
+const NS_ADJ_SLIP_REASONS = ['wastage_expired', 'wastage_damaged'];   // 庫存調整裡可以勾「需要領貨單」的原因
+
+// 存單據 + 記後台紀錄 + 列印;回傳是否存檔成功(庫存已經扣了,存檔失敗要提醒)
+async function nsSaveAndPrintSlip(o){
+  const slip = {
+    id: genId(), no: o.no, date: o.date, reason: o.reasonCode, reasonText: o.reasonText, reasonOther: o.reasonOther || '',
+    note: o.extraNote || '', recipient: o.recipient || '',
+    createdBy: (currentUser && currentUser.username) || '', createdAt: new Date().toISOString(),
+    items: o.items.map(it => ({ productId: it.productId, sku: it.sku || '', name: it.name, unit: it.unit, qty: Math.abs(it.qty) })),
+    txIds: o.txIds
+  };
+  let saved = true;
+  try{ await upsertNonSalesSlips([slip]); }catch(e){ saved = false; }
+  nonSalesSlips.push(slip);
+  logInventoryAction('tx_out', `Non-sales outbound slip ${o.no}: ${slip.items.length} item(s) — ${o.reasonText}`, null);
+  nsWriteSlipToWindow(slip, o.pw);
+  return saved;
+}
+
+// 庫存調整:選到耗損(過期/損壞)時顯示「這批需要列印領貨單」,勾選後出現領貨人欄位
+function nsUpdateAdjSlipUi(){
+  const wrap = document.getElementById('txAdjSlipWrap');
+  const chk = document.getElementById('txAdjSlip');
+  const recWrap = document.getElementById('txNsRecipientWrap');
+  if(currentTxType !== 'adjustment'){ if(wrap) wrap.style.display = 'none'; if(chk) chk.checked = false; return; }
+  const sel = document.getElementById('txAdjReason');
+  const ok = !!sel && NS_ADJ_SLIP_REASONS.includes(sel.value);
+  if(wrap) wrap.style.display = ok ? '' : 'none';
+  if(!ok && chk) chk.checked = false;
+  if(recWrap) recWrap.style.display = (ok && chk && chk.checked) ? '' : 'none';
 }
 
 // ---- 領貨單列印 ----
