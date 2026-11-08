@@ -750,6 +750,7 @@ function renderCompletedOrdersInto(container, recentOnly){
   // 已經把它們排除),移來這邊用不同的狀態標籤(已出貨 / 已取消)區分,方便一起查歷史紀錄。
   let list = orders.filter(o => orderStatus(o) === 'confirmed' || o.deleted);
   if(partyFilter) list = list.filter(o => o.partyId === partyFilter);
+  { const qEl = document.getElementById(recentOnly ? 'recentCompletedOrderNoSearch' : 'completedOrderNoSearch'); if(qEl && qEl.value.trim()) list = list.filter(o => orderNoMatches(o, qEl.value)); }
   if(dateFrom) list = list.filter(o => o.date >= dateFrom);
   if(dateTo) list = list.filter(o => o.date <= dateTo);
   list = list.sort((a,b) => (a.date === b.date ? String(b.id).localeCompare(String(a.id)) : (a.date < b.date ? 1 : -1)));
@@ -791,7 +792,7 @@ function renderCompletedOrdersInto(container, recentOnly){
         <div class="order-card-head" style="cursor:pointer;" onclick="toggleOrderExpand('${o.id}')">
           <span class="order-card-date">
             <span style="display:inline-block;width:14px;">${isExpanded ? '▾' : '▸'}</span>
-            ${o.orderNo ? `<span style="color:var(--ink-soft);font-weight:400;">${o.orderNo}</span> · ` : ''}${o.date}${o.partyName ? ` <span style="font-weight:400;color:var(--ink-soft);">· ${tf('orderCardPartyLabel', {name: o.partyName})}</span>` : ''}${(!o.deleted && !o.partyId) ? ` <span title="${t('orderNoPartyLinkedWarning')}" style="margin-left:6px;color:var(--crit);font-weight:400;">⚠ ${t('orderNoPartyShort')}</span>` : ''}
+            ${o.orderNo ? `<span style="color:var(--ink-soft);font-weight:400;">${o.orderNo}</span> <span title="${t('copyOrderNo')}" style="cursor:pointer;font-weight:400;color:var(--ink-soft);" onclick="event.stopPropagation();invCopyText('${o.orderNo}', this)">⧉</span> · ` : ''}${o.date}${o.partyName ? ` <span style="font-weight:400;color:var(--ink-soft);">· ${tf('orderCardPartyLabel', {name: (o.partyId && !o.deleted && hasCapability('cap-manage-parties')) ? `<span class="batch-link" title="${t('btnEdit')}" onclick="event.stopPropagation();partyEditFromOrder('${o.partyId}')">${escapeHtmlForPrint(o.partyName)}</span>` : o.partyName})}</span>` : ''}${(!o.deleted && !o.partyId) ? ` <span title="${t('orderNoPartyLinkedWarning')}" style="margin-left:6px;color:var(--crit);font-weight:400;${hasCapability('cap-manage-parties') ? 'cursor:pointer;text-decoration:underline;' : ''}" ${hasCapability('cap-manage-parties') ? `onclick="event.stopPropagation();orderAssignPartyOpen('${o.id}')"` : ''}>⚠ ${t('orderNoPartyShort')}</span>` : ''}
             ${o.remark ? `<span title="${t('orderHasRemarkTitle')}" style="margin-left:6px;color:var(--yellow-dark);">📝</span>` : ''}
             ${wasModified ? `<span title="${t('orderWasModifiedTitle')}" style="margin-left:6px;color:var(--warn);">✎</span>` : ''}
           </span>
@@ -1140,6 +1141,7 @@ function renderPendingOrders(){
   // 這裡不再列出,不然使用者要處理的訂單裡會一直卡著已經不用管的取消訂單。
   let list = orders.filter(o => isPreVerificationStatus(o) && !o.deleted);
   if(partyFilter) list = list.filter(o => o.partyId === partyFilter);
+  { const qEl = document.getElementById('pendingOrderNoSearch'); if(qEl && qEl.value.trim()) list = list.filter(o => orderNoMatches(o, qEl.value)); }
   if(dateFrom) list = list.filter(o => o.date >= dateFrom);
   if(dateTo) list = list.filter(o => o.date <= dateTo);
   list = list.sort((a,b) => (a.date === b.date ? String(b.id).localeCompare(String(a.id)) : (a.date < b.date ? 1 : -1)));
@@ -1186,7 +1188,7 @@ function renderPendingOrders(){
     ` : `
       <div style="margin:8px 0;font-size:12px;color:var(--ink-soft);">
         ${o.partyId ? tf('orderCardPartyLabel', {name: hasCapability('cap-manage-parties') ? `<span class="batch-link" title="${t('btnEdit')}" onclick="partyEditFromOrder('${o.partyId}')">${escapeHtmlForPrint(o.partyName || '')}</span>` : (o.partyName || '')}) : `<span style="color:var(--crit);">${t('orderNoPartyLinkedWarning')}</span>`}
-        <span class="del-link" style="margin-left:8px;" onclick="startEditOrderParty('${o.id}')">${t('btnEditOrderParty')}</span>
+        ${o.partyId ? '' : `<span class="del-link" style="margin-left:8px;" onclick="orderAssignPartyOpen('${o.id}')">${t('btnEditOrderParty')}</span>`}
       </div>
     `;
     const activeItemCount = o.items.filter(it => !it.deleted).length;
@@ -1195,9 +1197,9 @@ function renderPendingOrders(){
         <div class="order-card-head" style="cursor:pointer;" onclick="toggleOrderExpand('${o.id}')">
           <span class="order-card-date">
             <span style="display:inline-block;width:14px;">${isExpanded ? '▾' : '▸'}</span>
-            ${o.orderNo ? `<span style="color:var(--ink-soft);font-weight:400;">${o.orderNo}</span> · ` : ''}${o.date}${(o.originalDate && o.originalDate !== o.date) ? ` <span title="${t('dateWasChangedTitle')}" style="font-weight:400;color:var(--warn-dark);">(${tf('originalDateLabel', {date: o.originalDate})})</span>` : ''}${o.partyName ? ` <span style="font-weight:400;color:var(--ink-soft);">· ${tf('orderCardPartyLabel', {name: (o.partyId && !o.deleted && hasCapability('cap-manage-parties')) ? `<span class="batch-link" title="${t('btnEdit')}" onclick="event.stopPropagation();partyEditFromOrder('${o.partyId}')">${escapeHtmlForPrint(o.partyName)}</span>` : o.partyName})}</span>` : ''}${(!o.deleted && hasCapability('cap-manage-parties')) ? ` <span title="${t('btnEditOrderParty')}" style="margin-left:2px;color:var(--warn);cursor:pointer;" onclick="event.stopPropagation();startEditOrderParty('${o.id}')">✎</span>` : ''}
+            ${o.orderNo ? `<span style="color:var(--ink-soft);font-weight:400;">${o.orderNo}</span> <span title="${t('copyOrderNo')}" style="cursor:pointer;font-weight:400;color:var(--ink-soft);" onclick="event.stopPropagation();invCopyText('${o.orderNo}', this)">⧉</span> · ` : ''}${o.date}${(o.originalDate && o.originalDate !== o.date) ? ` <span title="${t('dateWasChangedTitle')}" style="font-weight:400;color:var(--warn-dark);">(${tf('originalDateLabel', {date: o.originalDate})})</span>` : ''}${o.partyName ? ` <span style="font-weight:400;color:var(--ink-soft);">· ${tf('orderCardPartyLabel', {name: (o.partyId && !o.deleted && hasCapability('cap-manage-parties')) ? `<span class="batch-link" title="${t('btnEdit')}" onclick="event.stopPropagation();partyEditFromOrder('${o.partyId}')">${escapeHtmlForPrint(o.partyName)}</span>` : o.partyName})}</span>` : ''}
             ${o.remark ? `<span title="${t('orderHasRemarkTitle')}" style="margin-left:6px;color:var(--yellow-dark);">📝</span>` : ''}
-            ${!o.deleted && !o.partyId ? `<span title="${t('orderNoPartyLinkedWarning')}" style="margin-left:6px;color:var(--crit);">⚠</span>` : ''}
+            ${!o.deleted && !o.partyId ? `<span title="${t('orderNoPartyLinkedWarning')}" style="margin-left:6px;color:var(--crit);font-weight:400;${hasCapability('cap-manage-parties') ? 'cursor:pointer;text-decoration:underline;' : ''}" ${hasCapability('cap-manage-parties') ? `onclick="event.stopPropagation();orderAssignPartyOpen('${o.id}')"` : ''}>⚠ ${t('orderNoPartyShort')}</span>` : ''}
           </span>
           <span style="display:inline-flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:flex-end;">
             ${invLinkedBadgeHtml(o)}<span class="order-status-pill ${o.deleted ? 'deleted' : (o.status === 'processing' ? 'processing' : 'pending')}">${o.deleted ? t('statusOrderCancelled') : (o.status === 'processing' ? t('statusProcessing') : t('statusPending'))}</span>
@@ -1600,6 +1602,40 @@ function cancelPendingOrder(orderId){
 // 指定/修改待處理訂單的出貨方:主要是用來補救「已經匯入、但沒正確掛上出貨方」的訂單(例如
 // Excel 匯入時對象文字對不上現有出貨方名稱)——選對出貨方之後,那家出貨方的帳號才看得到、
 // 才能簽收這張訂單,不用整張刪掉重新匯入。
+// 沒有出貨方的訂單(待處理 / 已完成)才能指派出貨方;已經有出貨方就不能再改。已簽收的訂單鎖住。
+function orderAssignPartyOpen(orderId){
+  const o = orders.find(x => x.id === orderId);
+  if(!o || o.deleted || o.partyId) return;
+  if(o.signedAt){ showInfoModal(tf('orderAssignSigned', { no: o.orderNo || '' })); return; }
+  const old = document.getElementById('orderAssignPartyOverlay'); if(old) old.remove();
+  const ov = document.createElement('div');
+  ov.id = 'orderAssignPartyOverlay'; ov.className = 'modal-overlay'; ov.style.display = 'flex'; ov.style.zIndex = '1300';
+  ov.onclick = e => { if(e.target === ov) ov.remove(); };
+  ov.innerHTML = `<div class="modal-box" style="max-width:min(420px,96vw);">
+    <div class="section-title" style="margin-top:0;">${t('btnEditOrderParty')} · ${escapeHtmlForPrint(o.orderNo || '')}</div>
+    <div class="field" style="margin-bottom:10px;"><select id="orderAssignPartySel"><option value="">${t('optUnspecified')}</option>${shippingParties.map(sp => `<option value="${sp.id}">${partyOptionLabel(sp).replace(/"/g,'&quot;')}</option>`).join('')}</select></div>
+    <div class="modal-actions"><button class="btn ghost" onclick="document.getElementById('orderAssignPartyOverlay').remove()">${t('btnCancel')}</button><button class="btn" onclick="orderAssignPartySave('${o.id}')">${t('btnSave')}</button></div></div>`;
+  document.body.appendChild(ov);
+}
+async function orderAssignPartySave(orderId){
+  const sel = document.getElementById('orderAssignPartySel');
+  const ov = document.getElementById('orderAssignPartyOverlay');
+  if(!sel || !sel.value) return;
+  const order = orders.find(o => o.id === orderId);
+  const sp = shippingParties.find(x => x.id === sel.value);
+  if(!order || !sp || order.partyId) return;
+  order.partyId = sp.id; order.partyName = sp.name;
+  try{ await upsertOrders([order]); }
+  catch(e){ order.partyId = null; order.partyName = ''; showInfoModal('⚠ 操作失敗,請重新整理頁面再試一次。'); return; }
+  if(ov) ov.remove();
+  logInventoryAction('order_edit', `Order ${order.orderNo || orderId} - shipping party set to ${order.partyName}`, order.orderNo);
+  renderAll();
+}
+function orderNoMatches(o, q){
+  q = String(q || '').trim().toLowerCase().replace(/^#/, '');
+  if(!q) return true;
+  return String(o.orderNo || '').toLowerCase().replace(/^#/, '').includes(q);
+}
 function startEditOrderParty(orderId){
   editingOrderPartyId = orderId;
   refreshOrderLists();

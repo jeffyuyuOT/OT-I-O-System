@@ -1734,12 +1734,16 @@ body.no-cost-view .cost-col{display:none !important;}
       <p style="font-size:12.5px;color:var(--ink-soft);margin:0 0 14px;" data-i18n="pendingOrdersDesc">
         這裡是還沒「核對」的訂單,還沒真的扣庫存,只會先佔用「可訂數量」的額度。核對通過後會自動移到「已完成訂單」並正式扣庫存。
       </p>
-      <div class="form-grid" style="grid-template-columns:1fr 160px 160px;margin-bottom:14px;">
+      <div class="form-grid" style="grid-template-columns:minmax(120px,200px) minmax(120px,200px) 150px 150px;margin-bottom:14px;">
         <div class="field">
           <label data-i18n="fieldShippingParty">出貨方</label>
           <select id="pendingOrderPartyFilter" onchange="renderPendingOrders()">
             <option value="" data-i18n="optAllParties">全部出貨方</option>
           </select>
+        </div>
+        <div class="field">
+          <label data-i18n="fieldOrderNoSearch">訂單號</label>
+          <input type="text" id="pendingOrderNoSearch" oninput="renderPendingOrders()" data-i18n-placeholder="phOrderNoSearch" placeholder="搜尋訂單號…" />
         </div>
         <div class="field">
           <label data-i18n="fieldFrom">從</label>
@@ -1758,14 +1762,18 @@ body.no-cost-view .cost-col{display:none !important;}
     <div id="subtab-order-completed" class="subtab-content section">
       <div class="section-title" style="margin:0 0 6px;" data-i18n="subtabCompletedOrders">已完成訂單</div>
       <p data-hint-always="1" style="font-size:12.5px;color:var(--ink-soft);margin:0 0 10px;" data-i18n="completedOrders30DayNote">此頁面僅顯示最近 30 天的紀錄,如果要看之前的紀錄,請到「歷史紀錄」→「已完成訂單」查閱。</p>
-      <div class="form-grid" style="grid-template-columns:1fr auto;margin-bottom:14px;">
+      <div class="form-grid" style="grid-template-columns:minmax(120px,200px) minmax(120px,200px) auto;margin-bottom:14px;">
         <div class="field">
           <label data-i18n="fieldShippingParty">出貨方</label>
           <select id="recentCompletedOrderPartyFilter" onchange="renderOrders()">
             <option value="" data-i18n="optAllParties">全部出貨方</option>
           </select>
         </div>
-        <button class="btn ghost" onclick="document.getElementById('recentCompletedOrderPartyFilter').value='';renderOrders()" style="align-self:flex-end;" data-i18n="btnClearFilter">清除篩選</button>
+        <div class="field">
+          <label data-i18n="fieldOrderNoSearch">訂單號</label>
+          <input type="text" id="recentCompletedOrderNoSearch" oninput="renderOrders()" data-i18n-placeholder="phOrderNoSearch" placeholder="搜尋訂單號…" />
+        </div>
+        <button class="btn ghost" onclick="document.getElementById('recentCompletedOrderPartyFilter').value='';document.getElementById('recentCompletedOrderNoSearch').value='';renderOrders()" style="align-self:flex-end;" data-i18n="btnClearFilter">清除篩選</button>
       </div>
       <div id="recentCompletedOrdersList">
         <div class="empty-note" data-i18n="noCompletedOrders">還沒有任何已完成的訂單。</div>
@@ -2453,12 +2461,16 @@ body.no-cost-view .cost-col{display:none !important;}
 
       <div id="subtab-log-completed" class="subtab-content">
         <div class="section-title" style="margin:0 0 10px;" data-i18n="subtabCompletedOrders">已完成訂單</div>
-        <div class="form-grid" style="grid-template-columns:1fr 160px 160px auto;margin-bottom:14px;">
+        <div class="form-grid" style="grid-template-columns:minmax(120px,200px) minmax(120px,200px) 150px 150px auto;margin-bottom:14px;">
           <div class="field">
             <label data-i18n="fieldShippingParty">出貨方</label>
             <select id="completedOrderPartyFilter" onchange="renderOrders()">
               <option value="" data-i18n="optAllParties">全部出貨方</option>
             </select>
+          </div>
+          <div class="field">
+            <label data-i18n="fieldOrderNoSearch">訂單號</label>
+            <input type="text" id="completedOrderNoSearch" oninput="renderOrders()" data-i18n-placeholder="phOrderNoSearch" placeholder="搜尋訂單號…" />
           </div>
           <div class="field">
             <label data-i18n="fieldFrom">從</label>
