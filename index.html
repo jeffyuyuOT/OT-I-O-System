@@ -2342,6 +2342,14 @@ body.no-cost-view .cost-col{display:none !important;}
           <div id="accountingEmailList" style="display:flex;flex-direction:column;gap:8px;margin-bottom:10px;"></div>
           <button class="btn ghost" onclick="addAccountingEmailRow()" data-i18n="btnAddEmail">+ 新增地址</button>
         </div>
+        <div class="settings-card" id="docEmailCard">
+          <div class="section-title" data-i18n="secDocEmail">Invoice / Credit Note Email 預設內容</div>
+          <p style="font-size:11.5px;color:var(--ink-soft);margin:0 0 12px;" data-i18n="docEmailHint">在 Invoice 清單 / Credit Note 清單用 ✉ 寄送時,預設帶入的主旨與內文。</p>
+          <div class="field" style="margin-bottom:8px;"><label data-i18n="docEmailSubjectLbl">主旨</label><input id="docEmailSubject" type="text" onchange="deSaveTemplate()" /></div>
+          <div class="field" style="margin-bottom:8px;"><label data-i18n="docEmailBodyLbl">內文</label><textarea id="docEmailBody" rows="8" style="width:100%;box-sizing:border-box;" onchange="deSaveTemplate()"></textarea></div>
+          <button class="btn ghost" onclick="deResetTemplate()" data-i18n="docEmailReset">還原預設</button>
+          <div id="docEmailMsg" class="msg"></div>
+        </div>
         <div class="settings-card" id="invoiceSettingsCard">
           <div class="section-title" data-i18n="secInvoiceFormat">Invoice 格式</div>
           <p style="font-size:12.5px;color:var(--ink-soft);margin:0 0 12px;" data-i18n="invoiceFormatDesc">設定 Invoice 左上角顯示的公司資料,以及 Bank Transfer 付款方式下面顯示的銀行資料。公司名稱、地址和 ABN 為必填。</p>
@@ -3413,6 +3421,7 @@ body.no-cost-view .cost-col{display:none !important;}
 <script src="stock-location.js"></script>
 <script src="non-sales-slip.js"></script>
 <script src="tx-party-picker.js"></script>
+<script src="doc-email.js"></script>
 <script src="logs.js"></script>
 <script src="stock-overview.js"></script>
 <script src="product-master.js"></script>

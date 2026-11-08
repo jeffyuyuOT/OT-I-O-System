@@ -671,6 +671,7 @@ function icCnRender(){
   const availSum = list.reduce((a, r) => a + (r.invoice_id ? 0 : (Number(r.total) || 0) - (Number(r.applied) || 0)), 0);   // 單獨 Credit Note 的可用額度合計
   const stOpt = (v, l) => `<option value="${v}" ${f.st === v ? 'selected' : ''}>${l}</option>`;
   const body = list.map(r => `<tr>
+      ${typeof deIconCell === 'function' ? deIconCell('credit_note', r.id) : '<td></td>'}
       <td style="white-space:nowrap;cursor:pointer;" onclick="icCnView('${invEsc(r.id)}')"><span class="batch-link">${invEsc(r.cn_no)}</span></td>
       <td style="white-space:nowrap;">${invEsc(invIsoToDmy(r.cn_date))}</td><td>${invEsc(invCustLabel(r))}</td>
       <td>${r.invoice_id ? `<span class="batch-link" onclick="invOpenDetails('${invEsc(r.invoice_id)}')">INV${invEsc(r.invoice_no || '')}</span>` : ((icCnUsedOn[r.id] || []).length ? (icCnUsedOn[r.id]).map(x => `<div style="white-space:nowrap;"><span class="batch-link" onclick="invOpenDetails('${invEsc(x.id)}')">INV${invEsc(x.no || '')}</span></div>`).join('') : '–')}</td>
@@ -685,7 +686,7 @@ function icCnRender(){
       <div style="flex:1;min-width:160px;"><div style="font-size:11px;color:var(--ink-soft);">${t('invFltSearch')}</div><input type="text" value="${invEsc(f.q)}" placeholder="${invEsc(t('icCnSearchPh'))}" oninput="icCnF.q=this.value;icCnRenderKeepFocus(this)" style="width:100%;box-sizing:border-box;" /></div>
       <button class="btn ghost exp-btn" onclick="icCnExportXlsx()" style="align-self:flex-end;">${t('accExportXlsx')}</button>
     </div>
-    ${list.length ? `<div style="overflow-x:auto;"><table class="stock-table"><thead><tr><th>Credit Note No</th><th>${t('icColDate')}</th><th>${t('invColCustomer')}</th><th>${t('icLinkedInvoice')}</th><th class="num">${t('spTotalAmt')}</th><th class="num">${t('invCreditAvail')}</th><th>${t('icColReturnStatus')}</th><th></th></tr></thead><tbody>${body}<tr style="font-weight:700;border-top:2px solid var(--line, #ccc);"><td colspan="4" style="text-align:right;">${t('invListTotals')} (${list.length})</td><td class="num">(${invMoney2(sum)})</td><td class="num">${invMoney2(availSum)}</td><td></td><td></td></tr></tbody></table></div>` : `<div class="empty-note">${t('icNoCn')}</div>`}`;
+    ${list.length ? `<div style="overflow-x:auto;"><table class="stock-table"><thead><tr><th></th><th>Credit Note No</th><th>${t('icColDate')}</th><th>${t('invColCustomer')}</th><th>${t('icLinkedInvoice')}</th><th class="num">${t('spTotalAmt')}</th><th class="num">${t('invCreditAvail')}</th><th>${t('icColReturnStatus')}</th><th></th></tr></thead><tbody>${body}<tr style="font-weight:700;border-top:2px solid var(--line, #ccc);"><td colspan="5" style="text-align:right;">${t('invListTotals')} (${list.length})</td><td class="num">(${invMoney2(sum)})</td><td class="num">${invMoney2(availSum)}</td><td></td><td></td></tr></tbody></table></div>` : `<div class="empty-note">${t('icNoCn')}</div>`}`;
 }
 function icCnRenderKeepFocus(inp){
   const pos = inp.selectionStart; icCnRender();

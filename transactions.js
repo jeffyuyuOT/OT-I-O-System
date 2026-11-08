@@ -2181,7 +2181,29 @@ async function submitTxBatchSimple(date, msg){
 // 出貨→新增訂單:三個按鈕分別對應「併入待處理訂單」(action='pending',不扣庫存)、
 // 「併入已完成訂單」(action='completed',直接扣庫存)、「直接出貨」(action='direct',
 // 純粹登記一筆出貨,不建立訂單,但備註必填)。前兩者都要跟資料庫序列拿新的訂單編號。
+// 出貨 → 新增訂單 → 按「併入待處理訂單 / 併入已完成訂單」:先確認一次。
+//   · 看得到 Invoice 功能的人(業務、會計、管理者):問「Create invoice & submit」或「Submit only」
+//     (前者:先提交訂單,接著直接跳出這張訂單的 Invoice 預覽,按預覽裡的確認鍵才真的建立 Invoice)
+//   · 倉庫管理員等沒有 Invoice 權限的人:只有「確認提交」
+let txInvoiceAfterSubmit = false;
 async function submitNewOrderFlow(action, date, msg){
+  if(txBatchItems.length === 0){ msg.className='msg error'; msg.textContent=t('errAddAtLeastOneItem'); return; }
+  if(action !== 'pending' && action !== 'completed') return await submitNewOrderFlowCore(action, date, msg);
+  const run = async withInvoice => {
+    txInvoiceAfterSubmit = !!withInvoice;
+    try{ await submitNewOrderFlowCore(action, date, msg); }
+    finally{ txInvoiceAfterSubmit = false; }
+  };
+  if(typeof canCreateInvoice === 'function' && canCreateInvoice() && typeof lookoutOpenChoice === 'function'){
+    lookoutOpenChoice('txSubmitChoiceTitle', [
+      { label: t('txSubmitWithInvoice'), go: () => run(true) },
+      { label: t('txSubmitOnly'), go: () => run(false) }
+    ]);
+  } else {
+    showConfirmModal(t('txSubmitConfirmOnly'), () => run(false));
+  }
+}
+async function submitNewOrderFlowCore(action, date, msg){
   if(txBatchItems.length === 0){ msg.className='msg error'; msg.textContent=t('errAddAtLeastOneItem'); return; }
   const outPartyId = document.getElementById('txPartySelect').value || null;
   const partyObj = shippingParties.find(sp => sp.id === outPartyId);
@@ -2288,6 +2310,11 @@ function finishNewOrderSubmit(kind, orderId, count, orderNo, msg){
   switchWarehouseOpsSubTab(kind === 'pending' ? 'subtab-order-pending' : 'subtab-order-completed');
   expandedOrderIds.add(orderId);
   renderAll();
+  if(txInvoiceAfterSubmit && typeof invOpenCreate === 'function'){
+    txInvoiceAfterSubmit = false;
+    invOpenCreate(orderId);   // 直接開這張訂單的 Invoice 預覽(確認鍵才真的建立);缺價格/設定時會自己跳提示
+    return;
+  }
   showInfoModal(tf('addToOrderSuccessMsg', { orderNo: orderNo || orderId, n: count }));
 }
 
