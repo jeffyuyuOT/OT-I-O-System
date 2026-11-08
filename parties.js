@@ -358,7 +358,7 @@ function renderPartiesTable(){
     return `
       <tr>
         <td class="row-code" style="white-space:nowrap;color:var(--ink-soft);font-family:'IBM Plex Mono',monospace;font-size:12px;">${esc(sp.code || '')}</td>
-        <td class="row-name"><span class="del-link" style="font-weight:600;" onclick="openPartyEditModal('${sp.id}')">${esc(sp.name)}</span></td>
+        <td class="row-name"><span class="del-link" style="font-weight:600;" onclick="openPartyEditModal('${sp.id}')">${esc(sp.name)}</span>${(partyDiscountOf(sp) > 0 && typeof canViewPrice === 'function' && canViewPrice()) ? ` <span title="${t('orderDiscountTip')}" style="margin-left:6px;padding:1px 7px;border-radius:10px;background:#fff1d6;color:#9a5b00;font-size:11.5px;font-weight:600;white-space:nowrap;">Discount ${partyDiscountOf(sp)}%</span>` : ''}</td>
         <td><span class="mini-label">${t('fieldPartyPhone')}</span>${esc(sp.phone !== undefined ? sp.phone : (sp.contact || '')) || '—'}</td>
         <td class="row-note"><span class="mini-label">${t('colNote')}</span>${esc(sp.note || '') || '—'}</td>
         <td class="row-action" style="white-space:nowrap;text-align:right;">
