@@ -116,7 +116,7 @@ function isAccountantUser(){ return !!currentUser && currentUser.role === 'accou
 function canSeeProductAcct(){ return !!currentUser && (currentUser.role === 'admin' || currentUser.role === 'accountant'); }
 // 沒有「訂單顯示價錢」權限的人(倉管員等):批次頁的成本 / 售價 / 庫存價值欄用 CSS 隱藏
 function applyCostVisibility(){ try{ document.body.classList.toggle('no-cost-view', !(typeof canViewPrice === 'function' && canViewPrice())); }catch(e){} }
-function isInvoiceRole(){ return !!currentUser && (currentUser.role === 'admin' || currentUser.role === 'accountant'); }
+function isInvoiceRole(){ return !!currentUser && (currentUser.role === 'admin' || currentUser.role === 'accountant' || currentUser.role === 'sales'); }
 // Invoice 功能的總開關:身分是管理者/會計,而且沒有在系統設置勾選「隱藏 Invoice 功能」
 function canCreateInvoice(){ return isInvoiceRole() && !(typeof hideInvoiceEnabled !== 'undefined' && hideInvoiceEnabled); }
 function canEditPrice(){

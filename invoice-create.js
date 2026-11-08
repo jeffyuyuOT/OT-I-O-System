@@ -248,7 +248,7 @@ function icSnapHeader(sp, nameFallback){
   const name = (sp && (sp.companyName || sp.name)) || nameFallback || '';
   return {
     no: '', date: today, dueDate: invAddDays(today, term), paymentType: payType, term,
-    saleRep: (typeof userDisplayName === 'function' && currentUser) ? userDisplayName(currentUser) : '',
+    saleRep: invSaleRepName(),
     company: { name: invSettings.companyName, abn: invSettings.abn, address: invSettings.address, phone: invSettings.phone, email: invSettings.email, website: invSettings.website },
     bank: { bankName: invSettings.bankName, accName: invSettings.bankAccName, bsb: invSettings.bsb, accNo: invSettings.accNo },
     customer: { name, billTo: (sp && sp.billTo) || '', email: (sp && sp.email) || '', abn: (sp && sp.abn) || '' },
@@ -283,7 +283,9 @@ function icPreviewNew(){
   }
   const snap = Object.assign(icSnapHeader(sp), { note: icState.note || '', orderNo: '', lines });
   icFinishTotals(snap);
-  invShowModal(null, snap, false, { orders: [], partyId: sp.id, manual: true });
+  // 有庫存商品(非自訂品項)的手動 Invoice:確認時同時建立一張待處理訂單(只含庫存商品,價格沿用 Invoice 上的價格)
+  const stockItems = icState.items.filter(it => !it.custom && it.productId).map(it => ({ productId: it.productId, sku: it.sku || '', name: it.desc, unit: it.unit || '', qty: Number(it.qty), price: Number(it.price) }));
+  invShowModal(null, snap, false, { orders: [], partyId: sp.id, manual: true, stockItems });
 }
 
 // ---------- 合併訂單 ----------
@@ -404,8 +406,23 @@ async function invEnsureCreatedMulti(){
   const snap0 = Object.assign({}, invModal.snap);
   snap0.date = (typeof todayISO === 'function') ? todayISO() : snap0.date;
   snap0.dueDate = invAddDays(snap0.date, snap0.term || 0);
-  snap0.saleRep = (typeof userDisplayName === 'function' && currentUser) ? userDisplayName(currentUser) : snap0.saleRep;
+  snap0.saleRep = invSaleRepName() || snap0.saleRep;
   snap0.createdAt = new Date().toISOString();
+  // 手動 Invoice 含庫存商品:先備好待處理訂單(取得訂單編號),Invoice 建立成功後才存訂單並互相連結
+  let newOrder = null;
+  if(link.manual && link.stockItems && link.stockItems.length && !(link.orders || []).length){
+    try{
+      const spx = icParty(link.partyId);
+      const orderNo = await getSafeNextOrderNo();
+      newOrder = {
+        id: genId(), date: (typeof todayISO === 'function') ? todayISO() : snap0.date, note: snap0.note || '',
+        partyId: link.partyId || null, partyName: spx ? spx.name : '',
+        items: link.stockItems.map(x => ({ productId: x.productId, sku: x.sku, name: x.name, unit: x.unit, qty: x.qty, note: '', sellPrice: x.price, sellPriceManual: true })),
+        status: 'pending', createdAt: new Date().toISOString(), orderNo
+      };
+      link.orders = [{ id: newOrder.id, no: orderNo }];
+    }catch(e){ console.error('取得訂單編號失敗', e); return fail('invCreateFailed'); }
+  }
   snap0.orders = link.orders;
   const objs = link.orders.map(o => orders.find(x => x.id === o.id)).filter(Boolean);
   if(objs.some(o => o.invoice)) return fail('invAlreadyExists');
@@ -415,6 +432,7 @@ async function invEnsureCreatedMulti(){
     invDbMode = 'table';
     const snap = Object.assign({}, snap0, { no: data.invoice_no, id: data.id });
     objs.forEach(o => { o.invoice = { id: data.id, no: data.invoice_no, date: snap.date }; });
+    if(newOrder){ newOrder.invoice = { id: data.id, no: data.invoice_no, date: snap.date }; objs.push(newOrder); if(!orders.includes(newOrder)) orders.push(newOrder); }
     try{ if(objs.length) await upsertOrders(objs); }
     catch(e){ console.error('Invoice 已建立,但訂單連結儲存失敗', e); }
     invModal.snap = snap; invModal.created = true;
@@ -424,6 +442,7 @@ async function invEnsureCreatedMulti(){
     icState.sel = new Set();
     if(icState.mode === 'order' && document.getElementById('icOrderList')) icRenderOrderList();
     if(link.manual){ icState.items = []; icState.note = ''; icState.partyId = ''; }
+    if(newOrder){ try{ logInventoryAction('order_place', `Created pending order ${newOrder.orderNo} from manual invoice ${snap.no} (${newOrder.partyName || 'No recipient specified'}, ${newOrder.items.length} item(s)), stock not yet deducted`, newOrder.orderNo); }catch(e){} }
     return snap;
   }catch(e){
     console.error('建立 Invoice 失敗', e);
@@ -573,7 +592,7 @@ async function icEnsureCreatedCn(){
   const fail = key => { if(msg){ msg.className = 'msg error'; msg.textContent = t(key); } return null; };
   const snap0 = Object.assign({}, invModal.snap);
   snap0.date = (typeof todayISO === 'function') ? todayISO() : snap0.date;
-  snap0.saleRep = (typeof userDisplayName === 'function' && currentUser) ? userDisplayName(currentUser) : snap0.saleRep;
+  snap0.saleRep = invSaleRepName() || snap0.saleRep;
   snap0.createdAt = new Date().toISOString();
   try{
     const { data, error } = await sb.rpc('credit_note_create', { p_snapshot: snap0, p_invoice_id: link.invoiceId || null, p_party_id: link.partyId || '' });
