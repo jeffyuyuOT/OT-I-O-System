@@ -174,6 +174,11 @@ function icEditLoadedOrder(orderId){
   if(!o || o.deleted) return;
   if(o.signedAt){ showInfoModal(tf('icOrderSignedNoEdit', { no: o.orderNo || '' })); return; }
   editOrderViaRegister(orderId, orderStatus(o) === 'confirmed' ? 'completed' : 'pending');
+  // 真的跳去編輯頁面了:把 Create Invoice 畫面清空,回來時使用者要重新載入訂單(避免用到舊的快照)
+  const root = document.getElementById('invoiceCreateRoot');
+  if(root && root.offsetParent === null){
+    icState.partyId = ''; icState.partySearch = ''; icState.items = []; icState.loaded = []; icState.note = ''; icState.cnInv = null; icState.sel = new Set();
+  }
 }
 function icUnloadOrder(i){ icState.loaded.splice(i, 1); icRenderNew(); }
 let icLoadSel = new Set();
