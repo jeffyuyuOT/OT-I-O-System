@@ -1572,7 +1572,7 @@ body.no-cost-view .cost-col{display:none !important;}
           <input id="txParty" type="text" placeholder="例如:大盤商 A" data-i18n-placeholder="partyPlaceholderIn" />
           <select id="txPartySelect" style="display:none;" onchange="if(typeof renderTxBatchList === 'function') renderTxBatchList()"></select>
           <div id="txPartyPicker" style="display:none;"></div>
-          <span id="txPartyEditLink" class="del-link" style="display:none;position:absolute;left:0;top:100%;margin-top:3px;font-size:12px;white-space:nowrap;" onclick="partyEditFromOrder(this.dataset.pid)" data-i18n="linkEditParty">✎ 編輯出貨方</span>
+          <span id="txPartyInfoRow" style="display:none;position:absolute;left:0;top:100%;margin-top:3px;font-size:12px;white-space:nowrap;"><span id="txPartyEditLink" class="del-link" style="display:none;" onclick="partyEditFromOrder(this.dataset.pid)" data-i18n="linkEditParty">✎ 編輯出貨方</span><span id="txPartyDiscBadge"></span></span>
         </div>
         <div class="field" id="txInvoiceFieldWrap" style="display:none;">
           <label data-i18n="fieldInvoiceNo">Invoice 號碼(選填)</label>
