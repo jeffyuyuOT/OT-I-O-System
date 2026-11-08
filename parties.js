@@ -150,6 +150,7 @@ function openPartyEditModal(id){
   document.getElementById('partyFrequencySelect').value = (sp && sp.orderFrequency) ? sp.orderFrequency : (sp ? 'weekly' : 'weekly');
   const d = partyDiscountOf(sp);
   document.getElementById('partyDiscountInput').value = d ? String(d) : '';
+  { const blk = document.getElementById('partyDiscountBlock'); if(blk) blk.style.display = (typeof canViewPrice === 'function' && canViewPrice()) ? '' : 'none'; }   // 沒有「訂單顯示價錢」權限的人(例如倉庫管理員)看不到 Discount;儲存時保留原值
   document.getElementById('partyEditModalMsg').textContent = '';
   document.getElementById('partyEditModalMsg').className = 'msg';
   document.getElementById('partyDeleteBtn').style.display = sp ? '' : 'none';
