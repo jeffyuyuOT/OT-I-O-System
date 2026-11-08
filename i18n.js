@@ -236,7 +236,7 @@ const I18N = {
     tabUsers: '使用者管理', secUserManagement: '使用者管理', userManagementDesc: '管理可以登入這個 App 的帳號。每個帳號有一個主要身分(管理者/訂貨用戶/倉庫管理員),新增帳號時會依身分帶入預設可看的分頁,之後仍可針對個別帳號再細部勾選調整可看的分頁。',
     secAddUser: '新增使用者', loginUsername: '帳號', loginPassword: '密碼', userRole: '身分', btnAddUser: '新增使用者',
     userTabPermDesc: '可看的分頁', noUsersYet: '尚無使用者', btnSave: '儲存', btnDelete: '刪除',
-    roleAdmin: '管理者', roleAccountant: '會計', roleOrder: '訂貨用戶', roleInventory: '倉庫管理員',
+    roleAdmin: '管理者', roleAccountant: '會計', roleSales: '業務 Sales Rep', roleOrder: '訂貨用戶', roleInventory: '倉庫管理員',
 
     noShipmentRecord: '近12個月無出貨紀錄', daysLeftMonths: '約 {n} 個月', daysLeftDays: '約 {n} 天',
     hideAction: '隱藏', unhideAction: '取消隱藏', addToOrderAction: '加入訂貨', removeFromOrderAction: '移出訂貨',
@@ -1169,7 +1169,7 @@ const I18N = {
     tabUsers: 'User Management', secUserManagement: 'User Management', userManagementDesc: 'Manage accounts that can log in to this app. Each account has a main role (Admin/Order User/Warehouse Manager) that fills in default tab access when created; you can still fine-tune tab access per account afterward.',
     secAddUser: 'Add User', loginUsername: 'Username', loginPassword: 'Password', userRole: 'Role', btnAddUser: 'Add User',
     userTabPermDesc: 'Visible tabs', noUsersYet: 'No users yet', btnSave: 'Save', btnDelete: 'Delete',
-    roleAdmin: 'Admin', roleAccountant: 'Accountant', roleOrder: 'Order User', roleInventory: 'Warehouse Manager',
+    roleAdmin: 'Admin', roleAccountant: 'Accountant', roleSales: 'Sales Rep', roleOrder: 'Order User', roleInventory: 'Warehouse Manager',
 
     noShipmentRecord: 'No shipments in the last 12 months', daysLeftMonths: 'About {n} months', daysLeftDays: 'About {n} days',
     hideAction: 'Hide', unhideAction: 'Unhide', addToOrderAction: 'Add to Order', removeFromOrderAction: 'Remove from Order',
