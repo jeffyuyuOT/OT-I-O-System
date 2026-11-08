@@ -772,8 +772,8 @@ let invListError = '';
 const INV_PAY_METHODS = ['Bank Transfer', 'Cash', 'Card', 'Cheque', 'Other'];
 // 每個清單畫面(會計分頁、出貨方的 Invoice 記錄視窗)各有自己的篩選條件
 const invCtx = {
-  main:  { rootId: 'invoiceListRoot', filter: { from: '', to: '', q: '', status: '', pay: '', rep: '' }, scope: null },
-  party: { rootId: 'invPartyRecordsRoot', filter: { from: '', to: '', q: '', status: '', pay: '', rep: '' }, scope: null, partyId: '' }
+  main:  { rootId: 'invoiceListRoot', filter: { from: '', to: '', q: '', status: '', cust: '', rep: '' }, scope: null },
+  party: { rootId: 'invPartyRecordsRoot', filter: { from: '', to: '', q: '', status: '', cust: '', rep: '' }, scope: null, partyId: '' }
 };
 function invToday(){ return (typeof todayISO === 'function') ? todayISO() : new Date().toISOString().slice(0, 10); }
 function invCodGrace(){ const n = parseInt(invSettings.codGraceDays, 10); return Number.isFinite(n) && n >= 0 ? n : 7; }
@@ -841,11 +841,12 @@ async function invOpenListPage(){
   await invLoadList(true);
   invRenderList('main');
 }
+function invCustKey(r){ const sp = invPartyOf(r); return sp ? 'p:' + sp.id : 'n:' + invNormName(r.customer); }
 function invFilteredList(key){
   const c = invCtx[key], f = c.filter, q = (f.q || '').trim().toLowerCase();
   return invList.filter(r => (!c.scope || c.scope(r))
     && (!f.from || r.invoice_date >= f.from) && (!f.to || r.invoice_date <= f.to)
-    && (!f.pay || (f.pay === 'cod' ? r.payment_type === 'cod' : r.payment_type !== 'cod'))
+    && (!f.cust || invCustKey(r) === f.cust)
     && (!f.rep || (r.sale_rep || '') === f.rep)
     && (!f.status || invRowInfo(r).status === f.status)
     && (!q || ['INV' + (r.invoice_no || ''), r.invoice_no, invCustSearch(r), r.order_no, r.sale_rep].join(' ').toLowerCase().includes(q)));
@@ -860,6 +861,8 @@ function invRenderList(key){
   const f = c.filter;
   const scoped = invList.filter(r => !c.scope || c.scope(r));
   const reps = Array.from(new Set(scoped.map(r => r.sale_rep).filter(Boolean))).sort();
+  const custMap = new Map(); scoped.forEach(r => { const k = invCustKey(r); if(!custMap.has(k)) custMap.set(k, invCustLabel(r) || r.customer || '—'); });
+  const custOpts = Array.from(custMap.entries()).sort((a, b) => a[1].localeCompare(b[1]));
   const list = invFilteredList(key);
   const sum = list.reduce((a, r) => {
     const i = invRowInfo(r);
@@ -895,8 +898,8 @@ function invRenderList(key){
     <div class="filter-row" style="margin-bottom:10px;">
       <div class="field"><label>${t('lblFromDate')}</label><input type="date" id="invFlt_${key}_from" value="${invEsc(f.from)}" onchange="invOnListFilter('${key}')" /></div>
       <div class="field"><label>${t('lblToDate')}</label><input type="date" id="invFlt_${key}_to" value="${invEsc(f.to)}" onchange="invOnListFilter('${key}')" /></div>
+      ${key !== 'party' ? `<div class="field"><label>${t('invColCustomer')}</label>${sel('invFlt_' + key + '_cust', f.cust, [['', t('invFltAll')]].concat(custOpts))}</div>` : ''}
       <div class="field"><label>${t('invFltStatus')}</label>${sel('invFlt_' + key + '_status', f.status, [['', t('invFltAll')], ['unpaid', t('invSt_unpaid')], ['partial', t('invSt_partial')], ['paid', t('invSt_paid')], ['overdue', t('invSt_overdue')], ['overpaid', t('invSt_overpaid')]])}</div>
-      <div class="field"><label>${t('invFltPayType')}</label>${sel('invFlt_' + key + '_pay', f.pay, [['', t('invFltAll')], ['bank', 'Bank Transfer'], ['cod', 'COD']])}</div>
       <div class="field"><label>Sale Rep</label>${sel('invFlt_' + key + '_rep', f.rep, [['', t('invFltAll')]].concat(reps.map(x => [x, x])))}</div>
       <div class="field" style="min-width:220px;"><label>${t('invFltSearch')}</label><input type="search" id="invFlt_${key}_q" value="${invEsc(f.q)}" oninput="invOnListFilter('${key}',true)" placeholder="${invEsc(t(key === 'party' ? 'invListSearchPhParty' : 'invListSearchPh'))}" /></div>
       <button class="btn ghost" onclick="invClearListFilter('${key}')" style="align-self:flex-end;">${t('btnClearFilter')}</button>
@@ -910,13 +913,13 @@ function invRenderList(key){
 </table></div>`}`;
 }
 function invClearListFilter(key){
-  invCtx[key].filter = { from: '', to: '', q: '', status: '', pay: '', rep: '' };
+  invCtx[key].filter = { from: '', to: '', q: '', status: '', cust: '', rep: '' };
   invRenderList(key);
 }
 function invOnListFilter(key, typing){
   key = key || 'main';
   const g = n => (document.getElementById(`invFlt_${key}_${n}`) || {}).value || '';
-  invCtx[key].filter = { from: g('from'), to: g('to'), q: g('q'), status: g('status'), pay: g('pay'), rep: g('rep') };
+  invCtx[key].filter = { from: g('from'), to: g('to'), q: g('q'), status: g('status'), cust: g('cust'), rep: g('rep') };
   if(!typing){ invRenderList(key); return; }
   // 輸入搜尋字時只重畫,保留輸入框的游標
   const pos = (document.getElementById(`invFlt_${key}_q`) || {}).selectionStart;
@@ -1285,7 +1288,7 @@ async function invOpenPartyRecords(partyId){
   // 比對規則:Invoice 存的 party_id 等於這個出貨方;舊 Invoice 沒有 party_id 時,用客戶名稱(公司名稱或出貨方名稱)比對
   const names = new Set([sp.companyName, sp.name].map(invNormName).filter(Boolean));
   invCtx.party.partyId = partyId;
-  invCtx.party.filter = { from: '', to: '', q: '', status: '', pay: '', rep: '' };
+  invCtx.party.filter = { from: '', to: '', q: '', status: '', cust: '', rep: '' };
   invCtx.party.scope = r => r.party_id ? r.party_id === partyId : names.has(invNormName(r.customer));
   invClosePartyRecords();
   const ov = document.createElement('div');
