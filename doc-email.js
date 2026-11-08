@@ -13,7 +13,7 @@ Object.assign(I18N.zh, {
   deNoParty: '這張單據沒有對應的出貨方 email,請直接填寫收件者(也可以到「出貨方管理」補上 email)。',
   deNoSender: '還沒設定會計 Email。請先到 系統設置 → 會計 Email 新增地址並設為「主要」,才能用它當寄件者。',
   deBadTo: '收件者 email 格式不正確。', deBadCc: '副本 email 格式不正確。', deSentOk: '✓ 已寄出', deFail: '寄送失敗', deNeedSql: '尚未建立寄送紀錄資料表,請先執行 sql/document_emails.sql。',
-  deLogEmpty: '還沒有寄送紀錄。', deLogBy: '寄送者', deLogWhen: '時間', deLogTo: '收件者', deLogSubject: '主旨', deLogFrom: '寄件者 / 回覆至',
+  deLogEmpty: '還沒有寄送紀錄。', deLogBy: '寄送者', deLogWhen: '時間', deLogTo: '收件者', deLogSubject: '主旨', deLogFrom: '寄件者 / 回覆至', deLogFromShort: '寄件', deLogReplyTo: '回覆至',
   deSentTag: 'email已寄', deFnMissing: '寄信功能尚未部署(Edge Function: send-document-email)。', deForbidden: '只有管理者與會計可以寄送。', deNoLib: 'PDF 元件載入失敗,請重新整理頁面再試一次。',
   secDocEmail: 'Invoice / Credit Note Email 預設內容',
   docEmailHint: '在 Invoice 清單 / Credit Note 清單用 ✉ 寄送時,預設帶入的主旨與內文(每次寄送前還是可以修改)。可用代號:{docType}(Invoice 或 Credit Note)、{no}(單號)、{customer}(客戶)、{date}(日期)、{total}(含 GST 總額)、{sender}(寄件者名稱)。',
@@ -26,7 +26,7 @@ Object.assign(I18N.en, {
   deNoParty: 'This document has no customer email on file. Enter the recipient, or add an email in Parties.',
   deNoSender: 'No accounting email set. Add one in Settings → Accounting Email and mark it Primary to use it as the sender.',
   deBadTo: 'The recipient email is not valid.', deBadCc: 'The CC email is not valid.', deSentOk: '✓ Sent', deFail: 'Sending failed', deNeedSql: 'The email log table is missing. Run sql/document_emails.sql first.',
-  deLogEmpty: 'Nothing sent yet.', deLogBy: 'Sent by', deLogWhen: 'When', deLogTo: 'To', deLogSubject: 'Subject', deLogFrom: 'From / reply-to',
+  deLogEmpty: 'Nothing sent yet.', deLogBy: 'Sent by', deLogWhen: 'When', deLogTo: 'To', deLogSubject: 'Subject', deLogFrom: 'From / reply-to', deLogFromShort: 'From', deLogReplyTo: 'Reply-to',
   deSentTag: 'Emailed', deFnMissing: 'The email function is not deployed (Edge Function: send-document-email).', deForbidden: 'Only admins and accountants can send.', deNoLib: 'The PDF component failed to load. Please refresh and try again.',
   secDocEmail: 'Invoice / Credit Note email template',
   docEmailHint: 'Default subject and message used when sending with ✉ from the Invoice / Credit Note lists (editable on every send). Placeholders: {docType} (Invoice or Credit Note), {no}, {customer}, {date}, {total} (inc. GST), {sender}.',
@@ -153,7 +153,7 @@ async function deRenderLog(){
     const { data, error } = await sb.from('document_emails').select('*').eq('doc_type', ctx.type).eq('doc_id', ctx.id).order('sent_at', { ascending: false });
     if(error) throw error;
     if(deCtx !== ctx || ctx.tab !== 'log') return;
-    const rows = (data || []).map(r => `<tr><td style="white-space:nowrap;vertical-align:top;">${invEsc(deWhen(r.sent_at))}</td><td style="vertical-align:top;">${invEsc(r.sent_by || '')}</td><td style="vertical-align:top;word-break:break-all;">${invEsc(r.to_email || '')}${r.cc_email ? `<div style="font-size:11px;color:var(--ink-soft);">CC ${invEsc(r.cc_email)}</div>` : ''}</td><td style="vertical-align:top;">${invEsc(r.subject || '')}<div style="font-size:11px;color:var(--ink-soft);word-break:break-all;">${invEsc(r.from_email || '')} → ${invEsc(r.reply_to || '')}</div></td></tr>`).join('');
+    const rows = (data || []).map(r => `<tr><td style="white-space:nowrap;vertical-align:top;">${invEsc(deWhen(r.sent_at))}</td><td style="vertical-align:top;">${invEsc(r.sent_by || '')}</td><td style="vertical-align:top;word-break:break-all;">${invEsc(r.to_email || '')}${r.cc_email ? `<div style="font-size:11px;color:var(--ink-soft);">CC ${invEsc(r.cc_email)}</div>` : ''}</td><td style="vertical-align:top;">${invEsc(r.subject || '')}<div style="font-size:11px;color:var(--ink-soft);word-break:break-all;">${invEsc(t('deLogFromShort'))}: ${invEsc(r.from_email || '')}${(r.reply_to && r.reply_to !== r.from_email) ? ` · ${invEsc(t('deLogReplyTo'))}: ${invEsc(r.reply_to)}` : ''}</div></td></tr>`).join('');
     body.innerHTML = (data || []).length
       ? `<div style="overflow-x:auto;"><table class="stock-table"><thead><tr><th>${invEsc(t('deLogWhen'))}</th><th>${invEsc(t('deLogBy'))}</th><th>${invEsc(t('deLogTo'))}</th><th>${invEsc(t('deLogSubject'))}</th></tr></thead><tbody>${rows}</tbody></table></div><div class="modal-actions"><button class="btn ghost" onclick="deClose()">${invEsc(t('deClose'))}</button></div>`
       : `<div class="empty-note">${invEsc(t('deLogEmpty'))}</div><div class="modal-actions"><button class="btn ghost" onclick="deClose()">${invEsc(t('deClose'))}</button></div>`;
