@@ -304,8 +304,10 @@ async function dnRefSearch(){
   if(seq !== dnRefSeq) return;
   const q = inp.value.trim().toLowerCase();
   const esc = escapeHtmlForPrint;
+  // 表單上已經選了出貨方 → 訂單只列該出貨方的(非銷售出庫單本身沒有出貨方,不受影響)
+  const partyId = (document.getElementById('txPartySelect') || {}).value || '';
   const all = [
-    ...orders.filter(o => !o.deleted && o.orderNo && (o.status || 'pending') === 'confirmed')
+    ...orders.filter(o => !o.deleted && o.orderNo && (o.status || 'pending') === 'confirmed' && (!partyId || o.partyId === partyId))
       .map(o => ({ type: 'order', id: o.id, no: String(o.orderNo), sub: o.partyName || o.customerName || '', date: o.date || '' })),
     ...nonSalesSlips.map(s => ({ type: 'nonsales', id: s.id, no: s.no, sub: s.reasonText || '', date: s.date || '' }))
   ];
@@ -326,4 +328,11 @@ function dnRefPick(i){
 document.addEventListener('click', e => {
   const list = document.getElementById('txDnRefList'); const inp = document.getElementById('txDnRef');
   if(list && e.target !== inp && !list.contains(e.target)) list.style.display = 'none';
+});
+
+// 換出貨方:已選的關聯訂單如果不屬於新的出貨方就清掉,要重新挑
+document.addEventListener('change', e => {
+  if(!e.target || e.target.id !== 'txPartySelect' || currentTxType !== 'delivery' || !dnRefSelected || dnRefSelected.type !== 'order') return;
+  const o = orders.find(x => x.id === dnRefSelected.id);
+  if(e.target.value && (!o || o.partyId !== e.target.value)) dnRefReset();
 });
