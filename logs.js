@@ -23,6 +23,7 @@ async function onCompletedOrderDateFromChange(){
 }
 function clearCompletedOrderFilters(){
   document.getElementById('completedOrderPartyFilter').value = '';
+  { const q = document.getElementById('completedOrderNoSearch'); if(q) q.value = ''; }
   document.getElementById('completedOrderDateFrom').value = defaultHistoryFromDate();
   document.getElementById('completedOrderDateTo').value = '';
   renderOrders();

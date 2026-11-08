@@ -90,6 +90,21 @@ function onPartyPaymentTypeChange(){
   const term = document.getElementById('partyPaymentTermSelect');
   term.disabled = cod;
 }
+async function partyRepriceManualOrders(partyId, oldPct, newPct){
+  const ratio = (100 - newPct) / (100 - oldPct);
+  const changed = [];
+  orders.forEach(o => {
+    if(o.partyId !== partyId || o.deleted || !isPreVerificationStatus(o)) return;
+    let hit = false;
+    (o.items || []).forEach(it => {
+      if(it.deleted || it.sellFrozen || !it.sellPriceManual || !Number.isFinite(Number(it.sellPrice))) return;
+      it.sellPrice = Math.round(Number(it.sellPrice) * ratio * 100) / 100; hit = true;
+    });
+    if(hit) changed.push(o);
+  });
+  if(changed.length) await upsertOrders(changed);
+  return changed.length;
+}
 function partyDiscountOf(sp){
   const n = sp ? Number(sp.discount) : 0;
   return Number.isFinite(n) && n > 0 ? n : 0;
@@ -161,6 +176,7 @@ async function savePartyEdit(){
     if(!Number.isFinite(discount) || discount < 0 || discount > 100){ msg.className = 'msg error'; msg.textContent = t('errPartyDiscountInvalid'); return; }
   }
   const oldName = sp.name;
+  const oldDiscount = isNew ? 0 : partyDiscountOf(sp);
   sp.name = name;
   sp.contactPerson = document.getElementById('partyContactPersonInput').value.trim();
   sp.phone = document.getElementById('partyPhoneInput').value.trim();
@@ -182,6 +198,11 @@ async function savePartyEdit(){
   editingPartyId = null;
   document.getElementById('partyEditModalOverlay').style.display = 'none';
   await saveShippingParties();
+  // Discount 改了:這個出貨方「待處理訂單」裡手動輸入的價錢,依新舊 Discount 的差額一起調整
+  // (新價 = 舊價 × (1 − 新%) ÷ (1 − 舊%));自動帶入的價錢本來就是用目前 Discount 即時計算,會自動跟著變。
+  if(!isNew && discount !== oldDiscount && oldDiscount < 100){
+    try{ await partyRepriceManualOrders(sp.id, oldDiscount, discount); }catch(e){ console.error('調整訂單價錢失敗', e); showInfoModal('⚠ Discount 已儲存,但調整待處理訂單的手動價錢失敗,請重新整理後檢查。'); }
+  }
   renderPartiesTable();
   populatePartySelect();
   renderOrders(); // 已建立的訂單卡片上顯示的出貨方名稱也一併更新
