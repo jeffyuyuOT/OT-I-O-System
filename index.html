@@ -2202,6 +2202,7 @@ body.no-cost-view .cost-col{display:none !important;}
           <option value="subtab-acc-create-invoice" data-i18n="subtabAccCreateInvoice">Create Document</option>
           <option value="subtab-acc-invoices" data-i18n="subtabAccInvoices">Invoice List</option>
           <option value="subtab-acc-credit-notes" data-i18n="subtabAccCreditNotes">Credit Note List</option>
+          <option value="subtab-acc-statement" data-i18n="subtabAccStatement">Statement</option>
         </optgroup>
         <optgroup label="採購與支出" data-i18n-label="accGrpPurchase">
           <option value="subtab-acc-purchases" data-i18n="subtabAccPurchases">Purchase List</option>
@@ -2275,6 +2276,13 @@ body.no-cost-view .cost-col{display:none !important;}
       <div class="section">
         <div class="toolbar"><div class="section-title" style="margin:0;" data-i18n="subtabAccCreditNotes">Credit Note List</div></div>
         <div id="creditNoteListRoot"></div>
+      </div>
+    </div>
+
+    <div id="subtab-acc-statement" class="subtab-content">
+      <div class="section">
+        <div class="toolbar"><div class="section-title" style="margin:0;" data-i18n="subtabAccStatement">Statement</div></div>
+        <div id="statementRoot"></div>
       </div>
     </div>
 
@@ -3225,11 +3233,13 @@ body.no-cost-view .cost-col{display:none !important;}
       </select>
       <div style="font-size:11.5px;color:var(--ink-soft);margin-top:3px;" data-i18n="freqNoneHint">選「無固定頻率」的出貨方,訂貨頁面不會顯示平均使用量。</div>
     </div>
-    <div class="field-block">
+    <div class="field-block" id="partyDiscountBlock">
       <label>Discount</label>
       <div style="display:flex;align-items:center;gap:6px;">
         <input type="number" id="partyDiscountInput" min="0" max="100" step="any" placeholder="0" style="width:120px;" />
         <span>%</span>
+        <label style="margin:0 0 0 12px;font-size:12px;" data-i18n="partyDiscountUntilLbl">到期日(選填)</label>
+        <input type="date" id="partyDiscountUntilInput" style="width:150px;" />
       </div>
       <div style="font-size:11.5px;color:var(--ink-soft);margin-top:4px;" data-i18n="partyDiscountHint">輸入 10 代表 10% off:這個出貨方的待處理訂單商品價格 = 售價打 9 折。留空代表沒有折扣。</div>
     </div>
@@ -3424,6 +3434,7 @@ body.no-cost-view .cost-col{display:none !important;}
 <script src="price-setting.js"></script>
 <script src="invoice.js"></script>
 <script src="invoice-create.js"></script>
+<script src="statement.js"></script>
 <script src="purchase-accounting.js"></script>
 <script src="prepayments.js"></script>
 <script src="report-categories.js"></script>

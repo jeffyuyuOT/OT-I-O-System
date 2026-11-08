@@ -792,7 +792,7 @@ function renderCompletedOrdersInto(container, recentOnly){
         <div class="order-card-head" style="cursor:pointer;" onclick="toggleOrderExpand('${o.id}')">
           <span class="order-card-date">
             <span style="display:inline-block;width:14px;">${isExpanded ? '▾' : '▸'}</span>
-            ${o.orderNo ? `<span style="color:var(--ink-soft);font-weight:400;">${o.orderNo}</span> <span title="${t('copyOrderNo')}" style="cursor:pointer;font-weight:400;color:var(--ink-soft);" onclick="event.stopPropagation();invCopyText('${o.orderNo}', this)">⧉</span> · ` : ''}${o.date}${o.partyName ? ` <span style="font-weight:400;color:var(--ink-soft);">· ${tf('orderCardPartyLabel', {name: (o.partyId && !o.deleted && hasCapability('cap-manage-parties')) ? `<span class="batch-link" title="${t('btnEdit')}" onclick="event.stopPropagation();partyEditFromOrder('${o.partyId}')">${escapeHtmlForPrint(o.partyName)}</span>` : o.partyName})}</span>` : ''}${(!o.deleted && !o.partyId) ? ` <span title="${t('orderNoPartyLinkedWarning')}" style="margin-left:6px;color:var(--crit);font-weight:400;${hasCapability('cap-manage-parties') ? 'cursor:pointer;text-decoration:underline;' : ''}" ${hasCapability('cap-manage-parties') ? `onclick="event.stopPropagation();orderAssignPartyOpen('${o.id}')"` : ''}>⚠ ${t('orderNoPartyShort')}</span>` : ''}
+            ${o.orderNo ? `<span style="color:var(--ink-soft);font-weight:400;">${o.orderNo}</span> <span title="${t('copyOrderNo')}" style="cursor:pointer;font-weight:400;color:var(--ink-soft);" onclick="event.stopPropagation();invCopyText('${o.orderNo}', this)">⧉</span> · ` : ''}${o.date}${o.partyName ? ` <span style="font-weight:400;color:var(--ink-soft);">· ${tf('orderCardPartyLabel', {name: (o.partyId && !o.deleted && hasCapability('cap-manage-parties')) ? `<span class="batch-link" title="${t('btnEdit')}" onclick="event.stopPropagation();partyEditFromOrder('${o.partyId}')">${escapeHtmlForPrint(o.partyName)}</span>` : o.partyName})}</span>` : ''}${orderDiscountBadge(o)}${(!o.deleted && !o.partyId) ? ` <span title="${t('orderNoPartyLinkedWarning')}" style="margin-left:6px;color:var(--crit);font-weight:400;${hasCapability('cap-manage-parties') ? 'cursor:pointer;text-decoration:underline;' : ''}" ${hasCapability('cap-manage-parties') ? `onclick="event.stopPropagation();orderAssignPartyOpen('${o.id}')"` : ''}>⚠ ${t('orderNoPartyShort')}</span>` : ''}
             ${o.remark ? `<span title="${t('orderHasRemarkTitle')}" style="margin-left:6px;color:var(--yellow-dark);">📝</span>` : ''}
             ${wasModified ? `<span title="${t('orderWasModifiedTitle')}" style="margin-left:6px;color:var(--warn);">✎</span>` : ''}
           </span>
@@ -1199,6 +1199,7 @@ function renderPendingOrders(){
             <span style="display:inline-block;width:14px;">${isExpanded ? '▾' : '▸'}</span>
             ${o.orderNo ? `<span style="color:var(--ink-soft);font-weight:400;">${o.orderNo}</span> <span title="${t('copyOrderNo')}" style="cursor:pointer;font-weight:400;color:var(--ink-soft);" onclick="event.stopPropagation();invCopyText('${o.orderNo}', this)">⧉</span> · ` : ''}${o.date}${(o.originalDate && o.originalDate !== o.date) ? ` <span title="${t('dateWasChangedTitle')}" style="font-weight:400;color:var(--warn-dark);">(${tf('originalDateLabel', {date: o.originalDate})})</span>` : ''}${o.partyName ? ` <span style="font-weight:400;color:var(--ink-soft);">· ${tf('orderCardPartyLabel', {name: (o.partyId && !o.deleted && hasCapability('cap-manage-parties')) ? `<span class="batch-link" title="${t('btnEdit')}" onclick="event.stopPropagation();partyEditFromOrder('${o.partyId}')">${escapeHtmlForPrint(o.partyName)}</span>` : o.partyName})}</span>` : ''}
             ${o.remark ? `<span title="${t('orderHasRemarkTitle')}" style="margin-left:6px;color:var(--yellow-dark);">📝</span>` : ''}
+            ${orderDiscountBadge(o)}
             ${!o.deleted && !o.partyId ? `<span title="${t('orderNoPartyLinkedWarning')}" style="margin-left:6px;color:var(--crit);font-weight:400;${hasCapability('cap-manage-parties') ? 'cursor:pointer;text-decoration:underline;' : ''}" ${hasCapability('cap-manage-parties') ? `onclick="event.stopPropagation();orderAssignPartyOpen('${o.id}')"` : ''}>⚠ ${t('orderNoPartyShort')}</span>` : ''}
           </span>
           <span style="display:inline-flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:flex-end;">
@@ -1634,6 +1635,21 @@ async function orderAssignPartySave(orderId){
 function clearPendingOrderFilters(){
   ['pendingOrderDateFrom', 'pendingOrderDateTo', 'pendingOrderPartyFilter', 'pendingOrderNoSearch'].forEach(id => { const el = document.getElementById(id); if(el) el.value = ''; });
   renderPendingOrders();
+}
+// 訂單套用的出貨方 Discount %:待處理 = 目前出貨方設定;已完成 = 核對當時固定下來的(沒有固定就 0)
+function orderDiscountPct(o){
+  if(!o) return 0;
+  if(typeof isPreVerificationStatus === 'function' && isPreVerificationStatus(o)) return (typeof spPartyDiscountOfOrder === 'function') ? spPartyDiscountOfOrder(o) : 0;
+  return Math.max(0, ...(o.items || []).filter(it => !it.deleted).map(it => Number(it.sellDiscount) || 0));
+}
+function orderDiscountBadge(o){
+  if(o.deleted || !(typeof canViewPrice === 'function' && canViewPrice())) return '';   // 跟價錢一樣,只有「訂單顯示價錢」權限的人看得到
+  const d = orderDiscountPct(o);
+  if(!(d > 0)) return '';
+  const sp = (typeof isPreVerificationStatus === 'function' && isPreVerificationStatus(o) && typeof shippingParties !== 'undefined') ? shippingParties.find(x => x.id === o.partyId) : null;
+  const until = sp && sp.discountUntil ? sp.discountUntil : '';   // 待處理訂單:出貨方 Discount 有到期日就一起顯示
+  const label = until ? tf('partyDiscUntil', { d, date: (typeof partyDiscountDmy === 'function' ? partyDiscountDmy(until) : until) }) : `Discount ${d}%`;
+  return ` <span title="${t('orderDiscountTip')}" style="margin-left:6px;padding:1px 7px;border-radius:10px;background:#fff1d6;color:#9a5b00;font-size:11.5px;font-weight:600;white-space:nowrap;">${label}</span>`;
 }
 function orderNoMatches(o, q){
   q = String(q || '').trim().toLowerCase().replace(/^#/, '');

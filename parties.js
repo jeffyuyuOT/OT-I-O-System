@@ -111,9 +111,29 @@ async function partyRepriceManualOrders(partyId, oldPct, newPct){
   if(changed.length) await upsertOrders(changed);
   return changed.length;
 }
-function partyDiscountOf(sp){
+// 設定的 Discount(不管有沒有過期)
+function partyDiscountRaw(sp){
   const n = sp ? Number(sp.discount) : 0;
   return Number.isFinite(n) && n > 0 ? n : 0;
+}
+// Discount 到期日(含當天;空白 = 長期);過了到期日就視為沒有 Discount
+function partyDiscountExpired(sp){
+  return !!(sp && sp.discountUntil && partyDiscountRaw(sp) > 0 && sp.discountUntil < todayISO());
+}
+// 目前有效的 Discount %(訂單價錢、Invoice 都用這個)
+function partyDiscountOf(sp){
+  return partyDiscountExpired(sp) ? 0 : partyDiscountRaw(sp);
+}
+function partyDiscountDmy(iso){ try{ return (typeof invIsoToDmy === 'function') ? invIsoToDmy(iso) : iso; }catch(e){ return iso; } }
+// 標籤文字:Discount 20% / Discount 20% until 30/11/2026 / (過期)Discount 20% expired 30/11/2026
+function partyDiscountBadgeHtml(sp){
+  if(!sp || !(typeof canViewPrice === 'function' && canViewPrice())) return '';
+  const d = partyDiscountRaw(sp); if(!(d > 0)) return '';
+  const expired = partyDiscountExpired(sp);
+  const label = expired ? tf('partyDiscExpired', { d, date: partyDiscountDmy(sp.discountUntil) })
+    : (sp.discountUntil ? tf('partyDiscUntil', { d, date: partyDiscountDmy(sp.discountUntil) }) : `Discount ${d}%`);
+  const style = expired ? 'background:#eee;color:#777;' : 'background:#fff1d6;color:#9a5b00;';
+  return ` <span title="${t('orderDiscountTip')}" style="margin-left:6px;padding:1px 7px;border-radius:10px;${style}font-size:11.5px;font-weight:600;white-space:nowrap;">${label}</span>`;
 }
 
 // 出貨方名稱預設跟著公司名稱走;使用者手動輸入過名稱就以手動輸入為準(名稱清空後又會恢復跟著公司名稱)
@@ -148,8 +168,10 @@ function openPartyEditModal(id){
   onPartyPaymentTypeChange();
   document.getElementById('partyNoteInput').value = sp ? (sp.note || '') : '';
   document.getElementById('partyFrequencySelect').value = (sp && sp.orderFrequency) ? sp.orderFrequency : (sp ? 'weekly' : 'weekly');
-  const d = partyDiscountOf(sp);
+  const d = partyDiscountRaw(sp);
   document.getElementById('partyDiscountInput').value = d ? String(d) : '';
+  document.getElementById('partyDiscountUntilInput').value = (sp && sp.discountUntil) || '';
+  { const blk = document.getElementById('partyDiscountBlock'); if(blk) blk.style.display = (typeof canViewPrice === 'function' && canViewPrice()) ? '' : 'none'; }   // 沒有「訂單顯示價錢」權限的人(例如倉庫管理員)看不到 Discount;儲存時保留原值
   document.getElementById('partyEditModalMsg').textContent = '';
   document.getElementById('partyEditModalMsg').className = 'msg';
   document.getElementById('partyDeleteBtn').style.display = sp ? '' : 'none';
@@ -197,6 +219,8 @@ async function savePartyEdit(){
   sp.note = document.getElementById('partyNoteInput').value.trim();
   sp.orderFrequency = document.getElementById('partyFrequencySelect').value || 'weekly';   // 'none' = 無固定頻率(訂貨頁不顯示平均使用量)
   sp.discount = discount;
+  sp.discountUntil = (discount > 0 && document.getElementById('partyDiscountUntilInput').value) ? document.getElementById('partyDiscountUntilInput').value : '';
+  const newEffDiscount = partyDiscountOf(sp);
   delete sp.contact;   // 舊的「聯絡方式」欄位已拆成 聯繫人 / 聯繫電話,內容在上面已帶進 phone
   if(isNew){ sp.code = nextEntityCode('C', shippingParties); shippingParties.push(sp); }
   const myobName = document.getElementById('partyMyobInput').value.trim();
@@ -206,8 +230,8 @@ async function savePartyEdit(){
   await saveShippingParties();
   // Discount 改了:這個出貨方「待處理訂單」裡手動輸入的價錢,依新舊 Discount 的差額一起調整
   // (新價 = 舊價 × (1 − 新%) ÷ (1 − 舊%));自動帶入的價錢本來就是用目前 Discount 即時計算,會自動跟著變。
-  if(!isNew && discount !== oldDiscount){
-    try{ await partyRepriceManualOrders(sp.id, oldDiscount, discount); }catch(e){ console.error('調整訂單價錢失敗', e); showInfoModal('⚠ Discount 已儲存,但調整待處理訂單的手動價錢失敗,請重新整理後檢查。'); }
+  if(!isNew && newEffDiscount !== oldDiscount){
+    try{ await partyRepriceManualOrders(sp.id, oldDiscount, newEffDiscount); }catch(e){ console.error('調整訂單價錢失敗', e); showInfoModal('⚠ Discount 已儲存,但調整待處理訂單的手動價錢失敗,請重新整理後檢查。'); }
   }
   renderPartiesTable();
   populatePartySelect();
@@ -357,7 +381,7 @@ function renderPartiesTable(){
     return `
       <tr>
         <td class="row-code" style="white-space:nowrap;color:var(--ink-soft);font-family:'IBM Plex Mono',monospace;font-size:12px;">${esc(sp.code || '')}</td>
-        <td class="row-name"><span class="del-link" style="font-weight:600;" onclick="openPartyEditModal('${sp.id}')">${esc(sp.name)}</span></td>
+        <td class="row-name"><span class="del-link" style="font-weight:600;" onclick="openPartyEditModal('${sp.id}')">${esc(sp.name)}</span>${partyDiscountBadgeHtml(sp)}</td>
         <td><span class="mini-label">${t('fieldPartyPhone')}</span>${esc(sp.phone !== undefined ? sp.phone : (sp.contact || '')) || '—'}</td>
         <td class="row-note"><span class="mini-label">${t('colNote')}</span>${esc(sp.note || '') || '—'}</td>
         <td class="row-action" style="white-space:nowrap;text-align:right;">

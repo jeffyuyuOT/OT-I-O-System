@@ -168,7 +168,7 @@ function invBuildSnapshot(order, opts){
     }
     if(pr.unit === null || pr.unit === undefined){ noPrice.push(it.name); return; }
     const unit = Number(pr.unit);
-    const disc = (pr.manual || !pr.discountPct) ? 0 : Number(pr.discountPct);
+    const disc = !pr.discountPct ? 0 : Number(pr.discountPct);   // 出貨方有 Discount 就反映在 Invoice(手動價錢也一樣:價錢是折後單價,反推原價)
     const listPrice = disc > 0 && disc < 100 ? Math.round(unit / (1 - disc / 100) * 100) / 100 : unit;
     const amount = Math.round(unit * it.qty * 100) / 100;
     addLine(it, p, unit, disc, listPrice, amount);

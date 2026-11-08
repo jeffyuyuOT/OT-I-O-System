@@ -519,6 +519,8 @@ function icApplyVisibility(){
     if(o) o.hidden = off, o.disabled = off;
     const o2 = Array.from(sel.options).find(x => x.value === 'subtab-acc-credit-notes');
     if(o2) o2.hidden = off, o2.disabled = off;
+    const o3 = Array.from(sel.options).find(x => x.value === 'subtab-acc-statement');
+    if(o3) o3.hidden = off, o3.disabled = off;
   }
   if(off){ try{ icCloseOverlay('icPickOverlay'); icCloseOverlay('icCustomOverlay'); icCloseOverlay('icInvItemsOverlay'); icCloseOverlay('icCnStatusOverlay'); const w = document.getElementById('txCnWrap'); if(w) w.style.display = 'none'; }catch(e){} }
 }

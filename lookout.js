@@ -45,11 +45,10 @@ const LOOKOUT_CARDS = [
       switchTab('tab-warehouse-ops');
       switchWarehouseOpsSubTab('subtab-order-pending');
     } },
-  { id: 'completed-orders', icon: '📑', titleKey: 'subtabCompletedOrders', descKey: 'lookoutCompletedDesc', tab: 'tab-warehouse-ops',
-    show: function(){ return hasCapability('cap-orders-completed'); },
+  { id: 'completed-orders', icon: '📑', titleKey: 'subtabCompletedOrders', descKey: 'lookoutCompletedDesc', tab: 'tab-log',
     go: function(){
-      switchTab('tab-warehouse-ops');
-      switchWarehouseOpsSubTab('subtab-order-completed');
+      switchTab('tab-log');
+      switchLogSubTab('subtab-log-completed');
     } },
   { id: 'stock-location', icon: '📍', titleKey: 'lookoutStockLocation', descKey: 'lookoutStockLocationDesc', tab: 'tab-overview',
     go: function(){
