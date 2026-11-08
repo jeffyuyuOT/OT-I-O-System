@@ -188,6 +188,7 @@ async function savePartyEdit(){
   try{ if(typeof renderPendingOrders === 'function') renderPendingOrders(); }catch(e){}
   try{ if(typeof renderTxExistingItems === 'function') renderTxExistingItems(); if(typeof renderTxBatchList === 'function') renderTxBatchList(); }catch(e){}   // 折扣改了,登記進出貨頁的售價也立即更新
   try{ if(typeof icOnPartiesChanged === 'function') icOnPartiesChanged(isNew ? sp.id : null); }catch(e){}
+  try{ if(typeof txPartyPickerOnSaved === 'function') txPartyPickerOnSaved(isNew ? sp.id : null); }catch(e){}
   const pm = document.getElementById('partyMsg');
   if(pm){ pm.className = 'msg ok'; pm.textContent = isNew ? tf('partyAddedMsg', { name }) : ''; }
 }
@@ -211,6 +212,7 @@ function partyGoNewOrder(partyId){
   if(ft) ft.value = 'new-order';
   setTxOutFlowType('new-order');
   if(ps) ps.value = partyId;
+  if(typeof txPartyPickerRender === 'function') txPartyPickerRender();
 }
 // 「新增訂單/收據」:看得到 Invoice 的人先選要新增訂單還是收據(Invoice);其他人直接新增訂單
 function partyNewEntry(partyId){

@@ -160,6 +160,7 @@ function setTxType(type){
   renderTxBatchList();
   const adjWrap = document.getElementById('txAdjReasonWrap');
   if(adjWrap) adjWrap.style.display = (type === 'adjustment' || (type === 'out' && registerOutKind === 'nonsales')) ? '' : 'none';
+  if(typeof txPartyPickerApply === 'function') txPartyPickerApply();
   const dnRefWrap = document.getElementById('txDnRefWrap');
   if(dnRefWrap) dnRefWrap.style.display = type === 'delivery' ? '' : 'none';
   if(type !== 'delivery'){ dnRefReset(); const _ni = document.getElementById('txNote'); if(_ni) _ni.placeholder = t('txNotePlaceholderExample'); }
@@ -333,6 +334,7 @@ function setTxOutFlowType(flowType){
     if(orderWrap) orderWrap.style.display = 'none';
     showTxMainFormArea(false);
   }
+  if(typeof txPartyPickerApply === 'function') txPartyPickerApply();
   renderTxSubmitArea();
   renderTxBatchList();
   renderProductSelect();
