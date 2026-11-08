@@ -160,6 +160,9 @@ function setTxType(type){
   renderTxBatchList();
   const adjWrap = document.getElementById('txAdjReasonWrap');
   if(adjWrap) adjWrap.style.display = (type === 'adjustment' || (type === 'out' && registerOutKind === 'nonsales')) ? '' : 'none';
+  const dnRefWrap = document.getElementById('txDnRefWrap');
+  if(dnRefWrap) dnRefWrap.style.display = type === 'delivery' ? '' : 'none';
+  if(type !== 'delivery'){ dnRefReset(); const _ni = document.getElementById('txNote'); if(_ni) _ni.placeholder = t('txNotePlaceholderExample'); }
   const nsRecWrap = document.getElementById('txNsRecipientWrap');
   if(nsRecWrap) nsRecWrap.style.display = (type === 'out' && registerOutKind === 'nonsales') ? '' : 'none';
   if(typeof nsUpdateAdjSlipUi === 'function') nsUpdateAdjSlipUi();
@@ -355,7 +358,9 @@ function setTxDeliveryFlowType(flowType){
   if(partySelect) partySelect.disabled = false;
   { const _pel = document.getElementById('txPartyEditLink'); if(_pel) _pel.style.display = 'none'; }
   if(dateInput) dateInput.disabled = false;
-  if(noteLabel) noteLabel.textContent = t('txNoteRequiredDeliveryLabel');
+  if(noteLabel) noteLabel.textContent = t('txNoteSharedLabel');
+  dnRefReset();
+  { const _ni = document.getElementById('txNote'); if(_ni){ _ni.placeholder = ''; _ni.value = ''; } }
 
   if(flowType === 'load'){
     if(viewSection) viewSection.style.display = 'none';
@@ -365,21 +370,13 @@ function setTxDeliveryFlowType(flowType){
       // 送貨已經處理完了,不應該再被找出來繼續編輯,它的歷史紀錄改到「觀看紀錄」那邊查看。
       const sorted = deliveryNotes.filter(n => n.status !== 'completed').slice().sort((a,b) => (b.date || '').localeCompare(a.date || ''));
       noteSelect.innerHTML = `<option value="">${t('optSelectDeliveryNote')}</option>` +
-        sorted.map(n => `<option value="${n.id}">${n.date || ''}${n.note ? ` (${n.note.replace(/"/g,'&quot;')})` : ''}</option>`).join('');
+        sorted.map(n => `<option value="${n.id}">${n.date || ''}${n.ref && n.ref.no ? ` · ${String(n.ref.no).replace(/"/g,'&quot;')}` : ''}${n.note ? ` (${n.note.replace(/"/g,'&quot;')})` : ''}</option>`).join('');
     }
     showTxMainFormArea(false);
   } else if(flowType === 'new'){
     if(viewSection) viewSection.style.display = 'none';
     if(noteSelectWrap) noteSelectWrap.style.display = 'none';
     showTxMainFormArea(true);
-  } else if(flowType === 'view'){
-    // 「觀看紀錄」原本是「歷史紀錄」底下獨立一個子分頁,後來考慮到 Delivery Note 很少被回頭
-    // 查看,不值得佔用一整個子分頁,改成併進這裡的「操作」下拉選單——選了直接在原本表單的
-    // 位置顯示清單,不需要主表單(日期/出貨方/備註/商品清單)那一整套欄位。
-    if(noteSelectWrap) noteSelectWrap.style.display = 'none';
-    showTxMainFormArea(false);
-    if(viewSection) viewSection.style.display = '';
-    renderDeliveryNoteLog();
   } else {
     if(viewSection) viewSection.style.display = 'none';
     if(noteSelectWrap) noteSelectWrap.style.display = 'none';
@@ -678,6 +675,7 @@ function loadDeliveryNoteIntoRegisterFlow(noteId){
   }
   const noteInput = document.getElementById('txNote');
   if(noteInput) noteInput.value = note.note || '';
+  dnRefSet(note.ref || null);
 
   showTxMainFormArea(true);
   renderTxSubmitArea();
@@ -1797,15 +1795,16 @@ function buildDeliveryNoteDraftFromForm(){
   const partyId = document.getElementById('txPartySelect').value || null;
   const partyObj = partyId ? shippingParties.find(sp => sp.id === partyId) : null;
   const note = document.getElementById('txNote').value.trim();
+  const ref = dnRefSelected;
 
   if(!date) return { ok: false, error: '請選擇 Delivery 日期' };
-  if(!note) return { ok: false, error: t('errDeliveryNoteRequired') };
+  if(!ref) return { ok: false, error: t('errDnRefRequired') };
   if(txBatchItems.length === 0) return { ok: false, error: '請先把至少一項商品加入清單' };
 
   return {
     ok: true,
     data: {
-      date, partyId, partyName: partyObj ? partyObj.name : '', note,
+      date, partyId, partyName: partyObj ? partyObj.name : '', note, ref: { type: ref.type, id: ref.id, no: ref.no },
       items: txBatchItems.map(it => ({ productId: it.productId, sku: it.sku || '', name: it.name, unit: it.unit, qty: it.qty }))
     }
   };
@@ -1882,7 +1881,8 @@ async function printDeliveryNote(){
   <h2>Delivery Note</h2>
   <h1>${escapeHtmlForPrint(data.partyName || 'Unspecified')}</h1>
   <div class="meta">${escapeHtmlForPrint('Date')}: ${data.date}</div>
-  <div class="meta">${escapeHtmlForPrint('Note')}: ${escapeHtmlForPrint(data.note)}</div>
+  <div class="meta">${escapeHtmlForPrint('Related Document')}: ${escapeHtmlForPrint(data.ref ? data.ref.no : '')}</div>
+  ${data.note ? `<div class="meta">${escapeHtmlForPrint('Note')}: ${escapeHtmlForPrint(data.note)}</div>` : ''}
   <table>
     <thead><tr><th class="sku-col">${escapeHtmlForPrint('SKU')}</th><th>${escapeHtmlForPrint('Product Name')}</th><th>${escapeHtmlForPrint('Qty')}</th><th>${escapeHtmlForPrint('Unit')}</th></tr></thead>
     <tbody>${rowsHtml}</tbody>

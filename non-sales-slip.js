@@ -271,3 +271,59 @@ function renderNonSalesSlipLog(){
       </tr>`;
     }).join('')}</tbody></table>`;
 }
+
+// ============================================================
+// Delivery Note 的「關聯單據」(必填):已完成訂單 或 非銷售出庫單。大量出貨分批拿貨時,
+// 每張 Delivery Note 都要對應到它是為哪張單據拿的貨。輸入單號關鍵字,從資料庫(全部訂單 + 全部
+// 非銷售出庫單)找出相似單號供挑選,一定要從清單挑,不能自己亂打。
+// ============================================================
+let dnRefSelected = null;   // { type:'order'|'nonsales', id, no }
+let dnRefCandidates = [];
+let dnRefSeq = 0;
+
+function dnRefReset(){
+  dnRefSelected = null;
+  const inp = document.getElementById('txDnRef'); if(inp) inp.value = '';
+  const list = document.getElementById('txDnRefList'); if(list) list.style.display = 'none';
+}
+function dnRefSet(ref){
+  dnRefSelected = ref && ref.no ? { type: ref.type, id: ref.id, no: ref.no } : null;
+  const inp = document.getElementById('txDnRef');
+  if(inp) inp.value = dnRefSelected ? dnRefSelected.no : '';
+}
+function dnRefTypeLabel(type){ return type === 'nonsales' ? t('dnRefTypeNs') : t('dnRefTypeOrder'); }
+
+async function dnRefSearch(){
+  const inp = document.getElementById('txDnRef');
+  const list = document.getElementById('txDnRefList');
+  if(!inp || !list) return;
+  // 一改字就視為還沒選定,要重新從清單挑
+  if(dnRefSelected && inp.value.trim() !== dnRefSelected.no) dnRefSelected = null;
+  const seq = ++dnRefSeq;
+  await Promise.all([ensureOrdersLoadedFrom(''), ensureNonSalesSlipsLoaded()]);
+  if(seq !== dnRefSeq) return;
+  const q = inp.value.trim().toLowerCase();
+  const esc = escapeHtmlForPrint;
+  const all = [
+    ...orders.filter(o => !o.deleted && o.orderNo && (o.status || 'pending') === 'confirmed')
+      .map(o => ({ type: 'order', id: o.id, no: String(o.orderNo), sub: o.partyName || o.customerName || '', date: o.date || '' })),
+    ...nonSalesSlips.map(s => ({ type: 'nonsales', id: s.id, no: s.no, sub: s.reasonText || '', date: s.date || '' }))
+  ];
+  dnRefCandidates = all.filter(c => !q || c.no.toLowerCase().includes(q)).sort((a, b) => b.no.localeCompare(a.no)).slice(0, 30);
+  if(dnRefCandidates.length === 0){
+    list.innerHTML = `<div style="padding:8px 10px;font-size:12.5px;color:var(--ink-soft);">${t('dnRefNoMatch')}</div>`;
+  } else {
+    list.innerHTML = dnRefCandidates.map((c, i) => `<div onmousedown="dnRefPick(${i})" style="padding:7px 10px;cursor:pointer;font-size:13px;border-bottom:1px solid var(--line);">
+      <b>${esc(c.no)}</b> <span style="font-size:11.5px;color:var(--ink-soft);">· ${dnRefTypeLabel(c.type)}${c.sub ? ' · ' + esc(c.sub) : ''}${c.date ? ' · ' + esc(c.date) : ''}</span></div>`).join('');
+  }
+  list.style.display = '';
+}
+function dnRefPick(i){
+  const c = dnRefCandidates[i]; if(!c) return;
+  dnRefSet(c);
+  const list = document.getElementById('txDnRefList'); if(list) list.style.display = 'none';
+}
+document.addEventListener('click', e => {
+  const list = document.getElementById('txDnRefList'); const inp = document.getElementById('txDnRef');
+  if(list && e.target !== inp && !list.contains(e.target)) list.style.display = 'none';
+});
