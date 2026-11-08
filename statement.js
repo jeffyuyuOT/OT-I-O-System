@@ -49,10 +49,10 @@ function stmtRenderForm(){
   root.innerHTML = `<div class="form-grid" style="grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:8px;align-items:end;">
       <div class="field"><label>${t('icFieldParty')}</label><select id="stmtParty" onchange="stmtState.key=this.value;stmtGenerate()"><option value="">—</option>${opts}</select></div>
       <div class="field"><label>${t('stmtAsOf')}</label><input type="date" id="stmtAsOf" value="${invEsc(stmtState.asOf)}" onchange="stmtState.asOf=this.value;stmtGenerate()" /></div>
-      <div class="field"><label style="display:flex;gap:6px;align-items:center;font-weight:400;"><input type="checkbox" id="stmtIncPaid" ${stmtState.incPaid ? 'checked' : ''} onchange="stmtState.incPaid=this.checked;stmtRenderForm();stmtGenerate()" /> ${t('stmtIncPaid')}</label></div>
+      <div style="display:flex;align-items:center;gap:8px;padding-bottom:8px;"><input type="checkbox" id="stmtIncPaid" style="width:auto;margin:0;flex:0 0 auto;" ${stmtState.incPaid ? 'checked' : ''} onchange="stmtState.incPaid=this.checked;stmtRenderForm();stmtGenerate()" /><label for="stmtIncPaid" style="margin:0;text-transform:none;letter-spacing:0;font-size:12.5px;font-weight:400;cursor:pointer;">${t('stmtIncPaid')}</label></div>
       ${stmtState.incPaid ? `<div class="field"><label>${t('stmtPaidFrom')}</label><input type="date" id="stmtFrom" value="${invEsc(stmtState.from)}" onchange="stmtState.from=this.value;stmtGenerate()" /></div>` : ''}
     </div>
-    <div class="toolbar" style="margin:10px 0;gap:8px;">
+    <div class="toolbar" style="margin:10px 0;gap:8px;justify-content:flex-start;">
       <button class="btn" onclick="stmtPrint()">${t('stmtPrint')}</button>
       <button class="btn ghost" onclick="stmtOpenPay()">${t('stmtRecordPay')}</button>
     </div>
