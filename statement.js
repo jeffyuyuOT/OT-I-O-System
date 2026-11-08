@@ -196,7 +196,7 @@ async function stmtEnsureSaved(){
     const snap = JSON.parse(JSON.stringify(stmtData));
     const { data, error } = await sb.rpc('statement_save', { p_snapshot: snap, p_party_id: stmtData.partyId || '' });
     if(error) throw error;
-    stmtData.stNo = data && data.st_no;
+    stmtData.stNo = data && data.st_no; stmtData._id = data && data.id;
     const out = document.getElementById('stmtOut');
     if(out && stmtData) out.innerHTML = `<div style="overflow:auto;border:1px solid var(--line);background:#eee;padding:8px;">${stmtDocHtml(stmtData)}</div>`;
     try{ logInventoryAction('order_edit', `Statement ${stmtData.stNo} saved (${stmtData.name}, ${stmtData.asOf})`, ''); }catch(e){}
@@ -224,17 +224,48 @@ async function stmtPrint(){
 // ---------- 依 Statement 登記付款 ----------
 // 一次結清:未使用的 Credit Note(與其他 Invoice 多收的金額)先由舊到新抵扣各張未付清的 Invoice,
 // 剩下的金額再用客人實際付的總額由舊到新分配。抵扣用 invoice_apply_credit,付款用 invoice_payment_save。
-let stmtPay = null;   // { open, srcs }
+let stmtPay = null;   // { open, srcs, stId }
+async function stmtLiveFromSnapshot(){
+  try{
+    const ids = stmtData.blocks.map(b => b.r.id);
+    let r = await sb.from('invoices').select('id,total,paid,credited').in('id', ids);
+    if(r.error && r.error.code === '42703') r = await sb.from('invoices').select('id,total,paid').in('id', ids);
+    if(r.error) throw r.error;
+    const cur = {}; (r.data || []).forEach(x => { cur[x.id] = stmtR2((Number(x.total) || 0) - (Number(x.credited) || 0) - (Number(x.paid) || 0)); });
+    const open = [], srcs = [];
+    stmtData.blocks.forEach(b => {
+      const bal = cur[b.r.id]; if(bal === undefined) return;
+      if(bal > 0.004) open.push(Object.assign({}, b, { balance: bal }));
+      else if(bal < -0.004) srcs.push({ type: 'invoice', id: b.r.id, label: 'INV' + b.r.invoice_no + ' ' + t('invOverAmount'), avail: stmtR2(-bal) });
+    });
+    const cnIds = stmtData.unapplied.map(u => u.c.id).filter(Boolean);
+    if(cnIds.length){
+      let c = await sb.from('credit_notes').select('id,cn_no,total,applied').in('id', cnIds);
+      if(c.error && c.error.code === '42703') c = await sb.from('credit_notes').select('id,cn_no,total').in('id', cnIds);
+      if(c.error) throw c.error;
+      (c.data || []).forEach(x => { const av = stmtR2((Number(x.total) || 0) - (Number(x.applied) || 0)); if(av > 0.004) srcs.unshift({ type: 'cn', id: x.id, label: 'Credit Note ' + x.cn_no, avail: av }); });
+    }
+    return { open, srcs };
+  }catch(e){ console.error('讀取目前餘額失敗', e); showInfoModal(t('invLoadFailed')); return null; }
+}
 async function stmtOpenPay(){
   if(!stmtData){ showInfoModal(t('stmtPickFirst')); return; }
-  if(stmtData._saved){ showInfoModal(t('stmtRegenFirst')); return; }
-  const open = stmtData.blocks.filter(b => b.balance > 0.004);
-  if(!open.length){ showInfoModal(t('stmtNoOpen')); return; }
-  if(!(await stmtEnsureSaved())) return;   // 先存檔拿到 Statement 號碼,付款備註才有號碼可以查
-  const srcs = [];
-  stmtData.unapplied.forEach(u => srcs.push({ type: 'cn', id: u.c.id, label: 'Credit Note ' + u.c.cn_no, avail: u.avail }));
-  stmtData.blocks.filter(b => b.balance < -0.004).forEach(b => srcs.push({ type: 'invoice', id: b.r.id, label: 'INV' + b.r.invoice_no + ' ' + t('invOverAmount'), avail: stmtR2(-b.balance) }));
-  stmtPay = { open, srcs };
+  if(stmtData._saved && stmtData._paidAt){ showInfoModal(tf('stmtAlreadyPaid', { date: invIsoToDmy(String(stmtData._paidAt).slice(0, 10)) })); return; }
+  let open, srcs = [];
+  if(stmtData._saved){
+    // 舊 Statement 還沒登記過付款:金額改用 Invoice / Credit Note 的「目前」餘額
+    const live = await stmtLiveFromSnapshot();
+    if(!live) return;
+    open = live.open; srcs = live.srcs;
+    if(!open.length){ showInfoModal(t('stmtNoOpen')); return; }
+  }else{
+    open = stmtData.blocks.filter(b => b.balance > 0.004);
+    if(!open.length){ showInfoModal(t('stmtNoOpen')); return; }
+    if(!(await stmtEnsureSaved())) return;   // 先存檔拿到 Statement 號碼,付款備註才有號碼可以查
+    stmtData.unapplied.forEach(u => srcs.push({ type: 'cn', id: u.c.id, label: 'Credit Note ' + u.c.cn_no, avail: u.avail }));
+    stmtData.blocks.filter(b => b.balance < -0.004).forEach(b => srcs.push({ type: 'invoice', id: b.r.id, label: 'INV' + b.r.invoice_no + ' ' + t('invOverAmount'), avail: stmtR2(-b.balance) }));
+  }
+  stmtPay = { open, srcs, stId: stmtData._id || '' };
   const ov = document.createElement('div');
   ov.id = 'stmtPayOverlay'; ov.className = 'modal-overlay'; ov.style.display = 'flex'; ov.style.zIndex = '1250';
   ov.innerHTML = `<div class="modal-box" style="max-width:min(600px,96vw);max-height:92vh;overflow:auto;">
@@ -325,6 +356,7 @@ async function stmtPaySave(){
       done++;
     }
     try{ logInventoryAction('order_edit', `Statement ${stmtRef(stmtData)} payment ${invMoney2(amt)} (${method}), credit applied ${invMoney2(plan.reduce((s, x) => s + x.amt, 0))}`, ''); }catch(e){}
+    try{ if(stmtPay.stId) await sb.rpc('statement_mark_paid', { p_id: stmtPay.stId }); }catch(e){}
     document.getElementById('stmtPayOverlay').remove();
     invList = []; if(typeof icCnRows !== 'undefined') icCnRows = null;
     await stmtOpenPage();
@@ -363,9 +395,10 @@ function stmtRenderLog(q){
 }
 async function stmtViewSaved(id){
   try{
-    const { data, error } = await sb.from('statements').select('snapshot').eq('id', id).maybeSingle();
+    let { data, error } = await sb.from('statements').select('snapshot,paid_at').eq('id', id).maybeSingle();
+    if(error && error.code === '42703') ({ data, error } = await sb.from('statements').select('snapshot').eq('id', id).maybeSingle());   // 還沒執行新版 SQL:沒有 paid_at 欄
     if(error || !data) throw error || new Error('not found');
-    stmtData = data.snapshot; stmtData._saved = true;
+    stmtData = data.snapshot; stmtData._saved = true; stmtData._id = id; stmtData._paidAt = data.paid_at || '';
     const out = document.getElementById('stmtOut');
     out.innerHTML = `<div class="toolbar" style="margin:0 0 8px;"><button class="btn ghost" onclick="stmtOpenLog()">← ${t('stmtLog')}</button></div><div style="overflow:auto;border:1px solid var(--line);background:#eee;padding:8px;">${stmtDocHtml(stmtData)}</div>`;
   }catch(e){ console.error(e); showInfoModal(t('invLoadFailed')); }

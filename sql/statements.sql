@@ -43,3 +43,14 @@ begin
 end $$;
 revoke all on function public.statement_save(jsonb, text) from public;
 grant execute on function public.statement_save(jsonb, text) to authenticated;
+
+-- 登記付款後標記這份 Statement 已用於收款(只能標一次),之後不能再用它登記付款
+alter table public.statements add column if not exists paid_at timestamptz;
+create or replace function public.statement_mark_paid(p_id text)
+returns void language plpgsql security definer set search_path = public as $$
+begin
+  if not public.is_accounting_user() then raise exception 'invoice_forbidden'; end if;
+  update public.statements set paid_at = now() where id = p_id and paid_at is null;
+end $$;
+revoke all on function public.statement_mark_paid(text) from public;
+grant execute on function public.statement_mark_paid(text) to authenticated;
