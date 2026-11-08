@@ -872,7 +872,6 @@ function invRenderList(key){
     const i = invRowInfo(r);
     const changed = Number(r.change_count) > 0;
     return `<tr>
-      ${typeof deIconCell === 'function' ? deIconCell('invoice', r.id) : '<td></td>'}
       <td style="white-space:nowrap;cursor:pointer;" onclick="invOpenFromList('${invEsc(r.id)}')"><span class="batch-link">${invEsc(r.invoice_no)}</span></td>
       <td style="white-space:nowrap;">${invEsc(invIsoToDmy(r.invoice_date))}</td>
       ${showCust ? `<td>${invEsc(invCustLabel(r))}</td>` : ''}
@@ -881,6 +880,7 @@ function invRenderList(key){
       <td class="num">${invMoney2(i.paid)}</td><td class="num"><b>${invMoney2(i.balance)}</b></td>
       <td style="white-space:nowrap;">${invStatusBadge(i.status)}</td>
       <td style="white-space:nowrap;"><span class="del-link" onclick="invOpenPayments('${invEsc(r.id)}')">${t('invBtnPayments')}</span> <span class="batch-info-icon" style="margin-left:6px;" title="${invEsc(t('invBtnDetails'))}" onclick="invOpenDetails('${invEsc(r.id)}')">ⓘ</span>${changed ? `<span class="batch-info-icon" title="${invEsc(t('invChangedTip'))}" style="color:#b45309;font-size:15px;margin-left:6px;" onclick="invOpenDetails('${invEsc(r.id)}')">✎</span>` : ''}</td>
+      ${typeof deIconCell === 'function' ? deIconCell('invoice', r.id) : '<td></td>'}
     </tr>`;
   }).join('');
   const sel = (id, val, opts) => `<select id="${id}" onchange="invOnListFilter('${key}')">${opts.map(o => `<option value="${invEsc(o[0])}" ${val === o[0] ? 'selected' : ''}>${invEsc(o[1])}</option>`).join('')}</select>`;
@@ -905,8 +905,8 @@ function invRenderList(key){
       <span class="batch-info-icon" style="align-self:flex-end;margin:0 0 8px 0;" title="${invEsc(t('invZipHelp'))}" onclick="showInfoModal(t('invZipHelp'))">ⓘ</span>
     </div>
     ${list.length === 0 ? `<div class="empty-note">${t('invListEmpty')}</div>` : `<div style="font-size:11.5px;color:var(--ink-soft);margin-bottom:6px;">${t('invListClickHint')}</div>
-    <div style="overflow-x:auto;"><table class="stock-table"><thead><tr><th></th><th>Invoice No</th><th>Invoice Date</th>${showCust ? `<th>${t('invColCustomer')}</th>` : ''}<th>${t('invColOrder')}</th><th class="num">${t('spTotalAmt')}</th><th class="num">${t('invColPaid')}</th><th class="num">${t('invColBalance')}</th><th>${t('invFltStatus')}</th><th></th></tr></thead>
-      <tbody>${rows}<tr style="font-weight:700;border-top:2px solid var(--line, #ccc);"><td colspan="${showCust ? 5 : 4}" style="text-align:right;">${t('invListTotals')} (${list.length})</td><td class="num">${invMoney2(sum.g)}</td><td class="num">${invMoney2(sum.p)}</td><td class="num">${invMoney2(sum.bal)}</td><td colspan="2"></td></tr></tbody>
+    <div style="overflow-x:auto;"><table class="stock-table"><thead><tr><th>Invoice No</th><th>Invoice Date</th>${showCust ? `<th>${t('invColCustomer')}</th>` : ''}<th>${t('invColOrder')}</th><th class="num">${t('spTotalAmt')}</th><th class="num">${t('invColPaid')}</th><th class="num">${t('invColBalance')}</th><th>${t('invFltStatus')}</th><th></th><th></th></tr></thead>
+      <tbody>${rows}<tr style="font-weight:700;border-top:2px solid var(--line, #ccc);"><td colspan="${showCust ? 4 : 3}" style="text-align:right;">${t('invListTotals')} (${list.length})</td><td class="num">${invMoney2(sum.g)}</td><td class="num">${invMoney2(sum.p)}</td><td class="num">${invMoney2(sum.bal)}</td><td colspan="3"></td></tr></tbody>
 </table></div>`}`;
 }
 function invClearListFilter(key){
