@@ -615,7 +615,7 @@ function switchSupplyListPane(paneId){
 function switchAccountingSubTab(subtabId){
   const container = document.getElementById('tab-accounting');
   if(!container) return;
-  if((subtabId === 'subtab-acc-invoices' || subtabId === 'subtab-acc-create-invoice' || subtabId === 'subtab-acc-credit-notes') && typeof hideInvoiceEnabled !== 'undefined' && hideInvoiceEnabled) subtabId = 'subtab-price-setting';   // 隱藏 Invoice 功能時改到定價管理
+  if((subtabId === 'subtab-acc-invoices' || subtabId === 'subtab-acc-create-invoice' || subtabId === 'subtab-acc-credit-notes' || subtabId === 'subtab-acc-statement') && typeof hideInvoiceEnabled !== 'undefined' && hideInvoiceEnabled) subtabId = 'subtab-price-setting';   // 隱藏 Invoice 功能時改到定價管理
   subtabId = subTabGuard('tab-accounting', subtabId);
   if(!subtabId) return;
   document.body.classList.remove('mobile-subtab-menu-active');
@@ -627,6 +627,7 @@ function switchAccountingSubTab(subtabId){
   if(subtabId === 'subtab-acc-invoices' && typeof invOpenListPage === 'function') invOpenListPage();
   if(subtabId === 'subtab-acc-create-invoice' && typeof icOpenPage === 'function') icOpenPage();
   if(subtabId === 'subtab-acc-credit-notes' && typeof icCnOpenList === 'function') icCnOpenList(true);
+  if(subtabId === 'subtab-acc-statement' && typeof stmtOpenPage === 'function') stmtOpenPage();
   if(subtabId === 'subtab-acc-purchases' && typeof paOpenPage === 'function') paOpenPage();
   if(subtabId === 'subtab-acc-prepay' && typeof ppOpenPage === 'function') ppOpenPage();
   if(subtabId === 'subtab-acc-expenses' && typeof oeOpenPage === 'function') oeOpenPage();

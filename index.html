@@ -2202,6 +2202,7 @@ body.no-cost-view .cost-col{display:none !important;}
           <option value="subtab-acc-create-invoice" data-i18n="subtabAccCreateInvoice">Create Document</option>
           <option value="subtab-acc-invoices" data-i18n="subtabAccInvoices">Invoice List</option>
           <option value="subtab-acc-credit-notes" data-i18n="subtabAccCreditNotes">Credit Note List</option>
+          <option value="subtab-acc-statement" data-i18n="subtabAccStatement">Statement</option>
         </optgroup>
         <optgroup label="採購與支出" data-i18n-label="accGrpPurchase">
           <option value="subtab-acc-purchases" data-i18n="subtabAccPurchases">Purchase List</option>
@@ -2275,6 +2276,13 @@ body.no-cost-view .cost-col{display:none !important;}
       <div class="section">
         <div class="toolbar"><div class="section-title" style="margin:0;" data-i18n="subtabAccCreditNotes">Credit Note List</div></div>
         <div id="creditNoteListRoot"></div>
+      </div>
+    </div>
+
+    <div id="subtab-acc-statement" class="subtab-content">
+      <div class="section">
+        <div class="toolbar"><div class="section-title" style="margin:0;" data-i18n="subtabAccStatement">Statement</div></div>
+        <div id="statementRoot"></div>
       </div>
     </div>
 
@@ -3426,6 +3434,7 @@ body.no-cost-view .cost-col{display:none !important;}
 <script src="price-setting.js"></script>
 <script src="invoice.js"></script>
 <script src="invoice-create.js"></script>
+<script src="statement.js"></script>
 <script src="purchase-accounting.js"></script>
 <script src="prepayments.js"></script>
 <script src="report-categories.js"></script>
