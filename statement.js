@@ -49,8 +49,8 @@ function stmtRenderForm(){
   root.innerHTML = `<div class="form-grid" style="grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:8px;align-items:end;">
       <div class="field"><label>${t('icFieldParty')}</label><select id="stmtParty" onchange="stmtState.key=this.value;stmtGenerate()"><option value="">—</option>${opts}</select></div>
       <div class="field"><label>${t('stmtAsOf')}</label><input type="date" id="stmtAsOf" value="${invEsc(stmtState.asOf)}" onchange="stmtState.asOf=this.value;stmtGenerate()" /></div>
-      <div class="field"><label style="display:flex;gap:6px;align-items:center;font-weight:400;"><input type="checkbox" id="stmtIncPaid" ${stmtState.incPaid ? 'checked' : ''} onchange="stmtState.incPaid=this.checked;stmtGenerate()" /> ${t('stmtIncPaid')}</label>
-        <input type="date" id="stmtFrom" value="${invEsc(stmtState.from)}" ${stmtState.incPaid ? '' : 'disabled'} onchange="stmtState.from=this.value;stmtGenerate()" /></div>
+      <div class="field"><label style="display:flex;gap:6px;align-items:center;font-weight:400;"><input type="checkbox" id="stmtIncPaid" ${stmtState.incPaid ? 'checked' : ''} onchange="stmtState.incPaid=this.checked;stmtRenderForm();stmtGenerate()" /> ${t('stmtIncPaid')}</label></div>
+      ${stmtState.incPaid ? `<div class="field"><label>${t('stmtPaidFrom')}</label><input type="date" id="stmtFrom" value="${invEsc(stmtState.from)}" onchange="stmtState.from=this.value;stmtGenerate()" /></div>` : ''}
     </div>
     <div class="toolbar" style="margin:10px 0;gap:8px;">
       <button class="btn" onclick="stmtPrint()">${t('stmtPrint')}</button>
@@ -79,7 +79,6 @@ async function stmtGenerate(){
   const out = document.getElementById('stmtOut'); if(!out) return;
   const key = stmtState.key, asOf = stmtState.asOf;
   if(!key || !asOf){ out.innerHTML = ''; stmtData = null; return; }
-  const sel = document.getElementById('stmtFrom'); if(sel) sel.disabled = !stmtState.incPaid;
   out.innerHTML = `<div class="empty-note">${t('batchLoading')}</div>`;
   try{
     const invs = (invList || []).filter(r => stmtKeyOf(r) === key);
@@ -137,6 +136,7 @@ function stmtCompute(key, invs, cns, pays, asOf){
   const first = invs[0];
   return { key, asOf, blocks, unapplied, ag, total, sp: first ? invPartyOf(first) : null, name: first ? invCustLabel(first) : '', from };
 }
+function stmtRef(d){ return 'ST' + String(d.asOf || '').replace(/-/g, '') + (d.sp && d.sp.code ? '-' + d.sp.code : ''); }
 function stmtDocHtml(d){
   const s = invSettings || {}, sp = d.sp || {};
   const th = 'padding:5px 6px;border-bottom:1.5px solid #333;text-align:left;font-size:11.5px;';
@@ -170,6 +170,7 @@ function stmtDocHtml(d){
       <div style="text-align:right;">
         <div style="font-size:22px;font-weight:700;letter-spacing:1px;">STATEMENT</div>
         <div style="font-size:11.5px;margin-top:4px;">Statement date: <b>${invEsc(invIsoToDmy(d.asOf))}</b></div>
+        <div style="font-size:11.5px;">Statement No.: <b>${invEsc(stmtRef(d))}</b></div>
       </div>
     </div>
     <div style="margin:14px 0 12px;font-size:12px;line-height:1.5;">
@@ -181,7 +182,7 @@ function stmtDocHtml(d){
     <table style="margin:16px 0 0 auto;border-collapse:collapse;border:1px solid #999;"><thead><tr>${['Current', '1-30 Days', '31-60 Days', '61-90 Days', '90+ Days', 'Credit'].map(h => `<th style="${ac}border-bottom:1px solid #999;font-weight:700;">${h}</th>`).join('')}</tr></thead>
       <tbody><tr>${[a.cur, a.d30, a.d60, a.d90, a.d91].map(v => `<td style="${ac}">${invMoney2(v)}</td>`).join('')}<td style="${ac}color:#1d7a3c;">${a.credit ? '(' + invMoney2(a.credit) + ')' : '0.00'}</td></tr></tbody></table>
     <div style="margin-top:8px;text-align:right;font-size:14px;font-weight:700;">TOTAL AMOUNT DUE &nbsp; $${stmtMoney(d.total)}</div>
-    ${bk.length ? `<div style="margin-top:18px;border-top:1px solid #ccc;padding-top:8px;font-size:11.5px;line-height:1.5;"><div style="font-weight:700;">Payment details</div>${bk.map(x => `<div>${invEsc(x)}</div>`).join('')}<div style="color:#555;">Please quote your invoice number(s) as the payment reference.</div></div>` : ''}
+    ${bk.length ? `<div style="margin-top:18px;border-top:1px solid #ccc;padding-top:8px;font-size:11.5px;line-height:1.5;"><div style="font-weight:700;">Payment details</div>${bk.map(x => `<div>${invEsc(x)}</div>`).join('')}<div style="color:#555;">Please quote Statement No. ${invEsc(stmtRef(d))} or your invoice number(s) as the payment reference.</div></div>` : ''}
   </div>`;
 }
 function stmtPrint(){
@@ -212,7 +213,7 @@ function stmtOpenPay(){
       <div class="field"><label>${t('invPayDate')}</label><input type="date" id="stmtPayDate" value="${invEsc(invToday())}" /></div>
       <div class="field"><label>${t('invPayAmount')}</label><input type="number" id="stmtPayAmt" min="0.01" step="0.01" value="${invMoney2(tot)}" oninput="stmtAllocate()" /></div>
       <div class="field"><label>${t('invPayMethod')}</label><select id="stmtPayMethod">${INV_PAY_METHODS.map(m => `<option>${invEsc(m)}</option>`).join('')}</select></div>
-      <div class="field"><label>${t('colNote')}</label><input type="text" id="stmtPayNote" value="Statement ${invEsc(stmtData.asOf)}" /></div>
+      <div class="field"><label>${t('colNote')}</label><input type="text" id="stmtPayNote" value="${invEsc(stmtRef(stmtData))}" /></div>
     </div>
     <div style="overflow-x:auto;margin-top:8px;"><table class="stock-table"><thead><tr><th>Invoice</th><th class="num">${t('invColBalance')}</th><th class="num">${t('invPayAmount')}</th></tr></thead><tbody>
       ${open.map((b, i) => `<tr><td>INV${invEsc(b.r.invoice_no)} · ${invEsc(invIsoToDmy(b.r.invoice_date))}</td><td class="num">${invMoney2(b.balance)}</td><td class="num"><input type="number" class="stmtAlloc" data-i="${i}" data-max="${b.balance}" min="0" step="0.01" style="width:100px;text-align:right;" oninput="stmtAllocSum()" /></td></tr>`).join('')}
