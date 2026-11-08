@@ -135,8 +135,8 @@ function deRenderNew(draft){
     <div class="field" style="margin-bottom:8px;"><label>${invEsc(t('deTo'))}</label><input id="deTo" type="text" value="${invEsc(d.to)}" placeholder="name@example.com, name2@example.com" /></div>
     <div class="field" style="margin-bottom:8px;"><label>${invEsc(t('deCc'))}</label><input id="deCc" type="text" value="${invEsc(d.cc)}" /></div>
     <div class="field" style="margin-bottom:8px;"><label>${invEsc(t('deFrom'))}</label><input type="text" value="${invEsc(sender)}" readonly style="background:#f4f4f2;" /></div>
-    <div class="field" style="margin-bottom:8px;"><label>${invEsc(t('deSubject'))}</label><input id="deSubject" type="text" value="${invEsc(d.subject)}" /></div>
-    <div class="field" style="margin-bottom:8px;"><label>${invEsc(t('deBody'))}</label><textarea id="deBody_txt" rows="9" style="width:100%;box-sizing:border-box;">${invEsc(d.body)}</textarea></div>
+    <div class="field" style="margin-bottom:8px;"><label>${invEsc(t('deSubject'))}</label><input id="deSubject" type="text" value="${invEsc(d.subject)}" style="font-family:Calibri,'Segoe UI',Arial,sans-serif;font-size:14px;" /></div>
+    <div class="field" style="margin-bottom:8px;"><label>${invEsc(t('deBody'))}</label><textarea id="deBody_txt" rows="9" style="width:100%;box-sizing:border-box;font-family:Calibri,'Segoe UI',Arial,sans-serif;font-size:14px;">${invEsc(d.body)}</textarea></div>
     <div style="font-size:12px;color:var(--ink-soft);margin-bottom:10px;">📎 ${invEsc(t('deAttach'))}: ${invEsc(deFileName())}</div>
     <div id="deMsg" class="msg"></div>
     <div class="modal-actions"><button class="btn ghost" onclick="deClose()">${invEsc(t('deClose'))}</button><button class="btn" id="deSendBtn" onclick="deSend()" ${sender ? '' : 'disabled'}>${invEsc(t('deSend'))}</button></div>`;

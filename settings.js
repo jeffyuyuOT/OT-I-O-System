@@ -254,6 +254,13 @@ function updateMultipackSettingsUI(){
   if(ddvBox) ddvBox.checked = disableDirectVerifyEnabled;
   const hiBox = document.getElementById('hideInvoiceToggle');
   if(hiBox) hiBox.checked = hideInvoiceEnabled;
+  const dseBox = document.getElementById('disableAcctEmailToggle');
+  if(dseBox) dseBox.checked = disableAccountantEmailEnabled;
+  const hiCard = document.getElementById('hideInvoiceCard');
+  if(hiCard) hiCard.style.display = hasFeature('hideInvoiceToggle') ? '' : 'none';
+  const dseCard = document.getElementById('acctEmailSwitchCard');
+  if(dseCard) dseCard.style.display = hasFeature('emailToAccountant') ? '' : 'none';
+  applyAcctEmailVisibility();
   if(typeof applyInvoiceFeatureVisibility === 'function') applyInvoiceFeatureVisibility();
   const psmSelect = document.getElementById('productSortModeSelect');
   if(psmSelect) psmSelect.value = productSortMode;
@@ -395,6 +402,26 @@ async function toggleAutoConvertMultipack(checked){
 // 逼迫使用者一定要走「載入訂單核對頁面」比對實際點貨內容才能核對確認,避免有人為了方便直接核對
 // 而跳過比對這個步驟。
 // 隱藏 Invoice 功能:存在 app_data hideInvoice,勾選後 Invoice 相關入口全部隱藏(資料保留)
+// 寄信給會計:有 OT custom 模組(emailToAccountant)而且沒被關掉才啟用
+function acctEmailOn(){ return hasFeature('emailToAccountant') && !disableAccountantEmailEnabled; }
+function applyAcctEmailVisibility(){
+  const on = acctEmailOn();
+  const show = (id, v) => { const el = document.getElementById(id); if(el) el.style.display = v ? '' : 'none'; };
+  show('btnExportEmail', on); show('acctEmailSettingsCard', on);
+  const ew = document.getElementById('purchaseEmailWrap');
+  if(ew) ew.style.display = (!on || (typeof paOn === 'function' && paOn())) ? 'none' : 'inline-flex';
+  if(!on){
+    const tg = document.getElementById('purchaseEmailToggle');
+    if(tg && tg.checked){ tg.checked = false; if(typeof togglePurchaseEmailFieldVisibility === 'function') togglePurchaseEmailFieldVisibility(tg); }
+    const fw = document.getElementById('purchaseEmailFieldWrap'); if(fw) fw.style.display = 'none';
+  }
+}
+async function toggleDisableAcctEmail(checked){
+  disableAccountantEmailEnabled = checked;
+  try{ await dbSet('disableAccountantEmail', checked ? 'true' : 'false'); }
+  catch(e){ console.error('儲存關閉寄信給會計設定失敗', e); }
+  applyAcctEmailVisibility();
+}
 async function toggleHideInvoice(checked){
   hideInvoiceEnabled = checked;
   try{ await dbSet('hideInvoice', checked ? 'true' : 'false'); }

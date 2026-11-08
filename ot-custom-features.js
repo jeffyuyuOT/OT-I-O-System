@@ -44,5 +44,12 @@ Object.assign(window.FEATURES, {
 
   // 快捷清單編輯畫面裡的「在 Picking Slip 附註顯示內容」勾選+輸入欄:勾選後,清單內每個商品
   // 在 Picking Slip 的附註欄都會印出輸入的內容(同一商品在多份清單都有設定時,內容用逗號隔開)。
-  quickListPickingSlipNote: true
+  quickListPickingSlipNote: true,
+
+  // 寄信給會計:進貨單「寄送給會計」勾選、進貨紀錄 / 已完成訂單的寄送 email、
+  // 匯出並寄出 email、系統設置的「會計 Email」。系統設置 → 訂單與出貨有開關可以整組關閉。
+  emailToAccountant: true,
+
+  // 系統設置 → 訂單與出貨 →「隱藏 Invoice 功能」開關(沒帶這個模組就沒有這個開關,Invoice 功能照常顯示)
+  hideInvoiceToggle: true
 });

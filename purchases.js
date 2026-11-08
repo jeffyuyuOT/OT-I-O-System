@@ -1124,7 +1124,7 @@ function openPurchaseActionModal(purchaseId){
       <select id="purchaseActionSelect">
         <option value="edit">${t('btnEdit')}</option>
         <option value="export">${escapeHtmlForPrint(exportLabel)}</option>
-        <option value="email">${t('btnSendEmail')}</option>
+        ${typeof acctEmailOn === 'function' && !acctEmailOn() ? '' : `<option value="email">${t('btnSendEmail')}</option>`}
       </select>
     </div>
     <div class="modal-actions">
