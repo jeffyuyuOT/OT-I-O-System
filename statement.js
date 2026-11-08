@@ -254,6 +254,14 @@ async function stmtOpenPay(){
   let open, srcs = [];
   if(stmtData._saved){
     // 舊 Statement 還沒登記過付款:金額改用 Invoice / Credit Note 的「目前」餘額
+    // 同一個出貨方有更新的 Statement 時,舊的不能再登記付款(新的已經包含舊的紀錄)
+    try{
+      let q = sb.from('statements').select('st_no').gt('created_at', stmtData._createdAt).order('created_at', { ascending: false }).limit(1);
+      q = stmtData.partyId ? q.eq('party_id', stmtData.partyId) : q.eq('customer', stmtData.name);
+      const nr = await q;
+      if(nr.error) throw nr.error;
+      if(nr.data && nr.data.length){ showInfoModal(tf('stmtSuperseded', { no: nr.data[0].st_no })); return; }
+    }catch(e){ console.error(e); showInfoModal(t('invLoadFailed')); return; }
     const live = await stmtLiveFromSnapshot();
     if(!live) return;
     open = live.open; srcs = live.srcs;
@@ -395,10 +403,10 @@ function stmtRenderLog(q){
 }
 async function stmtViewSaved(id){
   try{
-    let { data, error } = await sb.from('statements').select('snapshot,paid_at').eq('id', id).maybeSingle();
+    let { data, error } = await sb.from('statements').select('snapshot,paid_at,created_at').eq('id', id).maybeSingle();
     if(error && error.code === '42703') ({ data, error } = await sb.from('statements').select('snapshot').eq('id', id).maybeSingle());   // 還沒執行新版 SQL:沒有 paid_at 欄
     if(error || !data) throw error || new Error('not found');
-    stmtData = data.snapshot; stmtData._saved = true; stmtData._id = id; stmtData._paidAt = data.paid_at || '';
+    stmtData = data.snapshot; stmtData._saved = true; stmtData._id = id; stmtData._paidAt = data.paid_at || ''; stmtData._createdAt = data.created_at || '';
     const out = document.getElementById('stmtOut');
     out.innerHTML = `<div class="toolbar" style="margin:0 0 8px;"><button class="btn ghost" onclick="stmtOpenLog()">← ${t('stmtLog')}</button></div><div style="overflow:auto;border:1px solid var(--line);background:#eee;padding:8px;">${stmtDocHtml(stmtData)}</div>`;
   }catch(e){ console.error(e); showInfoModal(t('invLoadFailed')); }
