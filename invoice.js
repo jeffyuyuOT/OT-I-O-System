@@ -335,7 +335,6 @@ function invCloseModal(){ const o = document.getElementById('invoiceOverlay'); i
 function invConfirmLabel(){
   const m = invModal; if(!m) return '';
   if(m.snap && m.snap.docType === 'credit_note') return t('invBtnConfirmCn');
-  if(m.link && m.link.manual && m.link.stockItems && m.link.stockItems.length) return t('invBtnConfirmPending');
   return t('invBtnConfirmInv');
 }
 function invFooterHtml(){

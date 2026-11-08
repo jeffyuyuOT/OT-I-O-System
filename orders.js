@@ -129,6 +129,7 @@ function renderOrderItemsTable(){
     const stock = Math.max(0, computeAvailableForOrder(p.id));
     const outOfStock = stock <= 0;
     const w = computePerOrderAvgForParty(p.id, partyObj, now);
+    const noAvg = !!(partyObj && partyObj.orderFrequency === 'none');   // 無固定頻率:不顯示平均使用量
     const avgTitle = partyObj
       ? (w.isPartySpecific ? tf('avgTitlePartySpecific', {name: partyObj.name}) : tf('avgTitlePartyFallback', {name: partyObj.name}))
       : t('avgTitleNoParty');
@@ -146,9 +147,9 @@ function renderOrderItemsTable(){
           ${orderItemNoteDraft[p.id]
             ? `<span class="del-link" style="font-style:italic;" onclick="openOrderItemNoteModal('${p.id}')">${t('noteLabelPrefix')}${orderItemNoteDraft[p.id].replace(/</g,'&lt;')}</span>`
             : `<span class="del-link" onclick="openOrderItemNoteModal('${p.id}')">${t('btnAddItemNote')}</span>`}
-          <span class="show-mobile-only avg-usage-mobile" title="${avgTitle}">${t('avgUsageMobileLabel')}${isChildProduct ? ' —' : (w.hasData ? ` ${w.avg.toFixed(1)} ${p.unit}` : ' —')}</span>
+          ${noAvg ? '' : `<span class="show-mobile-only avg-usage-mobile" title="${avgTitle}">${t('avgUsageMobileLabel')}${isChildProduct ? ' —' : (w.hasData ? ` ${w.avg.toFixed(1)} ${p.unit}` : ' —')}</span>`}
         </td>
-        <td class="row-num hide-mobile" ${isChildProduct ? '' : `title="${avgTitle}"`}>${isChildProduct ? '—' : (w.hasData ? `${w.avg.toFixed(1)} ${p.unit}` : '—')}</td>
+        ${noAvg ? '' : `<td class="row-num hide-mobile" ${isChildProduct ? '' : `title="${avgTitle}"`}>${isChildProduct ? '—' : (w.hasData ? `${w.avg.toFixed(1)} ${p.unit}` : '—')}</td>`}
         <td class="row-num row-qty qty-col-data">
           <span class="td-mobile-label">${t('colOrderQty')}</span>
           <div class="qty-cell-inner">
@@ -183,7 +184,7 @@ function renderOrderItemsTable(){
     const orderedCats = categoryOrder.filter(c => byCat[c]);
     rows = orderedCats.map(cat => {
       const items = byCat[cat];
-      const header = `<tr class="cat-row"><td colspan="4">${catLabel(cat)}<span class="cat-count">${items.length}</span></td></tr>`;
+      const header = `<tr class="cat-row"><td colspan="${(partyObj && partyObj.orderFrequency === 'none') ? 3 : 4}">${catLabel(cat)}<span class="cat-count">${items.length}</span></td></tr>`;
       return header + items.map(p => rowHtml(p, {})).join('');
     }).join('');
   } else {
@@ -192,7 +193,7 @@ function renderOrderItemsTable(){
   container.innerHTML = `
     <table class="stock-table order-items-table">
       <thead>
-        <tr><th>${t('colProduct')}</th><th>${t('colItemNote')}</th><th class="num hide-mobile">${t('colWeeklyAvg')}</th><th class="qty-col-header">${t('colOrderQty')}</th></tr>
+        <tr><th>${t('colProduct')}</th><th>${t('colItemNote')}</th>${(partyObj && partyObj.orderFrequency === 'none') ? '' : `<th class="num hide-mobile">${t('colWeeklyAvg')}</th>`}<th class="qty-col-header">${t('colOrderQty')}</th></tr>
       </thead>
       <tbody>${rows}</tbody>
     </table>
