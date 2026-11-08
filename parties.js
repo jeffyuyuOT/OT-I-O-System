@@ -91,14 +91,20 @@ function onPartyPaymentTypeChange(){
   term.disabled = cod;
 }
 async function partyRepriceManualOrders(partyId, oldPct, newPct){
-  const ratio = (100 - newPct) / (100 - oldPct);
+  // 舊 Discount 是 100%(價錢被歸零)時無法用差額換算:改用「沒套 Discount 的原價」直接 × (1 − 新%)
+  const ratio = oldPct < 100 ? (100 - newPct) / (100 - oldPct) : null;
   const changed = [];
   orders.forEach(o => {
     if(o.partyId !== partyId || o.deleted || !isPreVerificationStatus(o)) return;
     let hit = false;
     (o.items || []).forEach(it => {
       if(it.deleted || it.sellFrozen || !it.sellPriceManual || !Number.isFinite(Number(it.sellPrice))) return;
-      it.sellPrice = Math.round(Number(it.sellPrice) * ratio * 100) / 100; hit = true;
+      if(ratio !== null){ it.sellPrice = Math.round(Number(it.sellPrice) * ratio * 100) / 100; hit = true; }
+      else {
+        let base = null;
+        try{ const c = spPriceCalc(it.productId, it.qty, it.batchPicks, 0); base = c && c.unit !== null && c.unit !== undefined ? Number(c.unit) : null; }catch(e){}
+        if(Number.isFinite(base)){ it.sellPrice = Math.round(base * (100 - newPct) / 100 * 100) / 100; hit = true; }
+      }
     });
     if(hit) changed.push(o);
   });
@@ -200,7 +206,7 @@ async function savePartyEdit(){
   await saveShippingParties();
   // Discount 改了:這個出貨方「待處理訂單」裡手動輸入的價錢,依新舊 Discount 的差額一起調整
   // (新價 = 舊價 × (1 − 新%) ÷ (1 − 舊%));自動帶入的價錢本來就是用目前 Discount 即時計算,會自動跟著變。
-  if(!isNew && discount !== oldDiscount && oldDiscount < 100){
+  if(!isNew && discount !== oldDiscount){
     try{ await partyRepriceManualOrders(sp.id, oldDiscount, discount); }catch(e){ console.error('調整訂單價錢失敗', e); showInfoModal('⚠ Discount 已儲存,但調整待處理訂單的手動價錢失敗,請重新整理後檢查。'); }
   }
   renderPartiesTable();
