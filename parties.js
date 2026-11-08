@@ -126,7 +126,7 @@ function openPartyEditModal(id){
   document.getElementById('partyPaymentTermSelect').value = String((sp && Number(sp.paymentTerm) > 0) ? Number(sp.paymentTerm) : 7);
   onPartyPaymentTypeChange();
   document.getElementById('partyNoteInput').value = sp ? (sp.note || '') : '';
-  document.getElementById('partyFrequencySelect').value = (sp && sp.orderFrequency) ? sp.orderFrequency : 'weekly';
+  document.getElementById('partyFrequencySelect').value = (sp && sp.orderFrequency) ? sp.orderFrequency : (sp ? 'weekly' : 'weekly');
   const d = partyDiscountOf(sp);
   document.getElementById('partyDiscountInput').value = d ? String(d) : '';
   document.getElementById('partyEditModalMsg').textContent = '';
@@ -173,7 +173,7 @@ async function savePartyEdit(){
   sp.paymentTerm = sp.paymentType === 'cod' ? 0 : (parseInt(document.getElementById('partyPaymentTermSelect').value, 10) || 7);   // COD 沒有 Payment term
   delete sp.address;   // 舊的聯繫地址取消,改用 Bill To / Ship To
   sp.note = document.getElementById('partyNoteInput').value.trim();
-  sp.orderFrequency = document.getElementById('partyFrequencySelect').value || 'weekly';
+  sp.orderFrequency = document.getElementById('partyFrequencySelect').value || 'weekly';   // 'none' = 無固定頻率(訂貨頁不顯示平均使用量)
   sp.discount = discount;
   delete sp.contact;   // 舊的「聯絡方式」欄位已拆成 聯繫人 / 聯繫電話,內容在上面已帶進 phone
   if(isNew){ sp.code = nextEntityCode('C', shippingParties); shippingParties.push(sp); }
@@ -188,6 +188,7 @@ async function savePartyEdit(){
   try{ if(typeof renderPendingOrders === 'function') renderPendingOrders(); }catch(e){}
   try{ if(typeof renderTxExistingItems === 'function') renderTxExistingItems(); if(typeof renderTxBatchList === 'function') renderTxBatchList(); }catch(e){}   // 折扣改了,登記進出貨頁的售價也立即更新
   try{ if(typeof icOnPartiesChanged === 'function') icOnPartiesChanged(isNew ? sp.id : null); }catch(e){}
+  try{ if(typeof txPartyPickerOnSaved === 'function') txPartyPickerOnSaved(isNew ? sp.id : null); }catch(e){}
   const pm = document.getElementById('partyMsg');
   if(pm){ pm.className = 'msg ok'; pm.textContent = isNew ? tf('partyAddedMsg', { name }) : ''; }
 }
@@ -211,6 +212,7 @@ function partyGoNewOrder(partyId){
   if(ft) ft.value = 'new-order';
   setTxOutFlowType('new-order');
   if(ps) ps.value = partyId;
+  if(typeof txPartyPickerRender === 'function') txPartyPickerRender();
 }
 // 「新增訂單/收據」:看得到 Invoice 的人先選要新增訂單還是收據(Invoice);其他人直接新增訂單
 function partyNewEntry(partyId){
@@ -331,19 +333,19 @@ function renderPartiesTable(){
         <td class="row-name"><span class="del-link" style="font-weight:600;" onclick="openPartyEditModal('${sp.id}')">${esc(sp.name)}</span></td>
         <td><span class="mini-label">${t('fieldPartyPhone')}</span>${esc(sp.phone !== undefined ? sp.phone : (sp.contact || '')) || '—'}</td>
         <td class="row-note"><span class="mini-label">${t('colNote')}</span>${esc(sp.note || '') || '—'}</td>
-        <td><span class="mini-label">${t('colOrderFrequency')}</span>${t(sp.orderFrequency === 'fortnight' ? 'freqFortnight' : (sp.orderFrequency === 'monthly' ? 'freqMonthly' : 'freqWeekly'))}</td>
         <td class="row-action" style="white-space:nowrap;text-align:right;">
+          <span class="del-link" onclick="openPartyEditModal('${sp.id}')" style="margin-right:6px;">${t('btnEdit')}</span>
           <span class="del-link" onclick="partyNewEntry('${sp.id}')" style="margin-right:6px;">${(typeof canCreateInvoice === 'function' && canCreateInvoice()) ? t('btnPartyNewOrderInv') : t('btnPartyNewOrder')}</span>
           <span class="del-link" onclick="partyGoOrderHistory('${sp.id}')" style="margin-right:6px;">${t('btnPartyOrderHistory')}</span>
           <span class="del-link" onclick="togglePartyProductPanel('${sp.id}')">${openPartyProductPanelId === sp.id ? t('btnCollapseProductList') : t('btnSetOrderableProducts')}</span>
         </td>
       </tr>
-      ${openPartyProductPanelId === sp.id ? `<tr><td colspan="6">${renderPartyProductPanelHtml(sp)}</td></tr>` : ''}
+      ${openPartyProductPanelId === sp.id ? `<tr><td colspan="5">${renderPartyProductPanelHtml(sp)}</td></tr>` : ''}
     `;
   }).join('');
   container.innerHTML = `
     <table class="stock-table">
-      <thead><tr><th>${t('colCode')}</th><th>${t('fieldPartyName')}</th><th>${t('fieldPartyPhone')}</th><th>${t('colNote')}</th><th>${t('colOrderFrequency')}</th><th></th></tr></thead>
+      <thead><tr><th>${t('colCode')}</th><th>${t('fieldPartyName')}</th><th>${t('fieldPartyPhone')}</th><th>${t('colNote')}</th><th></th></tr></thead>
       <tbody>${rows}</tbody>
     </table>
   `;
@@ -493,6 +495,7 @@ function renderSupplierManagementTable(){
           <td>${(s.paymentTerms === null || s.paymentTerms === undefined) ? '' : escapeHtmlForPrint(tf('supplierTermsDays', { n: s.paymentTerms }))}</td>
           <td>${escapeHtmlForPrint(s.note || '')}</td>
           <td style="white-space:nowrap;text-align:right;">
+            <span class="del-link" onclick="openSupplierEditModal('${s.id}')" style="margin-right:6px;">${t('btnEdit')}</span>
             <span class="del-link" onclick="supplierGoPurchaseHistory('${s.id}')">${t('btnSupplierPurchaseHistory')}</span>
           </td>
         </tr>

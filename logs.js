@@ -239,6 +239,7 @@ function renderDeliveryNoteLog(){
       <thead><tr>
         <th>${t('colDate')}</th>
         <th>${t('lblPartyGeneric')}</th>
+        <th>${t('colDnRef')}</th>
         <th>${t('colItemNote')}</th>
         <th>${t('lblProduct')}</th>
         <th></th>
@@ -251,6 +252,7 @@ function renderDeliveryNoteLog(){
           <tr>
             <td style="white-space:nowrap;">${n.date || ''}</td>
             <td>${n.partyName ? n.partyName.replace(/</g,'&lt;') : t('partyUnspecified')}</td>
+            <td style="white-space:nowrap;">${n.ref && n.ref.no ? `${escapeHtmlForPrint(n.ref.no)}<div style="font-size:11px;color:var(--ink-soft);">${dnRefTypeLabel(n.ref.type)}</div>` : '-'}</td>
             <td>${(n.note || '').replace(/</g,'&lt;')}</td>
             <td>${itemsSummary.replace(/</g,'&lt;')}</td>
             <td><span class="order-status-pill ${isCompleted ? 'confirmed' : 'pending'}">${isCompleted ? t('statusCompleted') : t('statusPending')}</span></td>

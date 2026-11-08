@@ -67,7 +67,7 @@ async function pickUsernameAndRole(email: string, body: any) {
     if (!clash) break;
     username = base + i;
   }
-  const role = ["admin", "accountant", "order", "inventory"].includes(body.role) ? body.role : "order";
+  const role = ["admin", "accountant", "sales", "order", "inventory"].includes(body.role) ? body.role : "order";
   return { username, role };
 }
 async function newProfileRow(userId: string, email: string, body: any, firstName: string, lastName: string, username?: string, role?: string) {

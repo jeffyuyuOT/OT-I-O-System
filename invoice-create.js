@@ -8,6 +8,7 @@ const icState = {
   mode: 'new',                 // 'new' | 'order' | 'cnNew' | 'cnInvoice'
   cnInv: null,                 // 從 Invoice 產生 Credit Note 時選到的 Invoice { id, no, snap }
   partyId: '', partySearch: '',
+  loaded: [],                  // New Invoice 載入的現有訂單 [{ id, no, lines }](Invoice 連到這些訂單,庫存以訂單為準)
   items: [],                   // { productId, sku, desc, unit, qty, price, gst, custom }
   note: '',
   of: { status: 'pending', from: '', to: '', partyId: '', q: '' },
@@ -74,9 +75,11 @@ function icRenderNew(){
       <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:8px;">
         <div class="section-title" style="margin:0;flex:1;">${t('icFieldItems')}</div>
         ${fromInv && icState.cnInv ? `<button class="btn ghost" onclick="icOpenInvoiceItems()">${t('icPickFromInvoice')}</button>` : ''}
-        <button class="btn ghost" onclick="icOpenProductPicker()">＋ ${t('icAddProduct')}</button>
+        ${!cn ? '' : `<button class="btn ghost" onclick="icOpenProductPicker()">＋ ${t('icAddProduct')}</button>`}
+        ${cn ? '' : `<button class="btn ghost" onclick="icOpenLoadOrders()">⇩ ${t('icLoadOrder')}</button>`}
         <button class="btn ghost" onclick="icOpenCustomItem()">＋ ${t('icAddCustom')}</button>
       </div>
+      ${(!cn && icState.loaded.length) ? `<div style="font-size:11.5px;color:var(--ink-soft);margin-bottom:6px;">${t('icLoadedHint')}</div>` : ''}
       <div id="icItems"></div>
     </div>
     <div class="settings-card" style="margin-bottom:10px;">
@@ -99,18 +102,19 @@ function icOnPartySearch(v){
 }
 function icPickParty(id){
   const changed = icState.partyId !== id;
+  if(changed) icState.loaded = [];
   icState.partyId = id; icState.partySearch = '';
   if(changed && icState.items.length) icReprice();
   icRenderNew();
 }
-function icClearParty(){ icState.partyId = ''; icRenderNew(); }
+function icClearParty(){ icState.partyId = ''; icState.loaded = []; icRenderNew(); }
 function icAddParty(){ icState.awaitNewParty = (typeof shippingParties !== 'undefined' ? shippingParties.length : 0); openPartyEditModal(''); }
 // parties.js 儲存出貨方之後呼叫:新增的出貨方直接選起來
 function icOnPartiesChanged(newPartyId){
   if(newPartyId && icState.awaitNewParty !== undefined){ icState.partyId = newPartyId; icState.awaitNewParty = undefined; }
   if(document.getElementById('icBody') && icState.mode === 'new'){ icReprice(); icRenderNew(); }   // 折扣改了:重新計算沒手動改過價的品項
 }
-function icResetNew(){ icState.partyId = ''; icState.partySearch = ''; icState.items = []; icState.note = ''; icState.cnInv = null; icRenderNew(); }
+function icResetNew(){ icState.loaded = []; icState.partyId = ''; icState.partySearch = ''; icState.items = []; icState.note = ''; icState.cnInv = null; icRenderNew(); }
 
 // 價格:現在的售價 × 出貨方折扣(跟訂單用同一套計算)
 function icPriceFor(productId, qty){
@@ -127,7 +131,8 @@ function icReprice(){
 function icRenderItems(){
   const box = document.getElementById('icItems'); if(!box) return;
   const its = icState.items;
-  if(!its.length){ box.innerHTML = `<div class="empty-note">${t('icNoItems')}</div>`; return; }
+  const loadedHtml = icLoadedHtml();
+  if(!its.length){ box.innerHTML = loadedHtml ? `${loadedHtml}<div id="icTotals" style="text-align:right;font-size:13px;margin-top:6px;"></div>` : `<div class="empty-note">${t('icNoItems')}</div>`; if(loadedHtml) icRenderTotals(); return; }
   let sale = 0, tax = 0;
   const gstRate = (typeof SP_GST_RATE !== 'undefined') ? SP_GST_RATE : 0.10;
   const rows = its.map((it, i) => {
@@ -140,7 +145,7 @@ function icRenderItems(){
       <td class="num" id="icAmt${i}">${invMoney2(amt)}</td>
       <td><span class="del-link" onclick="icRemoveItem(${i})">✕</span></td></tr>`;
   }).join('');
-  box.innerHTML = `<div style="overflow-x:auto;"><table class="stock-table"><thead><tr><th>${t('icColItem')}</th><th>${t('icColQty')}</th><th>${t('icColPrice')}</th>${icIsCn() ? `<th>${t('icColReturn')}</th>` : ''}<th class="num">${t('icColAmount')}</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>
+  box.innerHTML = `${loadedHtml}<div style="overflow-x:auto;"><table class="stock-table"><thead><tr><th>${t('icColItem')}</th><th>${t('icColQty')}</th><th>${t('icColPrice')}</th>${icIsCn() ? `<th>${t('icColReturn')}</th>` : ''}<th class="num">${t('icColAmount')}</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>
     <div id="icTotals" style="text-align:right;font-size:13px;margin-top:6px;"></div>`;
   icRenderTotals();
 }
@@ -148,11 +153,79 @@ function icRenderTotals(){
   const el = document.getElementById('icTotals'); if(!el) return;
   const gstRate = (typeof SP_GST_RATE !== 'undefined') ? SP_GST_RATE : 0.10;
   let sale = 0, tax = 0;
+  if(!icIsCn()) icState.loaded.forEach(o => o.lines.forEach(l => { sale += Number(l.amount) || 0; tax += Number(l.tax) || 0; }));
   icState.items.forEach((it, i) => {
     const amt = icR2((Number(it.price) || 0) * (Number(it.qty) || 0)); sale += amt; if(it.gst) tax += icR2(amt * gstRate);
     const c = document.getElementById('icAmt' + i); if(c) c.textContent = invMoney2(amt);
   });
   el.innerHTML = `${t('spSaleAmt')}: ${invMoney2(sale)} · ${t('spGstAmt')}: ${invMoney2(tax)} · <b>${t('spTotalAmt')}: ${invMoney2(sale + tax)}</b>`;
+}
+// ---------- New Invoice:載入現有訂單 ----------
+function icLoadedHtml(){
+  if(icIsCn() || !icState.loaded.length) return '';
+  const head = icState.loaded.map((o, i) => `<span style="display:inline-block;margin:0 8px 4px 0;"><b>${invEsc(o.no || '')}</b> <span style="color:#1a56b0;text-decoration:underline;cursor:pointer;font-size:12px;" onclick="icEditLoadedOrder('${invEsc(o.id)}')">${invEsc(t('icEditOrder'))}</span> <span class="del-link" title="${invEsc(t('icUnloadOrder'))}" onclick="icUnloadOrder(${i})">✕</span></span>`).join('');
+  const rows = icState.loaded.map(o => o.lines.map(l => `<tr style="color:var(--ink-soft);"><td>${invEsc(l.desc)}${l.sku ? `<div style="font-size:11px;">${invEsc(l.sku)}</div>` : ''}<div style="font-size:11px;">${invEsc(o.no || '')}</div></td><td>${invEsc(l.qty)} ${invEsc(l.unit || '')}</td><td>${invMoney2(l.disc > 0 ? icR2(l.amount / (Number(l.qty) || 1)) : l.price)}</td><td class="num">${invMoney2(l.amount)}</td></tr>`).join('')).join('');
+  return `<div style="font-size:12.5px;margin-bottom:4px;">${invEsc(t('icLoadedOrders'))}: ${head}</div>
+    <div style="overflow-x:auto;margin-bottom:8px;"><table class="stock-table"><thead><tr><th>${t('icColItem')}</th><th>${t('icColQty')}</th><th>${t('icColPrice')}</th><th class="num">${t('icColAmount')}</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+}
+// 載入的訂單要改庫存商品:跳到那張訂單的編輯頁面;已簽收的訂單不能編輯
+function icEditLoadedOrder(orderId){
+  const o = orders.find(x => x.id === orderId);
+  if(!o || o.deleted) return;
+  if(o.signedAt){ showInfoModal(tf('icOrderSignedNoEdit', { no: o.orderNo || '' })); return; }
+  editOrderViaRegister(orderId, orderStatus(o) === 'confirmed' ? 'completed' : 'pending');
+  // 真的跳去編輯頁面了:把 Create Invoice 畫面清空,回來時使用者要重新載入訂單(避免用到舊的快照)
+  const root = document.getElementById('invoiceCreateRoot');
+  if(root && root.offsetParent === null){
+    icState.partyId = ''; icState.partySearch = ''; icState.items = []; icState.loaded = []; icState.note = ''; icState.cnInv = null; icState.sel = new Set();
+  }
+}
+function icUnloadOrder(i){ icState.loaded.splice(i, 1); icRenderNew(); }
+let icLoadSel = new Set();
+function icLoadableOrders(){
+  return (orders || []).filter(o => !o.deleted && !o.invoice && (o.partyId || '') === icState.partyId && !icState.loaded.some(x => x.id === o.id)
+    && (o.items || []).some(it => !it.deleted && it.qty > 0))
+    .sort((a, b) => String(b.createdAt || b.date || '').localeCompare(String(a.createdAt || a.date || ''))).slice(0, 200);
+}
+function icOpenLoadOrders(){
+  if(!icState.partyId){ showInfoModal(t('icNeedPartyFirst')); return; }
+  icLoadSel = new Set();
+  icCloseOverlay('icLoadOverlay');
+  const ov = document.createElement('div');
+  ov.id = 'icLoadOverlay'; ov.className = 'modal-overlay'; ov.style.display = 'flex'; ov.style.zIndex = '1200';
+  ov.onclick = e => { if(e.target === ov) icCloseOverlay('icLoadOverlay'); };
+  const rows = icLoadableOrders().map(o => {
+    const st = orderStatus(o);
+    const stLabel = st === 'confirmed' ? t('statusCompleted') : (st === 'processing' ? t('statusProcessing') : t('statusPending'));
+    const n = (o.items || []).filter(it => !it.deleted && it.qty > 0).length;
+    return `<tr><td><input type="checkbox" onchange="icLoadToggle('${invEsc(o.id)}',this.checked)" /></td><td style="white-space:nowrap;">${invEsc(o.orderNo || '')}</td><td style="white-space:nowrap;">${invEsc(o.date || '')}</td><td>${invEsc(stLabel)}</td><td class="num">${n}</td></tr>`;
+  }).join('');
+  ov.innerHTML = `<div class="modal-box" style="max-width:min(560px,96vw);max-height:92vh;overflow:auto;">
+    <div class="section-title" style="margin-top:0;">${t('icLoadOrder')}</div>
+    <div style="font-size:12.5px;margin-bottom:8px;">${invEsc(icPartyLabel(icParty(icState.partyId)))}</div>
+    ${rows ? `<div style="overflow-x:auto;"><table class="stock-table"><thead><tr><th></th><th>${t('invColOrder')}</th><th>${t('icColDate')}</th><th>${t('invFltStatus')}</th><th class="num">${t('icColItems')}</th></tr></thead><tbody>${rows}</tbody></table></div>` : `<div class="empty-note">${t('icNoLoadable')}</div>`}
+    <div id="icLoadMsg" class="msg"></div>
+    <div class="modal-actions"><button class="btn ghost" onclick="icCloseOverlay('icLoadOverlay')">${t('btnCancel')}</button><button class="btn" id="icLoadBtn" disabled onclick="icConfirmLoad()">${t('icLoadConfirm')}</button></div></div>`;
+  document.body.appendChild(ov);
+}
+function icLoadToggle(id, on){ if(on) icLoadSel.add(id); else icLoadSel.delete(id); const b = document.getElementById('icLoadBtn'); if(b) b.disabled = !icLoadSel.size; }
+function icConfirmLoad(){
+  const msg = document.getElementById('icLoadMsg');
+  const fail = h => { if(msg){ msg.className = 'msg error'; msg.textContent = h; } };
+  const picked = Array.from(icLoadSel).map(id => orders.find(o => o.id === id)).filter(Boolean);
+  if(!picked.length) return;
+  const add = [];
+  for(const o of picked){
+    const r = invBuildSnapshot(o, { skipSettings: true });
+    if(!r.ok){
+      if(r.reason === 'price') return fail(`${o.orderNo || ''}: ` + tf('invNoPrice', { names: r.names.slice(0, 8).join(', ') + (r.names.length > 8 ? '…' : '') }));
+      return fail(`${o.orderNo || ''}: ` + t('invNoItems'));
+    }
+    add.push({ id: o.id, no: o.orderNo || '', lines: r.snap.lines });
+  }
+  icState.loaded = icState.loaded.concat(add);
+  icCloseOverlay('icLoadOverlay');
+  icRenderNew();
 }
 function icEditItem(i, k, v){
   const it = icState.items[i]; if(!it) return;
@@ -248,7 +321,7 @@ function icSnapHeader(sp, nameFallback){
   const name = (sp && (sp.companyName || sp.name)) || nameFallback || '';
   return {
     no: '', date: today, dueDate: invAddDays(today, term), paymentType: payType, term,
-    saleRep: (typeof userDisplayName === 'function' && currentUser) ? userDisplayName(currentUser) : '',
+    saleRep: invSaleRepName(),
     company: { name: invSettings.companyName, abn: invSettings.abn, address: invSettings.address, phone: invSettings.phone, email: invSettings.email, website: invSettings.website },
     bank: { bankName: invSettings.bankName, accName: invSettings.bankAccName, bsb: invSettings.bsb, accNo: invSettings.accNo },
     customer: { name, billTo: (sp && sp.billTo) || '', email: (sp && sp.email) || '', abn: (sp && sp.abn) || '' },
@@ -270,9 +343,11 @@ function icPreviewNew(){
   if(!invSettingsComplete()){ showInfoModal(t('invNeedSettings')); return; }
   const sp = icParty(icState.partyId);
   if(!sp) return bad('icNeedParty');
-  if(!icState.items.length) return bad('icNeedItems');
+  const loaded = icState.loaded;
+  if(!icState.items.length && !loaded.length) return bad('icNeedItems');
   const gstRate = (typeof SP_GST_RATE !== 'undefined') ? SP_GST_RATE : 0.10;
   const lines = [];
+  loaded.forEach(o => o.lines.forEach(l => lines.push(Object.assign({}, l, { n: lines.length + 1 }))));
   for(const it of icState.items){
     const qty = Number(it.qty), price = Number(it.price);
     if(!(qty > 0) || it.price === '' || !Number.isFinite(price)) return bad('icBadLine');
@@ -281,9 +356,10 @@ function icPreviewNew(){
     const amount = icR2(price * qty);
     lines.push({ n: lines.length + 1, desc: it.desc, sku: it.sku || '', comment: '', qty, unit: it.unit || '', price: listPrice, disc, amount, tax: it.gst ? icR2(amount * gstRate) : 0 });
   }
-  const snap = Object.assign(icSnapHeader(sp), { note: icState.note || '', orderNo: '', lines });
+  const snap = Object.assign(icSnapHeader(sp), { note: icState.note || '', orderNo: loaded.map(o => o.no).filter(Boolean).join(', '), lines });
   icFinishTotals(snap);
-  invShowModal(null, snap, false, { orders: [], partyId: sp.id, manual: true });
+  // 有載入現有訂單:Invoice 連到那些訂單(庫存以訂單為準);只有自訂 / 額外品項:純帳務 Invoice,不動庫存
+  invShowModal(null, snap, false, { orders: loaded.map(o => ({ id: o.id, no: o.no })), partyId: sp.id, manual: true });
 }
 
 // ---------- 合併訂單 ----------
@@ -404,7 +480,7 @@ async function invEnsureCreatedMulti(){
   const snap0 = Object.assign({}, invModal.snap);
   snap0.date = (typeof todayISO === 'function') ? todayISO() : snap0.date;
   snap0.dueDate = invAddDays(snap0.date, snap0.term || 0);
-  snap0.saleRep = (typeof userDisplayName === 'function' && currentUser) ? userDisplayName(currentUser) : snap0.saleRep;
+  snap0.saleRep = invSaleRepName() || snap0.saleRep;
   snap0.createdAt = new Date().toISOString();
   snap0.orders = link.orders;
   const objs = link.orders.map(o => orders.find(x => x.id === o.id)).filter(Boolean);
@@ -423,7 +499,7 @@ async function invEnsureCreatedMulti(){
     try{ renderOrders(); }catch(e){}
     icState.sel = new Set();
     if(icState.mode === 'order' && document.getElementById('icOrderList')) icRenderOrderList();
-    if(link.manual){ icState.items = []; icState.note = ''; icState.partyId = ''; }
+    if(link.manual){ icState.items = []; icState.loaded = []; icState.note = ''; icState.partyId = ''; }
     return snap;
   }catch(e){
     console.error('建立 Invoice 失敗', e);
@@ -573,7 +649,7 @@ async function icEnsureCreatedCn(){
   const fail = key => { if(msg){ msg.className = 'msg error'; msg.textContent = t(key); } return null; };
   const snap0 = Object.assign({}, invModal.snap);
   snap0.date = (typeof todayISO === 'function') ? todayISO() : snap0.date;
-  snap0.saleRep = (typeof userDisplayName === 'function' && currentUser) ? userDisplayName(currentUser) : snap0.saleRep;
+  snap0.saleRep = invSaleRepName() || snap0.saleRep;
   snap0.createdAt = new Date().toISOString();
   try{
     const { data, error } = await sb.rpc('credit_note_create', { p_snapshot: snap0, p_invoice_id: link.invoiceId || null, p_party_id: link.partyId || '' });
@@ -652,6 +728,7 @@ function icCnRender(){
   const availSum = list.reduce((a, r) => a + (r.invoice_id ? 0 : (Number(r.total) || 0) - (Number(r.applied) || 0)), 0);   // 單獨 Credit Note 的可用額度合計
   const stOpt = (v, l) => `<option value="${v}" ${f.st === v ? 'selected' : ''}>${l}</option>`;
   const body = list.map(r => `<tr>
+      ${typeof deIconCell === 'function' ? deIconCell('credit_note', r.id) : '<td></td>'}
       <td style="white-space:nowrap;cursor:pointer;" onclick="icCnView('${invEsc(r.id)}')"><span class="batch-link">${invEsc(r.cn_no)}</span></td>
       <td style="white-space:nowrap;">${invEsc(invIsoToDmy(r.cn_date))}</td><td>${invEsc(invCustLabel(r))}</td>
       <td>${r.invoice_id ? `<span class="batch-link" onclick="invOpenDetails('${invEsc(r.invoice_id)}')">INV${invEsc(r.invoice_no || '')}</span>` : ((icCnUsedOn[r.id] || []).length ? (icCnUsedOn[r.id]).map(x => `<div style="white-space:nowrap;"><span class="batch-link" onclick="invOpenDetails('${invEsc(x.id)}')">INV${invEsc(x.no || '')}</span></div>`).join('') : '–')}</td>
@@ -666,7 +743,7 @@ function icCnRender(){
       <div style="flex:1;min-width:160px;"><div style="font-size:11px;color:var(--ink-soft);">${t('invFltSearch')}</div><input type="text" value="${invEsc(f.q)}" placeholder="${invEsc(t('icCnSearchPh'))}" oninput="icCnF.q=this.value;icCnRenderKeepFocus(this)" style="width:100%;box-sizing:border-box;" /></div>
       <button class="btn ghost exp-btn" onclick="icCnExportXlsx()" style="align-self:flex-end;">${t('accExportXlsx')}</button>
     </div>
-    ${list.length ? `<div style="overflow-x:auto;"><table class="stock-table"><thead><tr><th>Credit Note No</th><th>${t('icColDate')}</th><th>${t('invColCustomer')}</th><th>${t('icLinkedInvoice')}</th><th class="num">${t('spTotalAmt')}</th><th class="num">${t('invCreditAvail')}</th><th>${t('icColReturnStatus')}</th><th></th></tr></thead><tbody>${body}<tr style="font-weight:700;border-top:2px solid var(--line, #ccc);"><td colspan="4" style="text-align:right;">${t('invListTotals')} (${list.length})</td><td class="num">(${invMoney2(sum)})</td><td class="num">${invMoney2(availSum)}</td><td></td><td></td></tr></tbody></table></div>` : `<div class="empty-note">${t('icNoCn')}</div>`}`;
+    ${list.length ? `<div style="overflow-x:auto;"><table class="stock-table"><thead><tr><th></th><th>Credit Note No</th><th>${t('icColDate')}</th><th>${t('invColCustomer')}</th><th>${t('icLinkedInvoice')}</th><th class="num">${t('spTotalAmt')}</th><th class="num">${t('invCreditAvail')}</th><th>${t('icColReturnStatus')}</th><th></th></tr></thead><tbody>${body}<tr style="font-weight:700;border-top:2px solid var(--line, #ccc);"><td colspan="5" style="text-align:right;">${t('invListTotals')} (${list.length})</td><td class="num">(${invMoney2(sum)})</td><td class="num">${invMoney2(availSum)}</td><td></td><td></td></tr></tbody></table></div>` : `<div class="empty-note">${t('icNoCn')}</div>`}`;
 }
 function icCnRenderKeepFocus(inp){
   const pos = inp.selectionStart; icCnRender();

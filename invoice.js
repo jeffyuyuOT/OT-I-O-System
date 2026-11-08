@@ -183,7 +183,7 @@ function invBuildSnapshot(order, opts){
   const name = (sp && (sp.companyName || sp.name)) || order.partyName || '';
   const snap = {
     no: '', date: today, dueDate: invAddDays(today, term), paymentType: payType, term,
-    saleRep: (typeof userDisplayName === 'function' && currentUser) ? userDisplayName(currentUser) : '',
+    saleRep: invSaleRepName(),
     company: { name: invSettings.companyName, abn: invSettings.abn, address: invSettings.address, phone: invSettings.phone, email: invSettings.email, website: invSettings.website },
     bank: { bankName: invSettings.bankName, accName: invSettings.bankAccName, bsb: invSettings.bsb, accNo: invSettings.accNo },
     customer: { name, billTo: (sp && sp.billTo) || '', email: (sp && sp.email) || '', abn: (sp && sp.abn) || '' },
@@ -322,8 +322,33 @@ function invFitPages(host, mode){
 }
 
 // ---------- 預覽視窗 ----------
+// Invoice 上 Sale Rep 欄位 = 開 Invoice 的人:會計顯示 accounts,其他人(業務、管理者…)顯示自己的姓名
+function invSaleRepName(){
+  if(!currentUser) return '';
+  if(currentUser.role === 'accountant') return 'accounts';
+  return (typeof userDisplayName === 'function') ? userDisplayName(currentUser) : '';
+}
 let invModal = null;   // { orderId, snap, created, link }  link = 手動 / 多張訂單合併的 Invoice(見 invoice-create.js)
 function invCloseModal(){ const o = document.getElementById('invoiceOverlay'); if(o) o.remove(); invModal = null; }
+// 預覽視窗底部按鈕。還沒建立:取消 / (Paid Today)/ 列印 / 儲存 PDF(這兩個只是輸出預覽,不會建立)/ 確認新增(真正建立)。
+// 已建立(剛建立完、或從清單叫回來):關閉 / (收款記錄)/ 列印 / 匯出 PDF,沒有確認鍵。
+function invConfirmLabel(){
+  const m = invModal; if(!m) return '';
+  if(m.snap && m.snap.docType === 'credit_note') return t('invBtnConfirmCn');
+  return t('invBtnConfirmInv');
+}
+function invFooterHtml(){
+  const m = invModal; if(!m) return '';
+  const snap = m.snap, created = m.created, isCn = snap.docType === 'credit_note';
+  return `
+      <button class="btn ghost" onclick="invCloseModal()">${created ? t('btnClose') : t('btnCancel')}</button>
+      ${isCn && created && snap.invoiceId ? `<button class="btn ghost" onclick="var i='${invEsc(snap.invoiceId)}';invCloseModal();invOpenDetails(i)">Invoice ${invEsc(snap.invoiceNo || '')}</button>` : ''}
+      ${isCn ? '' : (created ? (snap.id ? `<button class="btn ghost" onclick="invOpenPayments(invModal.snap.id)">${t('invBtnPayments')}</button>` : '') : `<button class="btn ghost" onclick="invOpenPaidPrompt()">${t('invBtnPaidToday')}</button>`)}
+      <button class="btn ghost" onclick="invDoPrint()">${t('invBtnPrint')}</button>
+      <button class="${created ? 'btn' : 'btn ghost'}" onclick="invDoSavePdf()">${created ? t('invBtnExport') : t('invBtnSavePdf')}</button>
+      ${created ? '' : `<button class="btn" id="invConfirmBtn" onclick="invDoConfirm()">${invConfirmLabel()}</button>`}
+    `;
+}
 function invShowModal(orderId, snap, created, link){
   invCloseModal();
   invModal = { orderId, snap, created, link: link || null };
@@ -338,13 +363,7 @@ function invShowModal(orderId, snap, created, link){
     ${created ? '' : `<p style="font-size:12px;color:var(--ink-soft);margin:0 0 8px;">${t('invCreateHint')}</p>`}
     <div style="overflow:auto;border:1px solid var(--line);background:#eee;padding:8px;"><div id="invPreviewHost" style="zoom:0.85;">${invDocHtml(shown, invSettings.logo)}</div></div>
     <div id="invModalMsg" class="msg"></div>
-    <div class="modal-actions">
-      <button class="btn ghost" onclick="invCloseModal()">${created ? t('btnClose') : t('btnCancel')}</button>
-      ${isCn && created && snap.invoiceId ? `<button class="btn ghost" onclick="var i='${invEsc(snap.invoiceId)}';invCloseModal();invOpenDetails(i)">Invoice ${invEsc(snap.invoiceNo || '')}</button>` : ''}
-      ${isCn ? '' : (created ? (invModal.snap.id ? `<button class="btn ghost" onclick="invOpenPayments(invModal.snap.id)">${t('invBtnPayments')}</button>` : '') : `<button class="btn ghost" onclick="invOpenPaidPrompt()">${t('invBtnPaidToday')}</button>`)}
-      <button class="btn ghost" onclick="invDoPrint()">${t('invBtnPrint')}</button>
-      <button class="btn" onclick="invDoSavePdf()">${created ? t('invBtnExport') : t('invBtnSavePdf')}</button>
-    </div>
+    <div class="modal-actions" id="invModalActions">${invFooterHtml()}    </div>
   </div>`;
   document.body.appendChild(ov);
   invFitPages(document.getElementById('invPreviewHost'), 'pdf');
@@ -444,7 +463,7 @@ async function invEnsureCreated(){
   const snap0 = Object.assign({}, invModal.snap);
   snap0.date = (typeof todayISO === 'function') ? todayISO() : snap0.date;
   snap0.dueDate = invAddDays(snap0.date, snap0.term || 0);
-  snap0.saleRep = (typeof userDisplayName === 'function' && currentUser) ? userDisplayName(currentUser) : snap0.saleRep;
+  snap0.saleRep = invSaleRepName() || snap0.saleRep;
   snap0.createdAt = new Date().toISOString();
   const prevInvoice = order.invoice;
   try{
@@ -486,13 +505,27 @@ function invRefreshModalAfterCreate(){
     if(ttl && invModal.snap.docType === 'credit_note') ttl.textContent = 'Credit Note · ' + invModal.snap.no;
     else if(ttl) ttl.textContent = 'Invoice' + ((order && order.orderNo) || invModal.snap.orderNo ? ' · ' + ((order && order.orderNo) || invModal.snap.orderNo) : '');
     const hint = ov.querySelector('p'); if(hint) hint.remove();
+    const act = document.getElementById('invModalActions'); if(act) act.innerHTML = invFooterHtml();
   }
 }
 function invFileName(snap){ return `${snap.docType === 'credit_note' ? 'CreditNote' : 'Invoice'}_${snap.no}_${String((snap.customer && snap.customer.name) || '').replace(/[^\w\-]+/g, '_').slice(0, 30)}.pdf`; }
 
-async function invDoSavePdf(){
-  const snap = await invEnsureCreated(); if(!snap) return;
+// 還沒確認建立時,「儲存 PDF」「列印」只是輸出目前預覽(Invoice 號碼顯示為自動編號),不會建立單據
+function invOutputSnap(){
+  if(!invModal) return null;
+  return invModal.created ? invModal.snap : Object.assign({}, invModal.snap, { no: t('invNoAuto') });
+}
+// 按「確認新增…」才真的建立(取得單號、記下今天日期與開單者;手動 Invoice 有庫存商品時同時建立待處理訂單)
+async function invDoConfirm(){
+  const btn = document.getElementById('invConfirmBtn'); if(btn) btn.disabled = true;
+  const snap = await invEnsureCreated();
+  if(!snap){ if(btn) btn.disabled = false; return; }
   invRefreshModalAfterCreate();
+  const msg = document.getElementById('invModalMsg');
+  if(msg){ msg.className = 'msg ok'; msg.textContent = `✓ ${t('invCreatedOk')} ${snap.no || ''}`; }
+}
+async function invDoSavePdf(){
+  const snap = invOutputSnap(); if(!snap) return;
   const msg = document.getElementById('invModalMsg');
   if(typeof html2pdf === 'undefined'){ if(msg){ msg.className = 'msg error'; msg.textContent = t('invPdfLibMissing'); } return; }
   const holder = document.createElement('div');
@@ -510,8 +543,7 @@ async function invDoSavePdf(){
   holder.remove();
 }
 async function invDoPrint(){
-  const snap = await invEnsureCreated(); if(!snap) return;
-  invRefreshModalAfterCreate();
+  const snap = invOutputSnap(); if(!snap) return;
   const iframe = document.createElement('iframe');
   iframe.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0;';
   document.body.appendChild(iframe);
@@ -840,6 +872,7 @@ function invRenderList(key){
     const i = invRowInfo(r);
     const changed = Number(r.change_count) > 0;
     return `<tr>
+      ${typeof deIconCell === 'function' ? deIconCell('invoice', r.id) : '<td></td>'}
       <td style="white-space:nowrap;cursor:pointer;" onclick="invOpenFromList('${invEsc(r.id)}')"><span class="batch-link">${invEsc(r.invoice_no)}</span></td>
       <td style="white-space:nowrap;">${invEsc(invIsoToDmy(r.invoice_date))}</td>
       ${showCust ? `<td>${invEsc(invCustLabel(r))}</td>` : ''}
@@ -872,8 +905,8 @@ function invRenderList(key){
       <span class="batch-info-icon" style="align-self:flex-end;margin:0 0 8px 0;" title="${invEsc(t('invZipHelp'))}" onclick="showInfoModal(t('invZipHelp'))">ⓘ</span>
     </div>
     ${list.length === 0 ? `<div class="empty-note">${t('invListEmpty')}</div>` : `<div style="font-size:11.5px;color:var(--ink-soft);margin-bottom:6px;">${t('invListClickHint')}</div>
-    <div style="overflow-x:auto;"><table class="stock-table"><thead><tr><th>Invoice No</th><th>Invoice Date</th>${showCust ? `<th>${t('invColCustomer')}</th>` : ''}<th>${t('invColOrder')}</th><th class="num">${t('spTotalAmt')}</th><th class="num">${t('invColPaid')}</th><th class="num">${t('invColBalance')}</th><th>${t('invFltStatus')}</th><th></th></tr></thead>
-      <tbody>${rows}<tr style="font-weight:700;border-top:2px solid var(--line, #ccc);"><td colspan="${showCust ? 4 : 3}" style="text-align:right;">${t('invListTotals')} (${list.length})</td><td class="num">${invMoney2(sum.g)}</td><td class="num">${invMoney2(sum.p)}</td><td class="num">${invMoney2(sum.bal)}</td><td colspan="2"></td></tr></tbody>
+    <div style="overflow-x:auto;"><table class="stock-table"><thead><tr><th></th><th>Invoice No</th><th>Invoice Date</th>${showCust ? `<th>${t('invColCustomer')}</th>` : ''}<th>${t('invColOrder')}</th><th class="num">${t('spTotalAmt')}</th><th class="num">${t('invColPaid')}</th><th class="num">${t('invColBalance')}</th><th>${t('invFltStatus')}</th><th></th></tr></thead>
+      <tbody>${rows}<tr style="font-weight:700;border-top:2px solid var(--line, #ccc);"><td colspan="${showCust ? 5 : 4}" style="text-align:right;">${t('invListTotals')} (${list.length})</td><td class="num">${invMoney2(sum.g)}</td><td class="num">${invMoney2(sum.p)}</td><td class="num">${invMoney2(sum.bal)}</td><td colspan="2"></td></tr></tbody>
 </table></div>`}`;
 }
 function invClearListFilter(key){

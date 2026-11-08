@@ -25,6 +25,7 @@ const TAB_DEFS = [
 const ROLE_DEFS = [
   { id: 'admin', labelKey: 'roleAdmin' },
   { id: 'accountant', labelKey: 'roleAccountant' },
+  { id: 'sales', labelKey: 'roleSales' },
   { id: 'order', labelKey: 'roleOrder' },
   { id: 'inventory', labelKey: 'roleInventory' }
 ];
@@ -87,19 +88,19 @@ function migratePermsV2(tabPerms, restricted, role){
 function canEditPriceFor(role, restrictedList){
   const list = Array.isArray(restrictedList) ? restrictedList : [];
   if(list.includes('allow:cap-edit-price')) return true;
-  return (role === 'admin' || role === 'accountant') && !list.includes('deny:cap-edit-price');
+  return (role === 'admin' || role === 'accountant' || role === 'sales') && !list.includes('deny:cap-edit-price');
 }
 // 「訂單顯示價錢」權限:清單裡有 'allow:cap-view-price' → 允許;管理者、會計預設允許,除非有 'deny:cap-view-price';其他身分預設不允許
 function canViewPriceFor(role, restrictedList){
   const list = Array.isArray(restrictedList) ? restrictedList : [];
   if(list.includes('allow:cap-view-price')) return true;
-  return (role === 'admin' || role === 'accountant') && !list.includes('deny:cap-view-price');
+  return (role === 'admin' || role === 'accountant' || role === 'sales') && !list.includes('deny:cap-view-price');
 }
 // 「訂單核對」權限:'allow:cap-order-verify' → 允許;會計預設不允許;其他身分預設允許,除非有 'deny:cap-order-verify'
 function canVerifyOrdersFor(role, restrictedList){
   const list = Array.isArray(restrictedList) ? restrictedList : [];
   if(list.includes('allow:cap-order-verify')) return true;
-  if(role === 'accountant') return false;
+  if(role === 'accountant' || role === 'sales') return false;
   return !list.includes('deny:cap-order-verify');
 }
 function canVerifyOrders(){
@@ -115,7 +116,7 @@ function isAccountantUser(){ return !!currentUser && currentUser.role === 'accou
 function canSeeProductAcct(){ return !!currentUser && (currentUser.role === 'admin' || currentUser.role === 'accountant'); }
 // 沒有「訂單顯示價錢」權限的人(倉管員等):批次頁的成本 / 售價 / 庫存價值欄用 CSS 隱藏
 function applyCostVisibility(){ try{ document.body.classList.toggle('no-cost-view', !(typeof canViewPrice === 'function' && canViewPrice())); }catch(e){} }
-function isInvoiceRole(){ return !!currentUser && (currentUser.role === 'admin' || currentUser.role === 'accountant'); }
+function isInvoiceRole(){ return !!currentUser && (currentUser.role === 'admin' || currentUser.role === 'accountant' || currentUser.role === 'sales'); }
 // Invoice 功能的總開關:身分是管理者/會計,而且沒有在系統設置勾選「隱藏 Invoice 功能」
 function canCreateInvoice(){ return isInvoiceRole() && !(typeof hideInvoiceEnabled !== 'undefined' && hideInvoiceEnabled); }
 function canEditPrice(){
@@ -140,12 +141,20 @@ const ROLE_DEFAULT_TABS = {
   admin: TAB_DEFS.map(d => d.id),
   accountant: TAB_DEFS.map(d => d.id).filter(id => id !== 'tab-master' && id !== 'tab-order'),   // 不帶訂貨(那是出貨方下單用的頁面;會計從訂貨後台管理看訂單)、不帶系統管理(會計用的設定在「會計」分頁的「會計設定」);倉庫作業台要帶(會計要登記進貨、出貨),但「訂單核對」預設隱藏(cap-order-verify)
   order: ['tab-order'],   // 訂貨用戶只有訂貨分頁(不帶 Lookout)
+  sales: ['tab-lookout', 'tab-warehouse-ops', 'tab-warehouse-admin', 'tab-log'],   // 業務(Sales Rep):細到子分頁的限制見 ROLE_DEFAULT_RESTRICTED
   inventory: ['tab-lookout', 'tab-warehouse-ops', 'tab-overview', 'tab-warehouse-admin', 'tab-log']
 };
 // 新帳號 / 切換身分時的預設細部限制(清單裡的 = 取消勾選)。倉庫管理員:歷史紀錄的「匯出紀錄」預設不開。
 // 價錢相關(編輯價錢、訂單顯示價錢)倉庫管理員本來就預設不允許,不用列在這裡。
 const ROLE_DEFAULT_RESTRICTED = {
-  inventory: ['sub:subtab-log-exports']
+  inventory: ['sub:subtab-log-exports'],
+  // 業務(Sales Rep):倉庫作業台全開但沒有「訂單核對」(cap-order-verify 預設不允許);倉庫後台管理只留「供應與清單管理」;
+  // 歷史紀錄只留「已完成訂單」「進出貨紀錄」「非銷售出庫單」;全域的編輯價錢、訂單顯示價錢預設允許(見 canEditPriceFor / canViewPriceFor)。
+  sales: [
+    'sub:subtab-tx-forecast', 'sub:subtab-tx-data', 'sub:subtab-purchase-mgmt-ocrdb',
+    'sub:subtab-log-purchases', 'sub:subtab-log-forecast', 'sub:subtab-log-delivery', 'sub:subtab-log-convert',
+    'sub:subtab-log-location', 'sub:subtab-log-exports', 'sub:subtab-log-inventory'
+  ]
 };
 function roleDefaultRestricted(role){ return (ROLE_DEFAULT_RESTRICTED[role] || []).slice(); }
 
@@ -181,7 +190,7 @@ function hasCapability(capId){
   if(capId === 'cap-edit-price') return canEditPrice();
   if(capId === 'cap-view-price') return canViewPrice();
   if(capId === 'cap-order-verify') return canVerifyOrders();
-  if(capId === 'cap-manage-users' && currentUser.role === 'accountant') return false;   // 會計不能管理使用者
+  if(capId === 'cap-manage-users' && (currentUser.role === 'accountant' || currentUser.role === 'sales')) return false;   // 會計不能管理使用者
   if(currentUser.role === 'admin') return true;
   const restricted = Array.isArray(currentUser.restrictedCapabilities) ? currentUser.restrictedCapabilities : [];
   return !restricted.includes(capId);
@@ -650,7 +659,7 @@ function collectCheckedTabIds(idPrefix){
 // cap-manage-users 這個細部功能權限」才算數。
 function canManageUsers(role, tabPermissions, restrictedCapabilities){
   if(role === 'admin') return true;
-  if(role === 'accountant') return false;
+  if(role === 'accountant' || role === 'sales') return false;
   if(!Array.isArray(tabPermissions) || !tabPermissions.includes('tab-master')) return false;
   const restricted = Array.isArray(restrictedCapabilities) ? restrictedCapabilities : [];
   return !restricted.includes('cap-manage-users');

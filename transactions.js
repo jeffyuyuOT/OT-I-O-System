@@ -11,6 +11,7 @@
 // ============================================================
 function setTxType(type){
   currentTxType = type;
+  if(type !== 'out') registerOutKind = 'order';   // 離開「出貨」就回到預設的一般訂單
   // 切換類型時,把上一個類型送出後留下的訊息(不管是成功的綠字、還是失敗的紅字)一起清掉——
   // 不然切到新的類型,畫面上還留著「已提交 xxx」這種跟目前畫面對不上的殘留訊息,容易誤導使用者
   // 以為剛剛這個類型也送出過了。
@@ -88,7 +89,8 @@ function setTxType(type){
     // 現有訂單,還要再選出是哪一張)下面的主表單區塊才會出現——避免使用者還沒決定清楚要做
     // 哪一種操作,就先動手填日期/加商品,結果選了類型才發現整個表單邏輯不一樣要重填。
     if(outFlowRow) outFlowRow.style.display = '';
-    setTxOutFlowType(registerOutFlowType || '');
+    if(registerOutKind === 'nonsales'){ setTxOutFlowType(''); nsApplyLayout(); }
+    else { setTxOutFlowType(registerOutFlowType || ''); nsApplyLayout(); }
   } else if(type === 'delivery'){
     if(partyHistorySelect) partyHistorySelect.style.display = 'none';
     partyLabel.textContent = t('partyLabelOut');
@@ -157,19 +159,27 @@ function setTxType(type){
   renderTxSubmitArea();
   renderTxBatchList();
   const adjWrap = document.getElementById('txAdjReasonWrap');
-  if(adjWrap) adjWrap.style.display = type === 'adjustment' ? '' : 'none';
+  if(adjWrap) adjWrap.style.display = (type === 'adjustment' || (type === 'out' && registerOutKind === 'nonsales')) ? '' : 'none';
+  if(typeof txPartyPickerApply === 'function') txPartyPickerApply();
+  const dnRefWrap = document.getElementById('txDnRefWrap');
+  if(dnRefWrap) dnRefWrap.style.display = type === 'delivery' ? '' : 'none';
+  if(type !== 'delivery'){ dnRefReset(); const _ni = document.getElementById('txNote'); if(_ni) _ni.placeholder = t('txNotePlaceholderExample'); }
+  const nsRecWrap = document.getElementById('txNsRecipientWrap');
+  if(nsRecWrap) nsRecWrap.style.display = (type === 'out' && registerOutKind === 'nonsales') ? '' : 'none';
+  if(typeof nsUpdateAdjSlipUi === 'function') nsUpdateAdjSlipUi();
 }
 
 // ===== 庫存調整原因 =====
 // dir:'out' 只能減少庫存、'in' 只能增加庫存、'any' 不限。group 給會計報表(階段三)歸類用:
 // wastage=耗損、sample=樣品、internal=內部使用、stocktake=盤點差異、supplier_return=退供應商、other=其他。
+// slip:true = 需要實際拿貨的原因(樣品、內部使用、捐贈),改在「出貨 → 非銷售出庫單」登記並列印領貨單,不再出現在庫存調整;'other' 兩邊都有。
 const ADJ_REASONS = [
   { code: 'wastage_expired',   dir: 'out', group: 'wastage' },
   { code: 'wastage_damaged',   dir: 'out', group: 'wastage' },
-  { code: 'donation_writeoff', dir: 'out', group: 'wastage' },
-  { code: 'sample',            dir: 'out', group: 'sample' },
-  { code: 'internal_use',      dir: 'out', group: 'internal' },
-  { code: 'return_supplier',   dir: 'out', group: 'supplier_return' },
+  { code: 'donation_writeoff', dir: 'out', group: 'wastage', slip: true },
+  { code: 'sample',            dir: 'out', group: 'sample', slip: true },
+  { code: 'internal_use',      dir: 'out', group: 'internal', slip: true },
+  { code: 'return_supplier',   dir: 'out', group: 'supplier_return', slip: true },
   { code: 'stocktake_loss',    dir: 'out', group: 'stocktake' },
   { code: 'stocktake_gain',    dir: 'in',  group: 'stocktake' },
   { code: 'other',             dir: 'any', group: 'other' }
@@ -180,7 +190,8 @@ function renderAdjReasonSelect(){
   const sel = document.getElementById('txAdjReason');
   if(!sel) return;
   const cur = sel.value;
-  sel.innerHTML = `<option value="">${t('adjReasonPick')}</option>` + ADJ_REASONS.map(r => `<option value="${r.code}">${adjReasonLabel(r.code)}</option>`).join('');
+  const slipMode = (typeof nsIsSlipMode === 'function') && nsIsSlipMode();
+  sel.innerHTML = `<option value="">${t('adjReasonPick')}</option>` + ADJ_REASONS.filter(r => slipMode ? (r.slip || r.code === 'other') : !r.slip).map(r => `<option value="${r.code}">${adjReasonLabel(r.code)}</option>`).join('');
   sel.value = cur && adjReasonInfo(cur) ? cur : '';
   onAdjReasonChange();
 }
@@ -190,6 +201,7 @@ function onAdjReasonChange(){
   const hint = document.getElementById('txAdjReasonHint');
   const info = sel ? adjReasonInfo(sel.value) : null;
   if(other) other.style.display = info && info.code === 'other' ? '' : 'none';
+  if(typeof nsUpdateAdjSlipUi === 'function') nsUpdateAdjSlipUi();
   if(hint) hint.textContent = info ? (info.dir === 'out' ? t('adjHint_decrease') : info.dir === 'in' ? t('adjHint_increase') : '') : '';
 }
 function adjReasonReset(){
@@ -245,6 +257,7 @@ function onTxPartyHistorySelectChange(value){
 }
 
 function resetRegisterOutFlow(){
+  if(typeof nsResetKindUi === 'function') nsResetKindUi();
   registerOutFlowType = '';
   registerLoadedOrderId = null;
   txBatchItems = [];
@@ -321,6 +334,7 @@ function setTxOutFlowType(flowType){
     if(orderWrap) orderWrap.style.display = 'none';
     showTxMainFormArea(false);
   }
+  if(typeof txPartyPickerApply === 'function') txPartyPickerApply();
   renderTxSubmitArea();
   renderTxBatchList();
   renderProductSelect();
@@ -346,7 +360,9 @@ function setTxDeliveryFlowType(flowType){
   if(partySelect) partySelect.disabled = false;
   { const _pel = document.getElementById('txPartyEditLink'); if(_pel) _pel.style.display = 'none'; }
   if(dateInput) dateInput.disabled = false;
-  if(noteLabel) noteLabel.textContent = t('txNoteRequiredDeliveryLabel');
+  if(noteLabel) noteLabel.textContent = t('txNoteSharedLabel');
+  dnRefReset();
+  { const _ni = document.getElementById('txNote'); if(_ni){ _ni.placeholder = ''; _ni.value = ''; } }
 
   if(flowType === 'load'){
     if(viewSection) viewSection.style.display = 'none';
@@ -356,21 +372,13 @@ function setTxDeliveryFlowType(flowType){
       // 送貨已經處理完了,不應該再被找出來繼續編輯,它的歷史紀錄改到「觀看紀錄」那邊查看。
       const sorted = deliveryNotes.filter(n => n.status !== 'completed').slice().sort((a,b) => (b.date || '').localeCompare(a.date || ''));
       noteSelect.innerHTML = `<option value="">${t('optSelectDeliveryNote')}</option>` +
-        sorted.map(n => `<option value="${n.id}">${n.date || ''}${n.note ? ` (${n.note.replace(/"/g,'&quot;')})` : ''}</option>`).join('');
+        sorted.map(n => `<option value="${n.id}">${n.date || ''}${n.ref && n.ref.no ? ` · ${String(n.ref.no).replace(/"/g,'&quot;')}` : ''}${n.note ? ` (${n.note.replace(/"/g,'&quot;')})` : ''}</option>`).join('');
     }
     showTxMainFormArea(false);
   } else if(flowType === 'new'){
     if(viewSection) viewSection.style.display = 'none';
     if(noteSelectWrap) noteSelectWrap.style.display = 'none';
     showTxMainFormArea(true);
-  } else if(flowType === 'view'){
-    // 「觀看紀錄」原本是「歷史紀錄」底下獨立一個子分頁,後來考慮到 Delivery Note 很少被回頭
-    // 查看,不值得佔用一整個子分頁,改成併進這裡的「操作」下拉選單——選了直接在原本表單的
-    // 位置顯示清單,不需要主表單(日期/出貨方/備註/商品清單)那一整套欄位。
-    if(noteSelectWrap) noteSelectWrap.style.display = 'none';
-    showTxMainFormArea(false);
-    if(viewSection) viewSection.style.display = '';
-    renderDeliveryNoteLog();
   } else {
     if(viewSection) viewSection.style.display = 'none';
     if(noteSelectWrap) noteSelectWrap.style.display = 'none';
@@ -408,11 +416,14 @@ function renderTxSubmitArea(){
     area.innerHTML = `<button class="btn" onclick="submitTxBatch()">${t('btnRegister')}</button>`;
     return;
   }
+  if(registerOutKind === 'nonsales'){
+    area.innerHTML = `<button class="btn" onclick="submitTxBatch()">${t('btnNsConfirmPrint')}</button>`;
+    return;
+  }
   if(registerOutFlowType === 'new-order'){
     area.innerHTML = `
       <button class="btn" onclick="submitTxBatch('pending')">${t('btnMergeToPending')}</button>
       <button class="btn" onclick="submitTxBatch('completed')">${t('btnMergeToCompleted')}</button>
-      <button class="btn ghost" onclick="submitTxBatch('direct')">${t('btnDirectShip')}</button>
     `;
   } else if(registerOutFlowType === 'load-pending'){
     const disabled = registerLoadedOrderId ? '' : 'disabled';
@@ -666,6 +677,7 @@ function loadDeliveryNoteIntoRegisterFlow(noteId){
   }
   const noteInput = document.getElementById('txNote');
   if(noteInput) noteInput.value = note.note || '';
+  dnRefSet(note.ref || null);
 
   showTxMainFormArea(true);
   renderTxSubmitArea();
@@ -797,6 +809,7 @@ function addToTxBatch(){
   if(!productId){ msg.className='msg error'; msg.textContent='請先新增並選擇商品'; return; }
   if(!qty || isNaN(qty)){ msg.className='msg error'; msg.textContent=t('errAddItemQtyNonZero'); return; }
   if(!Number.isInteger(qty)){ msg.className='msg error'; msg.textContent=t('errQtyMustBeInteger'); return; }
+  if(registerOutKind === 'nonsales' && currentTxType === 'out' && qty < 0){ msg.className='msg error'; msg.textContent=t('errNsQtyPositive'); return; }
   const p = products.find(x => x.id === productId);
   if(!p) return;
   // 批次追蹤:進貨時「同商品同有效期」才合併,不同有效期分行列出
@@ -1755,6 +1768,8 @@ async function submitTxBatch(action){
       return;
     }
 
+    if(registerOutKind === 'nonsales'){ await submitNonSalesSlip(date, msg); return; }
+
     if(!registerOutFlowType){
       msg.className = 'msg error'; msg.textContent = t('errSelectOutFlowTypeFirst');
       return;
@@ -1782,15 +1797,16 @@ function buildDeliveryNoteDraftFromForm(){
   const partyId = document.getElementById('txPartySelect').value || null;
   const partyObj = partyId ? shippingParties.find(sp => sp.id === partyId) : null;
   const note = document.getElementById('txNote').value.trim();
+  const ref = dnRefSelected;
 
   if(!date) return { ok: false, error: '請選擇 Delivery 日期' };
-  if(!note) return { ok: false, error: t('errDeliveryNoteRequired') };
+  if(!ref) return { ok: false, error: t('errDnRefRequired') };
   if(txBatchItems.length === 0) return { ok: false, error: '請先把至少一項商品加入清單' };
 
   return {
     ok: true,
     data: {
-      date, partyId, partyName: partyObj ? partyObj.name : '', note,
+      date, partyId, partyName: partyObj ? partyObj.name : '', note, ref: { type: ref.type, id: ref.id, no: ref.no },
       items: txBatchItems.map(it => ({ productId: it.productId, sku: it.sku || '', name: it.name, unit: it.unit, qty: it.qty }))
     }
   };
@@ -1867,7 +1883,8 @@ async function printDeliveryNote(){
   <h2>Delivery Note</h2>
   <h1>${escapeHtmlForPrint(data.partyName || 'Unspecified')}</h1>
   <div class="meta">${escapeHtmlForPrint('Date')}: ${data.date}</div>
-  <div class="meta">${escapeHtmlForPrint('Note')}: ${escapeHtmlForPrint(data.note)}</div>
+  <div class="meta">${escapeHtmlForPrint('Related Document')}: ${escapeHtmlForPrint(data.ref ? data.ref.no : '')}</div>
+  ${data.note ? `<div class="meta">${escapeHtmlForPrint('Note')}: ${escapeHtmlForPrint(data.note)}</div>` : ''}
   <table>
     <thead><tr><th class="sku-col">${escapeHtmlForPrint('SKU')}</th><th>${escapeHtmlForPrint('Product Name')}</th><th>${escapeHtmlForPrint('Qty')}</th><th>${escapeHtmlForPrint('Unit')}</th></tr></thead>
     <tbody>${rowsHtml}</tbody>
@@ -2164,7 +2181,29 @@ async function submitTxBatchSimple(date, msg){
 // 出貨→新增訂單:三個按鈕分別對應「併入待處理訂單」(action='pending',不扣庫存)、
 // 「併入已完成訂單」(action='completed',直接扣庫存)、「直接出貨」(action='direct',
 // 純粹登記一筆出貨,不建立訂單,但備註必填)。前兩者都要跟資料庫序列拿新的訂單編號。
+// 出貨 → 新增訂單 → 按「併入待處理訂單 / 併入已完成訂單」:先確認一次。
+//   · 看得到 Invoice 功能的人(業務、會計、管理者):問「Create invoice & submit」或「Submit only」
+//     (前者:先提交訂單,接著直接跳出這張訂單的 Invoice 預覽,按預覽裡的確認鍵才真的建立 Invoice)
+//   · 倉庫管理員等沒有 Invoice 權限的人:只有「確認提交」
+let txInvoiceAfterSubmit = false;
 async function submitNewOrderFlow(action, date, msg){
+  if(txBatchItems.length === 0){ msg.className='msg error'; msg.textContent=t('errAddAtLeastOneItem'); return; }
+  if(action !== 'pending' && action !== 'completed') return await submitNewOrderFlowCore(action, date, msg);
+  const run = async withInvoice => {
+    txInvoiceAfterSubmit = !!withInvoice;
+    try{ await submitNewOrderFlowCore(action, date, msg); }
+    finally{ txInvoiceAfterSubmit = false; }
+  };
+  if(typeof canCreateInvoice === 'function' && canCreateInvoice() && typeof lookoutOpenChoice === 'function'){
+    lookoutOpenChoice('txSubmitChoiceTitle', [
+      { label: t('txSubmitWithInvoice'), go: () => run(true) },
+      { label: t('txSubmitOnly'), go: () => run(false) }
+    ]);
+  } else {
+    showConfirmModal(t('txSubmitConfirmOnly'), () => run(false));
+  }
+}
+async function submitNewOrderFlowCore(action, date, msg){
   if(txBatchItems.length === 0){ msg.className='msg error'; msg.textContent=t('errAddAtLeastOneItem'); return; }
   const outPartyId = document.getElementById('txPartySelect').value || null;
   const partyObj = shippingParties.find(sp => sp.id === outPartyId);
@@ -2271,6 +2310,11 @@ function finishNewOrderSubmit(kind, orderId, count, orderNo, msg){
   switchWarehouseOpsSubTab(kind === 'pending' ? 'subtab-order-pending' : 'subtab-order-completed');
   expandedOrderIds.add(orderId);
   renderAll();
+  if(txInvoiceAfterSubmit && typeof invOpenCreate === 'function'){
+    txInvoiceAfterSubmit = false;
+    invOpenCreate(orderId);   // 直接開這張訂單的 Invoice 預覽(確認鍵才真的建立);缺價格/設定時會自己跳提示
+    return;
+  }
   showInfoModal(tf('addToOrderSuccessMsg', { orderNo: orderNo || orderId, n: count }));
 }
 
@@ -2677,8 +2721,19 @@ async function submitAdjustmentFlow(date, msg){
   // 備註文字 = 原因(其他則用手動輸入的文字)+ 選填附註;結構化的原因代碼另存在 adjReason。
   const reasonText = reasonCode === 'other' ? `${adjReasonLabel('other').replace(/[((].*$/, '').trim()} - ${reasonOther}` : adjReasonLabel(reasonCode);
   const note = extraNote ? `${reasonText} - ${extraNote}` : reasonText;
+  // 耗損(過期/損壞)可勾「這批需要列印領貨單」:同時建立一張非銷售出庫單、列印領貨單,領貨人必填
+  const wantSlip = !!((document.getElementById('txAdjSlip') || {}).checked) && NS_ADJ_SLIP_REASONS.includes(reasonCode);
+  const slipRecipient = ((document.getElementById('txNsRecipient') || {}).value || '').trim();
+  if(wantSlip && !slipRecipient){ msg.className='msg error'; msg.textContent=t('errNsRecipientRequired'); return; }
 
   showConfirmModal(t('confirmStockAdjustment'), async () => {
+    let slipPw = null, slipNo = '';
+    if(wantSlip){
+      slipPw = window.open('', '_blank');   // 在確認的當下同步開啟,才不會被擋彈出視窗
+      try{ await ensureNonSalesSlipsLoaded(); slipNo = await nsNextNo(); }
+      catch(e){ try{ if(slipPw) slipPw.close(); }catch(_){} msg.className='msg error'; msg.textContent=`⚠ ${t('errNsNeedSql')}`; return; }
+    }
+    const closeSlipWin = () => { try{ if(slipPw) slipPw.close(); }catch(e){} };
     // 庫存調整裡「減少」的品項(qty > 0,實際是 type='out')扣庫存之前,一樣先問清楚要從哪個
     // 位置扣——「增加」的品項(qty < 0,type='restock')不用問,新增的庫存一律先算未分布。
     const decreaseItems = txBatchItems.filter(it => it.qty > 0);
@@ -2687,12 +2742,14 @@ async function submitAdjustmentFlow(date, msg){
       try{
         adjustmentLocationChoices = await resolveLocationChoicesForItems(decreaseItems.map(it => ({ productId: it.productId, qty: it.qty, batchPicks: it.batchPicks })));
       } catch(e){
+        closeSlipWin();
         return; // 使用者取消了位置選擇,整個提交中止
       }
     }
 
+    const slipSuffix = wantSlip ? ` · ${t('nsNotePrefix')}${slipNo}` : '';
     const newTxs = txBatchItems.map(it => ({
-      id: genId(), productId: it.productId, type: it.qty > 0 ? 'out' : 'restock', qty: Math.abs(it.qty), date, party: '', note: `${t('adjustmentNotePrefix')}${note}`, adjReason: reasonCode
+      id: genId(), productId: it.productId, type: it.qty > 0 ? 'out' : 'restock', qty: Math.abs(it.qty), date, party: '', note: `${t('adjustmentNotePrefix')}${note}${slipSuffix}`, adjReason: reasonCode
     }));
     transactions.push(...newTxs);
     txBatchItems.forEach(it => { productStockMap[it.productId] = (productStockMap[it.productId]||0) - it.qty; });
@@ -2700,6 +2757,7 @@ async function submitAdjustmentFlow(date, msg){
     catch(e){
       newTxs.forEach(tx => { const i = transactions.indexOf(tx); if(i>=0) transactions.splice(i,1); });
       txBatchItems.forEach(it => { productStockMap[it.productId] = (productStockMap[it.productId]||0) + it.qty; });
+      closeSlipWin();
       msg.className='msg error';
       msg.textContent = /adj_reason/.test(String((e && (e.message || e.details)) || '')) ? `⚠ ${t('errAdjNeedSql')}` : '⚠ 提交失敗,請重新整理頁面再試一次。';
       return;
@@ -2708,8 +2766,15 @@ async function submitAdjustmentFlow(date, msg){
     if(adjustmentLocationChoices){
       await applyLocationDeductions(adjustmentLocationChoices);
     }
-    logInventoryAction('tx_out', `Logged stock adjustment: ${txBatchItems.length} item(s) — ${note}`, null);
+    logInventoryAction('tx_out', `Logged stock adjustment: ${txBatchItems.length} item(s) — ${note}${slipSuffix}`, null);
     const count = txBatchItems.length;
+    let slipSaved = true;
+    if(wantSlip){
+      slipSaved = await nsSaveAndPrintSlip({ no: slipNo, date, reasonCode, reasonText, reasonOther, extraNote, recipient: slipRecipient,
+        items: txBatchItems, txIds: newTxs.map(x => x.id), pw: slipPw });
+      const rec = document.getElementById('txNsRecipient'); if(rec) rec.value = '';
+      const chk = document.getElementById('txAdjSlip'); if(chk) chk.checked = false;
+    }
     // 提交完之後留在「庫存調整」這個頂層類型上,方便連續登記好幾筆調整——只清空這次的品項清單
     // 跟備註,不去動出貨方欄位隱藏/兩欄版面這些跟「庫存調整」綁在一起的畫面設定(那些是
     // setTxType('adjustment') 負責的,不需要在這裡重複呼叫或退回舊的出貨流程邏輯)。renderAll()
@@ -2717,7 +2782,8 @@ async function submitAdjustmentFlow(date, msg){
     txBatchItems = [];
     document.getElementById('txNote').value = '';
     adjReasonReset();
-    msg.className='msg ok'; msg.textContent = `✓ 已提交庫存調整,共 ${count} 項商品`;
+    msg.className = slipSaved ? 'msg ok' : 'msg error';
+    msg.textContent = slipSaved ? `✓ 已提交庫存調整,共 ${count} 項商品${wantSlip ? '(' + slipNo + ')' : ''}` : `⚠ ${t('errNsSlipSaveFailed')} ${slipNo}`;
     renderAll();
   });
 }

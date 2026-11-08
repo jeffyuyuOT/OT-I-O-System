@@ -539,6 +539,7 @@ async function clearAllData(mode){
     await replaceAllTransactions([]);      // 清空 transactions 表 + 重建庫存快取為空
     await replaceAllOrders([]);            // 清空 orders 表
     await clearAllDeliveryNotes();         // 清空 delivery_notes 表(訂單都清空了,留著也是孤兒資料)
+    try{ await clearAllNonSalesSlips(); await sb.rpc('reset_nso_no_seq'); }catch(e){ console.error('清空非銷售出庫單失敗(可能還沒執行 sql/non_sales_slips.sql)', e); }
     await clearAllPurchases();             // 清空 purchases 表(進出貨紀錄都清空了,留著也是孤兒資料)
     // 「Clear All Data」既然是全部重置,倉庫後台管理那幾份資料(出貨方、進貨方、庫存分布、
     // 收據掃描記憶對照表)也要一起清掉,不然商品/交易紀錄都清空了,這些指著已經不存在的商品的
@@ -637,6 +638,7 @@ async function exportFullBackup(){
     exportEmailLogs,
     inventoryLogs,
     deliveryNotes,
+    nonSalesSlips,
     purchases,
     purchaseSuppliers
   };
@@ -760,6 +762,10 @@ function importFullBackup(){
         if(Array.isArray(backup.deliveryNotes) && backup.deliveryNotes.length > 0){
           try{ await upsertDeliveryNotes(backup.deliveryNotes); }
           catch(e){ console.error('還原 Delivery Note 失敗', e); }
+        }
+        if(Array.isArray(backup.nonSalesSlips) && backup.nonSalesSlips.length > 0){
+          try{ await upsertNonSalesSlips(backup.nonSalesSlips); nonSalesSlipsLoaded = false; }
+          catch(e){ console.error('還原非銷售出庫單失敗', e); }
         }
         // 進貨方(舊備份沒有這個欄位 = 不動目前的進貨方,避免誤清空)
         if(Array.isArray(backup.purchaseSuppliers)){

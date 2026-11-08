@@ -129,6 +129,7 @@ function renderOrderItemsTable(){
     const stock = Math.max(0, computeAvailableForOrder(p.id));
     const outOfStock = stock <= 0;
     const w = computePerOrderAvgForParty(p.id, partyObj, now);
+    const noAvg = !!(partyObj && partyObj.orderFrequency === 'none');   // 無固定頻率:不顯示平均使用量
     const avgTitle = partyObj
       ? (w.isPartySpecific ? tf('avgTitlePartySpecific', {name: partyObj.name}) : tf('avgTitlePartyFallback', {name: partyObj.name}))
       : t('avgTitleNoParty');
@@ -146,9 +147,9 @@ function renderOrderItemsTable(){
           ${orderItemNoteDraft[p.id]
             ? `<span class="del-link" style="font-style:italic;" onclick="openOrderItemNoteModal('${p.id}')">${t('noteLabelPrefix')}${orderItemNoteDraft[p.id].replace(/</g,'&lt;')}</span>`
             : `<span class="del-link" onclick="openOrderItemNoteModal('${p.id}')">${t('btnAddItemNote')}</span>`}
-          <span class="show-mobile-only avg-usage-mobile" title="${avgTitle}">${t('avgUsageMobileLabel')}${isChildProduct ? ' —' : (w.hasData ? ` ${w.avg.toFixed(1)} ${p.unit}` : ' —')}</span>
+          ${noAvg ? '' : `<span class="show-mobile-only avg-usage-mobile" title="${avgTitle}">${t('avgUsageMobileLabel')}${isChildProduct ? ' —' : (w.hasData ? ` ${w.avg.toFixed(1)} ${p.unit}` : ' —')}</span>`}
         </td>
-        <td class="row-num hide-mobile" ${isChildProduct ? '' : `title="${avgTitle}"`}>${isChildProduct ? '—' : (w.hasData ? `${w.avg.toFixed(1)} ${p.unit}` : '—')}</td>
+        ${noAvg ? '' : `<td class="row-num hide-mobile" ${isChildProduct ? '' : `title="${avgTitle}"`}>${isChildProduct ? '—' : (w.hasData ? `${w.avg.toFixed(1)} ${p.unit}` : '—')}</td>`}
         <td class="row-num row-qty qty-col-data">
           <span class="td-mobile-label">${t('colOrderQty')}</span>
           <div class="qty-cell-inner">
@@ -183,7 +184,7 @@ function renderOrderItemsTable(){
     const orderedCats = categoryOrder.filter(c => byCat[c]);
     rows = orderedCats.map(cat => {
       const items = byCat[cat];
-      const header = `<tr class="cat-row"><td colspan="4">${catLabel(cat)}<span class="cat-count">${items.length}</span></td></tr>`;
+      const header = `<tr class="cat-row"><td colspan="${(partyObj && partyObj.orderFrequency === 'none') ? 3 : 4}">${catLabel(cat)}<span class="cat-count">${items.length}</span></td></tr>`;
       return header + items.map(p => rowHtml(p, {})).join('');
     }).join('');
   } else {
@@ -192,7 +193,7 @@ function renderOrderItemsTable(){
   container.innerHTML = `
     <table class="stock-table order-items-table">
       <thead>
-        <tr><th>${t('colProduct')}</th><th>${t('colItemNote')}</th><th class="num hide-mobile">${t('colWeeklyAvg')}</th><th class="qty-col-header">${t('colOrderQty')}</th></tr>
+        <tr><th>${t('colProduct')}</th><th>${t('colItemNote')}</th>${(partyObj && partyObj.orderFrequency === 'none') ? '' : `<th class="num hide-mobile">${t('colWeeklyAvg')}</th>`}<th class="qty-col-header">${t('colOrderQty')}</th></tr>
       </thead>
       <tbody>${rows}</tbody>
     </table>
@@ -790,7 +791,7 @@ function renderCompletedOrdersInto(container, recentOnly){
         <div class="order-card-head" style="cursor:pointer;" onclick="toggleOrderExpand('${o.id}')">
           <span class="order-card-date">
             <span style="display:inline-block;width:14px;">${isExpanded ? '▾' : '▸'}</span>
-            ${o.orderNo ? `<span style="color:var(--ink-soft);font-weight:400;">${o.orderNo}</span> · ` : ''}${o.date}${o.partyName ? ` <span style="font-weight:400;color:var(--ink-soft);">· ${tf('orderCardPartyLabel', {name: o.partyName})}</span>` : ''}
+            ${o.orderNo ? `<span style="color:var(--ink-soft);font-weight:400;">${o.orderNo}</span> · ` : ''}${o.date}${o.partyName ? ` <span style="font-weight:400;color:var(--ink-soft);">· ${tf('orderCardPartyLabel', {name: o.partyName})}</span>` : ''}${(!o.deleted && !o.partyId) ? ` <span title="${t('orderNoPartyLinkedWarning')}" style="margin-left:6px;color:var(--crit);font-weight:400;">⚠ ${t('orderNoPartyShort')}</span>` : ''}
             ${o.remark ? `<span title="${t('orderHasRemarkTitle')}" style="margin-left:6px;color:var(--yellow-dark);">📝</span>` : ''}
             ${wasModified ? `<span title="${t('orderWasModifiedTitle')}" style="margin-left:6px;color:var(--warn);">✎</span>` : ''}
           </span>
@@ -1196,7 +1197,7 @@ function renderPendingOrders(){
             <span style="display:inline-block;width:14px;">${isExpanded ? '▾' : '▸'}</span>
             ${o.orderNo ? `<span style="color:var(--ink-soft);font-weight:400;">${o.orderNo}</span> · ` : ''}${o.date}${(o.originalDate && o.originalDate !== o.date) ? ` <span title="${t('dateWasChangedTitle')}" style="font-weight:400;color:var(--warn-dark);">(${tf('originalDateLabel', {date: o.originalDate})})</span>` : ''}${o.partyName ? ` <span style="font-weight:400;color:var(--ink-soft);">· ${tf('orderCardPartyLabel', {name: (o.partyId && !o.deleted && hasCapability('cap-manage-parties')) ? `<span class="batch-link" title="${t('btnEdit')}" onclick="event.stopPropagation();partyEditFromOrder('${o.partyId}')">${escapeHtmlForPrint(o.partyName)}</span>` : o.partyName})}</span>` : ''}${(!o.deleted && hasCapability('cap-manage-parties')) ? ` <span title="${t('btnEditOrderParty')}" style="margin-left:2px;color:var(--warn);cursor:pointer;" onclick="event.stopPropagation();startEditOrderParty('${o.id}')">✎</span>` : ''}
             ${o.remark ? `<span title="${t('orderHasRemarkTitle')}" style="margin-left:6px;color:var(--yellow-dark);">📝</span>` : ''}
-            ${!o.deleted && !o.partyId ? `<span title="${t('orderNoPartyLinkedWarning')}" style="margin-left:6px;color:var(--crit);">⚠</span>${hasCapability('cap-manage-parties') ? ` <span title="${t('btnEditOrderParty')}" style="margin-left:2px;color:var(--warn);cursor:pointer;" onclick="event.stopPropagation();startEditOrderParty('${o.id}')">✎</span>` : ''}` : ''}
+            ${!o.deleted && !o.partyId ? `<span title="${t('orderNoPartyLinkedWarning')}" style="margin-left:6px;color:var(--crit);">⚠</span>` : ''}
           </span>
           <span style="display:inline-flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:flex-end;">
             ${invLinkedBadgeHtml(o)}<span class="order-status-pill ${o.deleted ? 'deleted' : (o.status === 'processing' ? 'processing' : 'pending')}">${o.deleted ? t('statusOrderCancelled') : (o.status === 'processing' ? t('statusProcessing') : t('statusPending'))}</span>

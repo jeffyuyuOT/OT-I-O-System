@@ -136,7 +136,7 @@ function rcDelete(i){
 // ----- 完整備份 / 還原:會計報表分類、科目代碼、MYOB 卡片名稱、手動新增的庫存分類 -----
 // 舊備份沒有 acctSettings 時,不動目前的設定(這些是設定,不是交易資料)
 // 其他會計/系統設定(app_data 原始字串):預設幣種、常用幣種與支出項目、會計 Email、Sell price 設定、批次到期警示天數
-const ACCT_APPDATA_KEYS = ['systemCurrency', 'purchaseCurrencies', 'purchaseExpenseNames', 'accountingEmails', 'sellPriceBasis', 'sellWarnMargin', 'batchDefaultMargin', 'batchExpiryWarnDays'];
+const ACCT_APPDATA_KEYS = ['systemCurrency', 'purchaseCurrencies', 'purchaseExpenseNames', 'accountingEmails', 'sellPriceBasis', 'sellWarnMargin', 'batchDefaultMargin', 'batchExpiryWarnDays', 'docEmailTemplate'];
 async function acctAppDataExport(){
   const out = {};
   for(const k of ACCT_APPDATA_KEYS){

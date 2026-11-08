@@ -1512,7 +1512,6 @@ body.no-cost-view .cost-col{display:none !important;}
               <option value="" data-i18n="optSelectOutFlowType">— 請選擇 —</option>
               <option value="new" data-i18n="optDeliveryNew">新增</option>
               <option value="load" data-i18n="optDeliveryLoad">載入</option>
-              <option value="view" data-i18n="optDeliveryView">觀看紀錄</option>
             </select>
           </div>
           <div class="field" id="txDeliveryNoteSelectWrap" style="display:none;">
@@ -1526,6 +1525,13 @@ body.no-cost-view .cost-col{display:none !important;}
       <div id="txOutFlowTypeRow" style="display:none;margin:0;">
         <div style="display:flex;gap:28px;align-items:flex-start;flex-wrap:wrap;">
           <div class="field">
+            <label data-i18n="lblOutKind">出貨種類</label>
+            <select id="txOutKind" onchange="setTxOutKind(this.value)">
+              <option value="order" data-i18n="optOutKindOrder">一般訂單</option>
+              <option value="nonsales" data-i18n="optOutKindNonSales">非銷售出庫單</option>
+            </select>
+          </div>
+          <div class="field" id="txOutFlowTypeField">
             <label data-i18n="lblOutFlowType">出貨類型</label>
             <select id="txOutFlowType" onchange="setTxOutFlowType(this.value)">
               <option value="" data-i18n="optSelectOutFlowType">— 請選擇 —</option>
@@ -1543,29 +1549,6 @@ body.no-cost-view .cost-col{display:none !important;}
         </div>
       </div>
       </div>
-      <div id="txDeliveryViewSection" class="section" style="display:none;margin-top:16px;">
-        <p style="font-size:12.5px;color:var(--ink-soft);margin:0 0 12px;" data-i18n="deliveryNoteLogDesc">
-          列出所有 Delivery Note,依日期排序。列印過的顯示「已完成」,還沒列印的顯示「待處理」。
-        </p>
-        <div class="filter-row">
-          <div class="field">
-            <label data-i18n="lblFromDate">從日期</label>
-            <input type="date" id="deliveryLogDateFrom" onchange="renderDeliveryNoteLog()" />
-          </div>
-          <div class="field">
-            <label data-i18n="lblToDate">到日期</label>
-            <input type="date" id="deliveryLogDateTo" onchange="renderDeliveryNoteLog()" />
-          </div>
-          <div class="field">
-            <label data-i18n="lblPartyGeneric">對象</label>
-            <select id="deliveryLogPartyFilter" onchange="renderDeliveryNoteLog()">
-              <option value="" data-i18n="logPartyAll">全部對象</option>
-            </select>
-          </div>
-          <button class="btn ghost" onclick="clearDeliveryLogFilters()" data-i18n="btnClearFilter">清除篩選</button>
-        </div>
-        <div id="deliveryNoteLogTable"><div class="empty-note" data-i18n="noRecordsYet">尚無紀錄</div></div>
-      </div>
       <div id="txMainFormArea">
       <div class="form-grid" id="txMainFormGrid" style="grid-template-columns:1fr 1fr 1.4fr;">
         <div class="field">
@@ -1577,6 +1560,7 @@ body.no-cost-view .cost-col{display:none !important;}
           <select id="txPartyHistorySelect" style="display:none;" onchange="onTxPartyHistorySelectChange(this.value)"></select>
           <input id="txParty" type="text" placeholder="例如:大盤商 A" data-i18n-placeholder="partyPlaceholderIn" />
           <select id="txPartySelect" style="display:none;" onchange="if(typeof renderTxBatchList === 'function') renderTxBatchList()"></select>
+          <div id="txPartyPicker" style="display:none;"></div>
           <span id="txPartyEditLink" class="del-link" style="display:none;position:absolute;left:0;top:100%;margin-top:3px;font-size:12px;white-space:nowrap;" onclick="partyEditFromOrder(this.dataset.pid)" data-i18n="linkEditParty">✎ 編輯出貨方</span>
         </div>
         <div class="field" id="txInvoiceFieldWrap" style="display:none;">
@@ -1588,6 +1572,16 @@ body.no-cost-view .cost-col{display:none !important;}
           <select id="txAdjReason" onchange="onAdjReasonChange()"></select>
           <input id="txAdjReasonOther" type="text" style="display:none;margin-top:6px;" placeholder="請輸入原因" data-i18n-placeholder="adjReasonOtherPh" />
           <div id="txAdjReasonHint" style="font-size:11.5px;color:var(--ink-soft);margin-top:4px;"></div>
+          <label id="txAdjSlipWrap" style="display:none;margin-top:8px;font-size:13px;cursor:pointer;"><input type="checkbox" id="txAdjSlip" onchange="nsUpdateAdjSlipUi()" style="width:auto;margin-right:6px;" /><span data-i18n="adjNeedSlipLabel">這批需要列印領貨單</span></label>
+        </div>
+        <div class="field" id="txNsRecipientWrap" style="display:none;">
+          <label data-i18n="nsRecipientLabel">領貨人(選填)</label>
+          <input id="txNsRecipient" type="text" placeholder="例如:Amy" data-i18n-placeholder="nsRecipientPh" />
+        </div>
+        <div class="field" id="txDnRefWrap" style="display:none;position:relative;">
+          <label data-i18n="lblDnRef">關聯單據(必填)</label>
+          <input id="txDnRef" type="text" autocomplete="off" placeholder="搜尋已完成訂單號或非銷售出庫單號" data-i18n-placeholder="dnRefPh" oninput="dnRefSearch()" onfocus="dnRefSearch()" />
+          <div id="txDnRefList" style="display:none;position:absolute;left:0;right:0;top:100%;z-index:30;background:var(--bg,#fff);border:1px solid var(--line);max-height:220px;overflow:auto;box-shadow:0 4px 12px rgba(0,0,0,.12);"></div>
         </div>
         <div class="field">
           <label id="txNoteLabel" data-i18n="txNoteSharedLabel">備註(選填)</label>
@@ -2348,6 +2342,14 @@ body.no-cost-view .cost-col{display:none !important;}
           <div id="accountingEmailList" style="display:flex;flex-direction:column;gap:8px;margin-bottom:10px;"></div>
           <button class="btn ghost" onclick="addAccountingEmailRow()" data-i18n="btnAddEmail">+ 新增地址</button>
         </div>
+        <div class="settings-card" id="docEmailCard">
+          <div class="section-title" data-i18n="secDocEmail">Invoice / Credit Note Email 預設內容</div>
+          <p style="font-size:11.5px;color:var(--ink-soft);margin:0 0 12px;" data-i18n="docEmailHint">在 Invoice 清單 / Credit Note 清單用 ✉ 寄送時,預設帶入的主旨與內文。</p>
+          <div class="field" style="margin-bottom:8px;"><label data-i18n="docEmailSubjectLbl">主旨</label><input id="docEmailSubject" type="text" onchange="deSaveTemplate()" /></div>
+          <div class="field" style="margin-bottom:8px;"><label data-i18n="docEmailBodyLbl">內文</label><textarea id="docEmailBody" rows="8" style="width:100%;box-sizing:border-box;" onchange="deSaveTemplate()"></textarea></div>
+          <button class="btn ghost" onclick="deResetTemplate()" data-i18n="docEmailReset">還原預設</button>
+          <div id="docEmailMsg" class="msg"></div>
+        </div>
         <div class="settings-card" id="invoiceSettingsCard">
           <div class="section-title" data-i18n="secInvoiceFormat">Invoice 格式</div>
           <p style="font-size:12.5px;color:var(--ink-soft);margin:0 0 12px;" data-i18n="invoiceFormatDesc">設定 Invoice 左上角顯示的公司資料,以及 Bank Transfer 付款方式下面顯示的銀行資料。公司名稱、地址和 ABN 為必填。</p>
@@ -2440,6 +2442,8 @@ body.no-cost-view .cost-col{display:none !important;}
         <option value="subtab-log-completed" data-i18n="subtabCompletedOrders">已完成訂單</option>
         <option value="subtab-log-forecast" data-i18n="subtabLogForecast">進貨預估紀錄</option>
         <option value="subtab-log-tx" data-i18n="subtabLogTx" selected>進出貨紀錄</option>
+        <option value="subtab-log-delivery" data-i18n="subtabLogDelivery">Delivery Note 紀錄</option>
+        <option value="subtab-log-nonsales" data-i18n="subtabLogNonSales">非銷售出庫單</option>
         <option value="subtab-log-convert" data-i18n="subtabLogConvert">切換紀錄</option>
         <option value="subtab-log-location" data-i18n="subtabLogLocation">庫存分布紀錄</option>
         <option value="subtab-log-exports" data-i18n="subtabLogExports">匯出紀錄</option>
@@ -2569,6 +2573,52 @@ body.no-cost-view .cost-col{display:none !important;}
         <div class="section-title" style="margin:0 0 6px;" data-i18n="subtabLogExports">匯出紀錄</div>
         <p style="font-size:12.5px;color:var(--ink-soft);margin:0 0 12px;" data-i18n="exportLogDesc">這裡列出匯出報表時選擇「匯出並寄出 email」的紀錄:標題、附加的匯出檔案,以及寄出的時間。</p>
         <div id="exportLogContainer"></div>
+      </div>
+    </div>
+
+    <div id="subtab-log-delivery" class="subtab-content">
+      <div class="section">
+        <div class="toolbar">
+          <div class="section-title" style="margin:0;"><span data-i18n="subtabLogDelivery">Delivery Note 紀錄</span></div>
+        </div>
+        <p style="font-size:12.5px;color:var(--ink-soft);margin:0 0 12px;" data-i18n="deliveryNoteLogDesc">
+          列出所有 Delivery Note,依日期排序。列印過的顯示「已完成」,還沒列印的顯示「待處理」。
+        </p>
+        <div class="filter-row">
+          <div class="field">
+            <label data-i18n="lblFromDate">從日期</label>
+            <input type="date" id="deliveryLogDateFrom" onchange="renderDeliveryNoteLog()" />
+          </div>
+          <div class="field">
+            <label data-i18n="lblToDate">到日期</label>
+            <input type="date" id="deliveryLogDateTo" onchange="renderDeliveryNoteLog()" />
+          </div>
+          <div class="field">
+            <label data-i18n="lblPartyGeneric">對象</label>
+            <select id="deliveryLogPartyFilter" onchange="renderDeliveryNoteLog()">
+              <option value="" data-i18n="logPartyAll">全部對象</option>
+            </select>
+          </div>
+          <button class="btn ghost" onclick="clearDeliveryLogFilters()" data-i18n="btnClearFilter">清除篩選</button>
+        </div>
+        <div id="deliveryNoteLogTable"><div class="empty-note" data-i18n="noRecordsYet">尚無紀錄</div></div>
+      </div>
+    </div>
+
+    <div id="subtab-log-nonsales" class="subtab-content">
+      <div class="section">
+        <div class="toolbar">
+          <div class="section-title" style="margin:0;"><span data-i18n="subtabLogNonSales">非銷售出庫單</span></div>
+        </div>
+        <p style="font-size:12.5px;color:var(--ink-soft);margin:0 0 12px;" data-i18n="nsLogDesc">列出所有非銷售出庫單(樣品、內部使用等),可重新列印領貨單。</p>
+        <div class="filter-row">
+          <div class="field"><label data-i18n="lblFromDate">從日期</label><input type="date" id="nsLogDateFrom" onchange="renderNonSalesSlipLog()" /></div>
+          <div class="field"><label data-i18n="lblToDate">到日期</label><input type="date" id="nsLogDateTo" onchange="renderNonSalesSlipLog()" /></div>
+          <div class="field"><label data-i18n="adjReasonLabel">原因</label><select id="nsLogReasonFilter" onchange="renderNonSalesSlipLog()"></select></div>
+          <div class="field"><label data-i18n="nsSearchLabel">搜尋</label><input type="text" id="nsLogSearch" oninput="renderNonSalesSlipLog()" /></div>
+          <button class="btn ghost" onclick="nsClearLogFilters()" data-i18n="btnClearFilter">清除篩選</button>
+        </div>
+        <div id="nonSalesSlipLogTable"></div>
       </div>
     </div>
 
@@ -3156,7 +3206,9 @@ body.no-cost-view .cost-col{display:none !important;}
         <option value="weekly" data-i18n="freqWeekly">Weekly(每週)</option>
         <option value="fortnight" data-i18n="freqFortnight">Fortnight(兩週)</option>
         <option value="monthly" data-i18n="freqMonthly">Monthly(每月)</option>
+        <option value="none" data-i18n="freqNone">無固定頻率</option>
       </select>
+      <div style="font-size:11.5px;color:var(--ink-soft);margin-top:3px;" data-i18n="freqNoneHint">選「無固定頻率」的出貨方,訂貨頁面不會顯示平均使用量。</div>
     </div>
     <div class="field-block">
       <label>Discount</label>
@@ -3369,6 +3421,9 @@ body.no-cost-view .cost-col{display:none !important;}
 <script src="account-requests.js"></script>
 <script src="quick-lists.js"></script>
 <script src="stock-location.js"></script>
+<script src="non-sales-slip.js"></script>
+<script src="tx-party-picker.js"></script>
+<script src="doc-email.js"></script>
 <script src="logs.js"></script>
 <script src="stock-overview.js"></script>
 <script src="product-master.js"></script>
