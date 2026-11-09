@@ -1421,6 +1421,7 @@ async function printOrderDocument(orderId, opts){
     printWindow.focus();
     printWindow.print();
   };
+  return true;   // 真的有印(取消位置選擇、視窗被擋都不會到這裡)
 }
 
 // ============================================================
@@ -1469,6 +1470,8 @@ async function pendingBatchPrint(){
   for(const id of ids){
     const order = orders.find(o => o.id === id);
     if(!order) continue;
+    const html = await printOrderDocument(id, { includeCheckColumn: true, headerLabel: 'Picking Slip', returnHtml: true });
+    if(!html) continue;   // 中途取消位置選擇:這張不印,狀態也不變
     if(orderStatus(order) === 'pending'){
       const oldStatus = order.status;
       order.status = 'processing';
@@ -1476,8 +1479,6 @@ async function pendingBatchPrint(){
       catch(e){ console.error('更新訂單狀態失敗', e); order.status = oldStatus; continue; }
       logInventoryAction('order_edit', `Order ${order.orderNo || id} - status changed to Processing (picking slip printed)`, order.orderNo);
     }
-    const html = await printOrderDocument(id, { includeCheckColumn: true, headerLabel: 'Picking Slip', returnHtml: true });
-    if(!html) continue;   // 中途取消位置選擇:這張不印
     if(!styleTag){ const m = html.match(/<style>[\s\S]*?<\/style>/); styleTag = m ? m[0] : ''; }
     const b = html.match(/<body>([\s\S]*)<\/body>/);
     if(b) bodies.push(b[1]);
@@ -1528,6 +1529,9 @@ ${bodies.map(b => `<section class="pb-sheet">${b}</section>`).join('')}
 // 一次不會重複轉換、也不會重複記錄。
 async function printPendingOrder(orderId){
   const order = orders.find(o => o.id === orderId);
+  // 先印(中途取消位置選擇就不印、狀態也不變),印成功之後才把「待處理」改成「處理中」
+  const printed = await printOrderDocument(orderId, { includeCheckColumn: true, headerLabel: 'Picking Slip' });
+  if(!printed) return;
   if(order && orderStatus(order) === 'pending'){
     const oldStatus = order.status;
     order.status = 'processing';
@@ -1542,7 +1546,6 @@ async function printPendingOrder(orderId){
     logInventoryAction('order_edit', `Order ${order.orderNo || orderId} - status changed to Processing (picking slip printed)`, order.orderNo);
     renderAll();
   }
-  printOrderDocument(orderId, { includeCheckColumn: true, headerLabel: 'Picking Slip' });
 }
 
 function printCompletedOrder(orderId){
