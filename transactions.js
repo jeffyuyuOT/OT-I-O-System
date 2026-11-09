@@ -410,7 +410,7 @@ function renderTxSubmitArea(){
     if(registerDeliveryFlowType === 'new' || registerDeliveryFlowType === 'load'){
       area.innerHTML = `
         <button class="btn" onclick="saveDeliveryNote()">${t('btnSave')}</button>
-        <button class="btn ghost" onclick="printDeliveryNote()">${t('btnPrint')}</button>
+        <button class="btn" onclick="printDeliveryNote()">${t('dnConfirmPrint')}</button>
       `;
     } else {
       area.innerHTML = '';
@@ -1958,43 +1958,34 @@ async function printDeliveryNote(){
   const draft = buildDeliveryNoteDraftFromForm();
   if(!draft.ok){ msg.className = 'msg error'; msg.textContent = `⚠ ${draft.error}`; if(!document.getElementById('txDate').value) showInfoModal(draft.error); return; }
   const data = draft.data;
-  const qtyErr = dnPrintQtyCheck(data);
+  const qtyErr = dnPrintQtyCheck(data, registerLoadedDeliveryNoteId);
   if(qtyErr){ msg.className = 'msg error'; msg.style.whiteSpace = 'pre-line'; msg.textContent = `⚠ ${qtyErr}`; return; }
 
-  const html = dnPrintHtml(data);
-  if(!dnOpenPrintWindow(html)) return;
-
-  // 「載入」模式下列印,代表這張 Delivery Note 已經真的送出去、完成任務了——之前是直接從資料庫
-  // 刪除,現在改成標記 status:'completed' 並保留下來,這樣「歷史紀錄 → Delivery Note紀錄」才能
-  // 顯示這筆的完整歷史(已完成/待處理)。「載入」的下拉選單只會列出還沒完成的 Note(見
-  // setTxDeliveryFlowType),所以這裡標記完成後不會再被找出來繼續編輯。「新增」模式下列印
-  // 本來就沒有存進資料庫過,這裡的判斷式(registerLoadedDeliveryNoteId 有值)天然就只會在
-  // 「載入」模式下觸發,「新增」模式列印維持原樣、完全不會留下任何紀錄。
-  if(registerLoadedDeliveryNoteId){
-    const noteId = registerLoadedDeliveryNoteId;
-    const existingNote = deliveryNotes.find(n => n.id === noteId);
-    const prevSnapshot = existingNote ? { ...existingNote } : null;
-    try{
-      if(existingNote){
-        Object.assign(existingNote, data); // 存進去的是實際列印出來的最新內容,不是載入當下的舊資料
-        dnAssignNo(existingNote);
-        existingNote.status = 'completed';
-        existingNote.completedAt = new Date().toISOString();
-        await upsertDeliveryNotes([existingNote]);
-      }
-      logInventoryAction('delivery_note', `Printed Delivery Note (${data.date}, ${data.note}) - marked as completed`, null);
-    } catch(e){
-      console.error('標記 Delivery Note 完成失敗', e);
-      if(existingNote && prevSnapshot) Object.assign(existingNote, prevSnapshot); // 存失敗就整份退回原本的樣子
-      showInfoModal(t('errDeliveryNotePrintedButNotRemoved'));
-    }
-    registerDeliveryFlowType = '';
-    registerLoadedDeliveryNoteId = null;
-    txBatchItems = []; txNsItems = [];
-    const flowSel = document.getElementById('txDeliveryFlowType');
-    if(flowSel) flowSel.value = '';
-    setTxDeliveryFlowType('');
+  // 「確認並列印」:列印的同時把這張 Delivery Note 存成已完成(status:'completed'),之後才算「已送」。
+  // 載入模式 = 更新原本那張;新增模式 = 直接建立一張已完成的新紀錄。
+  const noteId = registerLoadedDeliveryNoteId;
+  const existing = noteId ? deliveryNotes.find(n => n.id === noteId) : null;
+  const prev = existing ? { ...existing } : null;
+  const note = existing ? Object.assign(existing, data) : { id: genId(), createdAt: new Date().toISOString(), ...data };
+  dnAssignNo(note);
+  if(!dnOpenPrintWindow(dnPrintHtml(note))){ if(existing && prev) Object.assign(existing, prev); return; }
+  note.status = 'completed';
+  note.completedAt = new Date().toISOString();
+  try{
+    await upsertDeliveryNotes([note]);
+    if(!existing) deliveryNotes.push(note);
+    logInventoryAction('delivery_note', `Printed Delivery Note ${note.no} (${data.date}, ${data.note}) - marked as completed`, null);
+  } catch(e){
+    console.error('標記 Delivery Note 完成失敗', e);
+    if(existing && prev) Object.assign(existing, prev);
+    showInfoModal(t('errDeliveryNotePrintedButNotRemoved'));
   }
+  registerDeliveryFlowType = '';
+  registerLoadedDeliveryNoteId = null;
+  txBatchItems = []; txNsItems = [];
+  const flowSel = document.getElementById('txDeliveryFlowType');
+  if(flowSel) flowSel.value = '';
+  setTxDeliveryFlowType('');
 }
 
 async function submitTxBatchSimple(date, msg){

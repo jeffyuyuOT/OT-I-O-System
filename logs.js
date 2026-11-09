@@ -278,13 +278,29 @@ function dnLogView(id){
     <div class="section-title" style="margin-top:0;">${t('dnLogViewTitle')}${n.no ? ' · ' + esc(n.no) : ''}</div>
     <div style="font-size:13px;line-height:1.7;margin-bottom:8px;">${esc(n.date || '')} · ${n.partyName ? esc(n.partyName) : t('partyUnspecified')}${n.ref && n.ref.no ? ` · ${esc(n.ref.no)}` : ''}${n.note ? `<br>${esc(n.note)}` : ''}</div>
     <div style="overflow-x:auto;"><table class="stock-table"><thead><tr><th>SKU</th><th>${t('lblProduct')}</th><th class="num">${t('colQty') || 'Qty'}</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>
-    <div class="modal-actions"><button class="btn ghost" onclick="dnLogPrint('${n.id}')">${t('dnLogPrint')}</button><button class="btn ghost" onclick="document.getElementById('dnLogViewOverlay').remove()">${t('btnClose') || 'Close'}</button></div>
+    <div class="modal-actions"><button class="btn ${n.status === 'completed' ? 'ghost' : ''}" onclick="dnLogPrint('${n.id}')">${n.status === 'completed' ? t('dnLogPrint') : t('dnConfirmPrint')}</button><button class="btn ghost" onclick="document.getElementById('dnLogViewOverlay').remove()">${t('btnClose') || 'Close'}</button></div>
   </div>`;
   document.body.appendChild(ov);
 }
-function dnLogPrint(id){
+async function dnLogPrint(id){
   const n = deliveryNotes.find(x => x.id === id); if(!n) return;
-  dnOpenPrintWindow(dnPrintHtml(n));
+  if(n.status === 'completed'){ dnOpenPrintWindow(dnPrintHtml(n)); return; }   // 已完成:單純再印一次
+  // 待處理:確認並列印 = 檢查數量 → 列印 → 標記已完成
+  const err = dnPrintQtyCheck(n, n.id);
+  if(err){ showInfoModal(err); return; }
+  if(!dnOpenPrintWindow(dnPrintHtml(n))) return;
+  const prev = { ...n };
+  n.status = 'completed'; n.completedAt = new Date().toISOString();
+  try{
+    await upsertDeliveryNotes([n]);
+    logInventoryAction('delivery_note', `Printed Delivery Note ${n.no || ''} (${n.date}, ${n.note}) - marked as completed`, null);
+  }catch(e){
+    console.error('標記 Delivery Note 完成失敗', e);
+    Object.assign(n, prev);
+    showInfoModal(t('errDeliveryNotePrintedButNotRemoved'));
+  }
+  const ov = document.getElementById('dnLogViewOverlay'); if(ov) ov.remove();
+  renderDeliveryNoteLog();
 }
 async function dnLogEdit(id){
   await ensureDeliveryNotesLoaded();

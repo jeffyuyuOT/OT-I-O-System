@@ -368,10 +368,10 @@ function dnRemainExport(){
 }
 
 // 列印 Delivery Note 前檢查:每個商品的數量不能超過「關聯單據 − 已完成 Delivery Note」的剩餘。超過就擋下來,並列出其他待處理的 Note
-function dnPrintQtyCheck(data){
+function dnPrintQtyCheck(data, selfId){
   if(!data.ref) return '';
   const src = dnRefSourceOf(data.ref); if(!src) return '';
-  const others = dnLinkedNotes(data.ref.id).filter(n => n.status !== 'completed' && n.id !== registerLoadedDeliveryNoteId);
+  const others = dnLinkedNotes(data.ref.id).filter(n => n.status !== 'completed' && n.id !== selfId);
   const bad = [];
   const want = {}, wantNs = {};
   (data.items || []).forEach(it => { want[it.productId] = (want[it.productId] || 0) + it.qty; });
