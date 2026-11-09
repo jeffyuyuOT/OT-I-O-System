@@ -152,6 +152,19 @@ async function stmtConfirmNew(){
   await stmtOpenLog();
 }
 function stmtFileName(d){ return `Statement_${(d.stNo || String(d.name || '').replace(/[^\w]+/g, '_'))}_${d.asOf}.pdf`; }
+async function stmtPdfBlob(snap){
+  const holder = document.createElement('div');
+  holder.style.cssText = 'position:fixed;left:-10000px;top:0;width:794px;background:#fff;';
+  holder.innerHTML = stmtDocHtml(snap);
+  document.body.appendChild(holder);
+  try{
+    return await html2pdf().set({
+      margin: 0, image: { type: 'jpeg', quality: 0.98 },
+      html2canvas: { scale: 2, useCORS: true }, jsPDF: { unit: 'pt', format: 'a4', orientation: 'portrait' },
+      pagebreak: { mode: ['css', 'legacy'], avoid: ['tr'] }
+    }).from(holder.firstElementChild).outputPdf('blob');
+  } finally { holder.remove(); }
+}
 async function stmtSavePdf(){
   if(!stmtData) return;
   const msg = document.getElementById('stmtModalMsg');
@@ -459,9 +472,10 @@ async function stmtOpenLog(){
   if(lb) lb.className = 'btn'; if(nb) nb.className = 'btn ghost';
   out.innerHTML = `<div class="empty-note">${t('batchLoading')}</div>`;
   try{
-    const { data, error } = await sb.from('statements').select('id,st_no,customer,as_of,total_due,created_by,created_at').order('created_at', { ascending: false }).limit(1000);
+    const { data, error } = await sb.from('statements').select('id,st_no,customer,party_id,as_of,total_due,created_by,created_at').order('created_at', { ascending: false }).limit(1000);
     if(error) throw error;
     stmtLogRows = data || [];
+    try{ if(typeof deLoadSent === 'function') await deLoadSent(true); }catch(e){}
     stmtRenderLog('');
   }catch(e){
     console.error('讀取 Statement 紀錄失敗', e);
@@ -473,8 +487,8 @@ function stmtRenderLog(q){
   const k = (q || '').trim().toLowerCase();
   const rows = stmtLogRows.filter(r => !k || [r.st_no, r.customer].join(' ').toLowerCase().includes(k));
   out.innerHTML = `<div class="field" style="max-width:320px;"><input type="text" id="stmtLogQ" value="${invEsc(q || '')}" placeholder="${invEsc(t('stmtLogSearch'))}" oninput="stmtRenderLog(this.value);const i=document.getElementById('stmtLogQ');i.focus();i.setSelectionRange(i.value.length,i.value.length)" /></div>
-    ${rows.length ? `<div style="overflow-x:auto;"><table class="stock-table"><thead><tr><th>Statement No.</th><th>${t('icFieldParty')}</th><th>${t('stmtAsOf')}</th><th class="num">${t('stmtAmountDue')}</th><th>${t('invDtCreated')}</th></tr></thead><tbody>
-      ${rows.map(r => `<tr style="cursor:pointer;" onclick="stmtViewSaved('${invEsc(r.id)}')"><td><b>${invEsc(r.st_no)}</b></td><td>${invEsc(r.customer || '')}</td><td>${invEsc(invIsoToDmy(r.as_of))}</td><td class="num">${invMoney2(r.total_due)}</td><td>${invEsc(r.created_by || '')}${r.created_at ? ' · ' + invEsc(invIsoToDmy(String(r.created_at).slice(0, 10))) : ''}</td></tr>`).join('')}
+    ${rows.length ? `<div style="overflow-x:auto;"><table class="stock-table"><thead><tr><th></th><th>Statement No.</th><th>${t('icFieldParty')}</th><th>${t('stmtAsOf')}</th><th class="num">${t('stmtAmountDue')}</th><th>${t('invDtCreated')}</th></tr></thead><tbody>
+      ${rows.map(r => { const v = `style="cursor:pointer;" onclick="stmtViewSaved('${invEsc(r.id)}')"`; return `<tr>${typeof deIconCell === 'function' ? deIconCell('statement', r.id) : '<td></td>'}<td ${v}><b>${invEsc(r.st_no)}</b></td><td ${v}>${invEsc(r.customer || '')}</td><td ${v}>${invEsc(invIsoToDmy(r.as_of))}</td><td class="num" ${v}>${invMoney2(r.total_due)}</td><td ${v}>${invEsc(r.created_by || '')}${r.created_at ? ' · ' + invEsc(invIsoToDmy(String(r.created_at).slice(0, 10))) : ''}</td></tr>`; }).join('')}
     </tbody></table></div>` : `<div class="empty-note">${t('stmtLogEmpty')}</div>`}`;
 }
 async function stmtViewSaved(id){

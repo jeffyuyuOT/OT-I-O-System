@@ -1,7 +1,7 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 
-// Orange Tea AU 庫存系統:把 Invoice / Credit Note 的 PDF 用 email 寄給出貨方(客戶)。
+// Orange Tea AU 庫存系統:把 Invoice / Credit Note / Statement 的 PDF 用 email 寄給出貨方(客戶)。
 //
 // 前端(Invoice 清單 / Credit Note 清單 最左邊的 ✉ 圖示)用 sb.functions.invoke('send-document-email', ...) 呼叫。
 // 這支函式用 service role 做:
@@ -59,7 +59,7 @@ Deno.serve(async (req) => {
     if (!profile || !["admin", "accountant"].includes(profile.role)) return json({ error: "forbidden" }, 403);
 
     const b = await req.json();
-    const docType = b.docType === "credit_note" ? "credit_note" : "invoice";
+    const docType = b.docType === "credit_note" ? "credit_note" : b.docType === "statement" ? "statement" : "invoice";
     const to = cleanList(b.to), cc = cleanList(b.cc);
     const sender = String(b.senderEmail || "").trim();
     if (!to.length || to.some((e) => !EMAIL_RE.test(e))) return json({ error: "invalid_to" }, 400);
@@ -71,7 +71,7 @@ Deno.serve(async (req) => {
     const domain = sender.split("@")[1].toLowerCase();
     const fromAddr = VERIFIED_DOMAINS.includes(domain) ? sender : FALLBACK_FROM;
     const from = `${name} <${fromAddr}>`;
-    const subject = String(b.subject || "").replace(/[\r\n]+/g, " ").slice(0, 300) || (docType === "credit_note" ? "Credit Note" : "Invoice");
+    const subject = String(b.subject || "").replace(/[\r\n]+/g, " ").slice(0, 300) || (docType === "credit_note" ? "Credit Note" : docType === "statement" ? "Statement" : "Invoice");
     const text = String(b.body || "");
     const html = `<div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:1.5;color:#222;">${esc(text).replace(/\n/g, "<br>")}</div>`;
 
