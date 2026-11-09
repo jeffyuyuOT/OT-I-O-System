@@ -73,6 +73,8 @@ const LOOKOUT_CARDS = [
     go: function(){ lookoutOpenNonSalesChoice(); } },
   { id: 'export', icon: '📤', titleKey: 'lookoutExport', descKey: 'lookoutExportDesc', tab: ['tab-overview', 'tab-warehouse-admin'],
     go: function(){ lookoutOpenExportChoice(); } },
+  { id: 'item-search', icon: '🔎', titleKey: 'itemSearchTitle', descKey: 'itemSearchDesc', tab: ['tab-overview', 'tab-warehouse-ops', 'tab-log'],
+    go: function(){ itemSearchOpen(); } },
   { id: 'tx-log', icon: '🧾', titleKey: 'lookoutTxLog', descKey: 'lookoutTxLogDesc', tab: 'tab-log',
     go: function(){
       switchTab('tab-log');

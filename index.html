@@ -1198,8 +1198,9 @@ body.no-cost-view .cost-col{display:none !important;}
     <div id="tab-lookout" class="tab-content">
       <div class="section">
         <div class="section-title" data-i18n="tabLookout">快捷</div>
-        <p style="font-size:12.5px;color:var(--ink-soft);margin:0 0 12px;" data-i18n="lookoutDesc">常用功能的快捷入口,點一下直接跳到對應的畫面。</p>
+        <p id="lookoutDescP" style="font-size:12.5px;color:var(--ink-soft);margin:0 0 12px;" data-i18n="lookoutDesc">常用功能的快捷入口,點一下直接跳到對應的畫面。</p>
         <div id="lookoutRoot" class="lookout-grid"></div>
+        <div id="itemSearchRoot" style="display:none;"></div>
       </div>
     </div>
 
@@ -3432,6 +3433,7 @@ body.no-cost-view .cost-col{display:none !important;}
 <script src="auth.js"></script>
 <script src="nav.js"></script>
 <script src="lookout.js"></script>
+<script src="item-search.js"></script>
 <script src="settings.js"></script>
 <script src="purchases.js"></script>
 <script src="products.js"></script>

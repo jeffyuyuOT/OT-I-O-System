@@ -7,7 +7,7 @@
 //   · 需要先執行 sql/document_emails.sql 並部署 send-document-email
 // ============================================================
 Object.assign(I18N.zh, {
-  deTipMail: 'Email 給出貨方', deTitleInv: '寄送 Invoice', deTitleCn: '寄送 Credit Note',
+  deTipMail: 'Email 給出貨方', deTitleInv: '寄送 Invoice', deTitleCn: '寄送 Credit Note', deTitleSt: '寄送 Statement',
   deTabNew: '新增 email', deTabLog: '寄送紀錄', deTo: '收件者', deCc: '副本(CC,選填)', deFrom: '寄件者(會計 Email)', deSubject: '主旨', deBody: '內容',
   deAttach: '附件', deSend: '寄出', deClose: '關閉', deSending: '寄送中,請稍候…',
   deNoParty: '這張單據沒有對應的出貨方 email,請直接填寫收件者(也可以到「出貨方管理」補上 email)。',
@@ -20,7 +20,7 @@ Object.assign(I18N.zh, {
   docEmailSubjectLbl: '主旨', docEmailBodyLbl: '內文', docEmailSaved: '✓ 已儲存', docEmailReset: '還原預設'
 });
 Object.assign(I18N.en, {
-  deTipMail: 'Email to customer', deTitleInv: 'Email Invoice', deTitleCn: 'Email Credit Note',
+  deTipMail: 'Email to customer', deTitleInv: 'Email Invoice', deTitleCn: 'Email Credit Note', deTitleSt: 'Email Statement',
   deTabNew: 'New email', deTabLog: 'Sent log', deTo: 'To', deCc: 'CC (optional)', deFrom: 'From (accounting email)', deSubject: 'Subject', deBody: 'Message',
   deAttach: 'Attachment', deSend: 'Send', deClose: 'Close', deSending: 'Sending…',
   deNoParty: 'This document has no customer email on file. Enter the recipient, or add an email in Parties.',
@@ -36,6 +36,10 @@ Object.assign(I18N.en, {
 const DE_DEFAULT_TEMPLATE = {
   subject: '{docType} {no} from Orange Tea Australia',
   body: 'Hi {customer},\n\nPlease find attached {docType} {no} dated {date} (total {total} inc. GST).\n\nIf you have any questions, just reply to this email.\n\nKind regards,\n{sender}'
+};
+const DE_STATEMENT_TEMPLATE = {
+  subject: 'Statement {no} from Orange Tea Australia',
+  body: 'Hi {customer},\n\nPlease find attached Statement {no} as at {date} (amount due {total}).\n\nPlease quote the Statement number {no} as the payment reference.\n\nIf you have any questions, just reply to this email.\n\nKind regards,\n{sender}'
 };
 let docEmailTemplate = Object.assign({}, DE_DEFAULT_TEMPLATE);
 let deTemplateLoaded = false;
@@ -80,6 +84,7 @@ function deIconCell(type, id){
 let deCtx = null;   // { type, id, row, tab, sending }
 function deClose(){ const o = document.getElementById('deOverlay'); if(o) o.remove(); deCtx = null; }
 function deRowOf(type, id){
+  if(type === 'statement') return (typeof stmtLogRows !== 'undefined' && stmtLogRows || []).find(r => r.id === id);
   if(type === 'credit_note') return (typeof icCnRows !== 'undefined' && icCnRows || []).find(r => r.id === id);
   return (typeof invList !== 'undefined' ? invList : []).find(r => r.id === id);
 }
@@ -93,15 +98,17 @@ async function deOpen(type, id){
   document.body.appendChild(ov);
   deRender();
 }
-function deDocNo(){ const r = deCtx.row; return deCtx.type === 'credit_note' ? r.cn_no : r.invoice_no; }
+function deDocNo(){ const r = deCtx.row; return deCtx.type === 'credit_note' ? r.cn_no : deCtx.type === 'statement' ? r.st_no : r.invoice_no; }
+function dePrefix(){ return deCtx.type === 'invoice' ? 'INV' : ''; }
 function deTotalText(){
   const r = deCtx.row;
   if(deCtx.type === 'credit_note') return '(' + invMoney2(r.total) + ')';
+  if(deCtx.type === 'statement') return '$' + invMoney2(r.total_due);
   try{ return invMoney2(invRowInfo(r).total); }catch(e){ return invMoney2(r.total); }
 }
 function deVars(){
-  const r = deCtx.row, cn = deCtx.type === 'credit_note';
-  return { docType: cn ? 'Credit Note' : 'Invoice', no: (cn ? '' : 'INV') + deDocNo(), customer: invCustLabel(r) || 'there', date: invIsoToDmy(cn ? r.cn_date : r.invoice_date), total: deTotalText(), sender: deSenderName() };
+  const r = deCtx.row, cn = deCtx.type === 'credit_note', st = deCtx.type === 'statement';
+  return { docType: st ? 'Statement' : cn ? 'Credit Note' : 'Invoice', no: dePrefix() + deDocNo(), customer: invCustLabel(r) || 'there', date: invIsoToDmy(st ? r.as_of : cn ? r.cn_date : r.invoice_date), total: deTotalText(), sender: deSenderName() };
 }
 function deRender(){
   const ov = document.getElementById('deOverlay'); if(!ov || !deCtx) return;
@@ -109,7 +116,7 @@ function deRender(){
   const keep = deCtx.draft || null;
   const tabBtn = (k, l) => `<button class="btn ${tab === k ? '' : 'ghost'}" style="padding:6px 14px;" onclick="deSetTab('${k}')">${invEsc(l)}</button>`;
   ov.innerHTML = `<div class="modal-box" style="max-width:min(620px,96vw);max-height:92vh;overflow:auto;">
-    <div class="section-title" style="margin-top:0;">${invEsc(t(cn ? 'deTitleCn' : 'deTitleInv'))} · ${invEsc((cn ? '' : 'INV') + deDocNo())}</div>
+    <div class="section-title" style="margin-top:0;">${invEsc(t(deCtx.type === 'statement' ? 'deTitleSt' : cn ? 'deTitleCn' : 'deTitleInv'))} · ${invEsc(dePrefix() + deDocNo())}</div>
     <div style="font-size:12.5px;margin:0 0 8px;">${invEsc(invCustLabel(deCtx.row))}</div>
     <div style="display:flex;gap:6px;margin-bottom:10px;">${tabBtn('new', t('deTabNew'))}${tabBtn('log', t('deTabLog'))}</div>
     <div id="deBody"></div></div>`;
@@ -127,7 +134,8 @@ function deReadForm(){
 function deRenderNew(draft){
   const body = document.getElementById('deBody'); if(!body) return;
   const v = deVars(), sp = invPartyOf(deCtx.row), sender = dePrimaryEmail();
-  const d = draft || { to: (sp && sp.email) || '', cc: '', subject: deFill(docEmailTemplate.subject, v), body: deFill(docEmailTemplate.body, v) };
+  const tpl = deCtx.type === 'statement' ? DE_STATEMENT_TEMPLATE : docEmailTemplate;
+  const d = draft || { to: (sp && sp.email) || '', cc: '', subject: deFill(tpl.subject, v), body: deFill(tpl.body, v) };
   const noParty = !draft && !(sp && sp.email);
   body.innerHTML = `
     ${noParty ? `<div class="msg" style="margin-bottom:8px;color:#9a6a00;">${invEsc(t('deNoParty'))}</div>` : ''}
@@ -143,6 +151,7 @@ function deRenderNew(draft){
 }
 function deFileName(){
   const r = deCtx.row, cn = deCtx.type === 'credit_note';
+  if(deCtx.type === 'statement') return `Statement_${r.st_no}_${r.as_of}.pdf`;
   return `${cn ? 'CreditNote' : 'Invoice'}_${deDocNo()}_${String(invCustLabel(r) || '').replace(/[^\w\-]+/g, '_').slice(0, 30)}.pdf`;
 }
 async function deRenderLog(){
@@ -183,17 +192,22 @@ async function deSend(){
   const ctx = deCtx;
   try{
     try{ await loadInvoiceSettings(); }catch(e){}
-    let snap;
-    if(ctx.type === 'credit_note'){
+    let snap, pdfBlob, pdfName;
+    if(ctx.type === 'statement'){
+      const { data, error } = await sb.from('statements').select('st_no,snapshot').eq('id', ctx.id).maybeSingle();
+      if(error || !data) throw error || new Error('not found');
+      snap = data.snapshot; snap.stNo = data.st_no;
+      pdfBlob = await stmtPdfBlob(snap); pdfName = stmtFileName(snap);
+    } else if(ctx.type === 'credit_note'){
       const { data, error } = await sb.from('credit_notes').select('snapshot').eq('id', ctx.id).maybeSingle();
       if(error || !data) throw error || new Error('not found');
       snap = data.snapshot;
     } else snap = await invFetchSnapshot(ctx.id);
-    const pdf = await deBlobToBase64(await invPdfBlobFromSnap(snap));
+    const pdf = await deBlobToBase64(pdfBlob || await invPdfBlobFromSnap(snap));
     const res = await arInvoke('send-document-email', {
-      docType: ctx.type, docId: ctx.id, docNo: (ctx.type === 'credit_note' ? '' : 'INV') + deDocNo(),
+      docType: ctx.type, docId: ctx.id, docNo: dePrefix() + deDocNo(),
       to, cc, subject: f.subject, body: f.body, senderEmail: sender, senderName: deSenderName(),
-      pdfBase64: pdf, pdfFilename: invFileName(snap)
+      pdfBase64: pdf, pdfFilename: pdfName || invFileName(snap)
     });
     if(!res.ok){
       const m = res.message || '';
@@ -205,7 +219,7 @@ async function deSend(){
     deSent[ctx.type + ':' + ctx.id] = (res.data && res.data.sentAt) || new Date().toISOString();
     ctx.sending = false; ctx.draft = null; ctx.tab = 'log';
     if(deCtx === ctx){ deRender(); }
-    try{ if(ctx.type === 'credit_note') icCnRender(); else invRerenderLists(); }catch(e){}
+    try{ if(ctx.type === 'statement') stmtRenderLog(''); else if(ctx.type === 'credit_note') icCnRender(); else invRerenderLists(); }catch(e){}
   }catch(e){
     console.error('寄送 Invoice/Credit Note email 失敗', e);
     ctx.sending = false;
