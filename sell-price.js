@@ -109,9 +109,10 @@ async function spSaveBatchMargin(batchId, raw){
 function spPriceCellHtml(i){
   const total = spTotalUnit(i);
   if(total === null) return '–';
-  return `<span class="batch-link" title="${batchEsc(t('spPriceClickHint'))}" onclick="spShowPricePopup('${i.id}')">${spMoney(total)}</span>`;
+  return `<span class="batch-link" title="${batchEsc(t('spPriceClickHint'))}" onclick="spShowPricePopup('${i.id}','cost')">${spMoney(total)}</span>`;
 }
-function spShowPricePopup(itemId){
+// mode: 'cost' 只看成本組成(Base / 其他支出 / Total);'sell' 只看 Total / Margin / Sell price;不給則全部
+function spShowPricePopup(itemId, mode){
   const i = batchData.items.find(x => x.id === itemId);
   if(!i) return;
   const old = document.getElementById('spPriceOverlay'); if(old) old.remove();
@@ -129,13 +130,13 @@ function spShowPricePopup(itemId){
   ov.innerHTML = `<div class="modal-box" style="max-width:min(420px,92vw);">
     <div class="section-title" style="margin-top:0;">${batchEsc(batchProductName(i.productId))} · ${batchEsc(i.batchNo)}</div>
     <table class="stock-table"><tbody>
-      ${row(t('spBasePrice'), spMoney(base))}
-      ${row(t('spExtraCosts'), extra === null ? '–' : spMoney(extra))}
+      ${mode === 'sell' ? '' : row(t('spBasePrice'), spMoney(base))}
+      ${mode === 'sell' ? '' : row(t('spExtraCosts'), extra === null ? '–' : spMoney(extra))}
       ${row(t('spTotalPrice'), spMoney(total), true)}
-      ${row('Margin', margin === null ? '–' : margin + '%')}
-      ${row('Sell price', spMoney(sellNow), true)}
+      ${mode === 'cost' ? '' : row('Margin', margin === null ? '–' : margin + '%')}
+      ${mode === 'cost' ? '' : row('Sell price', spMoney(sellNow), true)}
     </tbody></table>
-    <p style="font-size:11.5px;color:var(--ink-soft);margin:8px 0 0;">${settingBasis ? t('spPopupNoteSetting') : 'Sell price = Total price × (1 + Margin%)'}</p>
+    ${mode === 'cost' ? '' : `<p style="font-size:11.5px;color:var(--ink-soft);margin:8px 0 0;">${settingBasis ? t('spPopupNoteSetting') : 'Sell price = Total price × (1 + Margin%)'}</p>`}
     ${(i.isOpening && total !== null) ? `<p style="font-size:11.5px;color:var(--warn-dark,#b45309);margin:8px 0 0;">${t('psEstCostInfo')}</p>` : ''}
     <div class="modal-actions"><button class="btn ghost" onclick="document.getElementById('spPriceOverlay').remove()">${t('btnClose')}</button></div>
   </div>`;
@@ -517,7 +518,7 @@ function spExportSellPriceMap(orderList){
 function spSellCellHtml(i){
   const v = spSellUnit(i);
   if(v === null) return '–';
-  return `<span class="batch-link" title="${batchEsc(t('spPriceClickHint'))}" onclick="spShowPricePopup('${i.id}')">${spMoney(v)}</span>`;
+  return `<span class="batch-link" title="${batchEsc(t('spPriceClickHint'))}" onclick="spShowPricePopup('${i.id}','sell')">${spMoney(v)}</span>`;
 }
 async function spSaveBatchMarginFromModal(batchId){
   const el = document.getElementById('batchDetailMargin');

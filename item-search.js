@@ -35,7 +35,7 @@ function isCanOverview(){ return typeof lookoutTabAllowed !== 'function' || look
 function isLink(inner, onclick){ return `<span class="batch-link" onclick="${onclick}">${inner}</span>`; }
 function isLocLink(code){ return isCanOverview() ? isLink(isEsc(code), "itemSearchGoLocation('" + String(code).replace(/\\/g,'\\\\').replace(/'/g,"\\'") + "')") : isEsc(code); }
 function isBatchLink(i){ return (isCanOverview() && i.batchId && (typeof batchTrackerOpenBatch === 'function')) ? isLink(isEsc(i.batchNo), "itemSearchGoBatch('" + i.batchId + "')") : isEsc(i.batchNo); }
-function isCostLink(i, v){ return (typeof spShowPricePopup === 'function' && i.id) ? isLink(isMoney(v), "spShowPricePopup('" + i.id + "')") : isMoney(v); }
+function isCostLink(i, v){ return (typeof spShowPricePopup === 'function' && i.id) ? isLink(isMoney(v), "spShowPricePopup('" + i.id + "','cost')") : isMoney(v); }
 function itemSearchGoLocation(code){
   itemSearchClose();
   switchTab('tab-overview'); switchOverviewSubTab('subtab-overview-location');
