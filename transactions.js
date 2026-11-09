@@ -667,7 +667,7 @@ function loadDeliveryNoteIntoRegisterFlow(noteId){
   const note = deliveryNotes.find(n => n.id === noteId);
   if(!note) return;
   registerLoadedDeliveryNoteId = noteId;
-  txBatchItems = note.items.map(it => ({ ...it }));
+  txBatchItems = note.items.map(it => ({ ...it, batchItemId: it.batchItemId || genId() }));
   txNsItems = txNsOf(note);
 
   const dateInput = document.getElementById('txDate');

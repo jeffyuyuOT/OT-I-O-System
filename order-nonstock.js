@@ -103,7 +103,25 @@ function orderNsRowsHtml(o){
 // ============================================================
 let dnRefDoc = null;   // { items:[{productId,sku,name,unit,qty}], ns:[{name,qty,unit,price,gst}] } 目前選的關聯單據裡的內容
 
+// 同一張關聯單據、已經開過的其他 Delivery Note 已送出的數量(正在編輯的這張不算)
+function dnRefDeliveredBy(ref){
+  const items = {}, ns = {};
+  (typeof deliveryNotes !== 'undefined' ? deliveryNotes : []).forEach(n => {
+    if(!n || n.deleted || !n.ref || n.ref.id !== ref.id || n.id === registerLoadedDeliveryNoteId) return;
+    (n.items || []).forEach(it => { items[it.productId] = (items[it.productId] || 0) + (Number(it.qty) || 0); });
+    (n.nonStockItems || []).forEach(x => { const k = x.name + '|' + (x.unit || ''); ns[k] = (ns[k] || 0) + (Number(x.qty) || 0); });
+  });
+  return { items, ns };
+}
 function dnRefSourceOf(ref){
+  const d = dnRefSourceRaw(ref);
+  if(!d) return d;
+  const done = dnRefDeliveredBy(ref);
+  d.items = d.items.map(it => ({ ...it, qty: it.qty - (done.items[it.productId] || 0) })).filter(it => it.qty > 1e-9);
+  d.ns = d.ns.map(n => ({ ...n, qty: n.qty - (done.ns[n.name + '|' + (n.unit || '')] || 0) })).filter(n => n.qty > 1e-9);
+  return d;
+}
+function dnRefSourceRaw(ref){
   if(!ref) return null;
   if(ref.type === 'order'){
     const o = (typeof orders !== 'undefined' ? orders : []).find(x => x.id === ref.id);
