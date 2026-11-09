@@ -1594,7 +1594,7 @@ body.no-cost-view .cost-col{display:none !important;}
           <label data-i18n="lblDnRef">關聯單據(必填)</label>
           <input id="txDnRef" type="text" autocomplete="off" placeholder="搜尋已完成訂單號或非銷售出庫單號" data-i18n-placeholder="dnRefPh" oninput="dnRefSearch()" onfocus="dnRefSearch()" />
           <div id="txDnRefList" style="display:none;position:absolute;left:0;right:0;top:100%;z-index:30;background:var(--bg,#fff);border:1px solid var(--line);max-height:220px;overflow:auto;box-shadow:0 4px 12px rgba(0,0,0,.12);"></div>
-          <span class="del-link" style="font-size:12px;" onclick="dnOpenSelectModal()" data-i18n="dnPickReopen">重新勾選單據商品</span>
+          <span class="del-link" style="position:absolute;left:0;top:100%;margin-top:3px;font-size:12px;white-space:nowrap;" onclick="dnOpenSelectModal()" data-i18n="dnPickReopen">重新勾選單據商品</span>
         </div>
         <div class="field">
           <label id="txNoteLabel" data-i18n="txNoteSharedLabel">備註(選填)</label>
