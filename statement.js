@@ -131,9 +131,9 @@ function stmtShowModal(saved){
   const ov = document.createElement('div');
   ov.id = 'stmtDocOverlay'; ov.className = 'modal-overlay'; ov.style.display = 'flex'; ov.style.zIndex = '1150';
   const canPay = saved && !d._paidAt;
-  ov.innerHTML = `<div class="modal-box" style="max-width:min(900px,96vw);max-height:92vh;overflow:auto;">
+  ov.innerHTML = `<div class="modal-box" style="max-width:min(1040px,98vw);max-height:94vh;overflow:auto;">
     <div class="section-title" style="margin-top:0;">${saved ? 'Statement · ' + invEsc(stmtRef(d)) : t('stmtCreateNew')}</div>
-    <div style="overflow:auto;border:1px solid var(--line);background:#eee;padding:8px;"><div id="stmtPreviewHost" style="zoom:0.85;">${stmtDocHtml(d)}</div></div>
+    <div style="overflow:auto;border:1px solid var(--line);background:#eee;padding:8px;"><div id="stmtPreviewHost" style="zoom:1.1;">${stmtDocHtml(d)}</div></div>
     <div id="stmtModalMsg" class="msg"></div>
     <div class="modal-actions">
       <button class="btn ghost" onclick="stmtCloseModal()">${saved ? t('btnClose') : t('btnCancel')}</button>
