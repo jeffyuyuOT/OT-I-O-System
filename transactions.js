@@ -241,6 +241,7 @@ function populateTxPartyHistorySelect(){
   sel.value = '';
   txSelectedSupplierId = '';
   document.getElementById('txParty').style.display = 'none';
+  if(typeof txSupplierPickerRender === 'function') txSupplierPickerRender();
 }
 function onTxPartyHistorySelectChange(value){
   const partyInput = document.getElementById('txParty');
@@ -255,6 +256,7 @@ function onTxPartyHistorySelectChange(value){
     partyInput.style.display = 'none';
     partyInput.value = sup ? sup.name : '';
   }
+  if(typeof txSupplierPickerRender === 'function') txSupplierPickerRender();
 }
 
 function resetRegisterOutFlow(){
@@ -385,6 +387,7 @@ function setTxDeliveryFlowType(flowType){
     if(noteSelectWrap) noteSelectWrap.style.display = 'none';
     showTxMainFormArea(false);
   }
+  if(typeof txPartyPickerApply === 'function') txPartyPickerApply();
   renderTxSubmitArea();
   renderTxBatchList();
   renderProductSelect();
@@ -676,6 +679,7 @@ function loadDeliveryNoteIntoRegisterFlow(noteId){
   if(partySelect){
     populateTxPartySelect();
     partySelect.value = note.partyId || '';
+    if(typeof txPartyPickerRender === 'function') txPartyPickerRender();
   }
   const noteInput = document.getElementById('txNote');
   if(noteInput) noteInput.value = note.note || '';

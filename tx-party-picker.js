@@ -4,10 +4,11 @@
 // 實際的值仍然存在原本隱藏的 <select id="txPartySelect"> 裡,所以其他程式碼(讀 .value)完全不用改。
 // ============================================================
 function txPartyPickerActive(){
-  return currentTxType === 'out' && registerOutKind === 'order' && registerOutFlowType === 'new-order';
+  return (currentTxType === 'out' && registerOutKind === 'order' && registerOutFlowType === 'new-order') || currentTxType === 'delivery';
 }
 // 依目前狀態切換「搜尋式選擇」或原本的下拉選單
 function txPartyPickerApply(){
+  txSupplierPickerApply();
   const sel = document.getElementById('txPartySelect');
   const box = document.getElementById('txPartyPicker');
   if(!sel || !box) return;
@@ -66,5 +67,65 @@ function txPartyPickerPick(id){ txPartyPickerSet(id); }
 function txPartyPickerClear(){ txPartyPickerSet(''); const s = document.getElementById('txPartySearch'); if(s) s.focus(); }
 document.addEventListener('click', e => {
   const list = document.getElementById('txPartySearchList'); const inp = document.getElementById('txPartySearch');
+  if(list && e.target !== inp && !list.contains(e.target)) list.style.display = 'none';
+});
+
+
+// ============================================================
+// 登記進貨 → 「進貨方」也改成搜尋式選擇(跟出貨方一樣)。實際的值仍然放在原本隱藏的
+// <select id="txPartyHistorySelect">(進貨方 id 或 '__new__'),其他程式碼完全不用改。
+// 選「＋ 新增進貨方」→ 會出現原本的文字輸入框讓你打新名稱。
+// ============================================================
+function txSupplierPickerApply(){
+  const hs = document.getElementById('txPartyHistorySelect');
+  const box = document.getElementById('txSupplierPicker');
+  if(!hs || !box) return;
+  if(currentTxType === 'in'){ hs.style.display = 'none'; box.style.display = ''; txSupplierPickerRender(); }
+  else box.style.display = 'none';
+}
+function txSupplierPickerRender(searchText){
+  const hs = document.getElementById('txPartyHistorySelect');
+  const box = document.getElementById('txSupplierPicker');
+  if(!hs || !box || box.style.display === 'none') return;
+  const esc = escapeHtmlForPrint;
+  const sup = hs.value && hs.value !== '__new__' ? (purchaseSuppliers || []).find(x => x.id === hs.value) : null;
+  if(hs.value === '__new__'){
+    box.innerHTML = `<div style="margin-bottom:4px;font-size:12px;"><span class="del-link" onclick="txSupplierPickerClear()">← ${t('txSupplierPickExisting')}</span></div>`;
+  } else if(sup){
+    box.innerHTML = `<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;min-height:34px;"><b>${esc(supplierOptionLabel(sup))}</b>
+      <span class="del-link" onclick="txSupplierPickerClear()">${t('icChangeParty')}</span></div>`;
+  } else {
+    box.innerHTML = `<div style="display:flex;gap:6px;align-items:center;">
+      <input id="txSupplierSearch" type="text" autocomplete="off" placeholder="${esc(t('txSupplierSearchPh'))}" value="${esc(searchText || '')}" oninput="txSupplierPickerSearch(this.value)" onfocus="txSupplierPickerSearch(this.value)" style="flex:1;min-width:0;" />
+      <button class="btn ghost" type="button" style="white-space:nowrap;padding:6px 10px;" onclick="txSupplierPickerNew()">＋ ${t('txSupplierAdd')}</button></div>
+      <div id="txSupplierSearchList" style="display:none;position:absolute;left:0;right:0;top:100%;z-index:30;background:var(--bg,#fff);border:1px solid var(--line);max-height:220px;overflow:auto;box-shadow:0 4px 12px rgba(0,0,0,.12);"></div>`;
+  }
+}
+function txSupplierPickerSearch(v){
+  const list = document.getElementById('txSupplierSearchList'); if(!list) return;
+  const esc = escapeHtmlForPrint;
+  const q = (v || '').trim().toLowerCase();
+  const m = (purchaseSuppliers || []).filter(s => !s.deleted && (!q || [s.name, s.code, s.contact].join(' ').toLowerCase().includes(q)))
+    .sort((a, b) => (a.name || '').localeCompare(b.name || '')).slice(0, 12);
+  list.innerHTML = m.length
+    ? m.map(s => `<div onmousedown="txSupplierPickerPick('${esc(s.id)}')" style="padding:7px 10px;cursor:pointer;font-size:13px;border-bottom:1px solid var(--line);">${esc(supplierOptionLabel(s))}</div>`).join('')
+    : `<div style="padding:8px 10px;font-size:12.5px;color:var(--ink-soft);">${t('icNoParty')}</div>`;
+  list.style.display = '';
+}
+function txSupplierPickerPick(id){
+  const hs = document.getElementById('txPartyHistorySelect'); if(!hs) return;
+  hs.value = id; onTxPartyHistorySelectChange(id);
+}
+function txSupplierPickerNew(){
+  const hs = document.getElementById('txPartyHistorySelect'); if(!hs) return;
+  hs.value = '__new__'; onTxPartyHistorySelectChange('__new__');
+}
+function txSupplierPickerClear(){
+  const hs = document.getElementById('txPartyHistorySelect'); if(!hs) return;
+  hs.value = ''; onTxPartyHistorySelectChange('');
+  const s = document.getElementById('txSupplierSearch'); if(s) s.focus();
+}
+document.addEventListener('click', e => {
+  const list = document.getElementById('txSupplierSearchList'); const inp = document.getElementById('txSupplierSearch');
   if(list && e.target !== inp && !list.contains(e.target)) list.style.display = 'none';
 });

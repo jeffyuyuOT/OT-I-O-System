@@ -1573,6 +1573,7 @@ body.no-cost-view .cost-col{display:none !important;}
           <input id="txParty" type="text" placeholder="例如:大盤商 A" data-i18n-placeholder="partyPlaceholderIn" />
           <select id="txPartySelect" style="display:none;" onchange="if(typeof renderTxBatchList === 'function') renderTxBatchList()"></select>
           <div id="txPartyPicker" style="display:none;"></div>
+          <div id="txSupplierPicker" style="display:none;"></div>
           <span id="txPartyInfoRow" style="display:none;position:absolute;left:0;top:100%;margin-top:3px;font-size:12px;white-space:nowrap;"><span id="txPartyEditLink" class="del-link" style="display:none;" onclick="partyEditFromOrder(this.dataset.pid)" data-i18n="linkEditParty">✎ 編輯出貨方</span><span id="txPartyDiscBadge"></span></span>
         </div>
         <div class="field" id="txInvoiceFieldWrap" style="display:none;">
@@ -1612,7 +1613,6 @@ body.no-cost-view .cost-col{display:none !important;}
         <div style="display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px 16px;">
           <div style="display:flex;flex-wrap:wrap;align-items:center;gap:8px 14px;">
         <input type="file" id="purchaseReceiptInput" accept="image/*,application/pdf,.xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel" multiple onchange="handlePurchaseReceiptUpload(this)" style="border:1px solid var(--line);background:#fff;border-radius:2px;padding:8px;font-family:'IBM Plex Mono',monospace;font-size:12px;" />
-        <button type="button" id="btnOpenCameraCapture" class="btn ghost" onclick="openCameraCaptureModal(file => uploadPurchaseReceiptFiles([file]))" style="display:none;margin-left:6px;vertical-align:top;">📷 <span data-i18n="btnTakePhoto">拍照上傳</span></button>
             <div id="txBatchTrackWrap" style="display:none;"></div>
             <span id="purchaseAccWrap" style="display:none;align-items:center;gap:8px;flex-wrap:wrap;">
               <span class="cost-col" style="font-size:12px;color:var(--ink-soft);" data-i18n="paFormGstMode">金額</span>
