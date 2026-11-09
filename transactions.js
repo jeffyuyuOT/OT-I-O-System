@@ -101,7 +101,8 @@ function setTxType(type){
     const partyFieldWrap = document.getElementById('txPartyFieldWrap');
     const mainGrid = document.getElementById('txMainFormGrid');
     if(partyFieldWrap) partyFieldWrap.style.display = '';
-    if(mainGrid) mainGrid.style.gridTemplateColumns = '1fr 1fr 1.4fr';
+    // Delivery Note:日期、出貨方、關聯單據只要夠寬就好,備註放在同一行吃剩下的空間
+    if(mainGrid) mainGrid.style.gridTemplateColumns = 'minmax(150px,170px) minmax(160px,240px) minmax(120px,160px) 1fr';
     // 反過來,如果是從「出貨」切過來的,也要把出貨那邊的暫存狀態清掉,同樣的道理。
     registerOutFlowType = '';
     registerLoadedOrderId = null;
