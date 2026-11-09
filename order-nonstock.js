@@ -246,7 +246,7 @@ function dnPickConfirm(){
     else if(q > src.qty) bad = tf('errDnQtyExceed', { name: src.name, max: src.qty, unit: src.unit || '' });
     else ns.push({ id: genId(), name: src.name, qty: q, unit: src.unit || '', price: src.price, gst: !!src.gst });
   });
-  if(bad){ if(msg){ msg.className = 'msg error'; msg.textContent = bad; } return; }
+  if(bad){ showInfoModal(bad); return; }
   txBatchItems = items;
   // 勾選視窗裡的非庫存商品換成這次勾選的;手動另外加的(不在單據裡的)保留
   const srcKeys = new Set(d.ns.map(n => n.name + '|' + n.unit));
@@ -268,9 +268,9 @@ function dnRecordHtml(type, id){
   const src = dnRefSourceRaw({ type, id });
   const notes = dnLinkedNotes(id);
   if(!src) return `<div class="empty-note">${t('noRecordsYet')}</div>`;
-  const tag = n => `${esc(n.no || n.date || '')}${n.no ? ' · ' + esc(n.date || '') : ''}${n.note ? ' · ' + esc(n.note) : ''}${n.status === 'completed' ? '' : ` <span style="color:var(--ink-soft);">(${t('statusPending')})</span>`}`;
+  const tag = n => `${esc(n.no || n.date || '')}${n.note ? ' · ' + esc(n.note) : ''}${n.status === 'completed' ? '' : ` <span style="color:var(--ink-soft);">(${t('statusPending')})</span>`}`;
   const rowOf = (name, unit, orig, sent) => {
-    const done = sent.reduce((s, x) => s + x.qty, 0);
+    const done = sent.filter(x => x.n.status === 'completed').reduce((s, x) => s + x.qty, 0);   // 剩餘只扣已完成的,待處理另外標示
     const pendQ = sent.filter(x => x.n.status !== 'completed').reduce((s, x) => s + x.qty, 0);
     const rem = orig - done;
     return `<tr><td>${esc(name)}</td><td class="num">${orig} ${esc(unit || '')}</td>

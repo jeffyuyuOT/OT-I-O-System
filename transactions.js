@@ -363,6 +363,7 @@ function setTxDeliveryFlowType(flowType){
   if(partySelect) partySelect.disabled = false;
   { const _pel = document.getElementById('txPartyEditLink'); if(_pel) _pel.style.display = 'none'; const _pir = document.getElementById('txPartyInfoRow'); if(_pir) _pir.style.display = 'none'; }
   if(dateInput) dateInput.disabled = false;
+  if(dateInput) dateInput.value = '';   // 新增/載入/儲存/列印之後日期都清空,要重新選(儲存或列印時沒日期會提示)
   if(noteLabel) noteLabel.textContent = t('txNoteSharedLabel');
   dnRefReset();
   { const _ni = document.getElementById('txNote'); if(_ni){ _ni.placeholder = ''; _ni.value = ''; } }
@@ -831,7 +832,7 @@ function addToTxBatch(){
     const lim = dnRefQtyLimit(productId);
     if(lim !== null){
       const have = txBatchItems.filter(it => it.productId === productId).reduce((s, it) => s + it.qty, 0);
-      if(have + qty > lim){ msg.className='msg error'; msg.textContent = tf('errDnQtyExceed', { name: p.name, max: lim, unit: p.unit || '' }); return; }
+      if(have + qty > lim){ showInfoModal(tf('errDnQtyExceed', { name: p.name, max: lim, unit: p.unit || '' })); return; }
     }
   }
   const existing = txBatchItems.find(it => it.productId === productId && (it.expiry || '') === bx.expiry);
@@ -855,7 +856,7 @@ function updateTxBatchItemQty(batchItemId, value){
   const qty = parseFloat(value);
   if(currentTxType === 'delivery' && typeof dnRefQtyLimit === 'function' && !isNaN(qty)){
     const lim = dnRefQtyLimit(it.productId);
-    if(lim !== null && qty > lim){ const m = document.getElementById('txMsg'); if(m){ m.className = 'msg error'; m.textContent = tf('errDnQtyExceed', { name: it.name, max: lim, unit: it.unit || '' }); } renderTxBatchList(); return; }
+    if(lim !== null && qty > lim){ showInfoModal(tf('errDnQtyExceed', { name: it.name, max: lim, unit: it.unit || '' })); renderTxBatchList(); return; }
   }
   it.qty = (!isNaN(qty) && qty !== 0 && Number.isInteger(qty)) ? qty : it.qty;
   if(typeof batchLocOnQtyChange === 'function') batchLocOnQtyChange(it);
@@ -1844,7 +1845,7 @@ async function saveDeliveryNote(){
   await ensureDeliveryNotesLoaded();
   const msg = document.getElementById('txMsg');
   const draft = buildDeliveryNoteDraftFromForm();
-  if(!draft.ok){ msg.className = 'msg error'; msg.textContent = `⚠ ${draft.error}`; return; }
+  if(!draft.ok){ msg.className = 'msg error'; msg.textContent = `⚠ ${draft.error}`; if(!document.getElementById('txDate').value) showInfoModal(draft.error); return; }
 
   const isUpdate = !!registerLoadedDeliveryNoteId;
   const note = isUpdate
@@ -1955,7 +1956,7 @@ async function printDeliveryNote(){
   await ensureDeliveryNotesLoaded();
   const msg = document.getElementById('txMsg');
   const draft = buildDeliveryNoteDraftFromForm();
-  if(!draft.ok){ msg.className = 'msg error'; msg.textContent = `⚠ ${draft.error}`; return; }
+  if(!draft.ok){ msg.className = 'msg error'; msg.textContent = `⚠ ${draft.error}`; if(!document.getElementById('txDate').value) showInfoModal(draft.error); return; }
   const data = draft.data;
   const qtyErr = dnPrintQtyCheck(data);
   if(qtyErr){ msg.className = 'msg error'; msg.style.whiteSpace = 'pre-line'; msg.textContent = `⚠ ${qtyErr}`; return; }

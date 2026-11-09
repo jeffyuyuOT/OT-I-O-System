@@ -1404,7 +1404,8 @@ function invGotoOrder(orderId){
   setTimeout(() => {
     const el = document.querySelector(`.tab-content.active .order-card[data-oid="${orderId}"], .order-card[data-oid="${orderId}"]`);
     if(!el) return;
-    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    el.style.scrollMarginTop = '90px';
+    el.scrollIntoView({ behavior: 'smooth', block: 'start' });   // 對齊訂單開頭(展開後很長,置中會跑到最下面)
     const old = el.style.boxShadow; el.style.boxShadow = '0 0 0 3px var(--yellow, #e5a02f)';
     setTimeout(() => { el.style.boxShadow = old; }, 2500);
   }, 150);
