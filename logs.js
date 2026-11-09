@@ -258,7 +258,7 @@ function renderDeliveryNoteLog(){
             <td>${n.partyName ? n.partyName.replace(/</g,'&lt;') : t('partyUnspecified')}</td>
             <td style="white-space:nowrap;">${n.ref && n.ref.no ? `${n.ref.type === 'order' && orders.some(o => o.id === n.ref.id) ? `<span class="batch-link" onclick="invGotoOrder('${n.ref.id}')">${escapeHtmlForPrint(n.ref.no)}</span>` : escapeHtmlForPrint(n.ref.no)}<div style="font-size:11px;color:var(--ink-soft);">${dnRefTypeLabel(n.ref.type)}</div>` : '-'}</td>
             <td>${(n.note || '').replace(/</g,'&lt;')}</td>
-            <td>${itemsSummary.replace(/</g,'&lt;')}</td>
+            <td style="width:100%;max-width:0;"><div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${itemsSummary.replace(/</g,'&lt;').replace(/"/g,'&quot;')}">${itemsSummary.replace(/</g,'&lt;')}</div></td>
             <td><span class="order-status-pill ${isCompleted ? 'confirmed' : 'pending'}">${isCompleted ? t('statusCompleted') : t('statusPending')}</span></td>
             <td style="white-space:nowrap;text-align:right;"><button class="btn ghost" onclick="dnLogView('${n.id}')">${t('dnLogView')}</button>${isCompleted ? '' : ` <button class="btn ghost" onclick="dnLogEdit('${n.id}')">${t('dnLogEdit')}</button> <button class="btn ghost" onclick="dnDeletePending('${n.id}')">${t('btnDelete')}</button>`}</td>
           </tr>`;
