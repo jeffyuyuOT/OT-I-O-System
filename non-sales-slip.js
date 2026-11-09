@@ -142,7 +142,7 @@ async function submitNonSalesSlip(date, msg){
     const saved = await nsSaveAndPrintSlip({ no, date, reasonCode, reasonText, reasonOther, extraNote, recipient,
       items: txBatchItems, txIds: newTxs.map(x => x.id), pw });
     const count = txBatchItems.length;
-    txBatchItems = [];
+    txBatchItems = []; txNsItems = [];
     document.getElementById('txNote').value = '';
     const rec = document.getElementById('txNsRecipient'); if(rec) rec.value = '';
     adjReasonReset();
@@ -322,8 +322,12 @@ async function dnRefSearch(){
 }
 function dnRefPick(i){
   const c = dnRefCandidates[i]; if(!c) return;
+  const changed = !dnRefSelected || dnRefSelected.id !== c.id;
   dnRefSet(c);
   const list = document.getElementById('txDnRefList'); if(list) list.style.display = 'none';
+  if(changed){ txBatchItems = []; txNsItems = []; renderTxBatchList(); }
+  renderProductSelect();
+  if(typeof dnOpenSelectModal === 'function') dnOpenSelectModal();
 }
 document.addEventListener('click', e => {
   const list = document.getElementById('txDnRefList'); const inp = document.getElementById('txDnRef');

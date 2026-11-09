@@ -173,6 +173,11 @@ function invBuildSnapshot(order, opts){
     const amount = Math.round(unit * it.qty * 100) / 100;
     addLine(it, p, unit, disc, listPrice, amount);
   });
+  (order.nonStockItems || []).forEach(n => {
+    if(n.price === null || n.price === undefined || n.price === ''){ noPrice.push(n.name); return; }
+    const unit = Number(n.price), amount = Math.round(unit * Number(n.qty) * 100) / 100;
+    lines.push({ n: lines.length + 1, desc: n.name, sku: '', comment: '', qty: Number(n.qty), unit: n.unit || '', price: unit, disc: 0, amount, tax: n.gst ? Math.round(amount * gstRate * 100) / 100 : 0 });
+  });
   if(noPrice.length) return { ok: false, reason: 'price', names: noPrice };
   if(lines.length === 0) return { ok: false, reason: 'empty' };
   const beforeTax = Math.round(lines.reduce((s, l) => s + l.amount, 0) * 100) / 100;

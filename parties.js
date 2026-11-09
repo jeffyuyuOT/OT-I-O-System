@@ -1625,7 +1625,7 @@ function loadForecastRecordToPurchase(id){
     switchTab('tab-warehouse-ops');
     switchWarehouseOpsSubTab('subtab-tx-register');
     setTxType('in');
-    txBatchItems = [];
+    txBatchItems = []; txNsItems = [];
     if(rec.supplierId && (typeof purchaseSuppliers !== 'undefined') && purchaseSuppliers.some(x => x.id === rec.supplierId)){
       const hs = document.getElementById('txPartyHistorySelect');
       if(hs){ hs.value = rec.supplierId; if(typeof onTxPartyHistorySelectChange === 'function') onTxPartyHistorySelectChange(rec.supplierId); }

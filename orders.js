@@ -768,7 +768,7 @@ function renderCompletedOrdersInto(container, recentOnly){
     // 已完成訂單在還沒簽收前,這裡(訂貨後台管理)還是能改;一旦簽收過(o.signedAt),不管哪一邊
     // 都不能再改了,這裡也要跟著鎖住(readOnly=!!o.signedAt),之前沒有這個檢查,簽收後其實還是
     // 能被改掉,這次一併修正。
-    const itemsHtml = o.items.filter(it => !it.deleted).map(it => orderItemRowHtml(o, it, false, true, 'completed')).join('');
+    const itemsHtml = o.items.filter(it => !it.deleted).map(it => orderItemRowHtml(o, it, false, true, 'completed')).join('') + orderNsRowsHtml(o);
     // 這張訂單有沒有東西可以在「觀看修改紀錄」小視窗裡看——一般修改紀錄(改數量/新增/刪除)
     // 或核對後變更,只要有一個就顯示這個按鈕,完全沒異動過的訂單就不用顯示了。
     const hasHistory = wasModified || (o.postVerifyChanges && o.postVerifyChanges.length > 0);
@@ -1157,7 +1157,7 @@ function renderPendingOrders(){
     // 「處理中」狀態下倉庫方的異動會記進 postVerifyChanges(見 savePendingOrderItemQty 等),這裡
     // 一併判斷要不要顯示「觀看修改紀錄」按鈕,跟已完成訂單那邊是同一顆按鈕、同一個小視窗。
     const hasHistory = wasModified || (o.postVerifyChanges && o.postVerifyChanges.length > 0);
-    const itemsHtml = o.items.map(it => orderItemRowHtml(o, it, true, true, 'pending')).join('');
+    const itemsHtml = o.items.map(it => orderItemRowHtml(o, it, true, true, 'pending')).join('') + orderNsRowsHtml(o);
     const isEditingRemark = editingOrderRemarkId === o.id;
     const remarkHtml = isEditingRemark ? `
       <div style="margin:8px 0;">
@@ -1238,6 +1238,7 @@ async function printOrderDocument(orderId, opts){
   const order = orders.find(o => o.id === orderId);
   if(!order) return;
   const items = buildOrderExportRows(order);
+  const nsItems = (order.nonStockItems || []).map(n => ({ sku: '', name: n.name, qty: n.qty, unit: n.unit || '', productId: '', note: '', ns: true }));
   const includeCheck = !!opts.includeCheckColumn;
   const includeSku = opts.includeSkuColumn !== false; // 預設顯示,已完成訂單那邊會特別關掉
 
@@ -1325,6 +1326,7 @@ async function printOrderDocument(orderId, opts){
     return parts.length ? escapeHtmlForPrint(parts.join(', ')) : '';
   }
   const hasAnyNote = items.some(it => itemNoteFor(it));
+  const nsRowsHtml = () => nsItems.map(it => buildPrintRow(it, undefined, '')).join('');
 
   // 印一列的共用函式:qtyOverride/locationLabelOverride 給「一個商品拆成好幾個位置、好幾列」
   // 的情況用——同一個商品拆成多列時,每一列各自顯示自己那個位置、自己那部分的數量,SKU/商品名/
@@ -1359,7 +1361,7 @@ async function printOrderDocument(orderId, opts){
       return allocations.map(a => buildPrintRow(it, a.qty, a.label)).join('');
     }
     return buildPrintRow(it);
-  }).join('');
+  }).join('') + nsRowsHtml();
   const checkTh = includeCheck ? `<th class="check-col">${escapeHtmlForPrint('Check')}</th>` : '';
   const skuTh = includeSku ? `<th class="sku-col">${escapeHtmlForPrint('SKU')}</th>` : '';
   const locationTh = (includeCheck && stockLocationShowOnPickingSlip) ? `<th class="location-col">${escapeHtmlForPrint(t('colStockLocation'))}</th>` : '';

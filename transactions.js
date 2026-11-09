@@ -84,7 +84,7 @@ function setTxType(type){
     // Delivery Note 時,會看到上一次的殘留狀態(例如還停在「載入」某一張舊 Note 的畫面)。
     registerDeliveryFlowType = '';
     registerLoadedDeliveryNoteId = null;
-    txBatchItems = [];
+    txBatchItems = []; txNsItems = [];
     // 出貨一定要先選「出貨類型」,選了之後(如果是新增訂單就直接展開;如果是載入
     // 現有訂單,還要再選出是哪一張)下面的主表單區塊才會出現——避免使用者還沒決定清楚要做
     // 哪一種操作,就先動手填日期/加商品,結果選了類型才發現整個表單邏輯不一樣要重填。
@@ -106,7 +106,7 @@ function setTxType(type){
     registerOutFlowType = '';
     registerLoadedOrderId = null;
     registerPendingItemChanges = {};
-    txBatchItems = [];
+    txBatchItems = []; txNsItems = [];
     // Delivery Note 也要先選「新增」還是「載入」,邏輯跟出貨類型一樣——選了才展開下面的表單。
     if(deliveryFlowRow) deliveryFlowRow.style.display = '';
     setTxDeliveryFlowType(registerDeliveryFlowType || '');
@@ -134,7 +134,7 @@ function setTxType(type){
     registerPendingItemChanges = {};
     registerDeliveryFlowType = '';
     registerLoadedDeliveryNoteId = null;
-    txBatchItems = [];
+    txBatchItems = []; txNsItems = [];
     showTxMainFormArea(true);
     renderTxSubmitArea();
     renderTxBatchList();
@@ -260,7 +260,7 @@ function resetRegisterOutFlow(){
   if(typeof nsResetKindUi === 'function') nsResetKindUi();
   registerOutFlowType = '';
   registerLoadedOrderId = null;
-  txBatchItems = [];
+  txBatchItems = []; txNsItems = [];
   registerPendingItemChanges = {};
   registerDeliveryFlowType = '';
   registerLoadedDeliveryNoteId = null;
@@ -294,7 +294,7 @@ function resetRegisterOutFlow(){
 function setTxOutFlowType(flowType){
   registerOutFlowType = flowType;
   registerLoadedOrderId = null;
-  txBatchItems = [];
+  txBatchItems = []; txNsItems = [];
   const orderWrap = document.getElementById('txOutFlowOrderSelectWrap');
   const orderSelectLabel = document.getElementById('txOutFlowOrderSelectLabel');
   const orderSelect = document.getElementById('txOutFlowOrderSelect');
@@ -347,7 +347,7 @@ function setTxDeliveryFlowType(flowType){
   if(!deliveryNotesLoaded){ ensureDeliveryNotesLoaded().then(() => setTxDeliveryFlowType(flowType)); return; }
   registerDeliveryFlowType = flowType;
   registerLoadedDeliveryNoteId = null;
-  txBatchItems = [];
+  txBatchItems = []; txNsItems = [];
   const noteSelectWrap = document.getElementById('txDeliveryNoteSelectWrap');
   const noteSelect = document.getElementById('txDeliveryNoteSelect');
   const existingSection = document.getElementById('txExistingItemsSection');
@@ -657,7 +657,7 @@ function populateTxPartySelect(){
 function loadDeliveryNoteIntoRegisterFlow(noteId){
   if(!noteId){
     registerLoadedDeliveryNoteId = null;
-    txBatchItems = [];
+    txBatchItems = []; txNsItems = [];
     renderTxBatchList();
     renderTxSubmitArea();
     renderProductSelect();
@@ -667,6 +667,7 @@ function loadDeliveryNoteIntoRegisterFlow(noteId){
   if(!note) return;
   registerLoadedDeliveryNoteId = noteId;
   txBatchItems = note.items.map(it => ({ ...it }));
+  txNsItems = txNsOf(note);
 
   const dateInput = document.getElementById('txDate');
   if(dateInput) dateInput.value = note.date || todayISO();
@@ -702,7 +703,7 @@ function loadOrderIntoRegisterFlow(orderId){
   registerExistingItemEditKey = null;
   registerPendingItemChanges = {}; // 換一張訂單就清空,不要把上一張訂單的暫存改動帶到這一張來
   if(!order.postVerifyChanges) order.postVerifyChanges = []; // 每張訂單自己的核對後變更記錄,重新載入不會清掉之前存過的
-  txBatchItems = [];
+  txBatchItems = []; txNsItems = txNsOf(order);
 
   const dateInput = document.getElementById('txDate');
   if(dateInput) dateInput.value = order.date || todayISO();
@@ -821,6 +822,13 @@ function addToTxBatch(){
   if(!p) return;
   // 批次追蹤:進貨時「同商品同有效期」才合併,不同有效期分行列出
   const bx = (typeof batchReadAddFields === 'function') ? batchReadAddFields() : { expiry: '', lot: '' };
+  if(currentTxType === 'delivery' && typeof dnRefQtyLimit === 'function'){
+    const lim = dnRefQtyLimit(productId);
+    if(lim !== null){
+      const have = txBatchItems.filter(it => it.productId === productId).reduce((s, it) => s + it.qty, 0);
+      if(have + qty > lim){ msg.className='msg error'; msg.textContent = tf('errDnQtyExceed', { name: p.name, max: lim, unit: p.unit || '' }); return; }
+    }
+  }
   const existing = txBatchItems.find(it => it.productId === productId && (it.expiry || '') === bx.expiry);
   if(existing){ existing.qty += qty; if(typeof batchLocOnQtyChange === 'function') batchLocOnQtyChange(existing); if(bx.lot && !existing.supplierLot) existing.supplierLot = bx.lot; }
   else txBatchItems.push({ batchItemId: genId(), productId, sku: p.sku || '', name: p.name, unit: p.unit, qty, expiry: bx.expiry, supplierLot: bx.lot });
@@ -840,6 +848,10 @@ function updateTxBatchItemQty(batchItemId, value){
   const it = txBatchItems.find(x => x.batchItemId === batchItemId);
   if(!it) return;
   const qty = parseFloat(value);
+  if(currentTxType === 'delivery' && typeof dnRefQtyLimit === 'function' && !isNaN(qty)){
+    const lim = dnRefQtyLimit(it.productId);
+    if(lim !== null && qty > lim){ const m = document.getElementById('txMsg'); if(m){ m.className = 'msg error'; m.textContent = tf('errDnQtyExceed', { name: it.name, max: lim, unit: it.unit || '' }); } renderTxBatchList(); return; }
+  }
   it.qty = (!isNaN(qty) && qty !== 0 && Number.isInteger(qty)) ? qty : it.qty;
   if(typeof batchLocOnQtyChange === 'function') batchLocOnQtyChange(it);
   renderTxBatchList();
@@ -864,6 +876,7 @@ function updateTxBatchItemAmount(batchItemId, value){
 function renderTxBatchList(){
   const container = document.getElementById('txBatchList');
   if(!container) return;
+  if(typeof renderTxNsSection === 'function') renderTxNsSection();
   if(typeof batchRenderFormExtras === 'function') batchRenderFormExtras();
   if(typeof pcRender === 'function') pcRender();
   const showBatchCols = typeof batchRowsShowExpiry === 'function' && batchRowsShowExpiry();
@@ -1808,13 +1821,14 @@ function buildDeliveryNoteDraftFromForm(){
 
   if(!date) return { ok: false, error: '請選擇 Delivery 日期' };
   if(!ref) return { ok: false, error: t('errDnRefRequired') };
-  if(txBatchItems.length === 0) return { ok: false, error: '請先把至少一項商品加入清單' };
+  if(txBatchItems.length === 0 && txNsItems.length === 0) return { ok: false, error: '請先把至少一項商品加入清單' };
 
   return {
     ok: true,
     data: {
       date, partyId, partyName: partyObj ? partyObj.name : '', note, ref: { type: ref.type, id: ref.id, no: ref.no },
-      items: txBatchItems.map(it => ({ productId: it.productId, sku: it.sku || '', name: it.name, unit: it.unit, qty: it.qty }))
+      items: txBatchItems.map(it => ({ productId: it.productId, sku: it.sku || '', name: it.name, unit: it.unit, qty: it.qty })),
+      nonStockItems: txNsClean()
     }
   };
 }
@@ -1844,7 +1858,7 @@ async function saveDeliveryNote(){
 
   registerDeliveryFlowType = '';
   registerLoadedDeliveryNoteId = null;
-  txBatchItems = [];
+  txBatchItems = []; txNsItems = [];
   const flowSel = document.getElementById('txDeliveryFlowType');
   if(flowSel) flowSel.value = '';
   setTxDeliveryFlowType('');
@@ -1868,7 +1882,13 @@ async function printDeliveryNote(){
       <td style="text-align:right;">${it.qty}</td>
       <td>${escapeHtmlForPrint(it.unit)}</td>
     </tr>
-  `).join('');
+  `).join('') + (data.nonStockItems || []).map(n => `
+    <tr>
+      <td class="sku-col"></td>
+      <td>${escapeHtmlForPrint(n.name)}</td>
+      <td style="text-align:right;">${n.qty}</td>
+      <td>${escapeHtmlForPrint(n.unit || '')}</td>
+    </tr>`).join('');
 
   const html = `<!DOCTYPE html>
 <html>
@@ -1935,7 +1955,7 @@ async function printDeliveryNote(){
     }
     registerDeliveryFlowType = '';
     registerLoadedDeliveryNoteId = null;
-    txBatchItems = [];
+    txBatchItems = []; txNsItems = [];
     const flowSel = document.getElementById('txDeliveryFlowType');
     if(flowSel) flowSel.value = '';
     setTxDeliveryFlowType('');
@@ -2173,7 +2193,7 @@ async function submitTxBatchSimple(date, msg){
   const logDesc = `Logged ${LOG_ACTION_EN_LABEL[logActionType] || logActionType}: ${count} item(s)${party ? ', party ' + party : ''}`;
   logInventoryAction(logActionType, logDesc, null);
   if(currentTxType === 'restock' && typeof icTxCnAfterSubmit === 'function') await icTxCnAfterSubmit(txBatchItems);   // 記下這張 Credit Note 已入庫的數量
-  txBatchItems = [];
+  txBatchItems = []; txNsItems = [];
   if(typeof batchResetFormAfterSubmit === 'function') batchResetFormAfterSubmit();
   renderTxBatchList();
   if(currentTxType === 'restock'){ document.getElementById('txParty').value = 'Opulent Imports'; }
@@ -2242,6 +2262,7 @@ async function submitNewOrderFlowCore(action, date, msg){
     const newOrder = {
       id: genId(), date, note, partyId: outPartyId, partyName: party,
       items: txBatchItems.map(it => spCarryTxPrice({ productId: it.productId, sku: it.sku||'', name: it.name, unit: it.unit, qty: it.qty }, it)),
+      ...(txNsItems.length ? { nonStockItems: txNsClean() } : {}),
       status: 'pending', createdAt: new Date().toISOString(), orderNo
     };
     orders.push(newOrder);
@@ -2260,6 +2281,7 @@ async function submitNewOrderFlowCore(action, date, msg){
     const newOrder = {
       id: orderId, date, note, partyId: outPartyId, partyName: party,
       items: txBatchItems.map(it => spCarryTxPrice({ productId: it.productId, sku: it.sku||'', name: it.name, unit: it.unit, qty: it.qty }, it)),
+      ...(txNsItems.length ? { nonStockItems: txNsClean() } : {}),
       status: 'confirmed', createdAt: new Date().toISOString(), confirmedAt: new Date().toISOString(), orderNo
     };
     if(typeof spFreezeItems === 'function') newOrder.items = spFreezeItems(newOrder);   // 售價在建立當下固定(出貨前的批次分配預覽)
@@ -2299,7 +2321,7 @@ async function submitNewOrderFlowCore(action, date, msg){
     }
     logInventoryAction('tx_out', `Logged direct shipment: ${txBatchItems.length} item(s), party ${party || 'unspecified'}, note: "${note}"`, null);
     const count = txBatchItems.length;
-    txBatchItems = [];
+    txBatchItems = []; txNsItems = [];
     resetRegisterOutFlow();
     setTxOutFlowType('');
     document.getElementById('txPartySelect').value = '';
@@ -2310,7 +2332,7 @@ async function submitNewOrderFlowCore(action, date, msg){
 }
 
 function finishNewOrderSubmit(kind, orderId, count, orderNo, msg){
-  txBatchItems = [];
+  txBatchItems = []; txNsItems = [];
   resetRegisterOutFlow();
   setTxOutFlowType('');
   switchTab('tab-warehouse-ops');
@@ -2385,8 +2407,10 @@ async function submitLoadPendingFlow(action, msg){
   if(pendingQtyChanges.length > 0) changes.push(formatQtyChangesSummary(pendingQtyChanges));
   if(pendingDeletes.length > 0) changes.push(formatDeletesSummary(pendingDeletes));
   if(txBatchItems.length > 0) changes.push(formatNewItemsSummary(txBatchItems));
+  if(txNsChanged(order)) changes.push(t('txNsChangeSummary'));
 
   const doSave = async () => {
+    txNsApply(order);
     const dateChanged = newDate && newDate !== order.date;
     const noteChanged = newNote !== (order.note || '');
     const oldDateForLog = order.date;
@@ -2546,8 +2570,10 @@ async function submitLoadCompletedFlow(date, msg){
   if(pendingQtyChanges.length > 0) changes.push(formatQtyChangesSummary(pendingQtyChanges));
   if(pendingDeletes.length > 0) changes.push(formatDeletesSummary(pendingDeletes));
   if(newItems.length > 0) changes.push(formatNewItemsSummary(newItems));
+  if(txNsChanged(order)) changes.push(t('txNsChangeSummary'));
 
   const doSave = async () => {
+    txNsApply(order);
     const dateChanged = date && date !== order.date;
     const noteChanged = noteVal !== (order.note || '');
     const oldDateForLog = order.date;
@@ -2786,7 +2812,7 @@ async function submitAdjustmentFlow(date, msg){
     // 跟備註,不去動出貨方欄位隱藏/兩欄版面這些跟「庫存調整」綁在一起的畫面設定(那些是
     // setTxType('adjustment') 負責的,不需要在這裡重複呼叫或退回舊的出貨流程邏輯)。renderAll()
     // 本身就會重新渲染 txSubmitArea/txBatchList/productSelect,不用在這裡另外呼叫。
-    txBatchItems = [];
+    txBatchItems = []; txNsItems = [];
     document.getElementById('txNote').value = '';
     adjReasonReset();
     msg.className = slipSaved ? 'msg ok' : 'msg error';
@@ -3339,6 +3365,10 @@ function renderProductSelect(){
     }
   }
 
+  if(currentTxType === 'delivery' && typeof dnRefDocCurrent === 'function'){
+    const _dd = dnRefDocCurrent();
+    if(_dd){ const _ids = new Set(_dd.items.map(x => x.productId)); filteredProducts = filteredProducts.filter(p => _ids.has(p.id)); }
+  }
   sel.innerHTML = '<option value=""></option>' + filteredProducts.slice().sort(compareProductsBySortMode).map(p => `<option value="${p.id}">${p.parentId ? '⧉ ' : ''}${p.name}(${p.unit})</option>`).join('');
   if(filteredProducts.some(p => p.id === prevVal)) sel.value = prevVal;
 

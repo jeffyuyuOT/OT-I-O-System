@@ -1594,6 +1594,7 @@ body.no-cost-view .cost-col{display:none !important;}
           <label data-i18n="lblDnRef">關聯單據(必填)</label>
           <input id="txDnRef" type="text" autocomplete="off" placeholder="搜尋已完成訂單號或非銷售出庫單號" data-i18n-placeholder="dnRefPh" oninput="dnRefSearch()" onfocus="dnRefSearch()" />
           <div id="txDnRefList" style="display:none;position:absolute;left:0;right:0;top:100%;z-index:30;background:var(--bg,#fff);border:1px solid var(--line);max-height:220px;overflow:auto;box-shadow:0 4px 12px rgba(0,0,0,.12);"></div>
+          <span class="del-link" style="font-size:12px;" onclick="dnOpenSelectModal()" data-i18n="dnPickReopen">重新勾選單據商品</span>
         </div>
         <div class="field">
           <label id="txNoteLabel" data-i18n="txNoteSharedLabel">備註(選填)</label>
@@ -1675,6 +1676,7 @@ body.no-cost-view .cost-col{display:none !important;}
       </div>
       <div id="txBatchExtraFields" style="display:none;"></div>
       <div id="txBatchList" style="margin-top:12px;"></div>
+      <div id="txNsSection" style="display:none;"></div>
       <div id="txPurchaseCostsWrap" style="display:none;"></div>
       <div id="txSubmitArea" style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;">
         <button class="btn" onclick="submitTxBatch()" data-i18n="btnRegister">提交</button>
@@ -3459,6 +3461,7 @@ body.no-cost-view .cost-col{display:none !important;}
 <script src="quick-lists.js"></script>
 <script src="stock-location.js"></script>
 <script src="non-sales-slip.js"></script>
+<script src="order-nonstock.js"></script>
 <script src="tx-party-picker.js"></script>
 <script src="doc-email.js"></script>
 <script src="logs.js"></script>
