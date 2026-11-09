@@ -270,10 +270,11 @@ function dnRecordHtml(type, id){
   const tag = n => `${esc(n.no || n.date || '')}${n.no ? ' · ' + esc(n.date || '') : ''}${n.note ? ' · ' + esc(n.note) : ''}${n.status === 'completed' ? '' : ` <span style="color:var(--ink-soft);">(${t('statusPending')})</span>`}`;
   const rowOf = (name, unit, orig, sent) => {
     const done = sent.reduce((s, x) => s + x.qty, 0);
+    const pendQ = sent.filter(x => x.n.status !== 'completed').reduce((s, x) => s + x.qty, 0);
     const rem = orig - done;
     return `<tr><td>${esc(name)}</td><td class="num">${orig} ${esc(unit || '')}</td>
       <td style="font-size:12px;line-height:1.6;">${sent.length ? sent.map(x => `${tag(x.n)} × <b>${x.qty}</b>`).join('<br>') : '<span style="color:var(--ink-soft);">–</span>'}</td>
-      <td class="num">${done}</td><td class="num" style="font-weight:700;${rem < -1e-9 ? 'color:var(--crit);' : ''}">${rem}</td></tr>`;
+      <td class="num">${done}${pendQ ? `<div style="font-size:11px;color:var(--warn-dark,#b45309);">${t('dnRemPendShort')} ${pendQ}</div>` : ''}</td><td class="num" style="font-weight:700;${rem < -1e-9 ? 'color:var(--crit);' : ''}">${rem}</td></tr>`;
   };
   const rows = src.items.map(it => rowOf(it.name, it.unit, it.qty,
     notes.map(n => ({ n, qty: (n.items || []).filter(x => x.productId === it.productId).reduce((s, x) => s + (Number(x.qty) || 0), 0) })).filter(x => x.qty > 0))).join('')
@@ -309,13 +310,16 @@ function dnRemainCompute(){
     const src = dnRefSourceRaw({ type: g.ref.type, id });
     if(!src) return;
     const done = g.notes.filter(n => n.status === 'completed');
-    const items = src.items.map(it => ({ ...it, rem: it.qty - done.reduce((s, n) => s + (n.items || []).filter(x => x.productId === it.productId).reduce((a, x) => a + (Number(x.qty) || 0), 0), 0) })).filter(x => x.rem > 1e-9);
-    const ns = (src.ns || []).map(x => ({ ...x, rem: x.qty - done.reduce((s, n) => s + (n.nonStockItems || []).filter(y => y.name === x.name && (y.unit || '') === (x.unit || '')).reduce((a, y) => a + (Number(y.qty) || 0), 0), 0) })).filter(x => x.rem > 1e-9);
+    const pend = g.notes.filter(n => n.status !== 'completed');
+    const sumI = (list, pid) => list.reduce((s, n) => s + (n.items || []).filter(x => x.productId === pid).reduce((a, x) => a + (Number(x.qty) || 0), 0), 0);
+    const sumN = (list, nm, un) => list.reduce((s, n) => s + (n.nonStockItems || []).filter(y => y.name === nm && (y.unit || '') === (un || '')).reduce((a, y) => a + (Number(y.qty) || 0), 0), 0);
+    const items = src.items.map(it => ({ ...it, rem: it.qty - sumI(done, it.productId), pend: sumI(pend, it.productId) })).filter(x => x.rem > 1e-9);
+    const ns = (src.ns || []).map(x => ({ ...x, rem: x.qty - sumN(done, x.name, x.unit), pend: sumN(pend, x.name, x.unit) })).filter(x => x.rem > 1e-9);
     if(!items.length && !ns.length) return;
     let date = '', party = '';
     if(g.ref.type === 'order'){ const o = orders.find(x => x.id === id); date = o ? (o.date || '') : ''; party = o ? (o.partyName || '') : ''; }
     else { const sl = nonSalesSlips.find(x => x.id === id); date = sl ? (sl.date || '') : ''; party = sl ? (sl.recipient || '') : ''; }
-    out.push({ id, type: g.ref.type, no: g.ref.no, date, party, items, ns });
+    out.push({ id, type: g.ref.type, no: g.ref.no, date, party, items, ns, pendCount: g.notes.filter(n => n.status !== 'completed').length });
   });
   return out.sort((a, b) => String(b.no).localeCompare(String(a.no)));
 }
@@ -325,9 +329,9 @@ async function dnRemainOpen(){
   const old = document.getElementById('dnRemOverlay'); if(old) old.remove();
   const esc = escapeHtmlForPrint;
   const rows = dnRemDocs.map((d, i) => `<tr><td><input type="checkbox" class="dnRemCk" data-i="${i}" style="width:auto;" /></td>
-    <td style="white-space:nowrap;"><b>${esc(String(d.no))}</b><div style="font-size:11px;color:var(--ink-soft);">${dnRefTypeLabel(d.type)}</div></td>
+    <td style="white-space:nowrap;"><b>${esc(String(d.no))}</b><div style="font-size:11px;color:var(--ink-soft);">${dnRefTypeLabel(d.type)}</div>${d.pendCount ? `<div style="font-size:11px;color:var(--warn-dark,#b45309);">${tf('dnRemHasPending', { n: d.pendCount })}</div>` : ''}</td>
     <td style="white-space:nowrap;">${esc(d.date)}</td><td>${esc(d.party)}</td>
-    <td style="font-size:12px;">${d.items.concat(d.ns).map(x => `${esc(x.name)} ${x.rem} ${esc(x.unit || '')}`).join(', ')}</td></tr>`).join('');
+    <td style="font-size:12px;">${d.items.concat(d.ns).map(x => `${esc(x.name)} ${x.rem} ${esc(x.unit || '')}${x.pend ? ` <span style="color:var(--warn-dark,#b45309);">(${t('dnRemPendShort')} ${x.pend})</span>` : ''}`).join(', ')}</td></tr>`).join('');
   const ov = document.createElement('div');
   ov.id = 'dnRemOverlay'; ov.className = 'modal-overlay'; ov.style.display = 'flex'; ov.style.zIndex = '1200';
   ov.innerHTML = `<div class="modal-box" style="max-width:min(900px,98vw);max-height:92vh;overflow:auto;">
@@ -347,16 +351,16 @@ function dnRemainExport(){
   if(typeof XLSX === 'undefined'){ showInfoModal('Excel 套件載入失敗,請重新整理頁面再試一次'); return; }
   const agg = new Map();
   picked.forEach(d => {
-    d.items.forEach(it => { const k = 'p|' + it.productId; const e = agg.get(k) || { sku: it.sku || '', name: it.name, unit: it.unit || '', rem: 0 }; e.rem += it.rem; agg.set(k, e); });
-    d.ns.forEach(it => { const k = 'n|' + it.name + '|' + (it.unit || ''); const e = agg.get(k) || { sku: '', name: it.name, unit: it.unit || '', rem: 0, ns: true }; e.rem += it.rem; agg.set(k, e); });
+    d.items.forEach(it => { const k = 'p|' + it.productId; const e = agg.get(k) || { sku: it.sku || '', name: it.name, unit: it.unit || '', rem: 0, pend: 0 }; e.rem += it.rem; e.pend += it.pend || 0; agg.set(k, e); });
+    d.ns.forEach(it => { const k = 'n|' + it.name + '|' + (it.unit || ''); const e = agg.get(k) || { sku: '', name: it.name, unit: it.unit || '', rem: 0, pend: 0, ns: true }; e.rem += it.rem; e.pend += it.pend || 0; agg.set(k, e); });
   });
   const rows = Array.from(agg.values()).sort((a, b) => (a.ns ? 1 : 0) - (b.ns ? 1 : 0) || a.name.localeCompare(b.name));
-  const aoa = [[t('dnRemSheetTitle')], [], ['SKU', 'Product Name', 'Unit', 'Remaining Qty']];
-  rows.forEach(r => aoa.push([r.sku, r.name + (r.ns ? ` (${t('pcNonStockBadge')})` : ''), r.unit, r.rem]));
-  aoa.push([], [t('dnRemRelated')], ['Type', 'Document No.', 'Date', 'Party']);
-  picked.forEach(d => aoa.push([d.type === 'nonsales' ? 'Non-Sales Outbound Slip' : 'Order', String(d.no), d.date, d.party]));
+  const aoa = [[t('dnRemSheetTitle')], [], ['SKU', 'Product Name', 'Unit', 'Remaining Qty', 'Pending DN Qty', 'Remaining after Pending']];
+  rows.forEach(r => aoa.push([r.sku, r.name + (r.ns ? ` (${t('pcNonStockBadge')})` : ''), r.unit, r.rem, r.pend, r.rem - r.pend]));
+  aoa.push([], [t('dnRemRelated')], ['Type', 'Document No.', 'Date', 'Party', 'Pending Delivery Notes']);
+  picked.forEach(d => aoa.push([d.type === 'nonsales' ? 'Non-Sales Outbound Slip' : 'Order', String(d.no), d.date, d.party, d.pendCount || 0]));
   const ws = XLSX.utils.aoa_to_sheet(aoa);
-  ws['!cols'] = [{ wch: 16 }, { wch: 38 }, { wch: 10 }, { wch: 16 }];
+  ws['!cols'] = [{ wch: 16 }, { wch: 38 }, { wch: 10 }, { wch: 16 }, { wch: 16 }, { wch: 22 }];
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Remaining');
   XLSX.writeFile(wb, `delivery_remaining_${todayISO()}.xlsx`);
