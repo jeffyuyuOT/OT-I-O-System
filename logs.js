@@ -276,9 +276,13 @@ function dnLogView(id){
     <div class="section-title" style="margin-top:0;">${t('dnLogViewTitle')}</div>
     <div style="font-size:13px;line-height:1.7;margin-bottom:8px;">${esc(n.date || '')} · ${n.partyName ? esc(n.partyName) : t('partyUnspecified')}${n.ref && n.ref.no ? ` · ${esc(n.ref.no)}` : ''}${n.note ? `<br>${esc(n.note)}` : ''}</div>
     <div style="overflow-x:auto;"><table class="stock-table"><thead><tr><th>SKU</th><th>${t('lblProduct')}</th><th class="num">${t('colQty') || 'Qty'}</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>
-    <div class="modal-actions"><button class="btn ghost" onclick="document.getElementById('dnLogViewOverlay').remove()">${t('btnClose') || 'Close'}</button></div>
+    <div class="modal-actions"><button class="btn ghost" onclick="dnLogPrint('${n.id}')">${t('dnLogPrint')}</button><button class="btn ghost" onclick="document.getElementById('dnLogViewOverlay').remove()">${t('btnClose') || 'Close'}</button></div>
   </div>`;
   document.body.appendChild(ov);
+}
+function dnLogPrint(id){
+  const n = deliveryNotes.find(x => x.id === id); if(!n) return;
+  dnOpenPrintWindow(dnPrintHtml(n));
 }
 async function dnLogEdit(id){
   await ensureDeliveryNotesLoaded();

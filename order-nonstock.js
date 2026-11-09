@@ -143,7 +143,7 @@ function dnRefSourceRaw(ref){
   return { items: Array.from(m.values()), ns: [] };
 }
 // 修改訂單(待處理/已完成)儲存前:改後的數量如果比已開 Delivery Note 的數量少,擋下來,請先去改或刪 Delivery Note
-function dnGuardOrderEdit(order, qtyMap, delIds, msg){
+function dnGuardOrderEdit(order, qtyMap, delIds, msg, opts){
   const notes = (typeof deliveryNotes !== 'undefined' ? deliveryNotes : []).filter(n => n && !n.deleted && n.ref && n.ref.id === order.id);
   if(!notes.length) return false;
   const done = {}, doneNs = {};
@@ -167,13 +167,22 @@ function dnGuardOrderEdit(order, qtyMap, delIds, msg){
     }
   });
   const nsNow = {};
-  txNsClean().forEach(n => { const k = n.name + '|' + (n.unit || ''); nsNow[k] = (nsNow[k] || 0) + n.qty; });
+  ((opts && opts.nsOrder) ? (opts.all ? [] : (order.nonStockItems || [])) : txNsClean()).forEach(n => { const k = n.name + '|' + (n.unit || ''); nsNow[k] = (nsNow[k] || 0) + n.qty; });
   Object.keys(doneNs).forEach(k => {
     const sum = doneNs[k].reduce((s, x) => s + x.qty, 0);
     if(sum > (nsNow[k] || 0) + 1e-9) bad.push(`${k.split('|')[0]}: ${t('dnGuardNew')} ${nsNow[k] || 0} < ${t('dnGuardDelivered')} ${sum}`);
   });
   if(!bad.length) return false;
   if(msg){ msg.className = 'msg error'; msg.textContent = `⚠ ${t('dnGuardMsg')}\n${bad.join('\n')}`; msg.style.whiteSpace = 'pre-line'; }
+  return true;
+}
+// 直接刪除訂單品項/整張訂單(歷史頁面按刪除):有關聯 Delivery Note 就擋下來。productId 空 = 整張訂單
+function dnGuardOrderDelete(order, productId){
+  const m = { style: {} };
+  const all = !productId;
+  const ids = all ? (order.items || []).filter(it => !it.deleted).map(it => it.productId) : [productId];
+  if(!dnGuardOrderEdit(order, {}, ids, m, { nsOrder: true, all })) return false;
+  showInfoModal(m.textContent);
   return true;
 }
 // 目前 Delivery Note 的關聯單據內容(讀不到就 null = 不限制)

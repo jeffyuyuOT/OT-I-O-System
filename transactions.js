@@ -1867,15 +1867,7 @@ async function saveDeliveryNote(){
   msg.textContent = `✓ Delivery Note 已儲存(${note.date})`;
 }
 
-// Delivery Note「列印」:直接開列印視窗,不會存進資料庫——跟「儲存」是兩條分開的路徑,列印過
-// 不代表這張 Note 就被記錄下來了,兩者互不影響。
-async function printDeliveryNote(){
-  await ensureDeliveryNotesLoaded();
-  const msg = document.getElementById('txMsg');
-  const draft = buildDeliveryNoteDraftFromForm();
-  if(!draft.ok){ msg.className = 'msg error'; msg.textContent = `⚠ ${draft.error}`; return; }
-  const data = draft.data;
-
+function dnPrintHtml(data){
   const rowsHtml = data.items.map(it => `
     <tr>
       <td class="sku-col">${escapeHtmlForPrint(it.sku)}</td>
@@ -1919,17 +1911,27 @@ async function printDeliveryNote(){
   </table>
 </body>
 </html>`;
+  return html;
+}
+function dnOpenPrintWindow(html){
   const printWindow = window.open('', '_blank');
-  if(!printWindow){
-    showInfoModal(t('errPrintPopupBlocked'));
-    return;
-  }
+  if(!printWindow){ showInfoModal(t('errPrintPopupBlocked')); return false; }
   printWindow.document.write(html);
   printWindow.document.close();
-  printWindow.onload = () => {
-    printWindow.focus();
-    printWindow.print();
-  };
+  printWindow.onload = () => { printWindow.focus(); printWindow.print(); };
+  return true;
+}
+// Delivery Note「列印」:直接開列印視窗,不會存進資料庫——跟「儲存」是兩條分開的路徑,列印過
+// 不代表這張 Note 就被記錄下來了,兩者互不影響。
+async function printDeliveryNote(){
+  await ensureDeliveryNotesLoaded();
+  const msg = document.getElementById('txMsg');
+  const draft = buildDeliveryNoteDraftFromForm();
+  if(!draft.ok){ msg.className = 'msg error'; msg.textContent = `⚠ ${draft.error}`; return; }
+  const data = draft.data;
+
+  const html = dnPrintHtml(data);
+  if(!dnOpenPrintWindow(html)) return;
 
   // 「載入」模式下列印,代表這張 Delivery Note 已經真的送出去、完成任務了——之前是直接從資料庫
   // 刪除,現在改成標記 status:'completed' 並保留下來,這樣「歷史紀錄 → Delivery Note紀錄」才能

@@ -892,6 +892,7 @@ function deleteCompletedOrder(orderId){
     showInfoModal(t('errOrderAlreadySigned'));
     return;
   }
+  if(dnGuardOrderDelete(order, null)) return;
   const activeItems = order.items.filter(it => !it.deleted);
   showConfirmModal(tf('confirmDeleteOrder', {n: activeItems.length}), async () => {
     await ensureTransactionsLoadedFrom(order.date || '');
@@ -926,6 +927,7 @@ function deleteOrderItem(orderId, productId){
   }
   const item = order.items.find(it => it.productId === productId && !it.deleted);
   if(!item) return;
+  if(dnGuardOrderDelete(order, productId)) return;
   showConfirmModal(tf('confirmDeleteOrderItem', {name: item.name, qty: Math.abs(item.qty), unit: item.unit}), async () => {
     if(!(await invGuardOrderEdit(order, {del: [productId]}))) return;
     const now = new Date().toISOString();
@@ -1546,6 +1548,7 @@ function deletePendingOrderItem(orderId, productId){
   if(!order) return;
   const item = order.items.find(it => it.productId === productId && !it.deleted);
   if(!item) return;
+  if(dnGuardOrderDelete(order, productId)) return;
   showConfirmModal(tf('confirmDeleteOrderItem', {name: item.name, qty: item.qty, unit: item.unit}), async () => {
     if(!(await invGuardOrderEdit(order, {del: [productId]}))) return;
     const now = new Date().toISOString();
@@ -1582,6 +1585,7 @@ function deletePendingOrderItem(orderId, productId){
 function cancelPendingOrder(orderId){
   const order = orders.find(o => o.id === orderId);
   if(!order) return;
+  if(dnGuardOrderDelete(order, null)) return;
   const activeItems = order.items.filter(it => !it.deleted);
   showConfirmModal(tf('confirmCancelPendingOrder', {orderNo: order.orderNo || orderId, n: activeItems.length}), async () => {
     const now = new Date().toISOString();
