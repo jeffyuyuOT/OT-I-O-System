@@ -1424,7 +1424,7 @@ async function printOrderDocument(orderId, opts){
 }
 
 // ============================================================
-// 待處理訂單:批次列印模式——勾選多張訂單,一次印出所有 Picking Slip(合併成一份列印文件,每張訂單一頁)
+// 待處理訂單:批次列印模式——勾選多張訂單,一次印出所有 Picking Slip(一張訂單一個列印視窗)
 // ============================================================
 let pendingBatchMode = false;
 let pendingBatchSel = new Set();
@@ -1459,33 +1459,34 @@ function pendingBatchBarRender(){
     <button class="btn ghost" onclick="pendingBatchToggleMode()">${t('btnCancel')}</button>`;
 }
 async function pendingBatchPrint(){
-  const ids = Array.from(pendingBatchSel);
+  const ids = Array.from(pendingBatchSel).filter(id => { const o = orders.find(x => x.id === id); return o && !o.deleted; });
   if(!ids.length) return;
-  // 先開好列印視窗(要在使用者點擊的當下開,不然會被瀏覽器當成彈出視窗擋掉),全部處理完再一次寫進去
-  const pw = window.open('', '_blank');
-  if(!pw){ showInfoModal(t('errPrintPopupBlocked')); return; }
-  pw.document.write('<p style="font-family:sans-serif;padding:24px;">Preparing…</p>');
-  const bodies = []; let styleTag = '';
-  for(const id of ids){
-    const order = orders.find(o => o.id === id);
-    if(!order || order.deleted) continue;
-    if(orderStatus(order) === 'pending'){
-      const oldStatus = order.status;
-      order.status = 'processing';
-      try{ await upsertOrders([order]); }
-      catch(e){ console.error('更新訂單狀態失敗', e); order.status = oldStatus; continue; }
-      logInventoryAction('order_edit', `Order ${order.orderNo || id} - status changed to Processing (picking slip printed)`, order.orderNo);
-    }
-    const html = await printOrderDocument(id, { includeCheckColumn: true, headerLabel: 'Picking Slip', returnHtml: true });
-    if(!html) continue;   // 中途取消位置選擇:這張不印
-    if(!styleTag){ const m = html.match(/<style>[\s\S]*?<\/style>/); styleTag = m ? m[0] : ''; }
-    const b = html.match(/<body>([\s\S]*)<\/body>/);
-    if(b) bodies.push(b[1]);
+  // 一張訂單一個列印視窗(跟單張列印一樣)。視窗要在使用者點擊的當下全部先開好,不然會被瀏覽器當成彈出視窗擋掉;
+  // 有任何一個開不起來 → 全部關掉、先不動任何訂單狀態,請使用者允許這個網站的彈出視窗後再試
+  const wins = [];
+  for(let i = 0; i < ids.length; i++){
+    const w = window.open('', '_blank');
+    if(!w){ wins.forEach(x => { try{ x.close(); }catch(e){} }); showInfoModal(t('pbPopupBlocked')); return; }
+    w.document.write('<p style="font-family:sans-serif;padding:24px;">Preparing…</p>');
+    wins.push(w);
   }
-  if(!bodies.length){ pw.close(); renderAll(); return; }
-  const doc = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Picking Slips</title>${styleTag}</head><body>${bodies.map((b, i) => `<div style="${i < bodies.length - 1 ? 'page-break-after:always;' : ''}">${b}</div>`).join('')}</body></html>`;
-  pw.document.open(); pw.document.write(doc); pw.document.close();
-  pw.onload = () => { pw.focus(); pw.print(); };
+  for(let i = 0; i < ids.length; i++){
+    const id = ids[i], w = wins[i];
+    const order = orders.find(o => o.id === id);
+    try{
+      if(orderStatus(order) === 'pending'){
+        const oldStatus = order.status;
+        order.status = 'processing';
+        try{ await upsertOrders([order]); }
+        catch(e){ console.error('更新訂單狀態失敗', e); order.status = oldStatus; w.close(); continue; }
+        logInventoryAction('order_edit', `Order ${order.orderNo || id} - status changed to Processing (picking slip printed)`, order.orderNo);
+      }
+      const html = await printOrderDocument(id, { includeCheckColumn: true, headerLabel: 'Picking Slip', returnHtml: true });
+      if(!html){ w.close(); continue; }   // 中途取消位置選擇:這張不印
+      w.document.open(); w.document.write(html); w.document.close();
+      w.onload = () => { w.focus(); w.print(); };
+    }catch(e){ console.error('批次列印失敗', id, e); try{ w.close(); }catch(_){} }
+  }
   pendingBatchMode = false; pendingBatchSel = new Set();
   renderAll();
 }
