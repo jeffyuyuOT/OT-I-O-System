@@ -1424,7 +1424,7 @@ async function printOrderDocument(orderId, opts){
 }
 
 // ============================================================
-// 待處理訂單:批次列印模式——勾選多張訂單,一次印出所有 Picking Slip(一張訂單一個列印視窗)
+// 待處理訂單:批次列印模式——勾選多張訂單,一次印出所有 Picking Slip(同一個視窗用第幾頁/總頁數切換,可印目前這頁或全部)
 // ============================================================
 let pendingBatchMode = false;
 let pendingBatchSel = new Set();
@@ -1461,32 +1461,61 @@ function pendingBatchBarRender(){
 async function pendingBatchPrint(){
   const ids = Array.from(pendingBatchSel).filter(id => { const o = orders.find(x => x.id === id); return o && !o.deleted; });
   if(!ids.length) return;
-  // 一張訂單一個列印視窗(跟單張列印一樣)。視窗要在使用者點擊的當下全部先開好,不然會被瀏覽器當成彈出視窗擋掉;
-  // 有任何一個開不起來 → 全部關掉、先不動任何訂單狀態,請使用者允許這個網站的彈出視窗後再試
-  const wins = [];
-  for(let i = 0; i < ids.length; i++){
-    const w = window.open('', '_blank');
-    if(!w){ wins.forEach(x => { try{ x.close(); }catch(e){} }); showInfoModal(t('pbPopupBlocked')); return; }
-    w.document.write('<p style="font-family:sans-serif;padding:24px;">Preparing…</p>');
-    wins.push(w);
-  }
-  for(let i = 0; i < ids.length; i++){
-    const id = ids[i], w = wins[i];
+  // 只開一個視窗,裡面用「第幾頁/總頁數」左右切換每張訂單;視窗要在點擊當下先開好,不然會被瀏覽器擋掉
+  const pw = window.open('', '_blank');
+  if(!pw){ showInfoModal(t('errPrintPopupBlocked')); return; }
+  pw.document.write('<p style="font-family:sans-serif;padding:24px;">Preparing…</p>');
+  const bodies = []; let styleTag = '';
+  for(const id of ids){
     const order = orders.find(o => o.id === id);
-    try{
-      if(orderStatus(order) === 'pending'){
-        const oldStatus = order.status;
-        order.status = 'processing';
-        try{ await upsertOrders([order]); }
-        catch(e){ console.error('更新訂單狀態失敗', e); order.status = oldStatus; w.close(); continue; }
-        logInventoryAction('order_edit', `Order ${order.orderNo || id} - status changed to Processing (picking slip printed)`, order.orderNo);
-      }
-      const html = await printOrderDocument(id, { includeCheckColumn: true, headerLabel: 'Picking Slip', returnHtml: true });
-      if(!html){ w.close(); continue; }   // 中途取消位置選擇:這張不印
-      w.document.open(); w.document.write(html); w.document.close();
-      w.onload = () => { w.focus(); w.print(); };
-    }catch(e){ console.error('批次列印失敗', id, e); try{ w.close(); }catch(_){} }
+    if(!order) continue;
+    if(orderStatus(order) === 'pending'){
+      const oldStatus = order.status;
+      order.status = 'processing';
+      try{ await upsertOrders([order]); }
+      catch(e){ console.error('更新訂單狀態失敗', e); order.status = oldStatus; continue; }
+      logInventoryAction('order_edit', `Order ${order.orderNo || id} - status changed to Processing (picking slip printed)`, order.orderNo);
+    }
+    const html = await printOrderDocument(id, { includeCheckColumn: true, headerLabel: 'Picking Slip', returnHtml: true });
+    if(!html) continue;   // 中途取消位置選擇:這張不印
+    if(!styleTag){ const m = html.match(/<style>[\s\S]*?<\/style>/); styleTag = m ? m[0] : ''; }
+    const b = html.match(/<body>([\s\S]*)<\/body>/);
+    if(b) bodies.push(b[1]);
   }
+  if(!bodies.length){ pw.close(); pendingBatchMode = false; pendingBatchSel = new Set(); renderAll(); return; }
+  const L = { page: t('pbPage'), prev: t('pbPrev'), next: t('pbNext'), printThis: t('pbPrintThis'), printAll: t('pbPrintAll') };
+  const doc = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Picking Slips</title>${styleTag}
+<style>
+  .pb-bar{ position:sticky; top:0; z-index:5; display:flex; align-items:center; justify-content:center; gap:10px; padding:10px; background:#1e1e1b; color:#fff; font-family:Arial,sans-serif; font-size:14px; flex-wrap:wrap; }
+  .pb-bar button{ font-size:14px; padding:6px 14px; border-radius:6px; border:1px solid #888; background:#fff; color:#111; cursor:pointer; }
+  .pb-bar button:disabled{ opacity:.4; cursor:default; }
+  .pb-bar .pb-count{ min-width:56px; text-align:center; font-weight:700; font-size:16px; }
+  .pb-sheet{ display:none; }
+  .pb-sheet.pb-on{ display:block; }
+  @media print{
+    .pb-bar{ display:none !important; }
+    body.pb-all .pb-sheet{ display:block; page-break-after:always; break-after:page; }
+    body.pb-all .pb-sheet:last-child{ page-break-after:auto; break-after:auto; }
+  }
+</style></head><body>
+<div class="pb-bar"><button id="pbPrev">◀ ${L.prev}</button><span class="pb-count" id="pbCount"></span><button id="pbNext">${L.next} ▶</button>
+  <button id="pbPrintThis">${L.printThis}</button><button id="pbPrintAll">${L.printAll}</button></div>
+${bodies.map(b => `<section class="pb-sheet">${b}</section>`).join('')}
+<script>
+(function(){
+  var sheets=[].slice.call(document.querySelectorAll('.pb-sheet')), cur=0;
+  function show(i){ cur=Math.max(0,Math.min(sheets.length-1,i)); sheets.forEach(function(s,k){ s.classList.toggle('pb-on',k===cur); });
+    document.getElementById('pbCount').textContent=(cur+1)+'/'+sheets.length;
+    document.getElementById('pbPrev').disabled=cur===0; document.getElementById('pbNext').disabled=cur===sheets.length-1; window.scrollTo(0,0); }
+  document.getElementById('pbPrev').onclick=function(){ show(cur-1); };
+  document.getElementById('pbNext').onclick=function(){ show(cur+1); };
+  document.getElementById('pbPrintThis').onclick=function(){ document.body.classList.remove('pb-all'); window.print(); };
+  document.getElementById('pbPrintAll').onclick=function(){ document.body.classList.add('pb-all'); window.print(); document.body.classList.remove('pb-all'); };
+  document.addEventListener('keydown',function(e){ if(e.key==='ArrowLeft') show(cur-1); else if(e.key==='ArrowRight') show(cur+1); });
+  show(0);
+})();
+<\/script></body></html>`;
+  pw.document.open(); pw.document.write(doc); pw.document.close();
   pendingBatchMode = false; pendingBatchSel = new Set();
   renderAll();
 }
