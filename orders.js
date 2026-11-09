@@ -1470,7 +1470,7 @@ function openOrderActionModal(orderId, kind){
     if(wasModified || (o.postVerifyChanges && o.postVerifyChanges.length > 0)) opts.push(['history', t('btnViewHistory'), false]);
     // Create Invoice / Invoice:只有管理者、會計看得到;建立之後選項變成 Invoice(可匯出 PDF 或列印)
     if(!o.deleted && typeof canCreateInvoice === 'function' && canCreateInvoice()) opts.push(o.invoice ? ['invoice', t('invActionInvoice'), false] : ['create-invoice', t('invActionCreate'), false]);
-    if(o.signedAt) opts.push(['email', t('actionEmail'), false]);
+    if(o.signedAt && (typeof acctEmailOn !== 'function' || acctEmailOn())) opts.push(['email', t('actionEmail'), false]);
     opts.push(['output', t('actionOutput'), false]);
   }
   document.getElementById('orderActionModalTitle').textContent = (o.orderNo ? o.orderNo + ' · ' : '') + (o.date || '');

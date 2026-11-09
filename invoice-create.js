@@ -734,7 +734,7 @@ function icCnRender(){
       <td style="white-space:nowrap;">${invEsc(invIsoToDmy(r.cn_date))}</td><td>${invEsc(invCustLabel(r))}</td>
       <td>${r.invoice_id ? `<span class="batch-link" onclick="invOpenDetails('${invEsc(r.invoice_id)}')">INV${invEsc(r.invoice_no || '')}</span>` : ((icCnUsedOn[r.id] || []).length ? (icCnUsedOn[r.id]).map(x => `<div style="white-space:nowrap;"><span class="batch-link" onclick="invOpenDetails('${invEsc(x.id)}')">INV${invEsc(x.no || '')}</span></div>`).join('') : '–')}</td>
       <td class="num"><b>(${invMoney2(r.total)})</b></td>
-      <td class="num">${r.invoice_id ? '–' : invMoney2(Number(r.total) - Number(r.applied || 0))}</td>
+      <td class="num">${r.invoice_id ? '–' : ((Number(r.total) - Number(r.applied || 0)) > 0.004 ? invMoney2(Number(r.total) - Number(r.applied || 0)) : `<span style="color:var(--ink-soft);">${t('icCnUsedUp')}</span>`)}</td>
       <td style="white-space:nowrap;">${icRsBadge(r.return_status)}</td>
       <td style="white-space:nowrap;"><span class="del-link" onclick="icCnOpenDetails('${invEsc(r.id)}')">${t('invBtnDetails')}</span>${(r.return_status || 'none') !== 'none' ? ` <span class="del-link" style="margin-left:6px;" onclick="icCnOpenStatus('${invEsc(r.id)}')">${t('icBtnReturnStatus')}</span>` : ''}</td>${typeof deIconCell === 'function' ? deIconCell('credit_note', r.id) : '<td></td>'}</tr>`).join('');
   root.innerHTML = `<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin-bottom:8px;">
@@ -791,7 +791,7 @@ async function icCnOpenDetails(id){
         ${row(t('spGstAmt'), invMoney2(cn.tax))}
         ${row(t('spTotalAmt'), '<b>(' + invMoney2(total) + ')</b>')}
         ${cn.invoice_id ? '' : row(t('icCnUsed'), invMoney2(used))}
-        ${cn.invoice_id ? '' : row(t('invCreditAvail'), '<b>' + invMoney2(Math.max(0, total - used)) + '</b>')}
+        ${cn.invoice_id ? '' : row(t('invCreditAvail'), (total - used) > 0.004 ? '<b>' + invMoney2(total - used) + '</b>' : '<span style="color:var(--ink-soft);">' + t('icCnUsedUp') + '</span>')}
         ${row(t('invDtCreated'), invEsc((cn.created_by || '') + (cn.created_at ? ' · ' + when(cn.created_at) : '')))}
       </tbody></table>
       ${cn.invoice_id ? '' : `

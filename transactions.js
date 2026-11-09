@@ -279,7 +279,7 @@ function resetRegisterOutFlow(){
   txNoteTargetReset();
   const partySelect = document.getElementById('txPartySelect');
   if(partySelect) partySelect.disabled = false;
-  { const _pel = document.getElementById('txPartyEditLink'); if(_pel) _pel.style.display = 'none'; }
+  { const _pel = document.getElementById('txPartyEditLink'); if(_pel) _pel.style.display = 'none'; const _pir = document.getElementById('txPartyInfoRow'); if(_pir) _pir.style.display = 'none'; }
   const partyFieldWrap = document.getElementById('txPartyFieldWrap');
   if(partyFieldWrap) partyFieldWrap.style.display = '';
   const mainGrid = document.getElementById('txMainFormGrid');
@@ -309,7 +309,7 @@ function setTxOutFlowType(flowType){
   if(existingSection) existingSection.style.display = 'none';
   if(postVerifySection) postVerifySection.style.display = 'none';
   if(partySelect) partySelect.disabled = false;
-  { const _pel = document.getElementById('txPartyEditLink'); if(_pel) _pel.style.display = 'none'; }
+  { const _pel = document.getElementById('txPartyEditLink'); if(_pel) _pel.style.display = 'none'; const _pir = document.getElementById('txPartyInfoRow'); if(_pir) _pir.style.display = 'none'; }
   if(dateInput) dateInput.disabled = false;
   if(noteLabel) noteLabel.textContent = t('txNoteSharedLabel');
   // 出貨的三種流程(新增訂單/載入待處理/載入已完成)都需要出貨方,固定顯示、固定三欄——庫存
@@ -358,7 +358,7 @@ function setTxDeliveryFlowType(flowType){
 
   if(existingSection) existingSection.style.display = 'none';
   if(partySelect) partySelect.disabled = false;
-  { const _pel = document.getElementById('txPartyEditLink'); if(_pel) _pel.style.display = 'none'; }
+  { const _pel = document.getElementById('txPartyEditLink'); if(_pel) _pel.style.display = 'none'; const _pir = document.getElementById('txPartyInfoRow'); if(_pir) _pir.style.display = 'none'; }
   if(dateInput) dateInput.disabled = false;
   if(noteLabel) noteLabel.textContent = t('txNoteSharedLabel');
   dnRefReset();
@@ -715,9 +715,16 @@ function loadOrderIntoRegisterFlow(orderId){
   // 待處理訂單的出貨方:欄位本身鎖住,旁邊給一個「編輯出貨方」連結(先確認再開編輯視窗)
   const partyEditLink = document.getElementById('txPartyEditLink');
   if(partyEditLink){
-    const canEdit = order.partyId && registerOutFlowType === 'load-pending' && hasCapability('cap-manage-parties');
+    const inLoaded = registerOutFlowType === 'load-pending' || registerOutFlowType === 'load-completed';
+    const canEdit = order.partyId && inLoaded && hasCapability('cap-manage-parties');
     partyEditLink.dataset.pid = order.partyId || '';
-    partyEditLink.style.display = canEdit ? 'block' : 'none';
+    partyEditLink.style.display = canEdit ? 'inline' : 'none';
+    // 出貨方下面顯示這張訂單的 Discount(跟訂單清單一樣;只有看得到價錢的人才看得到)
+    const discEl = document.getElementById('txPartyDiscBadge');
+    const badge = (inLoaded && typeof orderDiscountBadge === 'function') ? orderDiscountBadge(order) : '';
+    if(discEl) discEl.innerHTML = badge;
+    const row = document.getElementById('txPartyInfoRow');
+    if(row) row.style.display = (canEdit || badge) ? 'block' : 'none';
   }
   const noteInput = document.getElementById('txNote');
   if(noteInput) noteInput.value = order.note || '';

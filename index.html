@@ -1197,7 +1197,7 @@ body.no-cost-view .cost-col{display:none !important;}
 
     <div id="tab-lookout" class="tab-content">
       <div class="section">
-        <div class="section-title" data-i18n="tabLookout">Lookout</div>
+        <div class="section-title" data-i18n="tabLookout">快捷</div>
         <p style="font-size:12.5px;color:var(--ink-soft);margin:0 0 12px;" data-i18n="lookoutDesc">常用功能的快捷入口,點一下直接跳到對應的畫面。</p>
         <div id="lookoutRoot" class="lookout-grid"></div>
       </div>
@@ -1372,13 +1372,22 @@ body.no-cost-view .cost-col{display:none !important;}
           </p>
         </div>
 
-        <div class="settings-card" id="hideInvoiceCard" data-sgroup="orders">
+        <div class="settings-card" id="hideInvoiceCard" style="display:none;" data-sgroup="orders">
           <div class="section-title" data-i18n="secHideInvoice">Invoice 功能</div>
           <div style="display:flex;align-items:center;gap:8px;margin:0 0 6px;">
             <input type="checkbox" id="hideInvoiceToggle" onchange="toggleHideInvoice(this.checked)" style="width:16px;height:16px;cursor:pointer;" />
             <label for="hideInvoiceToggle" style="font-size:12.5px;color:var(--ink);font-weight:600;cursor:pointer;" data-i18n="hideInvoiceLabel">隱藏 Invoice 功能</label>
           </div>
           <p style="font-size:11.5px;color:var(--ink-soft);margin:0;" data-i18n="hideInvoiceHint">勾選後,所有 Invoice 相關功能都會隱藏:已完成訂單的 Create Invoice / Invoice、會計分頁的 Invoices 清單與收款記錄、出貨方管理的 Invoice Records,以及會計設定裡的 Invoice 格式。已經建立的 Invoice 資料不會被刪除,取消勾選後會恢復顯示。</p>
+        </div>
+
+        <div class="settings-card" id="acctEmailSwitchCard" style="display:none;" data-sgroup="orders">
+          <div class="section-title" data-i18n="secAcctEmailSwitch">寄信給會計</div>
+          <div style="display:flex;align-items:center;gap:8px;margin:0 0 6px;">
+            <input type="checkbox" id="disableAcctEmailToggle" onchange="toggleDisableAcctEmail(this.checked)" style="width:16px;height:16px;cursor:pointer;" />
+            <label for="disableAcctEmailToggle" style="font-size:12.5px;color:var(--ink);font-weight:600;cursor:pointer;" data-i18n="acctEmailDisableLabel">關閉寄信給會計功能</label>
+          </div>
+          <p style="font-size:11.5px;color:var(--ink-soft);margin:0;" data-i18n="acctEmailDisableHint">勾選後,所有寄信給會計的功能都會隱藏:進貨單的「寄送給會計」、進貨紀錄與已完成訂單的寄送 email、匯出並寄出 email、會計 Email 設定。</p>
         </div>
 
         <div class="settings-card" id="completedExportFormatCard" style="display:none;" data-sgroup="orders">
@@ -1563,7 +1572,7 @@ body.no-cost-view .cost-col{display:none !important;}
           <input id="txParty" type="text" placeholder="例如:大盤商 A" data-i18n-placeholder="partyPlaceholderIn" />
           <select id="txPartySelect" style="display:none;" onchange="if(typeof renderTxBatchList === 'function') renderTxBatchList()"></select>
           <div id="txPartyPicker" style="display:none;"></div>
-          <span id="txPartyEditLink" class="del-link" style="display:none;position:absolute;left:0;top:100%;margin-top:3px;font-size:12px;white-space:nowrap;" onclick="partyEditFromOrder(this.dataset.pid)" data-i18n="linkEditParty">✎ 編輯出貨方</span>
+          <span id="txPartyInfoRow" style="display:none;position:absolute;left:0;top:100%;margin-top:3px;font-size:12px;white-space:nowrap;"><span id="txPartyEditLink" class="del-link" style="display:none;" onclick="partyEditFromOrder(this.dataset.pid)" data-i18n="linkEditParty">✎ 編輯出貨方</span><span id="txPartyDiscBadge"></span></span>
         </div>
         <div class="field" id="txInvoiceFieldWrap" style="display:none;">
           <label data-i18n="fieldInvoiceNo">Invoice 號碼(選填)</label>
@@ -2151,7 +2160,7 @@ body.no-cost-view .cost-col{display:none !important;}
         <div id="exportProductPickerMount" style="display:none;margin-bottom:12px;"></div>
         <div id="exportProductList"></div>
         <button class="btn" onclick="openExportModeModal()" data-i18n="btnExportReport">📄 匯出報表(Excel)</button>
-        <button class="btn ghost" onclick="openExportEmailModal()" data-i18n="btnExportAndEmail">✉️ 匯出並寄出 email</button>
+        <button class="btn ghost" id="btnExportEmail" onclick="openExportEmailModal()" data-i18n="btnExportAndEmail">✉️ 匯出並寄出 email</button>
         <div id="exportShipmentMsg" class="msg"></div>
       </div>
     </div>
@@ -2353,7 +2362,7 @@ body.no-cost-view .cost-col{display:none !important;}
           </div>
         </div>
         <div class="settings-card" id="avgCostMethodCard"></div>
-        <div class="settings-card">
+        <div class="settings-card" id="acctEmailSettingsCard">
           <div class="section-title" data-i18n="secAccountingEmail">會計 Email</div>
           <p style="font-size:11.5px;color:var(--ink-soft);margin:0 0 12px;" data-i18n="accountingEmailHint">
             進貨單勾選「寄送給會計」時,預設帶入的收件人地址(送出前還是可以改成別的地址)。可以加多個地址,標記「主要」的那個會放在收件人(To),其他的會放在副本(CC)一起寄出。
@@ -2364,8 +2373,8 @@ body.no-cost-view .cost-col{display:none !important;}
         <div class="settings-card" id="docEmailCard">
           <div class="section-title" data-i18n="secDocEmail">Invoice / Credit Note Email 預設內容</div>
           <p style="font-size:11.5px;color:var(--ink-soft);margin:0 0 12px;" data-i18n="docEmailHint">在 Invoice 清單 / Credit Note 清單用 ✉ 寄送時,預設帶入的主旨與內文。</p>
-          <div class="field" style="margin-bottom:8px;"><label data-i18n="docEmailSubjectLbl">主旨</label><input id="docEmailSubject" type="text" onchange="deSaveTemplate()" /></div>
-          <div class="field" style="margin-bottom:8px;"><label data-i18n="docEmailBodyLbl">內文</label><textarea id="docEmailBody" rows="8" style="width:100%;box-sizing:border-box;" onchange="deSaveTemplate()"></textarea></div>
+          <div class="field" style="margin-bottom:8px;"><label data-i18n="docEmailSubjectLbl">主旨</label><input id="docEmailSubject" type="text" style="font-family:Calibri,'Segoe UI',Arial,sans-serif;font-size:14px;" onchange="deSaveTemplate()" /></div>
+          <div class="field" style="margin-bottom:8px;"><label data-i18n="docEmailBodyLbl">內文</label><textarea id="docEmailBody" rows="8" style="width:100%;box-sizing:border-box;font-family:Calibri,'Segoe UI',Arial,sans-serif;font-size:14px;" onchange="deSaveTemplate()"></textarea></div>
           <button class="btn ghost" onclick="deResetTemplate()" data-i18n="docEmailReset">還原預設</button>
           <div id="docEmailMsg" class="msg"></div>
         </div>
@@ -3535,6 +3544,7 @@ let lastAutoBackupAt = null;
 let backupDirHandle = null;
 // 系統設置裡的開關:「訂貨數量達到 multipack 加權數時自動轉換」
 let autoConvertMultipackEnabled = false;
+let disableAccountantEmailEnabled = false; // 勾選後關閉「寄信給會計」相關功能(系統設置 → 訂單與出貨,需 OT custom)
 let hideInvoiceEnabled = false; // 勾選後隱藏所有 Invoice 相關功能(系統設置 → 訂單與出貨)
 let disableDirectVerifyEnabled = false; // 勾選後,「登記進出貨→出貨→載入現有待處理訂單」下面的「直接核對」選項要隱藏
 let accountingEmails = []; // 系統設置裡的「會計 Email」,現在支援多個地址:[{email, isPrimary}]。標記 isPrimary 的那個放收件人(To),其他放副本(CC),進貨單勾選寄送時預設帶入。
@@ -3901,7 +3911,7 @@ function findMatchingProduct(cellText){
 async function loadData(){
   // 設定值一次抓回來 + 各資料表同時載入(原本全部是一項接一項依序等),大幅縮短開機時間
   const prefetchP = prefetchAppData(['products','orderCounter','shippingParties','lang','autoBackupEnabled','autoConvertMultipack',
-    'disableDirectVerify','hideInvoice','accountingEmails','accountingEmail','stockLocationMode','stockLocationEnabledFields',
+    'disableDirectVerify','hideInvoice','disableAccountantEmail','accountingEmails','accountingEmail','stockLocationMode','stockLocationEnabledFields',
     'stockLocationShowOnPickingSlip','productSortMode','productManualRank','completedExportFormat',
     'hideMultipackIconOnOrderPage','categoryOrder','tabOrder','subTabOrder','quickLists','forecastPrefs','forecastRecords','exportEmailLogs',
     'historyRangeMonths','reportCategories','reportCategoryAccounts','categoryManual','myobCards']);
@@ -3958,6 +3968,8 @@ async function loadData(){
     if(ddvResult) disableDirectVerifyEnabled = ddvResult.value === 'true';
     const hiResult = await dbGet('hideInvoice');
     if(hiResult) hideInvoiceEnabled = hiResult.value === 'true';
+    const dae = await dbGet('disableAccountantEmail');
+    if(dae) disableAccountantEmailEnabled = dae.value === 'true';
   } catch(e){ /* no stored preference yet, keep default false */ }
   try{
     const acctEmailsResult = await dbGet('accountingEmails');

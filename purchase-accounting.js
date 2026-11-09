@@ -131,7 +131,7 @@ function paFormInit(type){
   if(!wrap) return;
   const on = paOn();
   wrap.style.display = (on && type === 'in') ? 'inline-flex' : 'none';
-  if(emailWrap && on) emailWrap.style.display = 'none';
+  if(emailWrap) emailWrap.style.display = (on || (typeof acctEmailOn === 'function' && !acctEmailOn())) ? 'none' : 'inline-flex';
   if(type !== 'in') paFormReset();
 }
 function paFormReset(){
