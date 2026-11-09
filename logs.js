@@ -238,8 +238,8 @@ function renderDeliveryNoteLog(){
   const sorted = list.sort((a,b) => (b.date || '').localeCompare(a.date || ''));
   container.innerHTML = `<table class="stock-table">
       <thead><tr>
-        <th>${t('dnNoLabel')}</th>
         <th>${t('colDate')}</th>
+        <th>${t('dnNoLabel')}</th>
         <th>${t('lblPartyGeneric')}</th>
         <th>${t('colDnRef')}</th>
         <th>${t('colItemNote')}</th>
@@ -253,14 +253,14 @@ function renderDeliveryNoteLog(){
           const itemsSummary = (n.items || []).map(it => `${it.name} ${it.qty} ${it.unit}`).join(', ');
           return `
           <tr>
-            <td style="white-space:nowrap;">${escapeHtmlForPrint(n.no || '')}</td>
             <td style="white-space:nowrap;">${n.date || ''}</td>
+            <td style="white-space:nowrap;">${escapeHtmlForPrint(n.no || '')}</td>
             <td>${n.partyName ? n.partyName.replace(/</g,'&lt;') : t('partyUnspecified')}</td>
             <td style="white-space:nowrap;">${n.ref && n.ref.no ? `${n.ref.type === 'order' && orders.some(o => o.id === n.ref.id) ? `<span class="batch-link" onclick="invGotoOrder('${n.ref.id}')">${escapeHtmlForPrint(n.ref.no)}</span>` : escapeHtmlForPrint(n.ref.no)}<div style="font-size:11px;color:var(--ink-soft);">${dnRefTypeLabel(n.ref.type)}</div>` : '-'}</td>
             <td>${(n.note || '').replace(/</g,'&lt;')}</td>
             <td style="width:100%;max-width:0;"><div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${itemsSummary.replace(/</g,'&lt;').replace(/"/g,'&quot;')}">${itemsSummary.replace(/</g,'&lt;')}</div></td>
-            <td><span class="order-status-pill ${isCompleted ? 'confirmed' : 'pending'}">${isCompleted ? t('statusCompleted') : t('statusPending')}</span></td>
-            <td style="white-space:nowrap;text-align:right;"><button class="btn ghost" onclick="dnLogView('${n.id}')">${t('dnLogView')}</button>${isCompleted ? '' : ` <button class="btn ghost" onclick="dnLogEdit('${n.id}')">${t('dnLogEdit')}</button> <button class="btn ghost" onclick="dnDeletePending('${n.id}')">${t('btnDelete')}</button>`}</td>
+            <td style="white-space:nowrap;"><span class="order-status-pill ${isCompleted ? 'confirmed' : 'pending'}" style="white-space:nowrap;">${isCompleted ? t('statusCompleted') : t('statusPending')}</span></td>
+            <td style="white-space:nowrap;text-align:right;"><button class="btn ghost" onclick="dnLogView('${n.id}')">${t('dnLogView')}</button>${isCompleted ? '' : ` <button class="btn ghost" onclick="dnDeletePending('${n.id}')">${t('btnDelete')}</button>`}</td>
           </tr>`;
         }).join('')}
       </tbody>
@@ -278,7 +278,7 @@ function dnLogView(id){
     <div class="section-title" style="margin-top:0;">${t('dnLogViewTitle')}${n.no ? ' · ' + esc(n.no) : ''}</div>
     <div style="font-size:13px;line-height:1.7;margin-bottom:8px;">${esc(n.date || '')} · ${n.partyName ? esc(n.partyName) : t('partyUnspecified')}${n.ref && n.ref.no ? ` · ${esc(n.ref.no)}` : ''}${n.note ? `<br>${esc(n.note)}` : ''}</div>
     <div style="overflow-x:auto;"><table class="stock-table"><thead><tr><th>SKU</th><th>${t('lblProduct')}</th><th class="num">${t('colQty') || 'Qty'}</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>
-    <div class="modal-actions"><button class="btn ${n.status === 'completed' ? 'ghost' : ''}" onclick="dnLogPrint('${n.id}')">${n.status === 'completed' ? t('dnLogPrint') : t('dnConfirmPrint')}</button><button class="btn ghost" onclick="document.getElementById('dnLogViewOverlay').remove()">${t('btnClose') || 'Close'}</button></div>
+    <div class="modal-actions">${n.status === 'completed' ? '' : `<button class="btn ghost" onclick="document.getElementById('dnLogViewOverlay').remove();dnLogEdit('${n.id}')">${t('dnLogEdit')}</button>`}<button class="btn ${n.status === 'completed' ? 'ghost' : ''}" onclick="dnLogPrint('${n.id}')">${n.status === 'completed' ? t('dnLogPrint') : t('dnConfirmPrint')}</button><button class="btn ghost" onclick="document.getElementById('dnLogViewOverlay').remove()">${t('btnClose') || 'Close'}</button></div>
   </div>`;
   document.body.appendChild(ov);
 }
