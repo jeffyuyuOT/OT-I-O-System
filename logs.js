@@ -238,6 +238,7 @@ function renderDeliveryNoteLog(){
   const sorted = list.sort((a,b) => (b.date || '').localeCompare(a.date || ''));
   container.innerHTML = `<table class="stock-table">
       <thead><tr>
+        <th>${t('dnNoLabel')}</th>
         <th>${t('colDate')}</th>
         <th>${t('lblPartyGeneric')}</th>
         <th>${t('colDnRef')}</th>
@@ -252,6 +253,7 @@ function renderDeliveryNoteLog(){
           const itemsSummary = (n.items || []).map(it => `${it.name} ${it.qty} ${it.unit}`).join(', ');
           return `
           <tr>
+            <td style="white-space:nowrap;">${escapeHtmlForPrint(n.no || '')}</td>
             <td style="white-space:nowrap;">${n.date || ''}</td>
             <td>${n.partyName ? n.partyName.replace(/</g,'&lt;') : t('partyUnspecified')}</td>
             <td style="white-space:nowrap;">${n.ref && n.ref.no ? `${n.ref.type === 'order' && orders.some(o => o.id === n.ref.id) ? `<span class="batch-link" onclick="invGotoOrder('${n.ref.id}')">${escapeHtmlForPrint(n.ref.no)}</span>` : escapeHtmlForPrint(n.ref.no)}<div style="font-size:11px;color:var(--ink-soft);">${dnRefTypeLabel(n.ref.type)}</div>` : '-'}</td>
@@ -273,7 +275,7 @@ function dnLogView(id){
   const ov = document.createElement('div');
   ov.id = 'dnLogViewOverlay'; ov.className = 'modal-overlay'; ov.style.display = 'flex'; ov.style.zIndex = '1200';
   ov.innerHTML = `<div class="modal-box" style="max-width:min(640px,96vw);max-height:92vh;overflow:auto;">
-    <div class="section-title" style="margin-top:0;">${t('dnLogViewTitle')}</div>
+    <div class="section-title" style="margin-top:0;">${t('dnLogViewTitle')}${n.no ? ' · ' + esc(n.no) : ''}</div>
     <div style="font-size:13px;line-height:1.7;margin-bottom:8px;">${esc(n.date || '')} · ${n.partyName ? esc(n.partyName) : t('partyUnspecified')}${n.ref && n.ref.no ? ` · ${esc(n.ref.no)}` : ''}${n.note ? `<br>${esc(n.note)}` : ''}</div>
     <div style="overflow-x:auto;"><table class="stock-table"><thead><tr><th>SKU</th><th>${t('lblProduct')}</th><th class="num">${t('colQty') || 'Qty'}</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>
     <div class="modal-actions"><button class="btn ghost" onclick="dnLogPrint('${n.id}')">${t('dnLogPrint')}</button><button class="btn ghost" onclick="document.getElementById('dnLogViewOverlay').remove()">${t('btnClose') || 'Close'}</button></div>

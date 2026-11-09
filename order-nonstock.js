@@ -267,7 +267,7 @@ function dnRecordHtml(type, id){
   const src = dnRefSourceRaw({ type, id });
   const notes = dnLinkedNotes(id);
   if(!src) return `<div class="empty-note">${t('noRecordsYet')}</div>`;
-  const tag = n => `${esc(n.date || '')}${n.note ? ' · ' + esc(n.note) : ''}${n.status === 'completed' ? '' : ` <span style="color:var(--ink-soft);">(${t('statusPending')})</span>`}`;
+  const tag = n => `${esc(n.no || n.date || '')}${n.no ? ' · ' + esc(n.date || '') : ''}${n.note ? ' · ' + esc(n.note) : ''}${n.status === 'completed' ? '' : ` <span style="color:var(--ink-soft);">(${t('statusPending')})</span>`}`;
   const rowOf = (name, unit, orig, sent) => {
     const done = sent.reduce((s, x) => s + x.qty, 0);
     const rem = orig - done;

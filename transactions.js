@@ -373,7 +373,7 @@ function setTxDeliveryFlowType(flowType){
       // 送貨已經處理完了,不應該再被找出來繼續編輯,它的歷史紀錄改到「觀看紀錄」那邊查看。
       const sorted = deliveryNotes.filter(n => n.status !== 'completed').slice().sort((a,b) => (b.date || '').localeCompare(a.date || ''));
       noteSelect.innerHTML = `<option value="">${t('optSelectDeliveryNote')}</option>` +
-        sorted.map(n => `<option value="${n.id}">${n.date || ''}${n.ref && n.ref.no ? ` · ${String(n.ref.no).replace(/"/g,'&quot;')}` : ''}${n.note ? ` (${n.note.replace(/"/g,'&quot;')})` : ''}</option>`).join('');
+        sorted.map(n => `<option value="${n.id}">${n.no ? n.no + ' · ' : ''}${n.date || ''}${n.ref && n.ref.no ? ` · ${String(n.ref.no).replace(/"/g,'&quot;')}` : ''}${n.note ? ` (${n.note.replace(/"/g,'&quot;')})` : ''}</option>`).join('');
     }
     showTxMainFormArea(false);
   } else if(flowType === 'new'){
@@ -1847,6 +1847,7 @@ async function saveDeliveryNote(){
     ? Object.assign(deliveryNotes.find(n => n.id === registerLoadedDeliveryNoteId), draft.data)
     : { id: genId(), createdAt: new Date().toISOString(), status: 'pending', ...draft.data };
 
+  dnAssignNo(note);
   try{
     await upsertDeliveryNotes([note]);
   } catch(e){
@@ -1864,9 +1865,30 @@ async function saveDeliveryNote(){
   if(flowSel) flowSel.value = '';
   setTxDeliveryFlowType('');
   msg.className = 'msg ok';
-  msg.textContent = `✓ Delivery Note 已儲存(${note.date})`;
+  msg.textContent = `✓ Delivery Note 已儲存(${note.no} · ${note.date})`;
 }
 
+// Delivery Note 號碼:YYYYMMDD-NN(當天第幾張,全部 Delivery Note 一起算)。第一次存檔時給,之後不變;改了日期才重新給
+function dnNextNo(date, exceptId){
+  const ymd = String(date || '').replace(/-/g, '');
+  let max = 0;
+  deliveryNotes.forEach(n => {
+    if(!n || n.id === exceptId || !n.no || !n.no.startsWith(ymd + '-')) return;
+    max = Math.max(max, parseInt(n.no.slice(ymd.length + 1), 10) || 0);
+  });
+  return `${ymd}-${String(max + 1).padStart(2, '0')}`;
+}
+function dnAssignNo(note){
+  const ymd = String(note.date || '').replace(/-/g, '');
+  if(!note.no || !note.no.startsWith(ymd + '-')) note.no = dnNextNo(note.date, note.id);
+}
+// 舊資料沒有號碼 → 依日期、建立時間順序補上並存回去
+function dnBackfillNos(){
+  const miss = deliveryNotes.filter(n => n && !n.no).sort((a, b) => (a.date || '').localeCompare(b.date || '') || (a.createdAt || '').localeCompare(b.createdAt || ''));
+  if(!miss.length) return;
+  miss.forEach(n => dnAssignNo(n));
+  upsertDeliveryNotes(miss).catch(e => console.warn('補 Delivery Note 號碼失敗', e));
+}
 function dnPrintHtml(data){
   const rowsHtml = data.items.map(it => `
     <tr>
@@ -1902,6 +1924,7 @@ function dnPrintHtml(data){
 <body>
   <h2>Delivery Note</h2>
   <h1>${escapeHtmlForPrint(data.partyName || 'Unspecified')}</h1>
+  ${data.no ? `<div class="meta">${escapeHtmlForPrint('Delivery Note No.')}: ${escapeHtmlForPrint(data.no)}</div>` : ''}
   <div class="meta">${escapeHtmlForPrint('Date')}: ${data.date}</div>
   <div class="meta">${escapeHtmlForPrint('Related Document')}: ${escapeHtmlForPrint(data.ref ? data.ref.no : '')}</div>
   ${data.note ? `<div class="meta">${escapeHtmlForPrint('Note')}: ${escapeHtmlForPrint(data.note)}</div>` : ''}
@@ -1946,6 +1969,7 @@ async function printDeliveryNote(){
     try{
       if(existingNote){
         Object.assign(existingNote, data); // 存進去的是實際列印出來的最新內容,不是載入當下的舊資料
+        dnAssignNo(existingNote);
         existingNote.status = 'completed';
         existingNote.completedAt = new Date().toISOString();
         await upsertDeliveryNotes([existingNote]);

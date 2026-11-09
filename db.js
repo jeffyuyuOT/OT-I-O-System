@@ -309,6 +309,7 @@ async function loadDeliveryNotes(){
     if(error) throw error;
     deliveryNotes = (data || []).map(r => r.payload);
     deliveryNotesLoaded = true;
+    if(typeof dnBackfillNos === 'function') dnBackfillNos();
   } catch(e){ console.error('讀取 Delivery Note 失敗', e); deliveryNotes = []; }
 }
 let deliveryNotesLoaded = false;
