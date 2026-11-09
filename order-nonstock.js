@@ -103,11 +103,12 @@ function orderNsRowsHtml(o){
 // ============================================================
 let dnRefDoc = null;   // { items:[{productId,sku,name,unit,qty}], ns:[{name,qty,unit,price,gst}] } 目前選的關聯單據裡的內容
 
-// 同一張關聯單據、已經開過的其他 Delivery Note 已送出的數量(正在編輯的這張不算)
+// 同一張關聯單據、已經完成(列印過)的其他 Delivery Note 已送出的數量(正在編輯的這張不算)
 function dnRefDeliveredBy(ref){
   const items = {}, ns = {};
   (typeof deliveryNotes !== 'undefined' ? deliveryNotes : []).forEach(n => {
-    if(!n || n.deleted || !n.ref || n.ref.id !== ref.id || n.id === registerLoadedDeliveryNoteId) return;
+    // 只有已完成(已列印)的 Delivery Note 才算「已送」;待處理的在列印時才檢查數量
+    if(!n || n.deleted || n.status !== 'completed' || !n.ref || n.ref.id !== ref.id || n.id === registerLoadedDeliveryNoteId) return;
     (n.items || []).forEach(it => { items[it.productId] = (items[it.productId] || 0) + (Number(it.qty) || 0); });
     (n.nonStockItems || []).forEach(x => { const k = x.name + '|' + (x.unit || ''); ns[k] = (ns[k] || 0) + (Number(x.qty) || 0); });
   });
@@ -364,4 +365,43 @@ function dnRemainExport(){
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Remaining');
   XLSX.writeFile(wb, `delivery_remaining_${todayISO()}.xlsx`);
+}
+
+// 列印 Delivery Note 前檢查:每個商品的數量不能超過「關聯單據 − 已完成 Delivery Note」的剩餘。超過就擋下來,並列出其他待處理的 Note
+function dnPrintQtyCheck(data){
+  if(!data.ref) return '';
+  const src = dnRefSourceOf(data.ref); if(!src) return '';
+  const others = dnLinkedNotes(data.ref.id).filter(n => n.status !== 'completed' && n.id !== registerLoadedDeliveryNoteId);
+  const bad = [];
+  const want = {}, wantNs = {};
+  (data.items || []).forEach(it => { want[it.productId] = (want[it.productId] || 0) + it.qty; });
+  Object.keys(want).forEach(pid => {
+    const s = src.items.find(x => x.productId === pid);
+    const rem = s ? s.qty : 0;
+    if(want[pid] > rem + 1e-9){
+      const name = ((data.items || []).find(x => x.productId === pid) || {}).name || pid;
+      const occ = others.filter(n => (n.items || []).some(x => x.productId === pid)).map(n => n.no || n.date).join(', ');
+      bad.push(`${name}: ${t('dnPrintWant')} ${want[pid]} > ${t('dnRecRemain')} ${rem}${occ ? ` (${t('dnPrintPendingBy')} ${occ})` : ''}`);
+    }
+  });
+  (data.nonStockItems || []).forEach(n => { const k = n.name + '|' + (n.unit || ''); wantNs[k] = (wantNs[k] || 0) + n.qty; });
+  Object.keys(wantNs).forEach(k => {
+    const s = (src.ns || []).find(x => x.name + '|' + (x.unit || '') === k);
+    const rem = s ? s.qty : 0;
+    if(wantNs[k] > rem + 1e-9) bad.push(`${k.split('|')[0]}: ${t('dnPrintWant')} ${wantNs[k]} > ${t('dnRecRemain')} ${rem}`);
+  });
+  return bad.length ? `${t('dnPrintShort')}\n${bad.join('\n')}` : '';
+}
+async function dnDeletePending(id){
+  await ensureDeliveryNotesLoaded();
+  const n = deliveryNotes.find(x => x.id === id);
+  if(!n || n.status === 'completed') return;
+  showConfirmModal(tf('dnDeleteConfirm', { no: n.no || n.date || '' }), async () => {
+    try{ await deleteDeliveryNoteRow(id); }
+    catch(e){ showInfoModal(t('dnDeleteFail')); return; }
+    deliveryNotes = deliveryNotes.filter(x => x.id !== id);
+    if(registerLoadedDeliveryNoteId === id){ registerLoadedDeliveryNoteId = null; registerDeliveryFlowType = ''; txBatchItems = []; txNsItems = []; setTxDeliveryFlowType(''); }
+    logInventoryAction('delivery_note', `Deleted pending Delivery Note ${n.no || ''} (${n.date})`, null);
+    renderDeliveryNoteLog();
+  });
 }

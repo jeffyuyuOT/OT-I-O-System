@@ -1953,6 +1953,8 @@ async function printDeliveryNote(){
   const draft = buildDeliveryNoteDraftFromForm();
   if(!draft.ok){ msg.className = 'msg error'; msg.textContent = `⚠ ${draft.error}`; return; }
   const data = draft.data;
+  const qtyErr = dnPrintQtyCheck(data);
+  if(qtyErr){ msg.className = 'msg error'; msg.style.whiteSpace = 'pre-line'; msg.textContent = `⚠ ${qtyErr}`; return; }
 
   const html = dnPrintHtml(data);
   if(!dnOpenPrintWindow(html)) return;

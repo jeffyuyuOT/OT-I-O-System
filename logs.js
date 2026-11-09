@@ -260,7 +260,7 @@ function renderDeliveryNoteLog(){
             <td>${(n.note || '').replace(/</g,'&lt;')}</td>
             <td>${itemsSummary.replace(/</g,'&lt;')}</td>
             <td><span class="order-status-pill ${isCompleted ? 'confirmed' : 'pending'}">${isCompleted ? t('statusCompleted') : t('statusPending')}</span></td>
-            <td style="white-space:nowrap;text-align:right;"><button class="btn ghost" onclick="dnLogView('${n.id}')">${t('dnLogView')}</button>${isCompleted ? '' : ` <button class="btn ghost" onclick="dnLogEdit('${n.id}')">${t('dnLogEdit')}</button>`}</td>
+            <td style="white-space:nowrap;text-align:right;"><button class="btn ghost" onclick="dnLogView('${n.id}')">${t('dnLogView')}</button>${isCompleted ? '' : ` <button class="btn ghost" onclick="dnLogEdit('${n.id}')">${t('dnLogEdit')}</button> <button class="btn ghost" onclick="dnDeletePending('${n.id}')">${t('btnDelete')}</button>`}</td>
           </tr>`;
         }).join('')}
       </tbody>
