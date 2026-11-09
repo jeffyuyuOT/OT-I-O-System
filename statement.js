@@ -36,7 +36,7 @@ async function stmtOpenPage(){
   root.innerHTML = `<div class="empty-note">${t('batchLoading')}</div>`;
   await invLoadList(true);
   stmtRenderForm();
-  if(stmtState.key) stmtGenerate();
+  stmtOpenLog();
 }
 function stmtCustomers(){
   const m = new Map();
@@ -46,18 +46,26 @@ function stmtCustomers(){
 function stmtRenderForm(){
   const root = document.getElementById('statementRoot'); if(!root) return;
   const opts = stmtCustomers().map(([k, l]) => `<option value="${invEsc(k)}" ${k === stmtState.key ? 'selected' : ''}>${invEsc(l)}</option>`).join('');
-  root.innerHTML = `<div class="form-grid" style="grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:8px;align-items:end;">
-      <div class="field"><label>${t('icFieldParty')}</label><select id="stmtParty" onchange="stmtState.key=this.value;stmtGenerate()"><option value="">—</option>${opts}</select></div>
-      <div class="field"><label>${t('stmtAsOf')}</label><input type="date" id="stmtAsOf" value="${invEsc(stmtState.asOf)}" onchange="stmtState.asOf=this.value;stmtGenerate()" /></div>
-      <div style="display:flex;align-items:center;gap:8px;padding-bottom:8px;"><input type="checkbox" id="stmtIncPaid" style="width:auto;margin:0;flex:0 0 auto;" ${stmtState.incPaid ? 'checked' : ''} onchange="stmtState.incPaid=this.checked;stmtRenderForm();stmtGenerate()" /><label for="stmtIncPaid" style="margin:0;text-transform:none;letter-spacing:0;font-size:12.5px;font-weight:400;cursor:pointer;">${t('stmtIncPaid')}</label></div>
-      ${stmtState.incPaid ? `<div class="field"><label>${t('stmtPaidFrom')}</label><input type="date" id="stmtFrom" value="${invEsc(stmtState.from)}" onchange="stmtState.from=this.value;stmtGenerate()" /></div>` : ''}
-    </div>
-    <div class="toolbar" style="margin:10px 0;gap:8px;justify-content:flex-start;">
-      <button class="btn" onclick="stmtPrint()">${t('stmtPrint')}</button>
-      <button class="btn ghost" onclick="stmtOpenPay()">${t('stmtRecordPay')}</button>
-      <button class="btn ghost" onclick="stmtOpenLog()">${t('stmtLog')}</button>
+  root.innerHTML = `<div class="toolbar" style="margin:0 0 10px;gap:8px;justify-content:flex-start;">
+      <button class="btn" id="stmtBtnLog" onclick="stmtOpenLog()">${t('stmtLog')}</button>
+      <button class="btn ghost" id="stmtBtnNew" onclick="stmtShowNewForm()">${t('stmtCreateNew')}</button>
     </div>
     <div id="stmtOut"></div>`;
+}
+// Create new statement:選出貨方 + 日期 + 是否列出已付清,按預覽才跳出 PDF 視窗
+function stmtShowNewForm(){
+  const out = document.getElementById('stmtOut'); if(!out) return;
+  const opts = stmtCustomers().map(([k, l]) => `<option value="${invEsc(k)}" ${k === stmtState.key ? 'selected' : ''}>${invEsc(l)}</option>`).join('');
+  const lb = document.getElementById('stmtBtnLog'), nb = document.getElementById('stmtBtnNew');
+  if(lb) lb.className = 'btn ghost'; if(nb) nb.className = 'btn';
+  out.innerHTML = `<div class="form-grid" style="grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:8px;align-items:end;">
+      <div class="field"><label>${t('icFieldParty')}</label><select id="stmtParty" onchange="stmtState.key=this.value"><option value="">—</option>${opts}</select></div>
+      <div class="field"><label>${t('stmtAsOf')}</label><input type="date" id="stmtAsOf" value="${invEsc(stmtState.asOf)}" onchange="stmtState.asOf=this.value" /></div>
+      <div style="display:flex;align-items:center;gap:8px;padding-bottom:8px;"><input type="checkbox" id="stmtIncPaid" style="width:auto;margin:0;flex:0 0 auto;" ${stmtState.incPaid ? 'checked' : ''} onchange="stmtState.incPaid=this.checked;stmtShowNewForm()" /><label for="stmtIncPaid" style="margin:0;text-transform:none;letter-spacing:0;font-size:12.5px;font-weight:400;cursor:pointer;">${t('stmtIncPaid')}</label></div>
+      ${stmtState.incPaid ? `<div class="field"><label>${t('stmtPaidFrom')}</label><input type="date" id="stmtFrom" value="${invEsc(stmtState.from)}" onchange="stmtState.from=this.value" /></div>` : ''}
+    </div>
+    <div style="margin:10px 0;"><button class="btn" onclick="stmtCreate()">${t('stmtCreateNew')}</button></div>
+    <div id="stmtNewMsg" class="msg"></div>`;
 }
 async function stmtFetchPayments(ids){
   const out = [];
@@ -76,22 +84,90 @@ async function stmtFetchCreditNotes(){
   if(error) throw error;
   return data || [];
 }
-async function stmtGenerate(){
-  const out = document.getElementById('stmtOut'); if(!out) return;
+async function stmtBuild(){
   const key = stmtState.key, asOf = stmtState.asOf;
-  if(!key || !asOf){ out.innerHTML = ''; stmtData = null; return; }
-  out.innerHTML = `<div class="empty-note">${t('batchLoading')}</div>`;
+  if(!key || !asOf) return null;
+  const invs = (invList || []).filter(r => stmtKeyOf(r) === key);
+  const [cns, pays] = await Promise.all([stmtFetchCreditNotes(), stmtFetchPayments(invs.map(r => r.id))]);
+  const myCns = cns.filter(c => stmtKeyOf(c) === key && (c.cn_date || '') <= asOf);
+  return stmtCompute(key, invs, myCns, pays, asOf);
+}
+// 同一個出貨方最近一張已存的 Statement
+async function stmtLatestOf(d){
+  let q = sb.from('statements').select('st_no,as_of').order('as_of', { ascending: false }).order('created_at', { ascending: false }).limit(1);
+  q = d.partyId ? q.eq('party_id', d.partyId) : q.eq('customer', d.name);
+  const r = await q;
+  if(r.error) throw r.error;
+  return (r.data && r.data[0]) || null;
+}
+async function stmtCreate(){
+  const msg = document.getElementById('stmtNewMsg');
+  const bad = k => { if(msg){ msg.className = 'msg error'; msg.textContent = t(k); } };
+  if(!stmtState.key) return bad('stmtPickFirst');
+  if(!stmtState.asOf) return bad('invPayBadDate');
+  if(msg){ msg.className = 'msg'; msg.textContent = t('batchLoading'); }
   try{
-    const invs = (invList || []).filter(r => stmtKeyOf(r) === key);
-    const [cns, pays] = await Promise.all([stmtFetchCreditNotes(), stmtFetchPayments(invs.map(r => r.id))]);
-    const myCns = cns.filter(c => stmtKeyOf(c) === key && (c.cn_date || '') <= asOf);
-    stmtData = stmtCompute(key, invs, myCns, pays, asOf);
-    out.innerHTML = `<div style="overflow:auto;border:1px solid var(--line);background:#eee;padding:8px;">${stmtDocHtml(stmtData)}</div>`;
+    const d = await stmtBuild();
+    if(!d) return bad('stmtPickFirst');
+    const last = await stmtLatestOf(d);
+    if(last && last.as_of && stmtState.asOf < last.as_of){
+      if(msg){ msg.textContent = ''; }
+      showInfoModal(tf('stmtDateBefore', { date: invIsoToDmy(last.as_of), no: last.st_no }));
+      return;
+    }
+    if(msg){ msg.textContent = ''; }
+    stmtData = d;
+    stmtShowModal(false);
   }catch(e){
     console.error('Statement 讀取失敗', e);
-    out.innerHTML = `<div class="msg error">${invIsMissingFn(e) ? t('icNeedSqlCn') : t('invLoadFailed')}</div>`;
-    stmtData = null;
+    if(msg){ msg.className = 'msg error'; msg.textContent = invIsMissingFn(e) ? t('icNeedSqlCn') : t('invLoadFailed'); }
   }
+}
+// PDF 預覽視窗:新增(取消/列印/儲存 PDF/確認新增)或從紀錄開啟(關閉/登記付款/列印/儲存 PDF)
+function stmtCloseModal(){ const o = document.getElementById('stmtDocOverlay'); if(o) o.remove(); }
+function stmtShowModal(saved){
+  stmtCloseModal();
+  const d = stmtData; if(!d) return;
+  const ov = document.createElement('div');
+  ov.id = 'stmtDocOverlay'; ov.className = 'modal-overlay'; ov.style.display = 'flex'; ov.style.zIndex = '1150';
+  const canPay = saved && !d._paidAt;
+  ov.innerHTML = `<div class="modal-box" style="max-width:min(900px,96vw);max-height:92vh;overflow:auto;">
+    <div class="section-title" style="margin-top:0;">${saved ? 'Statement · ' + invEsc(stmtRef(d)) : t('stmtCreateNew')}</div>
+    <div style="overflow:auto;border:1px solid var(--line);background:#eee;padding:8px;"><div id="stmtPreviewHost" style="zoom:0.85;">${stmtDocHtml(d)}</div></div>
+    <div id="stmtModalMsg" class="msg"></div>
+    <div class="modal-actions">
+      <button class="btn ghost" onclick="stmtCloseModal()">${saved ? t('btnClose') : t('btnCancel')}</button>
+      ${canPay ? `<button class="btn ghost" onclick="stmtCloseModal();stmtOpenPay()">${t('stmtRecordPay')}</button>` : ''}
+      <button class="btn ghost" onclick="stmtPrint()">${t('invBtnPrint')}</button>
+      <button class="btn ${saved ? '' : 'ghost'}" onclick="stmtSavePdf()">${t('invBtnSavePdf')}</button>
+      ${saved ? '' : `<button class="btn" id="stmtConfirmBtn" onclick="stmtConfirmNew()">${t('stmtConfirmAdd')}</button>`}
+    </div>
+  </div>`;
+  document.body.appendChild(ov);
+}
+async function stmtConfirmNew(){
+  const btn = document.getElementById('stmtConfirmBtn'); if(btn) btn.disabled = true;
+  if(!(await stmtEnsureSaved())){ if(btn) btn.disabled = false; return; }
+  stmtCloseModal();
+  await stmtOpenLog();
+}
+function stmtFileName(d){ return `Statement_${(d.stNo || String(d.name || '').replace(/[^\w]+/g, '_'))}_${d.asOf}.pdf`; }
+async function stmtSavePdf(){
+  if(!stmtData) return;
+  const msg = document.getElementById('stmtModalMsg');
+  if(typeof html2pdf === 'undefined'){ if(msg){ msg.className = 'msg error'; msg.textContent = t('invPdfLibMissing'); } return; }
+  const holder = document.createElement('div');
+  holder.style.cssText = 'position:fixed;left:-10000px;top:0;width:794px;background:#fff;';
+  holder.innerHTML = stmtDocHtml(stmtData);
+  document.body.appendChild(holder);
+  try{
+    await html2pdf().set({
+      margin: 0, filename: stmtFileName(stmtData), image: { type: 'jpeg', quality: 0.98 },
+      html2canvas: { scale: 2, useCORS: true }, jsPDF: { unit: 'pt', format: 'a4', orientation: 'portrait' },
+      pagebreak: { mode: ['css', 'legacy'], avoid: ['tr'] }
+    }).from(holder.firstElementChild).save();
+  }catch(e){ console.error('產生 PDF 失敗', e); if(msg){ msg.className = 'msg error'; msg.textContent = t('invPdfFailed'); } }
+  holder.remove();
 }
 function stmtCompute(key, invs, cns, pays, asOf){
   const cnById = {}; cns.forEach(c => { cnById[c.id] = c; });
@@ -153,7 +229,7 @@ function stmtDocHtml(d){
     });
     rows += `<tr><td style="${td}"></td><td style="${td}"></td><td style="${td}font-weight:700;">Balance</td><td style="${td}${num}font-weight:700;border-top:1px solid #999;">${stmtMoney(b.balance)}</td></tr>`;
   });
-  if(!d.blocks.length) rows = `<tr><td colspan="4" style="${td}color:#777;padding:14px 6px;">${invEsc(t('stmtNone'))}</td></tr>`;
+  if(!d.blocks.length) rows = `<tr><td colspan="4" style="${td}color:#777;padding:14px 6px;">No outstanding invoices as at this date.</td></tr>`;
   let un = '';
   if(d.unapplied.length){
     un = `<tr><td colspan="4" style="${td}padding-top:12px;font-weight:700;">Unapplied Credits</td></tr>` + d.unapplied.map(u =>
@@ -182,8 +258,8 @@ function stmtDocHtml(d){
       <div>${invNl2br(sp.billTo || '')}</div>
     </div>
     <table style="width:100%;border-collapse:collapse;"><thead><tr><th style="${th}width:80px;">Date</th><th style="${th}width:90px;">Invoice No.</th><th style="${th}">Details</th><th style="${th}${num}width:100px;">Amount</th></tr></thead><tbody>${rows}${un}</tbody></table>
-    ${(a.d30 + a.d60 + a.d90 + a.d91) > 0.004 ? `<table style="margin:16px 0 0 auto;border-collapse:collapse;border:1px solid #999;"><thead><tr>${['Current', '1-30 Days', '31-60 Days', '61-90 Days', '90+ Days', 'Credit'].map(h => `<th style="${ac}border-bottom:1px solid #999;font-weight:700;">${h}</th>`).join('')}</tr></thead>` : ''}
-      <tbody><tr>${[a.cur, a.d30, a.d60, a.d90, a.d91].map(v => `<td style="${ac}">${invMoney2(v)}</td>`).join('')}<td style="${ac}color:#1d7a3c;">${a.credit ? '(' + invMoney2(a.credit) + ')' : '0.00'}</td></tr></tbody></table>
+    ${(a.d30 + a.d60 + a.d90 + a.d91) > 0.004 ? `<table style="margin:16px 0 0 auto;border-collapse:collapse;border:1px solid #999;"><thead><tr>${['Current', '1-30 Days', '31-60 Days', '61-90 Days', '90+ Days', 'Credit'].map(h => `<th style="${ac}border-bottom:1px solid #999;font-weight:700;">${h}</th>`).join('')}</tr></thead>
+      <tbody><tr>${[a.cur, a.d30, a.d60, a.d90, a.d91].map(v => `<td style="${ac}">${invMoney2(v)}</td>`).join('')}<td style="${ac}color:#1d7a3c;">${a.credit ? '(' + invMoney2(a.credit) + ')' : '0.00'}</td></tr></tbody></table>` : ''}
     <div style="margin-top:8px;text-align:right;font-size:14px;font-weight:700;">TOTAL AMOUNT DUE &nbsp; $${stmtMoney(d.total)}</div>
     ${bk.length ? `<div style="margin-top:18px;border-top:1px solid #ccc;padding-top:8px;font-size:11.5px;line-height:1.5;"><div style="font-weight:700;">Payment details</div>${bk.map(x => `<div>${invEsc(x)}</div>`).join('')}<div style="color:#555;">Please quote ${stmtRef(d) ? 'Statement No. <b>' + invEsc(stmtRef(d)) + '</b>' : 'the Statement No. (assigned when saved)'} as the payment reference.</div></div>` : ''}
   </div>`;
@@ -197,8 +273,7 @@ async function stmtEnsureSaved(){
     const { data, error } = await sb.rpc('statement_save', { p_snapshot: snap, p_party_id: stmtData.partyId || '' });
     if(error) throw error;
     stmtData.stNo = data && data.st_no; stmtData._id = data && data.id;
-    const out = document.getElementById('stmtOut');
-    if(out && stmtData) out.innerHTML = `<div style="overflow:auto;border:1px solid var(--line);background:#eee;padding:8px;">${stmtDocHtml(stmtData)}</div>`;
+    const host = document.getElementById('stmtPreviewHost'); if(host && stmtData) host.innerHTML = stmtDocHtml(stmtData);
     try{ logInventoryAction('order_edit', `Statement ${stmtData.stNo} saved (${stmtData.name}, ${stmtData.asOf})`, ''); }catch(e){}
     return true;
   }catch(e){
@@ -209,7 +284,6 @@ async function stmtEnsureSaved(){
 }
 async function stmtPrint(){
   if(!stmtData){ showInfoModal(t('stmtPickFirst')); return; }
-  if(!(await stmtEnsureSaved())) return;
   const iframe = document.createElement('iframe');
   iframe.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0;';
   document.body.appendChild(iframe);
@@ -381,6 +455,8 @@ async function stmtPaySave(){
 let stmtLogRows = [];
 async function stmtOpenLog(){
   const out = document.getElementById('stmtOut'); if(!out) return;
+  const lb = document.getElementById('stmtBtnLog'), nb = document.getElementById('stmtBtnNew');
+  if(lb) lb.className = 'btn'; if(nb) nb.className = 'btn ghost';
   out.innerHTML = `<div class="empty-note">${t('batchLoading')}</div>`;
   try{
     const { data, error } = await sb.from('statements').select('id,st_no,customer,as_of,total_due,created_by,created_at').order('created_at', { ascending: false }).limit(1000);
@@ -403,11 +479,11 @@ function stmtRenderLog(q){
 }
 async function stmtViewSaved(id){
   try{
-    let { data, error } = await sb.from('statements').select('snapshot,paid_at,created_at').eq('id', id).maybeSingle();
-    if(error && error.code === '42703') ({ data, error } = await sb.from('statements').select('snapshot').eq('id', id).maybeSingle());   // 還沒執行新版 SQL:沒有 paid_at 欄
+    let { data, error } = await sb.from('statements').select('st_no,snapshot,paid_at,created_at').eq('id', id).maybeSingle();
+    if(error && error.code === '42703') ({ data, error } = await sb.from('statements').select('st_no,snapshot').eq('id', id).maybeSingle());   // 還沒執行新版 SQL:沒有 paid_at 欄
     if(error || !data) throw error || new Error('not found');
     stmtData = data.snapshot; stmtData._saved = true; stmtData._id = id; stmtData._paidAt = data.paid_at || ''; stmtData._createdAt = data.created_at || '';
-    const out = document.getElementById('stmtOut');
-    out.innerHTML = `<div class="toolbar" style="margin:0 0 8px;"><button class="btn ghost" onclick="stmtOpenLog()">← ${t('stmtLog')}</button></div><div style="overflow:auto;border:1px solid var(--line);background:#eee;padding:8px;">${stmtDocHtml(stmtData)}</div>`;
+    if(!stmtData.stNo) stmtData.stNo = data.st_no;
+    stmtShowModal(true);
   }catch(e){ console.error(e); showInfoModal(t('invLoadFailed')); }
 }
