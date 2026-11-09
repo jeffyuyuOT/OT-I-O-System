@@ -1828,7 +1828,7 @@ function buildDeliveryNoteDraftFromForm(){
     ok: true,
     data: {
       date, partyId, partyName: partyObj ? partyObj.name : '', note, ref: { type: ref.type, id: ref.id, no: ref.no },
-      items: txBatchItems.map(it => ({ productId: it.productId, sku: it.sku || '', name: it.name, unit: it.unit, qty: it.qty })),
+      items: txBatchItems.map(it => ({ productId: it.productId, sku: it.sku || '', name: it.name, unit: it.unit, qty: it.qty, ...(it.batchPicks && it.batchPicks.length ? { batchPicks: it.batchPicks } : {}) })),
       nonStockItems: txNsClean()
     }
   };

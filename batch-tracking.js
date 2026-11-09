@@ -322,7 +322,10 @@ function batchClosePicker(){
 }
 function batchOpenPicker(opts){
   batchClosePicker();
-  const items = batchItemsOfProduct(opts.productId);
+  let items = batchItemsOfProduct(opts.productId);
+  // 限制只能選指定的批次/位置(Delivery Note 只能選關聯訂單當時用的批次與位置)
+  const allow = opts.allowed || null;
+  if(allow){ items = items.filter(i => allow.ids.has(i.id)); }
   // 預設顯示「目前實際會怎麼分配」(自動分配的結果,或已指定的批次加上自動補的部分),可以直接改數字
   const cur = {};
   batchPreviewAllocation(opts.productId, opts.qty, opts.picks).lines.forEach(l => { cur[l.item.id] = (cur[l.item.id] || 0) + l.qty; });
@@ -330,7 +333,8 @@ function batchOpenPicker(opts){
   const curCode = {};
   (opts.picks || []).forEach(p => { if(p.code !== undefined && p.code !== null) curCode[p.batchItemId + '|' + p.code] = (curCode[p.batchItemId + '|' + p.code] || 0) + p.qty; });
   const rows = items.map(i => {
-    const buckets = batchBucketsOrdered(i);
+    let buckets = batchBucketsOrdered(i);
+    if(allow && allow.codes && allow.codes[i.id]){ const f = buckets.filter(b => allow.codes[i.id].has(b.code)); if(f.length) buckets = f; }
     const multi = buckets.length > 1;
     const head = `${batchEsc(i.batchNo)}${i.isOpening ? ' <span style="color:var(--ink-soft);font-size:11px;">(' + t('batchOpening') + ')</span>' : ''}`;
     const exp = i.expiry ? batchEsc(i.expiry) + batchExpiryBadge(i.expiry) : '–';
@@ -817,11 +821,34 @@ function batchTxRowButtonHtml(it){
   const has = it.batchPicks && it.batchPicks.length > 0;
   return `<button onclick="batchOpenPickerForTxItem('${it.batchItemId}')" title="${t('btnBatchPick')}">${batchTagIcon()}${has ? ' ✓' : ''}</button>`;
 }
-function batchOpenPickerForTxItem(batchItemId){
+// Delivery Note:只能選關聯訂單當時用的批次與位置。待處理訂單 = 訂單品項指定的批次(沒指定就是會自動分配到的批次);已完成訂單 = 實際出貨的批次。回傳 null = 不限制
+async function batchDnAllowed(productId){
+  if(typeof currentTxType === 'undefined' || currentTxType !== 'delivery') return null;
+  const ref = (typeof dnRefSelected !== 'undefined') ? dnRefSelected : null;
+  if(!ref || ref.type !== 'order') return null;
+  const o = (typeof orders !== 'undefined' ? orders : []).find(x => x.id === ref.id);
+  if(!o) return null;
+  const ids = new Set(), codes = {};
+  if(o.status === 'confirmed' || o.status === 'processing'){
+    const map = await batchGetOrderDetail(o.id);
+    ((map && map[productId]) || []).forEach(r => ids.add(r.item.id));
+  } else {
+    const lines = (o.items || []).filter(x => !x.deleted && x.productId === productId && x.qty > 0);
+    const picks = [];
+    lines.forEach(x => (x.batchPicks || []).forEach(p => picks.push(p)));
+    const need = lines.reduce((s, x) => s + x.qty, 0);
+    batchPreviewAllocation(productId, need, picks).lines.forEach(l => ids.add(l.item.id));
+    picks.forEach(p => { if(p.code !== undefined && p.code !== null){ (codes[p.batchItemId] = codes[p.batchItemId] || new Set()).add(p.code); } });
+  }
+  return { ids, codes };
+}
+async function batchOpenPickerForTxItem(batchItemId){
   const it = txBatchItems.find(x => x.batchItemId === batchItemId);
   if(!it) return;
+  let allowed = null;
+  try{ await ensureBatchDataLoaded(); allowed = await batchDnAllowed(it.productId); }catch(e){ console.warn('取得關聯訂單批次失敗', e); }
   batchOpenPicker({
-    productId: it.productId, qty: it.qty, unit: it.unit, picks: it.batchPicks || [],
+    productId: it.productId, qty: it.qty, unit: it.unit, picks: it.batchPicks || [], allowed,
     onSave: picks => { if(picks.length) it.batchPicks = picks; else delete it.batchPicks; renderTxBatchList(); }
   });
 }
