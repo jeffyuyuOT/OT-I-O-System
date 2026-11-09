@@ -1056,6 +1056,11 @@ async function batchViewPurchase(purchaseId){
   ['purchaseLogDateFrom', 'purchaseLogDateTo', 'purchaseLogPartyFilter'].forEach(id => { const el = document.getElementById(id); if(el) el.value = ''; });
   if(typeof expandedPurchaseId !== 'undefined') expandedPurchaseId = purchaseId;
   if(typeof renderPurchaseLog === 'function') renderPurchaseLog();
+  // 清單很長時,展開的那張單可能在畫面下方:捲到那一列
+  setTimeout(() => {
+    const el = document.querySelector(`#purchaseLogTable [onclick="togglePurchaseDetail('${purchaseId}')"]`);
+    if(el && el.scrollIntoView) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, 50);
 }
 function batchViewPurchaseLink(purchaseId){
   if(typeof partyTabAllowed === 'function' && !partyTabAllowed('tab-log')) return '';
