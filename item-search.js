@@ -168,7 +168,7 @@ function itemSearchLocationHtml(p){
       <td>${r.i.expiry ? isEsc(r.i.expiry) + (typeof batchExpiryBadge === 'function' ? batchExpiryBadge(r.i.expiry, true) : '') : '–'}</td>
       <td class="num cost-col">${r.unitCost === null ? '–' : isMoney(r.unitCost)}</td>
       <td class="num cost-col">${r.unitCost === null ? '–' : isMoney(r.unitCost * r.qty)}</td></tr>`).join('')}
-    </tbody><tfoot><tr style="font-weight:700;"><td colspan="2">${t('invListTotals')}</td><td class="num">${isQty(totQty)} ${unit}</td><td></td><td class="num cost-col"></td><td class="num cost-col">${isMoney(totVal)}${missing ? ' <span style="font-weight:400;color:var(--ink-soft);font-size:11px;">(' + tf('itemSearchMissingCost', { n: missing }) + ')</span>' : ''}</td></tr></tfoot></table></div>`;
+    <tr style="font-weight:700;border-top:2px solid var(--line);"><td colspan="2">${t('invListTotals')}</td><td class="num">${isQty(totQty)} ${unit}</td><td></td><td class="num cost-col"></td><td class="num cost-col">${isMoney(totVal)}${missing ? ' <span style="font-weight:400;color:var(--ink-soft);font-size:11px;">(' + tf('itemSearchMissingCost', { n: missing }) + ')</span>' : ''}</td></tr></tbody></table></div>`;
 }
 function itemSearchBatchHtml(p){
   const unit = isEsc(p.unit || '');
@@ -189,7 +189,7 @@ function itemSearchBatchHtml(p){
       <td class="num cost-col" style="vertical-align:top;">${r.unitCost === null ? '–' : isMoney(r.unitCost)}</td>
       <td class="num cost-col" style="vertical-align:top;">${r.unitCost === null ? '–' : isMoney(r.unitCost * r.i.remaining)}</td></tr>`;
     }).join('')}
-    </tbody><tfoot><tr style="font-weight:700;"><td colspan="2">${t('invListTotals')}</td><td class="num">${isQty(totQty)} ${unit}</td><td></td><td class="num cost-col"></td><td class="num cost-col">${isMoney(totVal)}${missing ? ' <span style="font-weight:400;color:var(--ink-soft);font-size:11px;">(' + tf('itemSearchMissingCost', { n: missing }) + ')</span>' : ''}</td></tr></tfoot></table></div>`;
+    <tr style="font-weight:700;border-top:2px solid var(--line);"><td colspan="2">${t('invListTotals')}</td><td class="num">${isQty(totQty)} ${unit}</td><td></td><td class="num cost-col"></td><td class="num cost-col">${isMoney(totVal)}${missing ? ' <span style="font-weight:400;color:var(--ink-soft);font-size:11px;">(' + tf('itemSearchMissingCost', { n: missing }) + ')</span>' : ''}</td></tr></tbody></table></div>`;
 }
 
 // 進出貨紀錄:跳到歷史紀錄 → 進出貨紀錄,商品篩選成這個商品(其他篩選清掉)
