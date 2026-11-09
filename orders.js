@@ -1475,6 +1475,14 @@ function openOrderActionModal(orderId, kind){
     // Create Invoice / Invoice:只有管理者、會計看得到;建立之後選項變成 Invoice(可匯出 PDF 或列印)
     if(!o.deleted && typeof canCreateInvoice === 'function' && canCreateInvoice()) opts.push(o.invoice ? ['invoice', t('invActionInvoice'), false] : ['create-invoice', t('invActionCreate'), false]);
     if(o.signedAt && (typeof acctEmailOn !== 'function' || acctEmailOn())) opts.push(['email', t('actionEmail'), false]);
+    if(typeof deliveryNotesLoaded !== 'undefined' && deliveryNotesLoaded){
+      if(dnLinkedNotes(orderId).length) opts.push(['dn-record', t('dnRecAction'), false]);
+    } else {
+      ensureDeliveryNotesLoaded().then(() => {
+        const ov = document.getElementById('orderActionModalOverlay');
+        if(orderActionTarget && orderActionTarget.orderId === orderId && ov && ov.style.display !== 'none' && dnLinkedNotes(orderId).length) openOrderActionModal(orderId, kind);
+      });
+    }
     opts.push(['output', t('actionOutput'), false]);
   }
   document.getElementById('orderActionModalTitle').textContent = (o.orderNo ? o.orderNo + ' · ' : '') + (o.date || '');
@@ -1528,6 +1536,7 @@ function confirmOrderActionModal(){
     const exportMode = modeSel ? modeSel.value : 'general';
     if(action === 'edit') editOrderViaRegister(orderId, 'completed');
     else if(action === 'history') openOrderHistoryModal(orderId);
+    else if(action === 'dn-record') dnShowRecordModal('order', orderId);
     else if(action === 'create-invoice') invOpenCreate(orderId);
     else if(action === 'invoice') invOpenView(orderId);
     else if(action === 'output'){

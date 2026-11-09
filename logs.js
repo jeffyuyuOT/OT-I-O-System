@@ -254,7 +254,7 @@ function renderDeliveryNoteLog(){
           <tr>
             <td style="white-space:nowrap;">${n.date || ''}</td>
             <td>${n.partyName ? n.partyName.replace(/</g,'&lt;') : t('partyUnspecified')}</td>
-            <td style="white-space:nowrap;">${n.ref && n.ref.no ? `${escapeHtmlForPrint(n.ref.no)}<div style="font-size:11px;color:var(--ink-soft);">${dnRefTypeLabel(n.ref.type)}</div>` : '-'}</td>
+            <td style="white-space:nowrap;">${n.ref && n.ref.no ? `${n.ref.type === 'order' && orders.some(o => o.id === n.ref.id) ? `<span class="batch-link" onclick="invGotoOrder('${n.ref.id}')">${escapeHtmlForPrint(n.ref.no)}</span>` : escapeHtmlForPrint(n.ref.no)}<div style="font-size:11px;color:var(--ink-soft);">${dnRefTypeLabel(n.ref.type)}</div>` : '-'}</td>
             <td>${(n.note || '').replace(/</g,'&lt;')}</td>
             <td>${itemsSummary.replace(/</g,'&lt;')}</td>
             <td><span class="order-status-pill ${isCompleted ? 'confirmed' : 'pending'}">${isCompleted ? t('statusCompleted') : t('statusPending')}</span></td>

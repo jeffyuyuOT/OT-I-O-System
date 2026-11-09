@@ -253,3 +253,44 @@ function dnPickConfirm(){
   dnCloseSelectModal();
   renderTxBatchList(); renderProductSelect();
 }
+
+
+// ============================================================
+// Delivery Note 紀錄:某張關聯單據(已完成訂單/非銷售出庫單)原本的商品量、各 Delivery Note 送了多少、剩餘多少
+// ============================================================
+function dnLinkedNotes(refId){
+  return (typeof deliveryNotes !== 'undefined' ? deliveryNotes : []).filter(n => n && !n.deleted && n.ref && n.ref.id === refId)
+    .slice().sort((a, b) => (a.date || '').localeCompare(b.date || ''));
+}
+function dnRecordHtml(type, id){
+  const esc = escapeHtmlForPrint;
+  const src = dnRefSourceRaw({ type, id });
+  const notes = dnLinkedNotes(id);
+  if(!src) return `<div class="empty-note">${t('noRecordsYet')}</div>`;
+  const tag = n => `${esc(n.date || '')}${n.note ? ' · ' + esc(n.note) : ''}${n.status === 'completed' ? '' : ` <span style="color:var(--ink-soft);">(${t('statusPending')})</span>`}`;
+  const rowOf = (name, unit, orig, sent) => {
+    const done = sent.reduce((s, x) => s + x.qty, 0);
+    const rem = orig - done;
+    return `<tr><td>${esc(name)}</td><td class="num">${orig} ${esc(unit || '')}</td>
+      <td style="font-size:12px;line-height:1.6;">${sent.length ? sent.map(x => `${tag(x.n)} × <b>${x.qty}</b>`).join('<br>') : '<span style="color:var(--ink-soft);">–</span>'}</td>
+      <td class="num">${done}</td><td class="num" style="font-weight:700;${rem < -1e-9 ? 'color:var(--crit);' : ''}">${rem}</td></tr>`;
+  };
+  const rows = src.items.map(it => rowOf(it.name, it.unit, it.qty,
+    notes.map(n => ({ n, qty: (n.items || []).filter(x => x.productId === it.productId).reduce((s, x) => s + (Number(x.qty) || 0), 0) })).filter(x => x.qty > 0))).join('')
+    + (src.ns || []).map(nsx => rowOf(nsx.name, nsx.unit, nsx.qty,
+    notes.map(n => ({ n, qty: (n.nonStockItems || []).filter(x => x.name === nsx.name && (x.unit || '') === (nsx.unit || '')).reduce((s, x) => s + (Number(x.qty) || 0), 0) })).filter(x => x.qty > 0))).join('');
+  return `<div style="overflow-x:auto;"><table class="stock-table"><thead><tr><th>${t('lblProduct')}</th><th class="num">${t('dnRecOrig')}</th><th>${t('dnRecSent')}</th><th class="num">${t('dnRecDelivered')}</th><th class="num">${t('dnRecRemain')}</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+}
+async function dnShowRecordModal(type, id){
+  await ensureDeliveryNotesLoaded();
+  const old = document.getElementById('dnRecOverlay'); if(old) old.remove();
+  const ov = document.createElement('div');
+  ov.id = 'dnRecOverlay'; ov.className = 'modal-overlay'; ov.style.display = 'flex'; ov.style.zIndex = '1300';
+  const no = type === 'order' ? ((orders.find(o => o.id === id) || {}).orderNo || '') : ((nonSalesSlips.find(x => x.id === id) || {}).no || '');
+  ov.innerHTML = `<div class="modal-box" style="max-width:min(820px,96vw);max-height:92vh;overflow:auto;">
+    <div class="section-title" style="margin-top:0;">${t('dnRecTitle')} · ${escapeHtmlForPrint(String(no))}</div>
+    ${dnRecordHtml(type, id)}
+    <div class="modal-actions"><button class="btn ghost" onclick="document.getElementById('dnRecOverlay').remove()">${t('btnClose')}</button></div>
+  </div>`;
+  document.body.appendChild(ov);
+}

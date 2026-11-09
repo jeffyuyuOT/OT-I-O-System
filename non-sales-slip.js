@@ -222,6 +222,43 @@ function nsWriteSlipToWindow(slip, pw){
   pw.document.close();
   pw.onload = () => { pw.focus(); pw.print(); };
 }
+function nsViewSlip(id){
+  const slip = nonSalesSlips.find(s => s.id === id); if(!slip) return;
+  const old = document.getElementById('nsViewOverlay'); if(old) old.remove();
+  const ov = document.createElement('div');
+  ov.id = 'nsViewOverlay'; ov.className = 'modal-overlay'; ov.style.display = 'flex'; ov.style.zIndex = '1200';
+  ov.innerHTML = `<div class="modal-box" style="max-width:min(900px,98vw);max-height:94vh;overflow:auto;">
+    <div class="section-title" style="margin-top:0;">${escapeHtmlForPrint(slip.no)}</div>
+    <iframe id="nsViewFrame" style="width:100%;height:60vh;border:1px solid var(--line);background:#fff;"></iframe>
+    <div id="nsViewMsg" class="msg"></div>
+    <div class="modal-actions">
+      <button class="btn ghost" onclick="document.getElementById('nsViewOverlay').remove()">${t('btnClose')}</button>
+      <button class="btn ghost" id="nsViewDnBtn" style="display:none;" onclick="dnShowRecordModal('nonsales','${slip.id}')">${t('dnRecAction')}</button>
+      <button class="btn ghost" onclick="nsSavePdf('${slip.id}')">${t('invBtnSavePdf')}</button>
+      <button class="btn" onclick="nsReprintSlip('${slip.id}')">${t('btnPrint')}</button>
+    </div>
+  </div>`;
+  document.body.appendChild(ov);
+  document.getElementById('nsViewFrame').srcdoc = nsSlipHtml(slip);
+  ensureDeliveryNotesLoaded().then(() => {
+    const b = document.getElementById('nsViewDnBtn');
+    if(b && dnLinkedNotes(slip.id).length) b.style.display = '';
+  });
+}
+async function nsSavePdf(id){
+  const slip = nonSalesSlips.find(s => s.id === id); if(!slip) return;
+  const msg = document.getElementById('nsViewMsg');
+  if(typeof html2pdf === 'undefined'){ if(msg){ msg.className = 'msg error'; msg.textContent = t('invPdfLibMissing'); } return; }
+  const holder = document.createElement('div');
+  holder.style.cssText = 'position:fixed;left:-10000px;top:0;width:794px;background:#fff;';
+  holder.innerHTML = nsSlipHtml(slip);
+  document.body.appendChild(holder);
+  try{
+    await html2pdf().set({ margin: 10, filename: `${slip.no}.pdf`, image: { type: 'jpeg', quality: 0.98 },
+      html2canvas: { scale: 2, useCORS: true }, jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' } }).from(holder).save();
+  }catch(e){ console.error('產生 PDF 失敗', e); if(msg){ msg.className = 'msg error'; msg.textContent = t('invPdfFailed'); } }
+  holder.remove();
+}
 function nsReprintSlip(id){
   const slip = nonSalesSlips.find(s => s.id === id);
   if(!slip) return;
@@ -267,7 +304,7 @@ function renderNonSalesSlipLog(){
         <td>${esc(s.reasonText)}${s.note ? `<div style="font-size:11.5px;color:var(--ink-soft);">${esc(s.note)}</div>` : ''}</td>
         <td>${esc(s.recipient)}</td>
         <td>${items}</td>
-        <td style="white-space:nowrap;"><button class="btn ghost" style="padding:4px 10px;" onclick="nsReprintSlip('${s.id}')">${t('btnPrint')}</button></td>
+        <td style="white-space:nowrap;"><button class="btn ghost" style="padding:4px 10px;" onclick="nsViewSlip('${s.id}')">${t('dnLogView')}</button></td>
       </tr>`;
     }).join('')}</tbody></table>`;
 }
