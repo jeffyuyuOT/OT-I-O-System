@@ -9,6 +9,7 @@
 // ============================================================
 let isState = { q: '', pid: '', view: 'location' };
 
+function isEsc(x){ return String(x === null || x === undefined ? '' : x).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
 function isUnitOf(pid){ const p = products.find(x => x.id === pid); return p ? (p.unit || '') : ''; }
 function isQty(n){ return Number(n).toLocaleString(undefined, { maximumFractionDigits: 4 }); }
 function isMoney(n){ return (typeof batchFmtMoney === 'function') ? batchFmtMoney(n) : (n === null || n === undefined ? '–' : '$' + Number(n).toFixed(2)); }
@@ -40,7 +41,7 @@ function itemSearchRender(){
   root.innerHTML = `<div style="margin:0 0 12px;"><span class="batch-link" onclick="itemSearchClose()">← ${t('itemSearchBack')}</span></div>
     <div class="section-title" style="margin-top:0;">${t('itemSearchTitle')}</div>
     <div style="position:relative;max-width:520px;">
-      <input type="search" id="itemSearchInput" autocomplete="off" placeholder="${esc(t('itemSearchPh'))}" value="${esc(isState.q)}"
+      <input type="search" id="itemSearchInput" autocomplete="off" placeholder="${isEsc(t('itemSearchPh'))}" value="${isEsc(isState.q)}"
         oninput="itemSearchOnInput(this.value)" onkeydown="itemSearchOnKey(event)" style="width:100%;box-sizing:border-box;" />
       <div id="itemSearchList" style="display:none;position:absolute;left:0;right:0;top:100%;z-index:30;background:#fff;border:1px solid var(--line);max-height:320px;overflow:auto;box-shadow:0 4px 12px rgba(0,0,0,0.12);"></div>
     </div>
@@ -69,8 +70,8 @@ function itemSearchOnInput(v){
   const ms = itemSearchMatches(v).slice(0, 30);
   if(!String(v).trim()){ list.style.display = 'none'; return; }
   list.style.display = '';
-  list.innerHTML = ms.length ? ms.map(p => `<div style="padding:7px 10px;cursor:pointer;border-bottom:1px solid var(--line);" onmousedown="itemSearchPick('${esc(p.id)}')">
-      ${p.parentId ? '⧉ ' : ''}${esc(p.name)}${p.sku ? ` <span style="color:var(--ink-soft);font-size:11.5px;">${esc(p.sku)}</span>` : ''}</div>`).join('')
+  list.innerHTML = ms.length ? ms.map(p => `<div style="padding:7px 10px;cursor:pointer;border-bottom:1px solid var(--line);" onmousedown="itemSearchPick('${isEsc(p.id)}')">
+      ${p.parentId ? '⧉ ' : ''}${isEsc(p.name)}${p.sku ? ` <span style="color:var(--ink-soft);font-size:11.5px;">${isEsc(p.sku)}</span>` : ''}</div>`).join('')
     : `<div style="padding:8px 10px;color:var(--ink-soft);">${t('searchNoMatch')}</div>`;
 }
 // Enter:掃碼槍掃完會送 Enter,條碼 / SKU 完全一樣就直接選;只有一個結果也直接選
@@ -105,22 +106,22 @@ function itemSearchRenderDetail(){
   const box = document.getElementById('itemSearchDetail'); if(!box) return;
   const p = products.find(x => x.id === isState.pid);
   if(!p){ box.innerHTML = ''; return; }
-  const unit = esc(p.unit || '');
+  const unit = isEsc(p.unit || '');
   let stock = 0; try{ stock = computeStock(p.id); }catch(e){}
   const canPrice = typeof canViewPrice === 'function' && canViewPrice();
   const batchOn = isHasBatch();
   if(!batchOn && isState.view === 'batch') isState.view = 'location';
   box.innerHTML = `
     <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:flex-start;">
-      ${p.photoUrl ? `<img src="${esc(p.photoUrl)}" alt="" style="width:140px;height:140px;object-fit:cover;border:1px solid var(--line);border-radius:6px;cursor:pointer;" onclick="openProductPhotoModal('${esc(p.id)}')" />` : ''}
+      ${p.photoUrl ? `<img src="${isEsc(p.photoUrl)}" alt="" style="width:140px;height:140px;object-fit:cover;border:1px solid var(--line);border-radius:6px;cursor:pointer;" onclick="openProductPhotoModal('${isEsc(p.id)}')" />` : ''}
       <div style="flex:1;min-width:220px;">
-        <div style="font-size:20px;font-weight:700;margin-bottom:4px;">${esc(p.name)}</div>
-        <div style="font-size:12px;color:var(--ink-soft);margin-bottom:10px;">${p.sku ? 'SKU ' + esc(p.sku) : ''}${p.sku && p.barcode ? ' · ' : ''}${p.barcode ? t('fieldBarcode') + ' ' + esc(p.barcode) : ''}</div>
+        <div style="font-size:20px;font-weight:700;margin-bottom:4px;">${isEsc(p.name)}</div>
+        <div style="font-size:12px;color:var(--ink-soft);margin-bottom:10px;">${p.sku ? 'SKU ' + isEsc(p.sku) : ''}${p.sku && p.barcode ? ' · ' : ''}${p.barcode ? t('fieldBarcode') + ' ' + isEsc(p.barcode) : ''}</div>
         <div style="display:flex;gap:10px;flex-wrap:wrap;">
           <div style="border:1px solid var(--line);border-radius:8px;padding:8px 12px;min-width:120px;"><div style="font-size:11px;color:var(--ink-soft);">${t('itemSearchStock')}</div><div style="font-size:18px;font-weight:700;">${isQty(stock)} ${unit}</div></div>
           ${canPrice ? `<div style="border:1px solid var(--line);border-radius:8px;padding:8px 12px;min-width:120px;"><div style="font-size:11px;color:var(--ink-soft);">${t('itemSearchPrice')}</div><div style="font-size:18px;font-weight:700;">${itemSearchPriceText(p.id)}</div></div>` : ''}
         </div>
-        ${isLogAllowed() ? `<div style="margin-top:10px;"><button class="btn ghost" onclick="itemSearchGoLog('${esc(p.id)}')">${t('itemSearchTxLog')}</button></div>` : ''}
+        ${isLogAllowed() ? `<div style="margin-top:10px;"><button class="btn ghost" onclick="itemSearchGoLog('${isEsc(p.id)}')">${t('itemSearchTxLog')}</button></div>` : ''}
       </div>
     </div>
     <div style="margin:16px 0 8px;" class="batch-seg">
@@ -142,12 +143,12 @@ function itemSearchBatchRows(pid){
   });
 }
 function itemSearchLocationHtml(p){
-  const unit = esc(p.unit || '');
+  const unit = isEsc(p.unit || '');
   if(!isHasBatch()){
     const locs = productLocations.filter(l => l.productId === p.id && Number(l.qty) > 0).sort((a, b) => String(a.locationCode).localeCompare(String(b.locationCode)));
     if(!locs.length) return `<div class="empty-note">${t('itemSearchNoStock')}</div>`;
     return `<div style="overflow-x:auto;"><table class="stock-table"><thead><tr><th>${t('itemSearchColLocation')}</th><th class="num">${t('itemSearchColQty')}</th></tr></thead><tbody>
-      ${locs.map(l => `<tr><td>${esc(l.locationCode)}</td><td class="num">${isQty(l.qty)} ${unit}</td></tr>`).join('')}</tbody></table></div>`;
+      ${locs.map(l => `<tr><td>${isEsc(l.locationCode)}</td><td class="num">${isQty(l.qty)} ${unit}</td></tr>`).join('')}</tbody></table></div>`;
   }
   const rows = [];
   itemSearchBatchRows(p.id).forEach(r => {
@@ -161,16 +162,16 @@ function itemSearchLocationHtml(p){
       <th>${t('itemSearchColLocation')}</th><th>${t('batchColBatch')}</th><th class="num">${t('itemSearchColQty')}</th><th>${t('batchColExpiry')}</th>
       <th class="num cost-col">${t('itemSearchColUnitCost')}</th><th class="num cost-col">${t('itemSearchColCostTotal')}</th></tr></thead><tbody>
     ${rows.map(r => `<tr>
-      <td>${r.code ? esc(r.code) : `<span style="color:var(--ink-soft);">${t('itemSearchNoLocation')}</span>`}</td>
-      <td>${esc(r.i.batchNo)}${r.i.isOpening ? ' <span style="color:var(--ink-soft);font-size:11px;">(' + t('batchOpening') + ')</span>' : ''}</td>
+      <td>${r.code ? isEsc(r.code) : `<span style="color:var(--ink-soft);">${t('itemSearchNoLocation')}</span>`}</td>
+      <td>${isEsc(r.i.batchNo)}${r.i.isOpening ? ' <span style="color:var(--ink-soft);font-size:11px;">(' + t('batchOpening') + ')</span>' : ''}</td>
       <td class="num">${isQty(r.qty)} ${unit}</td>
-      <td>${r.i.expiry ? esc(r.i.expiry) + (typeof batchExpiryBadge === 'function' ? batchExpiryBadge(r.i.expiry, true) : '') : '–'}</td>
+      <td>${r.i.expiry ? isEsc(r.i.expiry) + (typeof batchExpiryBadge === 'function' ? batchExpiryBadge(r.i.expiry, true) : '') : '–'}</td>
       <td class="num cost-col">${r.unitCost === null ? '–' : isMoney(r.unitCost)}</td>
       <td class="num cost-col">${r.unitCost === null ? '–' : isMoney(r.unitCost * r.qty)}</td></tr>`).join('')}
     </tbody><tfoot><tr style="font-weight:700;"><td colspan="2">${t('invListTotals')}</td><td class="num">${isQty(totQty)} ${unit}</td><td></td><td class="num cost-col"></td><td class="num cost-col">${isMoney(totVal)}${missing ? ' <span style="font-weight:400;color:var(--ink-soft);font-size:11px;">(' + tf('itemSearchMissingCost', { n: missing }) + ')</span>' : ''}</td></tr></tfoot></table></div>`;
 }
 function itemSearchBatchHtml(p){
-  const unit = esc(p.unit || '');
+  const unit = isEsc(p.unit || '');
   const rows = itemSearchBatchRows(p.id);
   if(!rows.length) return `<div class="empty-note">${t('itemSearchNoStock')}</div>`;
   const totQty = rows.reduce((s, r) => s + r.i.remaining, 0);
@@ -179,10 +180,10 @@ function itemSearchBatchHtml(p){
       <th>${t('batchColBatch')}</th><th>${t('batchColExpiry')}</th><th class="num">${t('itemSearchColQty')}</th><th>${t('itemSearchColLocation')}</th>
       <th class="num cost-col">${t('itemSearchColUnitCost')}</th><th class="num cost-col">${t('itemSearchColCostTotal')}</th></tr></thead><tbody>
     ${rows.map(r => {
-      const locLines = r.locs.map(l => `<div>${esc(l.code)} · <b>${isQty(l.rem)}</b> ${unit}</div>`).join('') + (r.noLoc > 1e-9 ? `<div style="color:var(--ink-soft);">${t('itemSearchNoLocation')} · <b>${isQty(r.noLoc)}</b> ${unit}</div>` : '');
+      const locLines = r.locs.map(l => `<div>${isEsc(l.code)} · <b>${isQty(l.rem)}</b> ${unit}</div>`).join('') + (r.noLoc > 1e-9 ? `<div style="color:var(--ink-soft);">${t('itemSearchNoLocation')} · <b>${isQty(r.noLoc)}</b> ${unit}</div>` : '');
       return `<tr>
-      <td style="vertical-align:top;">${esc(r.i.batchNo)}${r.i.isOpening ? ' <span style="color:var(--ink-soft);font-size:11px;">(' + t('batchOpening') + ')</span>' : ''}</td>
-      <td style="vertical-align:top;">${r.i.expiry ? esc(r.i.expiry) + (typeof batchExpiryBadge === 'function' ? batchExpiryBadge(r.i.expiry, true) : '') : '–'}</td>
+      <td style="vertical-align:top;">${isEsc(r.i.batchNo)}${r.i.isOpening ? ' <span style="color:var(--ink-soft);font-size:11px;">(' + t('batchOpening') + ')</span>' : ''}</td>
+      <td style="vertical-align:top;">${r.i.expiry ? isEsc(r.i.expiry) + (typeof batchExpiryBadge === 'function' ? batchExpiryBadge(r.i.expiry, true) : '') : '–'}</td>
       <td class="num" style="vertical-align:top;"><b>${isQty(r.i.remaining)}</b> ${unit}</td>
       <td style="font-size:12.5px;vertical-align:top;">${locLines || '–'}</td>
       <td class="num cost-col" style="vertical-align:top;">${r.unitCost === null ? '–' : isMoney(r.unitCost)}</td>
