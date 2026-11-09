@@ -173,7 +173,7 @@ function stmtDocHtml(d){
       <div style="text-align:right;">
         <div style="font-size:22px;font-weight:700;letter-spacing:1px;">STATEMENT</div>
         <div style="font-size:11.5px;margin-top:4px;">Statement date: <b>${invEsc(invIsoToDmy(d.asOf))}</b></div>
-        ${stmtRef(d) ? `<div style="font-size:11.5px;">Statement No.: <b>${invEsc(stmtRef(d))}</b></div>` : ''}
+        ${stmtRef(d) ? `<div style="font-size:11.5px;">Statement No.: <b>${invEsc(stmtRef(d))}</b></div>` : `<div style="font-size:11.5px;color:#888;">Statement No.: <i>assigned when saved</i></div>`}
       </div>
     </div>
     <div style="margin:14px 0 12px;font-size:12px;line-height:1.5;">
@@ -185,7 +185,7 @@ function stmtDocHtml(d){
     ${(a.d30 + a.d60 + a.d90 + a.d91) > 0.004 ? `<table style="margin:16px 0 0 auto;border-collapse:collapse;border:1px solid #999;"><thead><tr>${['Current', '1-30 Days', '31-60 Days', '61-90 Days', '90+ Days', 'Credit'].map(h => `<th style="${ac}border-bottom:1px solid #999;font-weight:700;">${h}</th>`).join('')}</tr></thead>` : ''}
       <tbody><tr>${[a.cur, a.d30, a.d60, a.d90, a.d91].map(v => `<td style="${ac}">${invMoney2(v)}</td>`).join('')}<td style="${ac}color:#1d7a3c;">${a.credit ? '(' + invMoney2(a.credit) + ')' : '0.00'}</td></tr></tbody></table>
     <div style="margin-top:8px;text-align:right;font-size:14px;font-weight:700;">TOTAL AMOUNT DUE &nbsp; $${stmtMoney(d.total)}</div>
-    ${bk.length ? `<div style="margin-top:18px;border-top:1px solid #ccc;padding-top:8px;font-size:11.5px;line-height:1.5;"><div style="font-weight:700;">Payment details</div>${bk.map(x => `<div>${invEsc(x)}</div>`).join('')}<div style="color:#555;">Please quote ${stmtRef(d) ? 'Statement No. <b>' + invEsc(stmtRef(d)) + '</b>' : 'the Statement number'} as the payment reference.</div></div>` : ''}
+    ${bk.length ? `<div style="margin-top:18px;border-top:1px solid #ccc;padding-top:8px;font-size:11.5px;line-height:1.5;"><div style="font-weight:700;">Payment details</div>${bk.map(x => `<div>${invEsc(x)}</div>`).join('')}<div style="color:#555;">Please quote ${stmtRef(d) ? 'Statement No. <b>' + invEsc(stmtRef(d)) + '</b>' : 'the Statement No. (assigned when saved)'} as the payment reference.</div></div>` : ''}
   </div>`;
 }
 // 存檔(產生 ST 號碼);同一份畫面已經存過就沿用同一個號碼
