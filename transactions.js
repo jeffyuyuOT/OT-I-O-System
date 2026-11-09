@@ -1868,9 +1868,9 @@ async function saveDeliveryNote(){
   msg.textContent = `✓ Delivery Note 已儲存(${note.no} · ${note.date})`;
 }
 
-// Delivery Note 號碼:YYYYMMDD-NN(當天第幾張,全部 Delivery Note 一起算)。第一次存檔時給,之後不變;改了日期才重新給
+// Delivery Note 號碼:YYMMDD-NN(當天第幾張,全部 Delivery Note 一起算)。第一次存檔時給,之後不變;改了日期才重新給
 function dnNextNo(date, exceptId){
-  const ymd = String(date || '').replace(/-/g, '');
+  const ymd = String(date || '').replace(/-/g, '').slice(2);
   let max = 0;
   deliveryNotes.forEach(n => {
     if(!n || n.id === exceptId || !n.no || !n.no.startsWith(ymd + '-')) return;
@@ -1879,13 +1879,14 @@ function dnNextNo(date, exceptId){
   return `${ymd}-${String(max + 1).padStart(2, '0')}`;
 }
 function dnAssignNo(note){
-  const ymd = String(note.date || '').replace(/-/g, '');
+  const ymd = String(note.date || '').replace(/-/g, '').slice(2);
   if(!note.no || !note.no.startsWith(ymd + '-')) note.no = dnNextNo(note.date, note.id);
 }
 // 舊資料沒有號碼 → 依日期、建立時間順序補上並存回去
 function dnBackfillNos(){
-  const miss = deliveryNotes.filter(n => n && !n.no).sort((a, b) => (a.date || '').localeCompare(b.date || '') || (a.createdAt || '').localeCompare(b.createdAt || ''));
+  const miss = deliveryNotes.filter(n => n && (!n.no || !/^\d{6}-\d{2,}$/.test(n.no))).sort((a, b) => (a.date || '').localeCompare(b.date || '') || (a.createdAt || '').localeCompare(b.createdAt || ''));
   if(!miss.length) return;
+  miss.forEach(n => { n.no = ''; });
   miss.forEach(n => dnAssignNo(n));
   upsertDeliveryNotes(miss).catch(e => console.warn('補 Delivery Note 號碼失敗', e));
 }
