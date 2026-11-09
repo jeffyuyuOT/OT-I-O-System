@@ -244,6 +244,7 @@ function renderDeliveryNoteLog(){
         <th>${t('colItemNote')}</th>
         <th>${t('lblProduct')}</th>
         <th></th>
+        <th></th>
       </tr></thead>
       <tbody>
         ${sorted.map(n => {
@@ -257,10 +258,41 @@ function renderDeliveryNoteLog(){
             <td>${(n.note || '').replace(/</g,'&lt;')}</td>
             <td>${itemsSummary.replace(/</g,'&lt;')}</td>
             <td><span class="order-status-pill ${isCompleted ? 'confirmed' : 'pending'}">${isCompleted ? t('statusCompleted') : t('statusPending')}</span></td>
+            <td style="white-space:nowrap;text-align:right;"><button class="btn ghost" onclick="dnLogView('${n.id}')">${t('dnLogView')}</button>${isCompleted ? '' : ` <button class="btn ghost" onclick="dnLogEdit('${n.id}')">${t('dnLogEdit')}</button>`}</td>
           </tr>`;
         }).join('')}
       </tbody>
     </table>`;
+}
+function dnLogView(id){
+  const n = deliveryNotes.find(x => x.id === id); if(!n) return;
+  const esc = escapeHtmlForPrint;
+  const old = document.getElementById('dnLogViewOverlay'); if(old) old.remove();
+  const rows = (n.items || []).map(it => `<tr><td>${esc(it.sku || '')}</td><td>${esc(it.name)}</td><td class="num">${it.qty}</td><td>${esc(it.unit || '')}</td></tr>`).join('')
+    + (n.nonStockItems || []).map(x => `<tr><td></td><td>${esc(x.name)} <span style="color:var(--ink-soft);font-size:11px;">(${t('pcNonStockBadge')})</span></td><td class="num">${x.qty}</td><td>${esc(x.unit || '')}</td></tr>`).join('');
+  const ov = document.createElement('div');
+  ov.id = 'dnLogViewOverlay'; ov.className = 'modal-overlay'; ov.style.display = 'flex'; ov.style.zIndex = '1200';
+  ov.innerHTML = `<div class="modal-box" style="max-width:min(640px,96vw);max-height:92vh;overflow:auto;">
+    <div class="section-title" style="margin-top:0;">${t('dnLogViewTitle')}</div>
+    <div style="font-size:13px;line-height:1.7;margin-bottom:8px;">${esc(n.date || '')} · ${n.partyName ? esc(n.partyName) : t('partyUnspecified')}${n.ref && n.ref.no ? ` · ${esc(n.ref.no)}` : ''}${n.note ? `<br>${esc(n.note)}` : ''}</div>
+    <div style="overflow-x:auto;"><table class="stock-table"><thead><tr><th>SKU</th><th>${t('lblProduct')}</th><th class="num">${t('colQty') || 'Qty'}</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>
+    <div class="modal-actions"><button class="btn ghost" onclick="document.getElementById('dnLogViewOverlay').remove()">${t('btnClose') || 'Close'}</button></div>
+  </div>`;
+  document.body.appendChild(ov);
+}
+async function dnLogEdit(id){
+  await ensureDeliveryNotesLoaded();
+  const n = deliveryNotes.find(x => x.id === id);
+  if(!n || n.status === 'completed') return;
+  switchTab('tab-warehouse-ops');
+  switchWarehouseOpsSubTab('subtab-tx-register');
+  setTxType('delivery');
+  const flowSel = document.getElementById('txDeliveryFlowType');
+  if(flowSel) flowSel.value = 'load';
+  setTxDeliveryFlowType('load');
+  const sel = document.getElementById('txDeliveryNoteSelect');
+  if(sel) sel.value = id;
+  loadDeliveryNoteIntoRegisterFlow(id);
 }
 
 function renderInventoryLog(){
