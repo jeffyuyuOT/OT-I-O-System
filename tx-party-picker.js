@@ -31,7 +31,7 @@ function txPartyPickerRender(searchText){
     const label = icPartyLabel(sp);
     box.innerHTML = `<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;min-height:34px;">
       ${hasCapability('cap-manage-parties') ? `<b class="batch-link" style="cursor:pointer;" title="${esc(t('icEditPartyTip'))}" onclick="openPartyEditModal('${esc(sp.id)}')">${esc(label)}</b>` : `<b>${esc(label)}</b>`}
-      <span class="del-link" onclick="txPartyPickerClear()">${t('icChangeParty')}</span></div>`;
+      <span class="del-link" onclick="txPartyPickerClear()">${t('icChangeParty')}</span>${typeof partyDiscountBadgeHtml === 'function' ? partyDiscountBadgeHtml(sp) : ''}</div>`;
   } else {
     box.innerHTML = `<div style="display:flex;gap:6px;align-items:center;">
       <input id="txPartySearch" type="text" autocomplete="off" placeholder="${esc(t('icPartySearchPh'))}" value="${esc(searchText || '')}" oninput="txPartyPickerSearch(this.value)" onfocus="txPartyPickerSearch(this.value)" style="flex:1;min-width:0;" />
