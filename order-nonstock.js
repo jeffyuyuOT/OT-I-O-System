@@ -142,6 +142,40 @@ function dnRefSourceRaw(ref){
   });
   return { items: Array.from(m.values()), ns: [] };
 }
+// 修改訂單(待處理/已完成)儲存前:改後的數量如果比已開 Delivery Note 的數量少,擋下來,請先去改或刪 Delivery Note
+function dnGuardOrderEdit(order, qtyMap, delIds, msg){
+  const notes = (typeof deliveryNotes !== 'undefined' ? deliveryNotes : []).filter(n => n && !n.deleted && n.ref && n.ref.id === order.id);
+  if(!notes.length) return false;
+  const done = {}, doneNs = {};
+  notes.forEach(n => {
+    (n.items || []).forEach(it => { (done[it.productId] = done[it.productId] || []).push({ no: n.date || '', qty: Number(it.qty) || 0 }); });
+    (n.nonStockItems || []).forEach(x => { const k = x.name + '|' + (x.unit || ''); (doneNs[k] = doneNs[k] || []).push({ no: n.date || '', qty: Number(x.qty) || 0 }); });
+  });
+  const final = {};
+  (order.items || []).filter(it => !it.deleted).forEach(it => {
+    let q = it.qty;
+    if(qtyMap && qtyMap[it.productId] !== undefined) q = qtyMap[it.productId];
+    if(delIds && delIds.includes(it.productId)) q = 0;
+    final[it.productId] = (final[it.productId] || 0) + q;
+  });
+  const bad = [];
+  Object.keys(done).forEach(pid => {
+    const sum = done[pid].reduce((s, x) => s + x.qty, 0);
+    if(sum > (final[pid] || 0) + 1e-9){
+      const it = (order.items || []).find(x => x.productId === pid);
+      bad.push(`${it ? it.name : pid}: ${t('dnGuardNew')} ${final[pid] || 0} < ${t('dnGuardDelivered')} ${sum} (${done[pid].map(x => x.no).join(', ')})`);
+    }
+  });
+  const nsNow = {};
+  txNsClean().forEach(n => { const k = n.name + '|' + (n.unit || ''); nsNow[k] = (nsNow[k] || 0) + n.qty; });
+  Object.keys(doneNs).forEach(k => {
+    const sum = doneNs[k].reduce((s, x) => s + x.qty, 0);
+    if(sum > (nsNow[k] || 0) + 1e-9) bad.push(`${k.split('|')[0]}: ${t('dnGuardNew')} ${nsNow[k] || 0} < ${t('dnGuardDelivered')} ${sum}`);
+  });
+  if(!bad.length) return false;
+  if(msg){ msg.className = 'msg error'; msg.textContent = `⚠ ${t('dnGuardMsg')}\n${bad.join('\n')}`; msg.style.whiteSpace = 'pre-line'; }
+  return true;
+}
 // 目前 Delivery Note 的關聯單據內容(讀不到就 null = 不限制)
 function dnRefDocCurrent(){
   if(currentTxType !== 'delivery' || !dnRefSelected) return null;

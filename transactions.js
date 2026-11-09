@@ -2400,6 +2400,8 @@ async function submitLoadPendingFlow(action, msg){
   const newNote = noteInput ? noteInput.value.trim() : (order.note || '');
   const { pendingQtyChanges, pendingDeletes } = collectPendingItemChanges(order);
   if(!(await invGuardOrderEdit(order, { qty: Object.fromEntries(pendingQtyChanges.map(c => [c.item.productId, c.newQty])), del: pendingDeletes.map(it => it.productId) }))) return;
+  if(typeof deliveryNotesLoaded !== 'undefined' && !deliveryNotesLoaded) await ensureDeliveryNotesLoaded();
+  if(dnGuardOrderEdit(order, Object.fromEntries(pendingQtyChanges.map(c => [c.item.productId, c.newQty])), pendingDeletes.map(it => it.productId), msg)) return;
 
   const changes = [];
   if(newDate && newDate !== order.date) changes.push(tf('changeSummaryDate', { old: order.date || '', new: newDate }));
@@ -2539,6 +2541,8 @@ async function submitLoadCompletedFlow(date, msg){
   }
 
   if(!(await invGuardOrderEdit(order, { qty: Object.fromEntries(pendingQtyChanges.map(c => [c.item.productId, c.newQty])), del: pendingDeletes.map(it => it.productId) }))) return;
+  if(typeof deliveryNotesLoaded !== 'undefined' && !deliveryNotesLoaded) await ensureDeliveryNotesLoaded();
+  if(dnGuardOrderEdit(order, Object.fromEntries(pendingQtyChanges.map(c => [c.item.productId, c.newQty])), pendingDeletes.map(it => it.productId), msg)) return;
 
   // 批次追蹤:減少數量的品項如果用了兩個以上的批次,先問要從哪個批次扣(退回)
   if(typeof batchAskReturnPicks === 'function'){
