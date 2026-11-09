@@ -294,3 +294,70 @@ async function dnShowRecordModal(type, id){
   </div>`;
   document.body.appendChild(ov);
 }
+
+
+// ============================================================
+// 歷史紀錄 → Delivery Note:匯出「訂單剩餘數量」。只有已完成(已列印)的 Delivery Note 才計入已送數量
+// ============================================================
+let dnRemDocs = [];
+function dnRemainCompute(){
+  const byRef = {};
+  deliveryNotes.filter(n => n && !n.deleted && n.ref && n.ref.id).forEach(n => { (byRef[n.ref.id] = byRef[n.ref.id] || { ref: n.ref, notes: [] }).notes.push(n); });
+  const out = [];
+  Object.keys(byRef).forEach(id => {
+    const g = byRef[id];
+    const src = dnRefSourceRaw({ type: g.ref.type, id });
+    if(!src) return;
+    const done = g.notes.filter(n => n.status === 'completed');
+    const items = src.items.map(it => ({ ...it, rem: it.qty - done.reduce((s, n) => s + (n.items || []).filter(x => x.productId === it.productId).reduce((a, x) => a + (Number(x.qty) || 0), 0), 0) })).filter(x => x.rem > 1e-9);
+    const ns = (src.ns || []).map(x => ({ ...x, rem: x.qty - done.reduce((s, n) => s + (n.nonStockItems || []).filter(y => y.name === x.name && (y.unit || '') === (x.unit || '')).reduce((a, y) => a + (Number(y.qty) || 0), 0), 0) })).filter(x => x.rem > 1e-9);
+    if(!items.length && !ns.length) return;
+    let date = '', party = '';
+    if(g.ref.type === 'order'){ const o = orders.find(x => x.id === id); date = o ? (o.date || '') : ''; party = o ? (o.partyName || '') : ''; }
+    else { const sl = nonSalesSlips.find(x => x.id === id); date = sl ? (sl.date || '') : ''; party = sl ? (sl.recipient || '') : ''; }
+    out.push({ id, type: g.ref.type, no: g.ref.no, date, party, items, ns });
+  });
+  return out.sort((a, b) => String(b.no).localeCompare(String(a.no)));
+}
+async function dnRemainOpen(){
+  await Promise.all([ensureDeliveryNotesLoaded(), ensureOrdersLoadedFrom(''), ensureNonSalesSlipsLoaded()]);
+  dnRemDocs = dnRemainCompute();
+  const old = document.getElementById('dnRemOverlay'); if(old) old.remove();
+  const esc = escapeHtmlForPrint;
+  const rows = dnRemDocs.map((d, i) => `<tr><td><input type="checkbox" class="dnRemCk" data-i="${i}" style="width:auto;" /></td>
+    <td style="white-space:nowrap;"><b>${esc(String(d.no))}</b><div style="font-size:11px;color:var(--ink-soft);">${dnRefTypeLabel(d.type)}</div></td>
+    <td style="white-space:nowrap;">${esc(d.date)}</td><td>${esc(d.party)}</td>
+    <td style="font-size:12px;">${d.items.concat(d.ns).map(x => `${esc(x.name)} ${x.rem} ${esc(x.unit || '')}`).join(', ')}</td></tr>`).join('');
+  const ov = document.createElement('div');
+  ov.id = 'dnRemOverlay'; ov.className = 'modal-overlay'; ov.style.display = 'flex'; ov.style.zIndex = '1200';
+  ov.innerHTML = `<div class="modal-box" style="max-width:min(900px,98vw);max-height:92vh;overflow:auto;">
+    <div class="section-title" style="margin-top:0;">${t('dnRemTitle')}</div>
+    <p style="font-size:12px;color:var(--ink-soft);margin:0 0 8px;">${t('dnRemHint')}</p>
+    ${dnRemDocs.length ? `<div style="overflow-x:auto;"><table class="stock-table"><thead><tr><th><input type="checkbox" style="width:auto;" onchange="document.querySelectorAll('.dnRemCk').forEach(c=>c.checked=this.checked)" title="${t('dnRemSelectAll')}" /></th><th>${t('colDnRef')}</th><th>${t('colDate')}</th><th>${t('lblPartyGeneric')}</th><th>${t('dnRecRemain')}</th></tr></thead><tbody>${rows}</tbody></table></div>`
+      : `<div class="empty-note">${t('dnRemNone')}</div>`}
+    <div id="dnRemMsg" class="msg"></div>
+    <div class="modal-actions"><button class="btn ghost" onclick="document.getElementById('dnRemOverlay').remove()">${t('btnClose')}</button>${dnRemDocs.length ? `<button class="btn" onclick="dnRemainExport()">${t('dnRemExport')}</button>` : ''}</div>
+  </div>`;
+  document.body.appendChild(ov);
+}
+function dnRemainExport(){
+  const msg = document.getElementById('dnRemMsg');
+  const picked = Array.from(document.querySelectorAll('.dnRemCk')).filter(c => c.checked).map(c => dnRemDocs[+c.dataset.i]);
+  if(!picked.length){ if(msg){ msg.className = 'msg error'; msg.textContent = t('dnRemPickOne'); } return; }
+  if(typeof XLSX === 'undefined'){ showInfoModal('Excel 套件載入失敗,請重新整理頁面再試一次'); return; }
+  const agg = new Map();
+  picked.forEach(d => {
+    d.items.forEach(it => { const k = 'p|' + it.productId; const e = agg.get(k) || { sku: it.sku || '', name: it.name, unit: it.unit || '', rem: 0 }; e.rem += it.rem; agg.set(k, e); });
+    d.ns.forEach(it => { const k = 'n|' + it.name + '|' + (it.unit || ''); const e = agg.get(k) || { sku: '', name: it.name, unit: it.unit || '', rem: 0, ns: true }; e.rem += it.rem; agg.set(k, e); });
+  });
+  const rows = Array.from(agg.values()).sort((a, b) => (a.ns ? 1 : 0) - (b.ns ? 1 : 0) || a.name.localeCompare(b.name));
+  const aoa = [[t('dnRemSheetTitle')], [], ['SKU', 'Product Name', 'Unit', 'Remaining Qty']];
+  rows.forEach(r => aoa.push([r.sku, r.name + (r.ns ? ` (${t('pcNonStockBadge')})` : ''), r.unit, r.rem]));
+  aoa.push([], [t('dnRemRelated')], ['Type', 'Document No.', 'Date', 'Party']);
+  picked.forEach(d => aoa.push([d.type === 'nonsales' ? 'Non-Sales Outbound Slip' : 'Order', String(d.no), d.date, d.party]));
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
+  ws['!cols'] = [{ wch: 16 }, { wch: 38 }, { wch: 10 }, { wch: 16 }];
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Remaining');
+  XLSX.writeFile(wb, `delivery_remaining_${todayISO()}.xlsx`);
+}
