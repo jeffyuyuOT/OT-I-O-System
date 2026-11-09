@@ -1141,7 +1141,7 @@ function pcShowItemPrice(purchaseId, kind, idx){
   const head = `<th></th><th class="num">${t('pcPdTotal')}</th><th class="num">${pcEsc(tf('pcPdPer', { unit: unitName }))}</th>${converted ? `<th class="num">${pcEsc(tf('pcPdPer', { unit: mainUnit }))}</th>` : ''}`;
   const row = (label, amt, bold) => `<tr${bold ? ' style="font-weight:700;"' : ''}><td>${label}</td><td class="num">${fm(amt)}</td><td class="num">${per(amt, unitQty)}</td>${converted ? `<td class="num">${per(amt, mainQty)}</td>` : ''}</tr>`;
   const html = `
-    <div style="font-size:13px;font-weight:700;margin-bottom:4px;">${pcEsc(it.name || '')}</div>
+    <div style="font-size:13px;font-weight:700;margin-bottom:4px;">${rcv && rcv.name && rcv.name !== it.name ? `${pcEsc(rcv.name)} → ` : ''}${pcEsc(it.name || '')}</div>
     <div style="font-size:12.5px;margin-bottom:8px;">${t('pcPdReceived')}: <strong>${unitQty} ${pcEsc(unitName)}</strong>${converted ? ` → ${t('pcPdMain')}: <strong>${mainQty} ${pcEsc(mainUnit)}</strong>` : ''}</div>
     <table class="stock-table"><thead><tr>${head}</tr></thead><tbody>
       ${row(t('pcColBase'), baseAmt)}${row(t('pcColAlloc'), alloc)}${row(t('pcColTotal'), totalAmt, true)}
