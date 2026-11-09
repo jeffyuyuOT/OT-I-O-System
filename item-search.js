@@ -30,6 +30,23 @@ function itemSearchOpen(){
     Promise.resolve(ensureBatchDataLoaded(true)).then(() => { if(isState.pid) itemSearchRenderDetail(); }).catch(() => {});
   }
 }
+// 點擊跳轉:位置 → 庫存分布該位置;批次 → 批次追蹤該批次;成本 → 成本明細視窗
+function isCanOverview(){ return typeof lookoutTabAllowed !== 'function' || lookoutTabAllowed('tab-overview'); }
+function isLink(inner, onclick){ return `<span class="batch-link" onclick="${onclick}">${inner}</span>`; }
+function isLocLink(code){ return isCanOverview() ? isLink(isEsc(code), "itemSearchGoLocation('" + String(code).replace(/\\/g,'\\\\').replace(/'/g,"\\'") + "')") : isEsc(code); }
+function isBatchLink(i){ return (isCanOverview() && i.batchId && (typeof batchTrackerOpenBatch === 'function')) ? isLink(isEsc(i.batchNo), "itemSearchGoBatch('" + i.batchId + "')") : isEsc(i.batchNo); }
+function isCostLink(i, v){ return (typeof spShowPricePopup === 'function' && i.id) ? isLink(isMoney(v), "spShowPricePopup('" + i.id + "')") : isMoney(v); }
+function itemSearchGoLocation(code){
+  itemSearchClose();
+  switchTab('tab-overview'); switchOverviewSubTab('subtab-overview-location');
+  showProductsAtLocation(code);
+  const d = document.getElementById('stockLocationDetail'); if(d && d.scrollIntoView) d.scrollIntoView({behavior:'smooth', block:'start'});
+}
+async function itemSearchGoBatch(batchId){
+  itemSearchClose();
+  switchTab('tab-overview'); switchOverviewSubTab('subtab-overview-batch');
+  batchTrackerOpenBatch(batchId);
+}
 function itemSearchClose(){
   const root = document.getElementById('itemSearchRoot'), grid = document.getElementById('lookoutRoot'), desc = document.getElementById('lookoutDescP');
   if(root){ root.style.display = 'none'; root.innerHTML = ''; }
@@ -162,11 +179,11 @@ function itemSearchLocationHtml(p){
       <th>${t('itemSearchColLocation')}</th><th>${t('batchColBatch')}</th><th class="num">${t('itemSearchColQty')}</th><th>${t('batchColExpiry')}</th>
       <th class="num cost-col">${t('itemSearchColUnitCost')}</th><th class="num cost-col">${t('itemSearchColCostTotal')}</th></tr></thead><tbody>
     ${rows.map(r => `<tr>
-      <td>${r.code ? isEsc(r.code) : `<span style="color:var(--ink-soft);">${t('itemSearchNoLocation')}</span>`}</td>
-      <td>${isEsc(r.i.batchNo)}${r.i.isOpening ? ' <span style="color:var(--ink-soft);font-size:11px;">(' + t('batchOpening') + ')</span>' : ''}</td>
+      <td>${r.code ? isLocLink(r.code) : `<span style="color:var(--ink-soft);">${t('itemSearchNoLocation')}</span>`}</td>
+      <td>${isBatchLink(r.i)}${r.i.isOpening ? ' <span style="color:var(--ink-soft);font-size:11px;">(' + t('batchOpening') + ')</span>' : ''}</td>
       <td class="num">${isQty(r.qty)} ${unit}</td>
       <td>${r.i.expiry ? isEsc(r.i.expiry) + (typeof batchExpiryBadge === 'function' ? batchExpiryBadge(r.i.expiry, true) : '') : '–'}</td>
-      <td class="num cost-col">${r.unitCost === null ? '–' : isMoney(r.unitCost)}</td>
+      <td class="num cost-col">${r.unitCost === null ? '–' : isCostLink(r.i, r.unitCost)}</td>
       <td class="num cost-col">${r.unitCost === null ? '–' : isMoney(r.unitCost * r.qty)}</td></tr>`).join('')}
     <tr style="font-weight:700;border-top:2px solid var(--line);"><td colspan="2">${t('invListTotals')}</td><td class="num">${isQty(totQty)} ${unit}</td><td></td><td class="num cost-col"></td><td class="num cost-col">${isMoney(totVal)}${missing ? ' <span style="font-weight:400;color:var(--ink-soft);font-size:11px;">(' + tf('itemSearchMissingCost', { n: missing }) + ')</span>' : ''}</td></tr></tbody></table></div>`;
 }
@@ -180,13 +197,13 @@ function itemSearchBatchHtml(p){
       <th>${t('batchColBatch')}</th><th>${t('batchColExpiry')}</th><th class="num">${t('itemSearchColQty')}</th><th>${t('itemSearchColLocation')}</th>
       <th class="num cost-col">${t('itemSearchColUnitCost')}</th><th class="num cost-col">${t('itemSearchColCostTotal')}</th></tr></thead><tbody>
     ${rows.map(r => {
-      const locLines = r.locs.map(l => `<div>${isEsc(l.code)} · <b>${isQty(l.rem)}</b> ${unit}</div>`).join('') + (r.noLoc > 1e-9 ? `<div style="color:var(--ink-soft);">${t('itemSearchNoLocation')} · <b>${isQty(r.noLoc)}</b> ${unit}</div>` : '');
+      const locLines = r.locs.map(l => `<div>${isLocLink(l.code)} · <b>${isQty(l.rem)}</b> ${unit}</div>`).join('') + (r.noLoc > 1e-9 ? `<div style="color:var(--ink-soft);">${t('itemSearchNoLocation')} · <b>${isQty(r.noLoc)}</b> ${unit}</div>` : '');
       return `<tr>
-      <td style="vertical-align:top;">${isEsc(r.i.batchNo)}${r.i.isOpening ? ' <span style="color:var(--ink-soft);font-size:11px;">(' + t('batchOpening') + ')</span>' : ''}</td>
+      <td style="vertical-align:top;">${isBatchLink(r.i)}${r.i.isOpening ? ' <span style="color:var(--ink-soft);font-size:11px;">(' + t('batchOpening') + ')</span>' : ''}</td>
       <td style="vertical-align:top;">${r.i.expiry ? isEsc(r.i.expiry) + (typeof batchExpiryBadge === 'function' ? batchExpiryBadge(r.i.expiry, true) : '') : '–'}</td>
       <td class="num" style="vertical-align:top;"><b>${isQty(r.i.remaining)}</b> ${unit}</td>
       <td style="font-size:12.5px;vertical-align:top;">${locLines || '–'}</td>
-      <td class="num cost-col" style="vertical-align:top;">${r.unitCost === null ? '–' : isMoney(r.unitCost)}</td>
+      <td class="num cost-col" style="vertical-align:top;">${r.unitCost === null ? '–' : isCostLink(r.i, r.unitCost)}</td>
       <td class="num cost-col" style="vertical-align:top;">${r.unitCost === null ? '–' : isMoney(r.unitCost * r.i.remaining)}</td></tr>`;
     }).join('')}
     <tr style="font-weight:700;border-top:2px solid var(--line);"><td colspan="2">${t('invListTotals')}</td><td class="num">${isQty(totQty)} ${unit}</td><td></td><td class="num cost-col"></td><td class="num cost-col">${isMoney(totVal)}${missing ? ' <span style="font-weight:400;color:var(--ink-soft);font-size:11px;">(' + tf('itemSearchMissingCost', { n: missing }) + ')</span>' : ''}</td></tr></tbody></table></div>`;
