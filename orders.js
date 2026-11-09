@@ -1198,6 +1198,7 @@ function renderPendingOrders(){
       <div data-oid="${o.id}" class="order-card ${o.deleted ? 'order-card-deleted' : ''}">
         <div class="order-card-head" style="cursor:pointer;" onclick="toggleOrderExpand('${o.id}')">
           <span class="order-card-date">
+            ${pendingBatchMode ? `<input type="checkbox" class="pbCk" data-oid="${o.id}" ${pendingBatchSel.has(o.id) ? 'checked' : ''} onclick="event.stopPropagation();pendingBatchToggle('${o.id}', this.checked)" style="width:auto;margin-right:8px;" />` : ''}
             <span style="display:inline-block;width:14px;">${isExpanded ? '▾' : '▸'}</span>
             ${o.orderNo ? `<span style="color:var(--ink-soft);font-weight:400;">${o.orderNo}</span> <span title="${t('copyOrderNo')}" style="cursor:pointer;font-weight:400;color:var(--ink-soft);" onclick="event.stopPropagation();invCopyText('${o.orderNo}', this)">⧉</span> · ` : ''}${o.date}${(o.originalDate && o.originalDate !== o.date) ? ` <span title="${t('dateWasChangedTitle')}" style="font-weight:400;color:var(--warn-dark);">(${tf('originalDateLabel', {date: o.originalDate})})</span>` : ''}${o.partyName ? ` <span style="font-weight:400;color:var(--ink-soft);">· ${tf('orderCardPartyLabel', {name: (o.partyId && !o.deleted && hasCapability('cap-manage-parties')) ? `<span class="batch-link" title="${t('btnEdit')}" onclick="event.stopPropagation();partyEditFromOrder('${o.partyId}')">${escapeHtmlForPrint(o.partyName)}</span>` : o.partyName})}</span>` : ''}
             ${o.remark ? `<span title="${t('orderHasRemarkTitle')}" style="margin-left:6px;color:var(--yellow-dark);">📝</span>` : ''}
@@ -1408,6 +1409,7 @@ async function printOrderDocument(orderId, opts){
   ${(order.note && includeCheck) ? `<div class="note-after-table">${escapeHtmlForPrint('Note')}: ${escapeHtmlForPrint(order.note)}</div>` : ''}
 </body>
 </html>`;
+  if(opts.returnHtml) return html;   // 批次列印:只要 HTML,由呼叫端合併後一次列印
   const printWindow = window.open('', '_blank');
   if(!printWindow){
     showInfoModal(t('errPrintPopupBlocked'));
@@ -1420,6 +1422,75 @@ async function printOrderDocument(orderId, opts){
     printWindow.print();
   };
 }
+
+// ============================================================
+// 待處理訂單:批次列印模式——勾選多張訂單,一次印出所有 Picking Slip(合併成一份列印文件,每張訂單一頁)
+// ============================================================
+let pendingBatchMode = false;
+let pendingBatchSel = new Set();
+function pendingBatchVisibleIds(){ return Array.from(document.querySelectorAll('#pendingOrdersList .order-card')).map(el => el.dataset.oid); }
+function pendingBatchToggleMode(){
+  pendingBatchMode = !pendingBatchMode;
+  pendingBatchSel = new Set();
+  renderPendingOrders();
+}
+function pendingBatchToggle(id, on){
+  if(on) pendingBatchSel.add(id); else pendingBatchSel.delete(id);
+  pendingBatchBarRender();
+}
+function pendingBatchSelectAll(on){
+  const ids = pendingBatchVisibleIds();
+  if(on) ids.forEach(id => pendingBatchSel.add(id)); else ids.forEach(id => pendingBatchSel.delete(id));
+  document.querySelectorAll('.pbCk').forEach(c => { c.checked = on; });
+  pendingBatchBarRender();
+}
+function pendingBatchBarRender(){
+  const bar = document.getElementById('pendingBatchBar'); if(!bar) return;
+  const btn = document.getElementById('pendingBatchModeBtn');
+  if(btn){ btn.style.background = pendingBatchMode ? 'var(--ink,#1e1e1b)' : ''; btn.style.color = pendingBatchMode ? '#fff' : ''; }
+  if(!pendingBatchMode){ bar.style.display = 'none'; bar.innerHTML = ''; return; }
+  const vis = pendingBatchVisibleIds();
+  pendingBatchSel = new Set(Array.from(pendingBatchSel).filter(id => vis.includes(id)));
+  const n = pendingBatchSel.size;
+  const allOn = vis.length > 0 && n === vis.length;
+  bar.style.display = 'flex';
+  bar.innerHTML = `<label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;"><input type="checkbox" id="pbAll" ${allOn ? 'checked' : ''} onchange="pendingBatchSelectAll(this.checked)" style="width:auto;" /> ${t('pbSelectAll')}</label>
+    <button class="btn" ${n ? '' : 'disabled'} onclick="pendingBatchPrint()">${t('pbPrintBtn')} (${n})</button>
+    <button class="btn ghost" onclick="pendingBatchToggleMode()">${t('btnCancel')}</button>`;
+}
+async function pendingBatchPrint(){
+  const ids = Array.from(pendingBatchSel);
+  if(!ids.length) return;
+  // 先開好列印視窗(要在使用者點擊的當下開,不然會被瀏覽器當成彈出視窗擋掉),全部處理完再一次寫進去
+  const pw = window.open('', '_blank');
+  if(!pw){ showInfoModal(t('errPrintPopupBlocked')); return; }
+  pw.document.write('<p style="font-family:sans-serif;padding:24px;">Preparing…</p>');
+  const bodies = []; let styleTag = '';
+  for(const id of ids){
+    const order = orders.find(o => o.id === id);
+    if(!order || order.deleted) continue;
+    if(orderStatus(order) === 'pending'){
+      const oldStatus = order.status;
+      order.status = 'processing';
+      try{ await upsertOrders([order]); }
+      catch(e){ console.error('更新訂單狀態失敗', e); order.status = oldStatus; continue; }
+      logInventoryAction('order_edit', `Order ${order.orderNo || id} - status changed to Processing (picking slip printed)`, order.orderNo);
+    }
+    const html = await printOrderDocument(id, { includeCheckColumn: true, headerLabel: 'Picking Slip', returnHtml: true });
+    if(!html) continue;   // 中途取消位置選擇:這張不印
+    if(!styleTag){ const m = html.match(/<style>[\s\S]*?<\/style>/); styleTag = m ? m[0] : ''; }
+    const b = html.match(/<body>([\s\S]*)<\/body>/);
+    if(b) bodies.push(b[1]);
+  }
+  if(!bodies.length){ pw.close(); renderAll(); return; }
+  const doc = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Picking Slips</title>${styleTag}</head><body>${bodies.map((b, i) => `<div style="${i < bodies.length - 1 ? 'page-break-after:always;' : ''}">${b}</div>`).join('')}</body></html>`;
+  pw.document.open(); pw.document.write(doc); pw.document.close();
+  pw.onload = () => { pw.focus(); pw.print(); };
+  pendingBatchMode = false; pendingBatchSel = new Set();
+  renderAll();
+}
+// renderPendingOrders 跑完之後要同步更新批次列印的勾選列
+{ const _rpo = renderPendingOrders; renderPendingOrders = function(){ _rpo.apply(this, arguments); pendingBatchBarRender(); }; }
 
 // 待處理訂單列印 picking slip:第一次列印(訂單還是「待處理」)會把狀態改成「處理中」並存檔、
 // 記錄進後台紀錄——這個狀態轉換讓訂購記錄那邊知道要收回顧客自己改訂單的權限(editable 判斷
