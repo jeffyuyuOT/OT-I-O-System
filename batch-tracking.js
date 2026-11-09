@@ -1046,6 +1046,21 @@ function batchShowDetailModal(title, bodyHtml){
 }
 const batchDetailRow = (label, val) => `<tr><td style="color:var(--ink-soft);white-space:nowrap;">${label}</td><td>${val || '–'}</td></tr>`;
 // 商品頁:這個批次商品行的 供應商批號 / Invoice / 供應商
+// 「查看進貨單」:跳到 歷史紀錄 → 進貨單,清掉篩選並展開這張單
+async function batchViewPurchase(purchaseId){
+  if(!purchaseId) return;
+  batchCloseDetail();
+  switchTab('tab-log');
+  switchLogSubTab('subtab-log-purchases');
+  try{ if(typeof ensurePurchasesLoaded === 'function') await ensurePurchasesLoaded(); }catch(e){}
+  ['purchaseLogDateFrom', 'purchaseLogDateTo', 'purchaseLogPartyFilter'].forEach(id => { const el = document.getElementById(id); if(el) el.value = ''; });
+  if(typeof expandedPurchaseId !== 'undefined') expandedPurchaseId = purchaseId;
+  if(typeof renderPurchaseLog === 'function') renderPurchaseLog();
+}
+function batchViewPurchaseLink(purchaseId){
+  if(!purchaseId || (typeof partyTabAllowed === 'function' && !partyTabAllowed('tab-log'))) return '';
+  return `<div style="margin-top:10px;"><span class="batch-link" onclick="batchViewPurchase('${batchEsc(purchaseId)}')">${t('batchViewPurchase')} →</span></div>`;
+}
 function batchOpenItemDetail(itemId){
   const i = batchData.items.find(x => x.id === itemId);
   if(!i) return;
@@ -1055,7 +1070,7 @@ function batchOpenItemDetail(itemId){
     ${batchDetailRow(t('batchColSupplier'), batchEsc(i.supplier))}
     ${batchDetailRow(t('batchLocTitle'), batchLocSummaryHtml(i))}
     ${batchDetailRow(t('batchFieldNote'), batchEsc(i.note).replace(/\n/g, '<br>'))}
-  </tbody></table>`);
+  </tbody></table>${i.isOpening ? '' : batchViewPurchaseLink(i.purchaseId)}`);
 }
 // 批次頁:這個批次的 進貨日期 / Invoice / 供應商 / 各商品的供應商批號 / Margin 設置
 function batchOpenBatchDetail(batchId){
@@ -1079,7 +1094,7 @@ function batchOpenBatchDetail(batchId){
     ${batchDetailRow('Invoice', batchEsc(h.invoiceNo))}
     ${batchDetailRow(t('batchColSupplier'), batchEsc(h.supplier))}
     ${batchDetailRow(t('batchFieldLot'), lots)}
-  </tbody></table>${marginBlock}`);
+  </tbody></table>${h.isOpening ? '' : batchViewPurchaseLink(h.purchaseId)}${marginBlock}`);
 }
 // 「編輯」:跳到 歷史紀錄 → 進貨單,開啟這個批次對應進貨單的編輯視窗
 async function batchEditPurchase(purchaseId){
