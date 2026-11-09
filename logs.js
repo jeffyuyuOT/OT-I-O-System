@@ -238,7 +238,6 @@ function renderDeliveryNoteLog(){
   const sorted = list.sort((a,b) => (b.date || '').localeCompare(a.date || ''));
   container.innerHTML = `<table class="stock-table">
       <thead><tr>
-        <th>${t('colDate')}</th>
         <th>${t('dnNoLabel')}</th>
         <th>${t('lblPartyGeneric')}</th>
         <th>${t('colDnRef')}</th>
@@ -253,8 +252,7 @@ function renderDeliveryNoteLog(){
           const itemsSummary = (n.items || []).map(it => `${it.name} ${it.qty} ${it.unit}`).join(', ');
           return `
           <tr>
-            <td style="white-space:nowrap;">${n.date || ''}</td>
-            <td style="white-space:nowrap;">${escapeHtmlForPrint(n.no || '')}</td>
+            <td style="white-space:nowrap;" title="${escapeHtmlForPrint(n.date || '')}">${escapeHtmlForPrint(n.no || n.date || '')}</td>
             <td>${n.partyName ? n.partyName.replace(/</g,'&lt;') : t('partyUnspecified')}</td>
             <td style="white-space:nowrap;">${n.ref && n.ref.no ? `${n.ref.type === 'order' && orders.some(o => o.id === n.ref.id) ? `<span class="batch-link" onclick="invGotoOrder('${n.ref.id}')">${escapeHtmlForPrint(n.ref.no)}</span>` : escapeHtmlForPrint(n.ref.no)}<div style="font-size:11px;color:var(--ink-soft);">${dnRefTypeLabel(n.ref.type)}</div>` : '-'}</td>
             <td>${(n.note || '').replace(/</g,'&lt;')}</td>
