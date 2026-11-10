@@ -373,14 +373,21 @@ function paOpenDetails(id){
   const p = purchases.find(x => x.id === id); if(!p) return;
   const i = paInfo(p);
   const row = (k, v) => `<tr><td style="color:var(--ink-soft);white-space:nowrap;vertical-align:top;">${k}</td><td>${v === '' || v === null || v === undefined ? '–' : v}</td></tr>`;
-  const items = (p.items || []).filter(it => it.docType !== 'others' && !it.noAcct).map(it => {
+  const pdIcon = (kind, idx) => (typeof pcShowItemPrice === 'function') ? ` <span class="batch-info-icon" style="cursor:pointer;" title="${paEsc(t('pcPdTitle'))}" onclick="pcShowItemPrice('${paEsc(p.id)}','${kind}',${idx})">ⓘ</span>` : '';
+  const items = (p.items || []).map((it, idx) => ({ it, idx })).filter(({ it }) => it.docType !== 'others' && !it.noAcct).map(({ it, idx }) => {
     const sign = it.docType === 'credit_note' ? -1 : 1;
     const g = it.gst === true ? 'GST' : (it.gst === false ? t('paGstNone') : '<span style="color:#b26a00;">' + paEsc(t('paGstUnset')) + '</span>');
-    return `<tr><td>${paEsc(it.name || '')}${it.docType === 'credit_note' ? ` <span style="color:var(--crit);font-size:11px;">(${t('docTypeCreditNoteBadge')})</span>` : ''}</td><td class="num">${paEsc(it.qty)} ${paEsc(it.unit || '')}</td><td class="num">${it.amount !== undefined && it.amount !== null ? paM2(sign * Number(it.amount)) : '–'}</td><td>${g}</td></tr>`;
+    // 自動切換過的品項:顯示收據上的商品/單位/數量(例如 Grape x 20 Bottles 10 Carton),不顯示換算後的主商品數量
+    const shownName = (it.rcv && it.rcv.name) ? it.rcv.name : (it.name || '');
+    const shownQty = it.rcv ? it.rcv.qty : it.qty;
+    const shownUnit = it.rcv ? (it.rcv.unit || '') : (it.unit || '');
+    const swNote = it.rcv ? `<div style="color:var(--ink-soft);font-size:11px;">${paEsc(tf('purchaseConvertedNote', { name: it.name, qty: it.qty, unit: it.unit || '' }))}</div>` : '';
+    const hasAmt = it.amount !== undefined && it.amount !== null;
+    return `<tr><td>${paEsc(shownName)}${it.docType === 'credit_note' ? ` <span style="color:var(--crit);font-size:11px;">(${t('docTypeCreditNoteBadge')})</span>` : ''}${swNote}</td><td class="num">${paEsc(shownQty)} ${paEsc(shownUnit)}</td><td class="num">${hasAmt ? paM2(sign * Number(it.amount)) : '–'}${(hasAmt && it.docType !== 'credit_note') ? pdIcon('item', idx) : ''}</td><td>${g}</td></tr>`;
   }).join('');
-  const nsDetail = (p.nonStockItems || []).map(n => {
+  const nsDetail = (p.nonStockItems || []).map((n, nIdx) => {
     const g = n.gst === true ? 'GST' : (n.gst === false ? t('paGstNone') : '<span style="color:#b26a00;">' + paEsc(t('paGstUnset')) + '</span>');
-    return `<tr style="background:var(--bg-soft,#f5f5f0);"><td>${paEsc(n.name || '')} <span style="color:var(--ink-soft);font-size:11px;">(${t('pcNonStockBadge')})</span></td><td class="num">${paEsc(n.qty)} ${paEsc(n.unit || '')}</td><td class="num">${paM2(Number(n.amount) || 0)}</td><td>${g}</td></tr>`;
+    return `<tr style="background:var(--bg-soft,#f5f5f0);"><td>${paEsc(n.name || '')} <span style="color:var(--ink-soft);font-size:11px;">(${t('pcNonStockBadge')})</span></td><td class="num">${paEsc(n.qty)} ${paEsc(n.unit || '')}</td><td class="num">${paM2(Number(n.amount) || 0)}${Number(n.amount) ? pdIcon('ns', nIdx) : ''}</td><td>${g}</td></tr>`;
   }).join('');
   const offCnt = (p.items || []).filter(it => it.noAcct).length;
   const lineItems = (p.lineExpenses || []).map(l => {
