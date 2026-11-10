@@ -2166,7 +2166,21 @@ async function submitTxBatchSimple(date, msg){
     if(typeof pcApplyToPurchase === 'function') pcApplyToPurchase(purchase); // 幣種換算 + 其他支出分攤 → 底價/總價
     let purchaseSaved = false;
     try{ await upsertPurchase(purchase); purchases.push(purchase); purchaseSaved = true; }
-    catch(e){ console.error('儲存進貨單失敗', e); }
+    catch(e){
+      console.error('儲存進貨單失敗', e);
+      // 進貨單沒存成功:把剛寫入的庫存異動退回,清單與表單保留,讓使用者可以直接再按一次送出,
+      // 不會出現「庫存加了、卻沒有進貨單/批次」的狀況。
+      let rolledBack = false;
+      try{
+        await deleteTransactions(newTxs);
+        newTxs.forEach(tx => { const i = transactions.indexOf(tx); if(i >= 0) transactions.splice(i, 1); });
+        rolledBack = true;
+      } catch(e2){ console.error('退回進貨庫存異動失敗', e2); }
+      msg.className = 'msg error';
+      msg.textContent = '⚠ ' + t(rolledBack ? 'errPurchaseSaveFailedRolledBack' : 'errPurchaseSaveFailedNotRolledBack');
+      renderAll();
+      return;
+    }
     // 批次追蹤:建立批次(必要時一併建立期初批次)。失敗不影響進貨本身,提示後可到編輯進貨單重新儲存補建。
     if(batchTrackThis && purchaseSaved){
       let batchCreated = false;
