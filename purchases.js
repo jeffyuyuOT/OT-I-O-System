@@ -9,6 +9,16 @@
 // 進貨方下拉篩選(比照「進出貨紀錄」子分頁的篩選列)。匯出是針對「單一張進貨單」,不是整份清單
 // (每張單通常對應同一張收據/同一個進貨方,合併匯出反而不好用)。
 let expandedPurchaseId = null;
+let purchaseLogEstOnly = false;   // 只看含「預估」其他支出、還沒補實際金額的進貨單
+function togglePurchaseLogEstOnly(){ purchaseLogEstOnly = !purchaseLogEstOnly; renderPurchaseLog(); }
+// 同一進貨方、同一個 Invoice No.(不分大小寫、去頭尾空白)已經存在的進貨單(excludeId = 編輯中的那張)
+function findDuplicatePurchase(partyName, supplierId, invoiceNo, excludeId){
+  const inv = (invoiceNo || '').trim().toLowerCase();
+  if(!inv) return null;
+  const nm = (partyName || '').trim().toLowerCase();
+  return (purchases || []).find(p => p.id !== excludeId && (p.invoiceNo || '').trim().toLowerCase() === inv &&
+    ((supplierId && p.supplierId === supplierId) || (nm && (p.partyName || '').trim().toLowerCase() === nm))) || null;
+}
 function togglePurchaseDetail(id){
   expandedPurchaseId = (expandedPurchaseId === id) ? null : id;
   renderPurchaseLog();
@@ -17,6 +27,7 @@ function clearPurchaseLogFilters(){
   document.getElementById('purchaseLogDateFrom').value = '';
   document.getElementById('purchaseLogDateTo').value = '';
   document.getElementById('purchaseLogPartyFilter').value = '';
+  purchaseLogEstOnly = false;
   renderPurchaseLog();
 }
 // 「已寄過 email」小圖示旁邊顯示的簡短時間文字——一張單可能補寄過好幾次(每次寄送都會覆蓋
@@ -76,15 +87,20 @@ function renderPurchaseLog(){
   if(dateFrom) filtered = filtered.filter(p => (p.date || '') >= dateFrom);
   if(dateTo) filtered = filtered.filter(p => (p.date || '') <= dateTo);
   if(partyFilter) filtered = filtered.filter(p => purchasePartyKey(p) === partyFilter);
+  // 含預估其他支出的進貨單(只算符合日期/進貨方篩選的),頂端提示並可一鍵只看這些
+  const hasEst = p => (p.costs && (p.costs.expenses || []).some(e => e.estimated));
+  const estCount = filtered.filter(hasEst).length;
+  if(purchaseLogEstOnly) filtered = filtered.filter(hasEst);
+  const estBanner = (estCount > 0 || purchaseLogEstOnly) ? `<div style="background:var(--warn-bg,#fff7e6);border:1px solid var(--warn-dark,#b45309);border-radius:8px;padding:8px 12px;margin-bottom:8px;font-size:12.5px;display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;"><span>⚠ ${escapeHtmlForPrint(tf('pcEstPendingBanner', { n: estCount }))}</span><button class="btn ghost" style="font-size:12px;" onclick="togglePurchaseLogEstOnly()">${t(purchaseLogEstOnly ? 'pcEstShowAll' : 'pcEstShowOnly')}</button></div>` : '';
 
   if(filtered.length === 0){
-    container.innerHTML = `<div class="empty-note">${t('noPurchasesYet')}</div>`;
+    container.innerHTML = estBanner + `<div class="empty-note">${t('noPurchasesYet')}</div>`;
     return;
   }
   const sorted = filtered.sort((a, b) => (b.date || '').localeCompare(a.date || '') || (b.createdAt || '').localeCompare(a.createdAt || ''));
   // 批次追蹤開啟時,批次號獨立一欄(不再塞在 Invoice 欄裡,沒有 Invoice No. 時才不會被誤認成 Invoice)
   const showBatchCol = typeof batchActive === 'function' && batchActive();
-  container.innerHTML = `<table class="stock-table purchase-log-table">
+  container.innerHTML = estBanner + `<table class="stock-table purchase-log-table">
       <thead><tr>
         <th>${t('colPurchaseDate')}</th>
         <th>${t('colPurchaseParty')}</th>
@@ -984,6 +1000,14 @@ async function confirmEditPurchase(){
     msgEl.className = 'msg error';
     msgEl.textContent = t('errEnterPositiveQty');
     return;
+  }
+  // 改了進貨方或 Invoice No. 之後和別張進貨單重複 → 先確認
+  if(invoiceVal && (invoiceVal !== (p.invoiceNo || '') || partyVal !== (p.partyName || ''))){
+    const dup = findDuplicatePurchase(partyVal, editPurchaseSupplierId || p.supplierId || '', invoiceVal, p.id);
+    if(dup){
+      const ok = await new Promise(res => showConfirmModal(tf('errDupInvoiceConfirm', { party: dup.partyName || '', inv: dup.invoiceNo || '', date: dup.date || '' }), () => res(true), () => res(false)));
+      if(!ok) return;
+    }
   }
 
   // 品項清單存檔前先去掉 _scanUpdated(只是編輯畫面上用來標記「這行剛被掃描結果蓋過」的暫時

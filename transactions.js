@@ -2031,6 +2031,16 @@ async function submitTxBatchSimple(date, msg){
   // 進貨帳務:有價錢的品項要有 GST;沒勾「入會計紀錄」卻有價錢 → 先確認
   if(currentTxType === 'in' && typeof paPreSubmit === 'function' && !(await paPreSubmit(msg))) return;
 
+  // 同一進貨方、同一個 Invoice No. 已經登記過 → 先確認,避免重複入庫
+  if(currentTxType === 'in' && invoiceNo && typeof findDuplicatePurchase === 'function'){
+    try{ await ensurePurchasesLoaded(); }catch(e){}
+    const dup = findDuplicatePurchase(party, purchaseSupplierIdFor(party), invoiceNo, null);
+    if(dup){
+      const ok = await new Promise(res => showConfirmModal(tf('errDupInvoiceConfirm', { party: dup.partyName || '', inv: dup.invoiceNo || '', date: dup.date || '' }), () => res(true), () => res(false)));
+      if(!ok) return;
+    }
+  }
+
   const purchaseId = currentTxType === 'in' ? genId() : null; // 一整批進貨(不管品項有幾個)共用同一個進貨單 ID
 
   // 「直接出貨」(currentTxType === 'out')的話,扣庫存之前先問清楚每個商品要從哪個位置扣——
