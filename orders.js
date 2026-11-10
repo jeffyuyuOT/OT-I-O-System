@@ -13,16 +13,15 @@ function getOrderableProductsForParty(partyObj){
   return products.filter(p => p.orderable && !p.hidden && !hiddenForParty.includes(p.id));
 }
 
-// 以「這個出貨方」最近 13 週(約三個月)的出貨紀錄,算「每次訂貨平均用量」:
+// 以「這個出貨方」最近 13 週(約三個月)的出貨紀錄,算「每週平均用量」:
 // 1. 抓最近 13 週(91 天,固定的滑動區間)這個商品、這個出貨方的出貨紀錄。
 // 2. 週平均 = 這段期間的出貨總量 ÷ 週數。週數預設是 13,但如果這個商品+這個出貨方最早的
 //    出貨紀錄是在這 13 週「之內」才開始的(表示這個組合的歷史比 13 週短),改用「從那筆最早
 //    紀錄到今天」實際經過的週數當分母——不然明明只有 5 週的資料,却硬要除以 13,平均會被
 //    嚴重低估。「開始用」是指這個商品+這個出貨方各自最早的出貨紀錄日期,不是看整個系統/
 //    資料庫最早的紀錄(不同商品、不同出貨方各自獨立計算)。
-// 3. 出貨頻率(shippingParty.orderFrequency,預設 'weekly')決定最後怎麼從週平均換算成
-//    「每次訂貨」該抓多少量:weekly 就是週平均本身;fortnight(兩週訂一次)是週平均 x2;
-//    monthly(一個月訂一次)是週平均 x4。
+// 3. 直接顯示週平均(不再依出貨頻率 shippingParty.orderFrequency 換算成每次訂貨量;
+//    頻率設成「無固定」時,訂貨頁面仍然不顯示這一欄)。
 // 出貨紀錄本身排除「切換」(子商品⇄主商品互轉,buildWeightedOutSeries 內建一定會排除)、還有
 // 「Excel 匯入商品主檔」時自動產生的庫存調整紀錄(excludeMasterImportAdjustment)——這種調整紀錄
 // 算庫存校正,不是一筆一筆出貨給客人,不該拿來算「每次訂貨平均用量」。訂單(不管是客人在「訂貨」
@@ -59,9 +58,9 @@ function computePerOrderAvgForParty(productId, partyObj, now){
     const allTx = buildWeightedOutSeries(productId, { onlyParty: partyName, excludeMasterImportAdjustment: true });
     const tx = allTx.filter(t => new Date(t.date) >= windowStart && new Date(t.date) <= now);
     if(tx.length >= 1){
+      // 顯示的是「每週平均用量」,不再依出貨頻率換算成每次訂貨量
       const weeklyAvg = weeklyAvgFromSeries(tx, allTx, now, windowStart);
-      const multiplier = ORDER_FREQUENCY_MULTIPLIER[partyObj.orderFrequency] || 1;
-      return { avg: weeklyAvg * multiplier, isPartySpecific: true, hasData: true };
+      return { avg: weeklyAvg, isPartySpecific: true, hasData: true };
     }
     // 這個出貨方最近三個月完全沒訂過這項商品:不再退回顯示「整體平均」當參考值——那樣會讓沒訂過
     // 的店看起來跟唯一有在訂的店數字一模一樣,容易誤導。改成直接標示「沒有資料」,畫面上顯示「-」。
