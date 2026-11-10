@@ -217,7 +217,7 @@ async function savePartyEdit(){
   sp.paymentTerm = sp.paymentType === 'cod' ? 0 : (parseInt(document.getElementById('partyPaymentTermSelect').value, 10) || 7);   // COD 沒有 Payment term
   delete sp.address;   // 舊的聯繫地址取消,改用 Bill To / Ship To
   sp.note = document.getElementById('partyNoteInput').value.trim();
-  sp.orderFrequency = document.getElementById('partyFrequencySelect').value || 'weekly';   // 'none' = 無固定頻率(訂貨頁不顯示平均使用量)
+  sp.orderFrequency = document.getElementById('partyFrequencySelect').value || 'weekly';   // 僅作登記用,不影響訂貨頁平均用量
   sp.discount = discount;
   sp.discountUntil = (discount > 0 && document.getElementById('partyDiscountUntilInput').value) ? document.getElementById('partyDiscountUntilInput').value : '';
   const newEffDiscount = partyDiscountOf(sp);
@@ -1625,7 +1625,7 @@ function loadForecastRecordToPurchase(id){
     switchTab('tab-warehouse-ops');
     switchWarehouseOpsSubTab('subtab-tx-register');
     setTxType('in');
-    txBatchItems = [];
+    txBatchItems = []; txNsItems = [];
     if(rec.supplierId && (typeof purchaseSuppliers !== 'undefined') && purchaseSuppliers.some(x => x.id === rec.supplierId)){
       const hs = document.getElementById('txPartyHistorySelect');
       if(hs){ hs.value = rec.supplierId; if(typeof onTxPartyHistorySelectChange === 'function') onTxPartyHistorySelectChange(rec.supplierId); }

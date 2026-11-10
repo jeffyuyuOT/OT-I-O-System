@@ -238,11 +238,12 @@ function renderDeliveryNoteLog(){
   const sorted = list.sort((a,b) => (b.date || '').localeCompare(a.date || ''));
   container.innerHTML = `<table class="stock-table">
       <thead><tr>
-        <th>${t('colDate')}</th>
+        <th>${t('dnNoLabel')}</th>
         <th>${t('lblPartyGeneric')}</th>
         <th>${t('colDnRef')}</th>
         <th>${t('colItemNote')}</th>
         <th>${t('lblProduct')}</th>
+        <th></th>
         <th></th>
       </tr></thead>
       <tbody>
@@ -251,16 +252,67 @@ function renderDeliveryNoteLog(){
           const itemsSummary = (n.items || []).map(it => `${it.name} ${it.qty} ${it.unit}`).join(', ');
           return `
           <tr>
-            <td style="white-space:nowrap;">${n.date || ''}</td>
+            <td style="white-space:nowrap;" title="${escapeHtmlForPrint(n.date || '')}">${escapeHtmlForPrint(n.no || n.date || '')}</td>
             <td>${n.partyName ? n.partyName.replace(/</g,'&lt;') : t('partyUnspecified')}</td>
-            <td style="white-space:nowrap;">${n.ref && n.ref.no ? `${escapeHtmlForPrint(n.ref.no)}<div style="font-size:11px;color:var(--ink-soft);">${dnRefTypeLabel(n.ref.type)}</div>` : '-'}</td>
+            <td style="white-space:nowrap;">${n.ref && n.ref.no ? `${n.ref.type === 'order' && orders.some(o => o.id === n.ref.id) ? `<span class="batch-link" onclick="invGotoOrder('${n.ref.id}')">${escapeHtmlForPrint(n.ref.no)}</span>` : escapeHtmlForPrint(n.ref.no)}<div style="font-size:11px;color:var(--ink-soft);">${dnRefTypeLabel(n.ref.type)}</div>` : '-'}</td>
             <td>${(n.note || '').replace(/</g,'&lt;')}</td>
-            <td>${itemsSummary.replace(/</g,'&lt;')}</td>
-            <td><span class="order-status-pill ${isCompleted ? 'confirmed' : 'pending'}">${isCompleted ? t('statusCompleted') : t('statusPending')}</span></td>
+            <td style="width:100%;max-width:0;"><div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${itemsSummary.replace(/</g,'&lt;').replace(/"/g,'&quot;')}">${itemsSummary.replace(/</g,'&lt;')}</div></td>
+            <td style="white-space:nowrap;"><span class="order-status-pill ${isCompleted ? 'confirmed' : 'pending'}" style="white-space:nowrap;">${isCompleted ? t('statusCompleted') : t('statusPending')}</span></td>
+            <td style="white-space:nowrap;text-align:right;"><button class="btn ghost" onclick="dnLogView('${n.id}')">${t('dnLogView')}</button>${isCompleted ? '' : ` <button class="btn ghost" onclick="dnDeletePending('${n.id}')">${t('btnDelete')}</button>`}</td>
           </tr>`;
         }).join('')}
       </tbody>
     </table>`;
+}
+function dnLogView(id){
+  const n = deliveryNotes.find(x => x.id === id); if(!n) return;
+  const esc = escapeHtmlForPrint;
+  const old = document.getElementById('dnLogViewOverlay'); if(old) old.remove();
+  const rows = (n.items || []).map(it => `<tr><td>${esc(it.sku || '')}</td><td>${esc(it.name)}</td><td class="num">${it.qty}</td><td>${esc(it.unit || '')}</td></tr>`).join('')
+    + (n.nonStockItems || []).map(x => `<tr><td></td><td>${esc(x.name)} <span style="color:var(--ink-soft);font-size:11px;">(${t('pcNonStockBadge')})</span></td><td class="num">${x.qty}</td><td>${esc(x.unit || '')}</td></tr>`).join('');
+  const ov = document.createElement('div');
+  ov.id = 'dnLogViewOverlay'; ov.className = 'modal-overlay'; ov.style.display = 'flex'; ov.style.zIndex = '1200';
+  ov.innerHTML = `<div class="modal-box" style="max-width:min(640px,96vw);max-height:92vh;overflow:auto;">
+    <div class="section-title" style="margin-top:0;">${t('dnLogViewTitle')}${n.no ? ' · ' + esc(n.no) : ''}</div>
+    <div style="font-size:13px;line-height:1.7;margin-bottom:8px;">${esc(n.date || '')} · ${n.partyName ? esc(n.partyName) : t('partyUnspecified')}${n.ref && n.ref.no ? ` · ${esc(n.ref.no)}` : ''}${n.note ? `<br>${esc(n.note)}` : ''}</div>
+    <div style="overflow-x:auto;"><table class="stock-table"><thead><tr><th>SKU</th><th>${t('lblProduct')}</th><th class="num">${t('colQty') || 'Qty'}</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>
+    <div class="modal-actions">${n.status === 'completed' ? '' : `<button class="btn ghost" onclick="document.getElementById('dnLogViewOverlay').remove();dnLogEdit('${n.id}')">${t('dnLogEdit')}</button>`}<button class="btn ${n.status === 'completed' ? 'ghost' : ''}" onclick="dnLogPrint('${n.id}')">${n.status === 'completed' ? t('dnLogPrint') : t('dnConfirmPrint')}</button><button class="btn ghost" onclick="document.getElementById('dnLogViewOverlay').remove()">${t('btnClose') || 'Close'}</button></div>
+  </div>`;
+  document.body.appendChild(ov);
+}
+async function dnLogPrint(id){
+  const n = deliveryNotes.find(x => x.id === id); if(!n) return;
+  if(n.status === 'completed'){ dnOpenPrintWindow(dnPrintHtml(n)); return; }   // 已完成:單純再印一次
+  // 待處理:確認並列印 = 檢查數量 → 列印 → 標記已完成
+  const err = dnPrintQtyCheck(n, n.id);
+  if(err){ showInfoModal(err); return; }
+  if(!dnOpenPrintWindow(dnPrintHtml(n))) return;
+  const prev = { ...n };
+  n.status = 'completed'; n.completedAt = new Date().toISOString();
+  try{
+    await upsertDeliveryNotes([n]);
+    logInventoryAction('delivery_note', `Printed Delivery Note ${n.no || ''} (${n.date}, ${n.note}) - marked as completed`, null);
+  }catch(e){
+    console.error('標記 Delivery Note 完成失敗', e);
+    Object.assign(n, prev);
+    showInfoModal(t('errDeliveryNotePrintedButNotRemoved'));
+  }
+  const ov = document.getElementById('dnLogViewOverlay'); if(ov) ov.remove();
+  renderDeliveryNoteLog();
+}
+async function dnLogEdit(id){
+  await ensureDeliveryNotesLoaded();
+  const n = deliveryNotes.find(x => x.id === id);
+  if(!n || n.status === 'completed') return;
+  switchTab('tab-warehouse-ops');
+  switchWarehouseOpsSubTab('subtab-tx-register');
+  setTxType('delivery');
+  const flowSel = document.getElementById('txDeliveryFlowType');
+  if(flowSel) flowSel.value = 'load';
+  setTxDeliveryFlowType('load');
+  const sel = document.getElementById('txDeliveryNoteSelect');
+  if(sel) sel.value = id;
+  loadDeliveryNoteIntoRegisterFlow(id);
 }
 
 function renderInventoryLog(){

@@ -13,16 +13,15 @@ function getOrderableProductsForParty(partyObj){
   return products.filter(p => p.orderable && !p.hidden && !hiddenForParty.includes(p.id));
 }
 
-// 以「這個出貨方」最近 13 週(約三個月)的出貨紀錄,算「每次訂貨平均用量」:
+// 以「這個出貨方」最近 13 週(約三個月)的出貨紀錄,算「每週平均用量」:
 // 1. 抓最近 13 週(91 天,固定的滑動區間)這個商品、這個出貨方的出貨紀錄。
 // 2. 週平均 = 這段期間的出貨總量 ÷ 週數。週數預設是 13,但如果這個商品+這個出貨方最早的
 //    出貨紀錄是在這 13 週「之內」才開始的(表示這個組合的歷史比 13 週短),改用「從那筆最早
 //    紀錄到今天」實際經過的週數當分母——不然明明只有 5 週的資料,却硬要除以 13,平均會被
 //    嚴重低估。「開始用」是指這個商品+這個出貨方各自最早的出貨紀錄日期,不是看整個系統/
 //    資料庫最早的紀錄(不同商品、不同出貨方各自獨立計算)。
-// 3. 出貨頻率(shippingParty.orderFrequency,預設 'weekly')決定最後怎麼從週平均換算成
-//    「每次訂貨」該抓多少量:weekly 就是週平均本身;fortnight(兩週訂一次)是週平均 x2;
-//    monthly(一個月訂一次)是週平均 x4。
+// 3. 直接顯示週平均(不再依出貨頻率 shippingParty.orderFrequency 換算成每次訂貨量;
+//    頻率設成「無固定」時,訂貨頁面仍然不顯示這一欄)。
 // 出貨紀錄本身排除「切換」(子商品⇄主商品互轉,buildWeightedOutSeries 內建一定會排除)、還有
 // 「Excel 匯入商品主檔」時自動產生的庫存調整紀錄(excludeMasterImportAdjustment)——這種調整紀錄
 // 算庫存校正,不是一筆一筆出貨給客人,不該拿來算「每次訂貨平均用量」。訂單(不管是客人在「訂貨」
@@ -59,9 +58,9 @@ function computePerOrderAvgForParty(productId, partyObj, now){
     const allTx = buildWeightedOutSeries(productId, { onlyParty: partyName, excludeMasterImportAdjustment: true });
     const tx = allTx.filter(t => new Date(t.date) >= windowStart && new Date(t.date) <= now);
     if(tx.length >= 1){
+      // 顯示的是「每週平均用量」,不再依出貨頻率換算成每次訂貨量
       const weeklyAvg = weeklyAvgFromSeries(tx, allTx, now, windowStart);
-      const multiplier = ORDER_FREQUENCY_MULTIPLIER[partyObj.orderFrequency] || 1;
-      return { avg: weeklyAvg * multiplier, isPartySpecific: true, hasData: true };
+      return { avg: weeklyAvg, isPartySpecific: true, hasData: true };
     }
     // 這個出貨方最近三個月完全沒訂過這項商品:不再退回顯示「整體平均」當參考值——那樣會讓沒訂過
     // 的店看起來跟唯一有在訂的店數字一模一樣,容易誤導。改成直接標示「沒有資料」,畫面上顯示「-」。
@@ -129,7 +128,6 @@ function renderOrderItemsTable(){
     const stock = Math.max(0, computeAvailableForOrder(p.id));
     const outOfStock = stock <= 0;
     const w = computePerOrderAvgForParty(p.id, partyObj, now);
-    const noAvg = !!(partyObj && partyObj.orderFrequency === 'none');   // 無固定頻率:不顯示平均使用量
     const avgTitle = partyObj
       ? (w.isPartySpecific ? tf('avgTitlePartySpecific', {name: partyObj.name}) : tf('avgTitlePartyFallback', {name: partyObj.name}))
       : t('avgTitleNoParty');
@@ -147,9 +145,9 @@ function renderOrderItemsTable(){
           ${orderItemNoteDraft[p.id]
             ? `<span class="del-link" style="font-style:italic;" onclick="openOrderItemNoteModal('${p.id}')">${t('noteLabelPrefix')}${orderItemNoteDraft[p.id].replace(/</g,'&lt;')}</span>`
             : `<span class="del-link" onclick="openOrderItemNoteModal('${p.id}')">${t('btnAddItemNote')}</span>`}
-          ${noAvg ? '' : `<span class="show-mobile-only avg-usage-mobile" title="${avgTitle}">${t('avgUsageMobileLabel')}${isChildProduct ? ' —' : (w.hasData ? ` ${w.avg.toFixed(1)} ${p.unit}` : ' —')}</span>`}
+          <span class="show-mobile-only avg-usage-mobile" title="${avgTitle}">${t('avgUsageMobileLabel')}${isChildProduct ? ' —' : (w.hasData ? ` ${w.avg.toFixed(1)} ${p.unit}` : ' —')}</span>
         </td>
-        ${noAvg ? '' : `<td class="row-num hide-mobile" ${isChildProduct ? '' : `title="${avgTitle}"`}>${isChildProduct ? '—' : (w.hasData ? `${w.avg.toFixed(1)} ${p.unit}` : '—')}</td>`}
+        <td class="row-num hide-mobile" ${isChildProduct ? '' : `title="${avgTitle}"`}>${isChildProduct ? '—' : (w.hasData ? `${w.avg.toFixed(1)} ${p.unit}` : '—')}</td>
         <td class="row-num row-qty qty-col-data">
           <span class="td-mobile-label">${t('colOrderQty')}</span>
           <div class="qty-cell-inner">
@@ -184,7 +182,7 @@ function renderOrderItemsTable(){
     const orderedCats = categoryOrder.filter(c => byCat[c]);
     rows = orderedCats.map(cat => {
       const items = byCat[cat];
-      const header = `<tr class="cat-row"><td colspan="${(partyObj && partyObj.orderFrequency === 'none') ? 3 : 4}">${catLabel(cat)}<span class="cat-count">${items.length}</span></td></tr>`;
+      const header = `<tr class="cat-row"><td colspan="4">${catLabel(cat)}<span class="cat-count">${items.length}</span></td></tr>`;
       return header + items.map(p => rowHtml(p, {})).join('');
     }).join('');
   } else {
@@ -193,7 +191,7 @@ function renderOrderItemsTable(){
   container.innerHTML = `
     <table class="stock-table order-items-table">
       <thead>
-        <tr><th>${t('colProduct')}</th><th>${t('colItemNote')}</th>${(partyObj && partyObj.orderFrequency === 'none') ? '' : `<th class="num hide-mobile">${t('colWeeklyAvg')}</th>`}<th class="qty-col-header">${t('colOrderQty')}</th></tr>
+        <tr><th>${t('colProduct')}</th><th>${t('colItemNote')}</th><th class="num hide-mobile">${t('colWeeklyAvg')}</th><th class="qty-col-header">${t('colOrderQty')}</th></tr>
       </thead>
       <tbody>${rows}</tbody>
     </table>
@@ -768,7 +766,7 @@ function renderCompletedOrdersInto(container, recentOnly){
     // 已完成訂單在還沒簽收前,這裡(訂貨後台管理)還是能改;一旦簽收過(o.signedAt),不管哪一邊
     // 都不能再改了,這裡也要跟著鎖住(readOnly=!!o.signedAt),之前沒有這個檢查,簽收後其實還是
     // 能被改掉,這次一併修正。
-    const itemsHtml = o.items.filter(it => !it.deleted).map(it => orderItemRowHtml(o, it, false, true, 'completed')).join('');
+    const itemsHtml = o.items.filter(it => !it.deleted).map(it => orderItemRowHtml(o, it, false, true, 'completed')).join('') + orderNsRowsHtml(o);
     // 這張訂單有沒有東西可以在「觀看修改紀錄」小視窗裡看——一般修改紀錄(改數量/新增/刪除)
     // 或核對後變更,只要有一個就顯示這個按鈕,完全沒異動過的訂單就不用顯示了。
     const hasHistory = wasModified || (o.postVerifyChanges && o.postVerifyChanges.length > 0);
@@ -892,6 +890,7 @@ function deleteCompletedOrder(orderId){
     showInfoModal(t('errOrderAlreadySigned'));
     return;
   }
+  if(dnGuardOrderDelete(order, null)) return;
   const activeItems = order.items.filter(it => !it.deleted);
   showConfirmModal(tf('confirmDeleteOrder', {n: activeItems.length}), async () => {
     await ensureTransactionsLoadedFrom(order.date || '');
@@ -926,6 +925,7 @@ function deleteOrderItem(orderId, productId){
   }
   const item = order.items.find(it => it.productId === productId && !it.deleted);
   if(!item) return;
+  if(dnGuardOrderDelete(order, productId)) return;
   showConfirmModal(tf('confirmDeleteOrderItem', {name: item.name, qty: Math.abs(item.qty), unit: item.unit}), async () => {
     if(!(await invGuardOrderEdit(order, {del: [productId]}))) return;
     const now = new Date().toISOString();
@@ -1157,7 +1157,7 @@ function renderPendingOrders(){
     // 「處理中」狀態下倉庫方的異動會記進 postVerifyChanges(見 savePendingOrderItemQty 等),這裡
     // 一併判斷要不要顯示「觀看修改紀錄」按鈕,跟已完成訂單那邊是同一顆按鈕、同一個小視窗。
     const hasHistory = wasModified || (o.postVerifyChanges && o.postVerifyChanges.length > 0);
-    const itemsHtml = o.items.map(it => orderItemRowHtml(o, it, true, true, 'pending')).join('');
+    const itemsHtml = o.items.map(it => orderItemRowHtml(o, it, true, true, 'pending')).join('') + orderNsRowsHtml(o);
     const isEditingRemark = editingOrderRemarkId === o.id;
     const remarkHtml = isEditingRemark ? `
       <div style="margin:8px 0;">
@@ -1196,6 +1196,7 @@ function renderPendingOrders(){
       <div data-oid="${o.id}" class="order-card ${o.deleted ? 'order-card-deleted' : ''}">
         <div class="order-card-head" style="cursor:pointer;" onclick="toggleOrderExpand('${o.id}')">
           <span class="order-card-date">
+            ${pendingBatchMode ? `<input type="checkbox" class="pbCk" data-oid="${o.id}" ${pendingBatchSel.has(o.id) ? 'checked' : ''} onclick="event.stopPropagation();pendingBatchToggle('${o.id}', this.checked)" style="width:auto;margin-right:8px;" />` : ''}
             <span style="display:inline-block;width:14px;">${isExpanded ? '▾' : '▸'}</span>
             ${o.orderNo ? `<span style="color:var(--ink-soft);font-weight:400;">${o.orderNo}</span> <span title="${t('copyOrderNo')}" style="cursor:pointer;font-weight:400;color:var(--ink-soft);" onclick="event.stopPropagation();invCopyText('${o.orderNo}', this)">⧉</span> · ` : ''}${o.date}${(o.originalDate && o.originalDate !== o.date) ? ` <span title="${t('dateWasChangedTitle')}" style="font-weight:400;color:var(--warn-dark);">(${tf('originalDateLabel', {date: o.originalDate})})</span>` : ''}${o.partyName ? ` <span style="font-weight:400;color:var(--ink-soft);">· ${tf('orderCardPartyLabel', {name: (o.partyId && !o.deleted && hasCapability('cap-manage-parties')) ? `<span class="batch-link" title="${t('btnEdit')}" onclick="event.stopPropagation();partyEditFromOrder('${o.partyId}')">${escapeHtmlForPrint(o.partyName)}</span>` : o.partyName})}</span>` : ''}
             ${o.remark ? `<span title="${t('orderHasRemarkTitle')}" style="margin-left:6px;color:var(--yellow-dark);">📝</span>` : ''}
@@ -1238,6 +1239,7 @@ async function printOrderDocument(orderId, opts){
   const order = orders.find(o => o.id === orderId);
   if(!order) return;
   const items = buildOrderExportRows(order);
+  const nsItems = (order.nonStockItems || []).map(n => ({ sku: '', name: n.name, qty: n.qty, unit: n.unit || '', productId: '', note: '', ns: true }));
   const includeCheck = !!opts.includeCheckColumn;
   const includeSku = opts.includeSkuColumn !== false; // 預設顯示,已完成訂單那邊會特別關掉
 
@@ -1325,6 +1327,7 @@ async function printOrderDocument(orderId, opts){
     return parts.length ? escapeHtmlForPrint(parts.join(', ')) : '';
   }
   const hasAnyNote = items.some(it => itemNoteFor(it));
+  const nsRowsHtml = () => nsItems.map(it => buildPrintRow(it, undefined, '')).join('');
 
   // 印一列的共用函式:qtyOverride/locationLabelOverride 給「一個商品拆成好幾個位置、好幾列」
   // 的情況用——同一個商品拆成多列時,每一列各自顯示自己那個位置、自己那部分的數量,SKU/商品名/
@@ -1359,7 +1362,7 @@ async function printOrderDocument(orderId, opts){
       return allocations.map(a => buildPrintRow(it, a.qty, a.label)).join('');
     }
     return buildPrintRow(it);
-  }).join('');
+  }).join('') + nsRowsHtml();
   const checkTh = includeCheck ? `<th class="check-col">${escapeHtmlForPrint('Check')}</th>` : '';
   const skuTh = includeSku ? `<th class="sku-col">${escapeHtmlForPrint('SKU')}</th>` : '';
   const locationTh = (includeCheck && stockLocationShowOnPickingSlip) ? `<th class="location-col">${escapeHtmlForPrint(t('colStockLocation'))}</th>` : '';
@@ -1404,6 +1407,7 @@ async function printOrderDocument(orderId, opts){
   ${(order.note && includeCheck) ? `<div class="note-after-table">${escapeHtmlForPrint('Note')}: ${escapeHtmlForPrint(order.note)}</div>` : ''}
 </body>
 </html>`;
+  if(opts.returnHtml) return html;   // 批次列印:只要 HTML,由呼叫端合併後一次列印
   const printWindow = window.open('', '_blank');
   if(!printWindow){
     showInfoModal(t('errPrintPopupBlocked'));
@@ -1415,29 +1419,133 @@ async function printOrderDocument(orderId, opts){
     printWindow.focus();
     printWindow.print();
   };
+  return true;   // 真的有印(取消位置選擇、視窗被擋都不會到這裡)
 }
+
+// ============================================================
+// 待處理訂單:批次列印模式——勾選多張訂單,一次印出所有 Picking Slip(同一個視窗用第幾頁/總頁數切換,可印目前這頁或全部)
+// ============================================================
+let pendingBatchMode = false;
+let pendingBatchSel = new Set();
+function pendingBatchVisibleIds(){ return Array.from(document.querySelectorAll('#pendingOrdersList .order-card')).map(el => el.dataset.oid); }
+function pendingBatchToggleMode(){
+  pendingBatchMode = !pendingBatchMode;
+  pendingBatchSel = new Set();
+  renderPendingOrders();
+}
+function pendingBatchToggle(id, on){
+  if(on) pendingBatchSel.add(id); else pendingBatchSel.delete(id);
+  pendingBatchBarRender();
+}
+function pendingBatchSelectAll(on){
+  const ids = pendingBatchVisibleIds();
+  if(on) ids.forEach(id => pendingBatchSel.add(id)); else ids.forEach(id => pendingBatchSel.delete(id));
+  document.querySelectorAll('.pbCk').forEach(c => { c.checked = on; });
+  pendingBatchBarRender();
+}
+function pendingBatchBarRender(){
+  const bar = document.getElementById('pendingBatchBar'); if(!bar) return;
+  const btn = document.getElementById('pendingBatchModeBtn');
+  if(btn){ btn.style.background = pendingBatchMode ? 'var(--ink,#1e1e1b)' : ''; btn.style.color = pendingBatchMode ? '#fff' : ''; }
+  if(!pendingBatchMode){ bar.style.display = 'none'; bar.innerHTML = ''; return; }
+  const vis = pendingBatchVisibleIds();
+  pendingBatchSel = new Set(Array.from(pendingBatchSel).filter(id => vis.includes(id)));
+  const n = pendingBatchSel.size;
+  const allOn = vis.length > 0 && n === vis.length;
+  bar.style.display = 'flex';
+  bar.innerHTML = `<label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;"><input type="checkbox" id="pbAll" ${allOn ? 'checked' : ''} onchange="pendingBatchSelectAll(this.checked)" style="width:auto;" /> ${t('pbSelectAll')}</label>
+    <button class="btn" ${n ? '' : 'disabled'} onclick="pendingBatchPrint()">${t('pbPrintBtn')} (${n})</button>
+    <button class="btn ghost" onclick="pendingBatchToggleMode()">${t('btnCancel')}</button>`;
+}
+// 開一個「Picking Slip 預覽視窗」:多張訂單用「第幾頁/總頁數」左右切換(只有一張就不顯示切換)。
+// 訂單狀態「待處理 → 處理中」要等使用者在這個視窗裡按下「列印」才改(只開視窗、關掉視窗都不會變),
+// 瀏覽器沒辦法知道列印對話框最後是按列印還是取消,所以以「按下列印鈕」為準。
+function openPickingSlipViewer(pw, sheets, styleTag){
+  const multi = sheets.length > 1;
+  const L = { prev: t('pbPrev'), next: t('pbNext'), printThis: multi ? t('pbPrintThis') : t('btnPrint'), printAll: t('pbPrintAll') };
+  const doc = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Picking Slips</title>${styleTag}
+<style>
+  .pb-bar{ position:sticky; top:0; z-index:5; display:flex; align-items:center; justify-content:center; gap:10px; padding:10px; background:#1e1e1b; color:#fff; font-family:Arial,sans-serif; font-size:14px; flex-wrap:wrap; }
+  .pb-bar button{ font-size:14px; padding:6px 14px; border-radius:6px; border:1px solid #888; background:#fff; color:#111; cursor:pointer; }
+  .pb-bar button:disabled{ opacity:.4; cursor:default; }
+  .pb-bar .pb-count{ min-width:56px; text-align:center; font-weight:700; font-size:16px; }
+  .pb-sheet{ display:none; }
+  .pb-sheet.pb-on{ display:block; }
+  @media print{
+    .pb-bar{ display:none !important; }
+    body.pb-all .pb-sheet{ display:block; page-break-after:always; break-after:page; }
+    body.pb-all .pb-sheet:last-child{ page-break-after:auto; break-after:auto; }
+  }
+</style></head><body>
+<div class="pb-bar">${multi ? `<button id="pbPrev">◀ ${L.prev}</button><span class="pb-count" id="pbCount"></span><button id="pbNext">${L.next} ▶</button>` : ''}
+  <button id="pbPrintThis">${L.printThis}</button>${multi ? `<button id="pbPrintAll">${L.printAll}</button>` : ''}</div>
+${sheets.map(sh => `<section class="pb-sheet" data-oid="${sh.id}">${sh.body}</section>`).join('')}
+<script>
+(function(){
+  var sheets=[].slice.call(document.querySelectorAll('.pb-sheet')), cur=0;
+  function mark(ids){ try{ if(window.opener && window.opener.pickingSlipMarkPrinted) window.opener.pickingSlipMarkPrinted(ids); }catch(e){} }
+  function show(i){ cur=Math.max(0,Math.min(sheets.length-1,i)); sheets.forEach(function(s,k){ s.classList.toggle('pb-on',k===cur); });
+    var c=document.getElementById('pbCount'); if(c){ c.textContent=(cur+1)+'/'+sheets.length; document.getElementById('pbPrev').disabled=cur===0; document.getElementById('pbNext').disabled=cur===sheets.length-1; } window.scrollTo(0,0); }
+  var pv=document.getElementById('pbPrev'), nx=document.getElementById('pbNext'), pa=document.getElementById('pbPrintAll');
+  if(pv) pv.onclick=function(){ show(cur-1); };
+  if(nx) nx.onclick=function(){ show(cur+1); };
+  document.getElementById('pbPrintThis').onclick=function(){ document.body.classList.remove('pb-all'); mark([sheets[cur].getAttribute('data-oid')]); window.print(); };
+  if(pa) pa.onclick=function(){ document.body.classList.add('pb-all'); mark(sheets.map(function(s){ return s.getAttribute('data-oid'); })); window.print(); document.body.classList.remove('pb-all'); };
+  document.addEventListener('keydown',function(e){ if(e.key==='ArrowLeft') show(cur-1); else if(e.key==='ArrowRight') show(cur+1); });
+  show(0);
+})();
+<\/script></body></html>`;
+  pw.document.open(); pw.document.write(doc); pw.document.close();
+}
+// 預覽視窗按下「列印」時由視窗呼叫:這時才把「待處理」的訂單改成「處理中」
+async function pickingSlipMarkPrinted(ids){
+  let changed = false;
+  for(const id of (ids || [])){
+    const order = orders.find(o => o.id === id);
+    if(!order || orderStatus(order) !== 'pending') continue;
+    const oldStatus = order.status;
+    order.status = 'processing';
+    try{ await upsertOrders([order]); }
+    catch(e){ console.error('更新訂單狀態失敗', e); order.status = oldStatus; continue; }
+    logInventoryAction('order_edit', `Order ${order.orderNo || id} - status changed to Processing (picking slip printed)`, order.orderNo);
+    changed = true;
+  }
+  if(changed) renderAll();
+}
+async function pendingBatchPrint(){
+  const ids = Array.from(pendingBatchSel).filter(id => { const o = orders.find(x => x.id === id); return o && !o.deleted; });
+  if(!ids.length) return;
+  const pw = window.open('', '_blank');   // 要在點擊當下先開好,不然會被瀏覽器擋掉
+  if(!pw){ showInfoModal(t('errPrintPopupBlocked')); return; }
+  pw.document.write('<p style="font-family:sans-serif;padding:24px;">Preparing…</p>');
+  const sheets = []; let styleTag = '';
+  for(const id of ids){
+    const html = await printOrderDocument(id, { includeCheckColumn: true, headerLabel: 'Picking Slip', returnHtml: true });
+    if(!html) continue;   // 中途取消位置選擇:這張不印
+    if(!styleTag){ const m = html.match(/<style>[\s\S]*?<\/style>/); styleTag = m ? m[0] : ''; }
+    const b = html.match(/<body>([\s\S]*)<\/body>/);
+    if(b) sheets.push({ id, body: b[1] });
+  }
+  if(!sheets.length){ pw.close(); return; }
+  openPickingSlipViewer(pw, sheets, styleTag);
+  pendingBatchMode = false; pendingBatchSel = new Set();
+  renderPendingOrders();
+}
+// renderPendingOrders 跑完之後要同步更新批次列印的勾選列
+{ const _rpo = renderPendingOrders; renderPendingOrders = function(){ _rpo.apply(this, arguments); pendingBatchBarRender(); }; }
 
 // 待處理訂單列印 picking slip:第一次列印(訂單還是「待處理」)會把狀態改成「處理中」並存檔、
 // 記錄進後台紀錄——這個狀態轉換讓訂購記錄那邊知道要收回顧客自己改訂單的權限(editable 判斷
 // 只比對 === 'pending',變成 'processing' 之後自然就不能改了)。已經是「處理中」的訂單再列印
 // 一次不會重複轉換、也不會重複記錄。
 async function printPendingOrder(orderId){
-  const order = orders.find(o => o.id === orderId);
-  if(order && orderStatus(order) === 'pending'){
-    const oldStatus = order.status;
-    order.status = 'processing';
-    try{
-      await upsertOrders([order]);
-    } catch(e){
-      console.error('更新訂單狀態失敗', e);
-      order.status = oldStatus;
-      showInfoModal('⚠ 更新訂單狀態失敗,請重新整理頁面再試一次。');
-      return;
-    }
-    logInventoryAction('order_edit', `Order ${order.orderNo || orderId} - status changed to Processing (picking slip printed)`, order.orderNo);
-    renderAll();
-  }
-  printOrderDocument(orderId, { includeCheckColumn: true, headerLabel: 'Picking Slip' });
+  const pw = window.open('', '_blank');   // 要在點擊當下先開好,不然會被瀏覽器擋掉
+  if(!pw){ showInfoModal(t('errPrintPopupBlocked')); return; }
+  pw.document.write('<p style="font-family:sans-serif;padding:24px;">Preparing…</p>');
+  const html = await printOrderDocument(orderId, { includeCheckColumn: true, headerLabel: 'Picking Slip', returnHtml: true });
+  if(!html){ pw.close(); return; }   // 中途取消位置選擇:不印、狀態也不變
+  const m = html.match(/<style>[\s\S]*?<\/style>/); const bd = html.match(/<body>([\s\S]*)<\/body>/);
+  openPickingSlipViewer(pw, [{ id: orderId, body: bd ? bd[1] : '' }], m ? m[0] : '');
 }
 
 function printCompletedOrder(orderId){
@@ -1471,6 +1579,14 @@ function openOrderActionModal(orderId, kind){
     // Create Invoice / Invoice:只有管理者、會計看得到;建立之後選項變成 Invoice(可匯出 PDF 或列印)
     if(!o.deleted && typeof canCreateInvoice === 'function' && canCreateInvoice()) opts.push(o.invoice ? ['invoice', t('invActionInvoice'), false] : ['create-invoice', t('invActionCreate'), false]);
     if(o.signedAt && (typeof acctEmailOn !== 'function' || acctEmailOn())) opts.push(['email', t('actionEmail'), false]);
+    if(typeof deliveryNotesLoaded !== 'undefined' && deliveryNotesLoaded){
+      if(dnLinkedNotes(orderId).length) opts.push(['dn-record', t('dnRecAction'), false]);
+    } else {
+      ensureDeliveryNotesLoaded().then(() => {
+        const ov = document.getElementById('orderActionModalOverlay');
+        if(orderActionTarget && orderActionTarget.orderId === orderId && ov && ov.style.display !== 'none' && dnLinkedNotes(orderId).length) openOrderActionModal(orderId, kind);
+      });
+    }
     opts.push(['output', t('actionOutput'), false]);
   }
   document.getElementById('orderActionModalTitle').textContent = (o.orderNo ? o.orderNo + ' · ' : '') + (o.date || '');
@@ -1524,6 +1640,7 @@ function confirmOrderActionModal(){
     const exportMode = modeSel ? modeSel.value : 'general';
     if(action === 'edit') editOrderViaRegister(orderId, 'completed');
     else if(action === 'history') openOrderHistoryModal(orderId);
+    else if(action === 'dn-record') dnShowRecordModal('order', orderId);
     else if(action === 'create-invoice') invOpenCreate(orderId);
     else if(action === 'invoice') invOpenView(orderId);
     else if(action === 'output'){
@@ -1544,6 +1661,7 @@ function deletePendingOrderItem(orderId, productId){
   if(!order) return;
   const item = order.items.find(it => it.productId === productId && !it.deleted);
   if(!item) return;
+  if(dnGuardOrderDelete(order, productId)) return;
   showConfirmModal(tf('confirmDeleteOrderItem', {name: item.name, qty: item.qty, unit: item.unit}), async () => {
     if(!(await invGuardOrderEdit(order, {del: [productId]}))) return;
     const now = new Date().toISOString();
@@ -1580,6 +1698,7 @@ function deletePendingOrderItem(orderId, productId){
 function cancelPendingOrder(orderId){
   const order = orders.find(o => o.id === orderId);
   if(!order) return;
+  if(dnGuardOrderDelete(order, null)) return;
   const activeItems = order.items.filter(it => !it.deleted);
   showConfirmModal(tf('confirmCancelPendingOrder', {orderNo: order.orderNo || orderId, n: activeItems.length}), async () => {
     const now = new Date().toISOString();

@@ -84,7 +84,7 @@ function setTxType(type){
     // Delivery Note 時,會看到上一次的殘留狀態(例如還停在「載入」某一張舊 Note 的畫面)。
     registerDeliveryFlowType = '';
     registerLoadedDeliveryNoteId = null;
-    txBatchItems = [];
+    txBatchItems = []; txNsItems = [];
     // 出貨一定要先選「出貨類型」,選了之後(如果是新增訂單就直接展開;如果是載入
     // 現有訂單,還要再選出是哪一張)下面的主表單區塊才會出現——避免使用者還沒決定清楚要做
     // 哪一種操作,就先動手填日期/加商品,結果選了類型才發現整個表單邏輯不一樣要重填。
@@ -101,12 +101,13 @@ function setTxType(type){
     const partyFieldWrap = document.getElementById('txPartyFieldWrap');
     const mainGrid = document.getElementById('txMainFormGrid');
     if(partyFieldWrap) partyFieldWrap.style.display = '';
-    if(mainGrid) mainGrid.style.gridTemplateColumns = '1fr 1fr 1.4fr';
+    // Delivery Note:日期、出貨方、關聯單據只要夠寬就好,備註放在同一行吃剩下的空間
+    if(mainGrid) mainGrid.style.gridTemplateColumns = 'minmax(150px,170px) minmax(160px,240px) minmax(120px,160px) 1fr';
     // 反過來,如果是從「出貨」切過來的,也要把出貨那邊的暫存狀態清掉,同樣的道理。
     registerOutFlowType = '';
     registerLoadedOrderId = null;
     registerPendingItemChanges = {};
-    txBatchItems = [];
+    txBatchItems = []; txNsItems = [];
     // Delivery Note 也要先選「新增」還是「載入」,邏輯跟出貨類型一樣——選了才展開下面的表單。
     if(deliveryFlowRow) deliveryFlowRow.style.display = '';
     setTxDeliveryFlowType(registerDeliveryFlowType || '');
@@ -134,7 +135,7 @@ function setTxType(type){
     registerPendingItemChanges = {};
     registerDeliveryFlowType = '';
     registerLoadedDeliveryNoteId = null;
-    txBatchItems = [];
+    txBatchItems = []; txNsItems = [];
     showTxMainFormArea(true);
     renderTxSubmitArea();
     renderTxBatchList();
@@ -240,6 +241,7 @@ function populateTxPartyHistorySelect(){
   sel.value = '';
   txSelectedSupplierId = '';
   document.getElementById('txParty').style.display = 'none';
+  if(typeof txSupplierPickerRender === 'function') txSupplierPickerRender();
 }
 function onTxPartyHistorySelectChange(value){
   const partyInput = document.getElementById('txParty');
@@ -254,13 +256,14 @@ function onTxPartyHistorySelectChange(value){
     partyInput.style.display = 'none';
     partyInput.value = sup ? sup.name : '';
   }
+  if(typeof txSupplierPickerRender === 'function') txSupplierPickerRender();
 }
 
 function resetRegisterOutFlow(){
   if(typeof nsResetKindUi === 'function') nsResetKindUi();
   registerOutFlowType = '';
   registerLoadedOrderId = null;
-  txBatchItems = [];
+  txBatchItems = []; txNsItems = [];
   registerPendingItemChanges = {};
   registerDeliveryFlowType = '';
   registerLoadedDeliveryNoteId = null;
@@ -294,7 +297,7 @@ function resetRegisterOutFlow(){
 function setTxOutFlowType(flowType){
   registerOutFlowType = flowType;
   registerLoadedOrderId = null;
-  txBatchItems = [];
+  txBatchItems = []; txNsItems = [];
   const orderWrap = document.getElementById('txOutFlowOrderSelectWrap');
   const orderSelectLabel = document.getElementById('txOutFlowOrderSelectLabel');
   const orderSelect = document.getElementById('txOutFlowOrderSelect');
@@ -347,7 +350,7 @@ function setTxDeliveryFlowType(flowType){
   if(!deliveryNotesLoaded){ ensureDeliveryNotesLoaded().then(() => setTxDeliveryFlowType(flowType)); return; }
   registerDeliveryFlowType = flowType;
   registerLoadedDeliveryNoteId = null;
-  txBatchItems = [];
+  txBatchItems = []; txNsItems = [];
   const noteSelectWrap = document.getElementById('txDeliveryNoteSelectWrap');
   const noteSelect = document.getElementById('txDeliveryNoteSelect');
   const existingSection = document.getElementById('txExistingItemsSection');
@@ -360,6 +363,7 @@ function setTxDeliveryFlowType(flowType){
   if(partySelect) partySelect.disabled = false;
   { const _pel = document.getElementById('txPartyEditLink'); if(_pel) _pel.style.display = 'none'; const _pir = document.getElementById('txPartyInfoRow'); if(_pir) _pir.style.display = 'none'; }
   if(dateInput) dateInput.disabled = false;
+  if(dateInput) dateInput.value = '';   // 新增/載入/儲存/列印之後日期都清空,要重新選(儲存或列印時沒日期會提示)
   if(noteLabel) noteLabel.textContent = t('txNoteSharedLabel');
   dnRefReset();
   { const _ni = document.getElementById('txNote'); if(_ni){ _ni.placeholder = ''; _ni.value = ''; } }
@@ -372,7 +376,7 @@ function setTxDeliveryFlowType(flowType){
       // 送貨已經處理完了,不應該再被找出來繼續編輯,它的歷史紀錄改到「觀看紀錄」那邊查看。
       const sorted = deliveryNotes.filter(n => n.status !== 'completed').slice().sort((a,b) => (b.date || '').localeCompare(a.date || ''));
       noteSelect.innerHTML = `<option value="">${t('optSelectDeliveryNote')}</option>` +
-        sorted.map(n => `<option value="${n.id}">${n.date || ''}${n.ref && n.ref.no ? ` · ${String(n.ref.no).replace(/"/g,'&quot;')}` : ''}${n.note ? ` (${n.note.replace(/"/g,'&quot;')})` : ''}</option>`).join('');
+        sorted.map(n => `<option value="${n.id}">${n.no ? n.no + ' · ' : ''}${n.date || ''}${n.ref && n.ref.no ? ` · ${String(n.ref.no).replace(/"/g,'&quot;')}` : ''}${n.note ? ` (${n.note.replace(/"/g,'&quot;')})` : ''}</option>`).join('');
     }
     showTxMainFormArea(false);
   } else if(flowType === 'new'){
@@ -384,6 +388,7 @@ function setTxDeliveryFlowType(flowType){
     if(noteSelectWrap) noteSelectWrap.style.display = 'none';
     showTxMainFormArea(false);
   }
+  if(typeof txPartyPickerApply === 'function') txPartyPickerApply();
   renderTxSubmitArea();
   renderTxBatchList();
   renderProductSelect();
@@ -405,7 +410,7 @@ function renderTxSubmitArea(){
     if(registerDeliveryFlowType === 'new' || registerDeliveryFlowType === 'load'){
       area.innerHTML = `
         <button class="btn" onclick="saveDeliveryNote()">${t('btnSave')}</button>
-        <button class="btn ghost" onclick="printDeliveryNote()">${t('btnPrint')}</button>
+        <button class="btn" onclick="printDeliveryNote()">${t('dnConfirmPrint')}</button>
       `;
     } else {
       area.innerHTML = '';
@@ -657,7 +662,7 @@ function populateTxPartySelect(){
 function loadDeliveryNoteIntoRegisterFlow(noteId){
   if(!noteId){
     registerLoadedDeliveryNoteId = null;
-    txBatchItems = [];
+    txBatchItems = []; txNsItems = [];
     renderTxBatchList();
     renderTxSubmitArea();
     renderProductSelect();
@@ -666,7 +671,8 @@ function loadDeliveryNoteIntoRegisterFlow(noteId){
   const note = deliveryNotes.find(n => n.id === noteId);
   if(!note) return;
   registerLoadedDeliveryNoteId = noteId;
-  txBatchItems = note.items.map(it => ({ ...it }));
+  txBatchItems = note.items.map(it => ({ ...it, batchItemId: it.batchItemId || genId() }));
+  txNsItems = txNsOf(note);
 
   const dateInput = document.getElementById('txDate');
   if(dateInput) dateInput.value = note.date || todayISO();
@@ -674,6 +680,7 @@ function loadDeliveryNoteIntoRegisterFlow(noteId){
   if(partySelect){
     populateTxPartySelect();
     partySelect.value = note.partyId || '';
+    if(typeof txPartyPickerRender === 'function') txPartyPickerRender();
   }
   const noteInput = document.getElementById('txNote');
   if(noteInput) noteInput.value = note.note || '';
@@ -702,7 +709,7 @@ function loadOrderIntoRegisterFlow(orderId){
   registerExistingItemEditKey = null;
   registerPendingItemChanges = {}; // 換一張訂單就清空,不要把上一張訂單的暫存改動帶到這一張來
   if(!order.postVerifyChanges) order.postVerifyChanges = []; // 每張訂單自己的核對後變更記錄,重新載入不會清掉之前存過的
-  txBatchItems = [];
+  txBatchItems = []; txNsItems = txNsOf(order);
 
   const dateInput = document.getElementById('txDate');
   if(dateInput) dateInput.value = order.date || todayISO();
@@ -821,6 +828,13 @@ function addToTxBatch(){
   if(!p) return;
   // 批次追蹤:進貨時「同商品同有效期」才合併,不同有效期分行列出
   const bx = (typeof batchReadAddFields === 'function') ? batchReadAddFields() : { expiry: '', lot: '' };
+  if(currentTxType === 'delivery' && typeof dnRefQtyLimit === 'function'){
+    const lim = dnRefQtyLimit(productId);
+    if(lim !== null){
+      const have = txBatchItems.filter(it => it.productId === productId).reduce((s, it) => s + it.qty, 0);
+      if(have + qty > lim){ showInfoModal(tf('errDnQtyExceed', { name: p.name, max: lim, unit: p.unit || '' })); return; }
+    }
+  }
   const existing = txBatchItems.find(it => it.productId === productId && (it.expiry || '') === bx.expiry);
   if(existing){ existing.qty += qty; if(typeof batchLocOnQtyChange === 'function') batchLocOnQtyChange(existing); if(bx.lot && !existing.supplierLot) existing.supplierLot = bx.lot; }
   else txBatchItems.push({ batchItemId: genId(), productId, sku: p.sku || '', name: p.name, unit: p.unit, qty, expiry: bx.expiry, supplierLot: bx.lot });
@@ -840,6 +854,10 @@ function updateTxBatchItemQty(batchItemId, value){
   const it = txBatchItems.find(x => x.batchItemId === batchItemId);
   if(!it) return;
   const qty = parseFloat(value);
+  if(currentTxType === 'delivery' && typeof dnRefQtyLimit === 'function' && !isNaN(qty)){
+    const lim = dnRefQtyLimit(it.productId);
+    if(lim !== null && qty > lim){ showInfoModal(tf('errDnQtyExceed', { name: it.name, max: lim, unit: it.unit || '' })); renderTxBatchList(); return; }
+  }
   it.qty = (!isNaN(qty) && qty !== 0 && Number.isInteger(qty)) ? qty : it.qty;
   if(typeof batchLocOnQtyChange === 'function') batchLocOnQtyChange(it);
   renderTxBatchList();
@@ -864,6 +882,7 @@ function updateTxBatchItemAmount(batchItemId, value){
 function renderTxBatchList(){
   const container = document.getElementById('txBatchList');
   if(!container) return;
+  if(typeof renderTxNsSection === 'function') renderTxNsSection();
   if(typeof batchRenderFormExtras === 'function') batchRenderFormExtras();
   if(typeof pcRender === 'function') pcRender();
   const showBatchCols = typeof batchRowsShowExpiry === 'function' && batchRowsShowExpiry();
@@ -1808,13 +1827,14 @@ function buildDeliveryNoteDraftFromForm(){
 
   if(!date) return { ok: false, error: '請選擇 Delivery 日期' };
   if(!ref) return { ok: false, error: t('errDnRefRequired') };
-  if(txBatchItems.length === 0) return { ok: false, error: '請先把至少一項商品加入清單' };
+  if(txBatchItems.length === 0 && txNsItems.length === 0) return { ok: false, error: '請先把至少一項商品加入清單' };
 
   return {
     ok: true,
     data: {
       date, partyId, partyName: partyObj ? partyObj.name : '', note, ref: { type: ref.type, id: ref.id, no: ref.no },
-      items: txBatchItems.map(it => ({ productId: it.productId, sku: it.sku || '', name: it.name, unit: it.unit, qty: it.qty }))
+      items: txBatchItems.map(it => ({ productId: it.productId, sku: it.sku || '', name: it.name, unit: it.unit, qty: it.qty, ...(it.batchPicks && it.batchPicks.length ? { batchPicks: it.batchPicks } : {}) })),
+      nonStockItems: txNsClean()
     }
   };
 }
@@ -1825,13 +1845,14 @@ async function saveDeliveryNote(){
   await ensureDeliveryNotesLoaded();
   const msg = document.getElementById('txMsg');
   const draft = buildDeliveryNoteDraftFromForm();
-  if(!draft.ok){ msg.className = 'msg error'; msg.textContent = `⚠ ${draft.error}`; return; }
+  if(!draft.ok){ msg.className = 'msg error'; msg.textContent = `⚠ ${draft.error}`; if(!document.getElementById('txDate').value) showInfoModal(draft.error); return; }
 
   const isUpdate = !!registerLoadedDeliveryNoteId;
   const note = isUpdate
     ? Object.assign(deliveryNotes.find(n => n.id === registerLoadedDeliveryNoteId), draft.data)
     : { id: genId(), createdAt: new Date().toISOString(), status: 'pending', ...draft.data };
 
+  dnAssignNo(note);
   try{
     await upsertDeliveryNotes([note]);
   } catch(e){
@@ -1844,23 +1865,37 @@ async function saveDeliveryNote(){
 
   registerDeliveryFlowType = '';
   registerLoadedDeliveryNoteId = null;
-  txBatchItems = [];
+  txBatchItems = []; txNsItems = [];
   const flowSel = document.getElementById('txDeliveryFlowType');
   if(flowSel) flowSel.value = '';
   setTxDeliveryFlowType('');
   msg.className = 'msg ok';
-  msg.textContent = `✓ Delivery Note 已儲存(${note.date})`;
+  msg.textContent = `✓ Delivery Note 已儲存(${note.no} · ${note.date})`;
 }
 
-// Delivery Note「列印」:直接開列印視窗,不會存進資料庫——跟「儲存」是兩條分開的路徑,列印過
-// 不代表這張 Note 就被記錄下來了,兩者互不影響。
-async function printDeliveryNote(){
-  await ensureDeliveryNotesLoaded();
-  const msg = document.getElementById('txMsg');
-  const draft = buildDeliveryNoteDraftFromForm();
-  if(!draft.ok){ msg.className = 'msg error'; msg.textContent = `⚠ ${draft.error}`; return; }
-  const data = draft.data;
-
+// Delivery Note 號碼:YYMMDD-NN(當天第幾張,全部 Delivery Note 一起算)。第一次存檔時給,之後不變;改了日期才重新給
+function dnNextNo(date, exceptId){
+  const ymd = String(date || '').replace(/-/g, '').slice(2);
+  let max = 0;
+  deliveryNotes.forEach(n => {
+    if(!n || n.id === exceptId || !n.no || !n.no.startsWith(ymd + '-')) return;
+    max = Math.max(max, parseInt(n.no.slice(ymd.length + 1), 10) || 0);
+  });
+  return `${ymd}-${String(max + 1).padStart(2, '0')}`;
+}
+function dnAssignNo(note){
+  const ymd = String(note.date || '').replace(/-/g, '').slice(2);
+  if(!note.no || !note.no.startsWith(ymd + '-')) note.no = dnNextNo(note.date, note.id);
+}
+// 舊資料沒有號碼 → 依日期、建立時間順序補上並存回去
+function dnBackfillNos(){
+  const miss = deliveryNotes.filter(n => n && (!n.no || !/^\d{6}-\d{2,}$/.test(n.no))).sort((a, b) => (a.date || '').localeCompare(b.date || '') || (a.createdAt || '').localeCompare(b.createdAt || ''));
+  if(!miss.length) return;
+  miss.forEach(n => { n.no = ''; });
+  miss.forEach(n => dnAssignNo(n));
+  upsertDeliveryNotes(miss).catch(e => console.warn('補 Delivery Note 號碼失敗', e));
+}
+function dnPrintHtml(data){
   const rowsHtml = data.items.map(it => `
     <tr>
       <td class="sku-col">${escapeHtmlForPrint(it.sku)}</td>
@@ -1868,7 +1903,13 @@ async function printDeliveryNote(){
       <td style="text-align:right;">${it.qty}</td>
       <td>${escapeHtmlForPrint(it.unit)}</td>
     </tr>
-  `).join('');
+  `).join('') + (data.nonStockItems || []).map(n => `
+    <tr>
+      <td class="sku-col"></td>
+      <td>${escapeHtmlForPrint(n.name)}</td>
+      <td style="text-align:right;">${n.qty}</td>
+      <td>${escapeHtmlForPrint(n.unit || '')}</td>
+    </tr>`).join('');
 
   const html = `<!DOCTYPE html>
 <html>
@@ -1889,6 +1930,7 @@ async function printDeliveryNote(){
 <body>
   <h2>Delivery Note</h2>
   <h1>${escapeHtmlForPrint(data.partyName || 'Unspecified')}</h1>
+  ${data.no ? `<div class="meta">${escapeHtmlForPrint('Delivery Note No.')}: ${escapeHtmlForPrint(data.no)}</div>` : ''}
   <div class="meta">${escapeHtmlForPrint('Date')}: ${data.date}</div>
   <div class="meta">${escapeHtmlForPrint('Related Document')}: ${escapeHtmlForPrint(data.ref ? data.ref.no : '')}</div>
   ${data.note ? `<div class="meta">${escapeHtmlForPrint('Note')}: ${escapeHtmlForPrint(data.note)}</div>` : ''}
@@ -1898,48 +1940,52 @@ async function printDeliveryNote(){
   </table>
 </body>
 </html>`;
+  return html;
+}
+function dnOpenPrintWindow(html){
   const printWindow = window.open('', '_blank');
-  if(!printWindow){
-    showInfoModal(t('errPrintPopupBlocked'));
-    return;
-  }
+  if(!printWindow){ showInfoModal(t('errPrintPopupBlocked')); return false; }
   printWindow.document.write(html);
   printWindow.document.close();
-  printWindow.onload = () => {
-    printWindow.focus();
-    printWindow.print();
-  };
+  printWindow.onload = () => { printWindow.focus(); printWindow.print(); };
+  return true;
+}
+// Delivery Note「列印」:直接開列印視窗,不會存進資料庫——跟「儲存」是兩條分開的路徑,列印過
+// 不代表這張 Note 就被記錄下來了,兩者互不影響。
+async function printDeliveryNote(){
+  await ensureDeliveryNotesLoaded();
+  const msg = document.getElementById('txMsg');
+  const draft = buildDeliveryNoteDraftFromForm();
+  if(!draft.ok){ msg.className = 'msg error'; msg.textContent = `⚠ ${draft.error}`; if(!document.getElementById('txDate').value) showInfoModal(draft.error); return; }
+  const data = draft.data;
+  const qtyErr = dnPrintQtyCheck(data, registerLoadedDeliveryNoteId);
+  if(qtyErr){ msg.className = 'msg error'; msg.style.whiteSpace = 'pre-line'; msg.textContent = `⚠ ${qtyErr}`; return; }
 
-  // 「載入」模式下列印,代表這張 Delivery Note 已經真的送出去、完成任務了——之前是直接從資料庫
-  // 刪除,現在改成標記 status:'completed' 並保留下來,這樣「歷史紀錄 → Delivery Note紀錄」才能
-  // 顯示這筆的完整歷史(已完成/待處理)。「載入」的下拉選單只會列出還沒完成的 Note(見
-  // setTxDeliveryFlowType),所以這裡標記完成後不會再被找出來繼續編輯。「新增」模式下列印
-  // 本來就沒有存進資料庫過,這裡的判斷式(registerLoadedDeliveryNoteId 有值)天然就只會在
-  // 「載入」模式下觸發,「新增」模式列印維持原樣、完全不會留下任何紀錄。
-  if(registerLoadedDeliveryNoteId){
-    const noteId = registerLoadedDeliveryNoteId;
-    const existingNote = deliveryNotes.find(n => n.id === noteId);
-    const prevSnapshot = existingNote ? { ...existingNote } : null;
-    try{
-      if(existingNote){
-        Object.assign(existingNote, data); // 存進去的是實際列印出來的最新內容,不是載入當下的舊資料
-        existingNote.status = 'completed';
-        existingNote.completedAt = new Date().toISOString();
-        await upsertDeliveryNotes([existingNote]);
-      }
-      logInventoryAction('delivery_note', `Printed Delivery Note (${data.date}, ${data.note}) - marked as completed`, null);
-    } catch(e){
-      console.error('標記 Delivery Note 完成失敗', e);
-      if(existingNote && prevSnapshot) Object.assign(existingNote, prevSnapshot); // 存失敗就整份退回原本的樣子
-      showInfoModal(t('errDeliveryNotePrintedButNotRemoved'));
-    }
-    registerDeliveryFlowType = '';
-    registerLoadedDeliveryNoteId = null;
-    txBatchItems = [];
-    const flowSel = document.getElementById('txDeliveryFlowType');
-    if(flowSel) flowSel.value = '';
-    setTxDeliveryFlowType('');
+  // 「確認並列印」:列印的同時把這張 Delivery Note 存成已完成(status:'completed'),之後才算「已送」。
+  // 載入模式 = 更新原本那張;新增模式 = 直接建立一張已完成的新紀錄。
+  const noteId = registerLoadedDeliveryNoteId;
+  const existing = noteId ? deliveryNotes.find(n => n.id === noteId) : null;
+  const prev = existing ? { ...existing } : null;
+  const note = existing ? Object.assign(existing, data) : { id: genId(), createdAt: new Date().toISOString(), ...data };
+  dnAssignNo(note);
+  if(!dnOpenPrintWindow(dnPrintHtml(note))){ if(existing && prev) Object.assign(existing, prev); return; }
+  note.status = 'completed';
+  note.completedAt = new Date().toISOString();
+  try{
+    await upsertDeliveryNotes([note]);
+    if(!existing) deliveryNotes.push(note);
+    logInventoryAction('delivery_note', `Printed Delivery Note ${note.no} (${data.date}, ${data.note}) - marked as completed`, null);
+  } catch(e){
+    console.error('標記 Delivery Note 完成失敗', e);
+    if(existing && prev) Object.assign(existing, prev);
+    showInfoModal(t('errDeliveryNotePrintedButNotRemoved'));
   }
+  registerDeliveryFlowType = '';
+  registerLoadedDeliveryNoteId = null;
+  txBatchItems = []; txNsItems = [];
+  const flowSel = document.getElementById('txDeliveryFlowType');
+  if(flowSel) flowSel.value = '';
+  setTxDeliveryFlowType('');
 }
 
 async function submitTxBatchSimple(date, msg){
@@ -2173,7 +2219,7 @@ async function submitTxBatchSimple(date, msg){
   const logDesc = `Logged ${LOG_ACTION_EN_LABEL[logActionType] || logActionType}: ${count} item(s)${party ? ', party ' + party : ''}`;
   logInventoryAction(logActionType, logDesc, null);
   if(currentTxType === 'restock' && typeof icTxCnAfterSubmit === 'function') await icTxCnAfterSubmit(txBatchItems);   // 記下這張 Credit Note 已入庫的數量
-  txBatchItems = [];
+  txBatchItems = []; txNsItems = [];
   if(typeof batchResetFormAfterSubmit === 'function') batchResetFormAfterSubmit();
   renderTxBatchList();
   if(currentTxType === 'restock'){ document.getElementById('txParty').value = 'Opulent Imports'; }
@@ -2242,6 +2288,7 @@ async function submitNewOrderFlowCore(action, date, msg){
     const newOrder = {
       id: genId(), date, note, partyId: outPartyId, partyName: party,
       items: txBatchItems.map(it => spCarryTxPrice({ productId: it.productId, sku: it.sku||'', name: it.name, unit: it.unit, qty: it.qty }, it)),
+      ...(txNsItems.length ? { nonStockItems: txNsClean() } : {}),
       status: 'pending', createdAt: new Date().toISOString(), orderNo
     };
     orders.push(newOrder);
@@ -2260,6 +2307,7 @@ async function submitNewOrderFlowCore(action, date, msg){
     const newOrder = {
       id: orderId, date, note, partyId: outPartyId, partyName: party,
       items: txBatchItems.map(it => spCarryTxPrice({ productId: it.productId, sku: it.sku||'', name: it.name, unit: it.unit, qty: it.qty }, it)),
+      ...(txNsItems.length ? { nonStockItems: txNsClean() } : {}),
       status: 'confirmed', createdAt: new Date().toISOString(), confirmedAt: new Date().toISOString(), orderNo
     };
     if(typeof spFreezeItems === 'function') newOrder.items = spFreezeItems(newOrder);   // 售價在建立當下固定(出貨前的批次分配預覽)
@@ -2299,7 +2347,7 @@ async function submitNewOrderFlowCore(action, date, msg){
     }
     logInventoryAction('tx_out', `Logged direct shipment: ${txBatchItems.length} item(s), party ${party || 'unspecified'}, note: "${note}"`, null);
     const count = txBatchItems.length;
-    txBatchItems = [];
+    txBatchItems = []; txNsItems = [];
     resetRegisterOutFlow();
     setTxOutFlowType('');
     document.getElementById('txPartySelect').value = '';
@@ -2310,7 +2358,7 @@ async function submitNewOrderFlowCore(action, date, msg){
 }
 
 function finishNewOrderSubmit(kind, orderId, count, orderNo, msg){
-  txBatchItems = [];
+  txBatchItems = []; txNsItems = [];
   resetRegisterOutFlow();
   setTxOutFlowType('');
   switchTab('tab-warehouse-ops');
@@ -2377,6 +2425,8 @@ async function submitLoadPendingFlow(action, msg){
   const newNote = noteInput ? noteInput.value.trim() : (order.note || '');
   const { pendingQtyChanges, pendingDeletes } = collectPendingItemChanges(order);
   if(!(await invGuardOrderEdit(order, { qty: Object.fromEntries(pendingQtyChanges.map(c => [c.item.productId, c.newQty])), del: pendingDeletes.map(it => it.productId) }))) return;
+  if(typeof deliveryNotesLoaded !== 'undefined' && !deliveryNotesLoaded) await ensureDeliveryNotesLoaded();
+  if(dnGuardOrderEdit(order, Object.fromEntries(pendingQtyChanges.map(c => [c.item.productId, c.newQty])), pendingDeletes.map(it => it.productId), msg)) return;
 
   const changes = [];
   if(newDate && newDate !== order.date) changes.push(tf('changeSummaryDate', { old: order.date || '', new: newDate }));
@@ -2385,8 +2435,10 @@ async function submitLoadPendingFlow(action, msg){
   if(pendingQtyChanges.length > 0) changes.push(formatQtyChangesSummary(pendingQtyChanges));
   if(pendingDeletes.length > 0) changes.push(formatDeletesSummary(pendingDeletes));
   if(txBatchItems.length > 0) changes.push(formatNewItemsSummary(txBatchItems));
+  if(txNsChanged(order)) changes.push(t('txNsChangeSummary'));
 
   const doSave = async () => {
+    txNsApply(order);
     const dateChanged = newDate && newDate !== order.date;
     const noteChanged = newNote !== (order.note || '');
     const oldDateForLog = order.date;
@@ -2514,6 +2566,8 @@ async function submitLoadCompletedFlow(date, msg){
   }
 
   if(!(await invGuardOrderEdit(order, { qty: Object.fromEntries(pendingQtyChanges.map(c => [c.item.productId, c.newQty])), del: pendingDeletes.map(it => it.productId) }))) return;
+  if(typeof deliveryNotesLoaded !== 'undefined' && !deliveryNotesLoaded) await ensureDeliveryNotesLoaded();
+  if(dnGuardOrderEdit(order, Object.fromEntries(pendingQtyChanges.map(c => [c.item.productId, c.newQty])), pendingDeletes.map(it => it.productId), msg)) return;
 
   // 批次追蹤:減少數量的品項如果用了兩個以上的批次,先問要從哪個批次扣(退回)
   if(typeof batchAskReturnPicks === 'function'){
@@ -2546,8 +2600,10 @@ async function submitLoadCompletedFlow(date, msg){
   if(pendingQtyChanges.length > 0) changes.push(formatQtyChangesSummary(pendingQtyChanges));
   if(pendingDeletes.length > 0) changes.push(formatDeletesSummary(pendingDeletes));
   if(newItems.length > 0) changes.push(formatNewItemsSummary(newItems));
+  if(txNsChanged(order)) changes.push(t('txNsChangeSummary'));
 
   const doSave = async () => {
+    txNsApply(order);
     const dateChanged = date && date !== order.date;
     const noteChanged = noteVal !== (order.note || '');
     const oldDateForLog = order.date;
@@ -2786,7 +2842,7 @@ async function submitAdjustmentFlow(date, msg){
     // 跟備註,不去動出貨方欄位隱藏/兩欄版面這些跟「庫存調整」綁在一起的畫面設定(那些是
     // setTxType('adjustment') 負責的,不需要在這裡重複呼叫或退回舊的出貨流程邏輯)。renderAll()
     // 本身就會重新渲染 txSubmitArea/txBatchList/productSelect,不用在這裡另外呼叫。
-    txBatchItems = [];
+    txBatchItems = []; txNsItems = [];
     document.getElementById('txNote').value = '';
     adjReasonReset();
     msg.className = slipSaved ? 'msg ok' : 'msg error';
@@ -3339,6 +3395,10 @@ function renderProductSelect(){
     }
   }
 
+  if(currentTxType === 'delivery' && typeof dnRefDocCurrent === 'function'){
+    const _dd = dnRefDocCurrent();
+    if(_dd){ const _ids = new Set(_dd.items.map(x => x.productId)); filteredProducts = filteredProducts.filter(p => _ids.has(p.id)); }
+  }
   sel.innerHTML = '<option value=""></option>' + filteredProducts.slice().sort(compareProductsBySortMode).map(p => `<option value="${p.id}">${p.parentId ? '⧉ ' : ''}${p.name}(${p.unit})</option>`).join('');
   if(filteredProducts.some(p => p.id === prevVal)) sel.value = prevVal;
 

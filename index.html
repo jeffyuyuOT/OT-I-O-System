@@ -1573,6 +1573,7 @@ body.no-cost-view .cost-col{display:none !important;}
           <input id="txParty" type="text" placeholder="例如:大盤商 A" data-i18n-placeholder="partyPlaceholderIn" />
           <select id="txPartySelect" style="display:none;" onchange="if(typeof renderTxBatchList === 'function') renderTxBatchList()"></select>
           <div id="txPartyPicker" style="display:none;"></div>
+          <div id="txSupplierPicker" style="display:none;"></div>
           <span id="txPartyInfoRow" style="display:none;position:absolute;left:0;top:100%;margin-top:3px;font-size:12px;white-space:nowrap;"><span id="txPartyEditLink" class="del-link" style="display:none;" onclick="partyEditFromOrder(this.dataset.pid)" data-i18n="linkEditParty">✎ 編輯出貨方</span><span id="txPartyDiscBadge"></span></span>
         </div>
         <div class="field" id="txInvoiceFieldWrap" style="display:none;">
@@ -1594,6 +1595,7 @@ body.no-cost-view .cost-col{display:none !important;}
           <label data-i18n="lblDnRef">關聯單據(必填)</label>
           <input id="txDnRef" type="text" autocomplete="off" placeholder="搜尋已完成訂單號或非銷售出庫單號" data-i18n-placeholder="dnRefPh" oninput="dnRefSearch()" onfocus="dnRefSearch()" />
           <div id="txDnRefList" style="display:none;position:absolute;left:0;right:0;top:100%;z-index:30;background:var(--bg,#fff);border:1px solid var(--line);max-height:220px;overflow:auto;box-shadow:0 4px 12px rgba(0,0,0,.12);"></div>
+          <span class="del-link" style="position:absolute;left:0;top:100%;margin-top:3px;font-size:12px;white-space:nowrap;" onclick="dnOpenSelectModal()" data-i18n="dnPickReopen">重新勾選單據商品</span>
         </div>
         <div class="field">
           <label id="txNoteLabel" data-i18n="txNoteSharedLabel">備註(選填)</label>
@@ -1611,7 +1613,6 @@ body.no-cost-view .cost-col{display:none !important;}
         <div style="display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px 16px;">
           <div style="display:flex;flex-wrap:wrap;align-items:center;gap:8px 14px;">
         <input type="file" id="purchaseReceiptInput" accept="image/*,application/pdf,.xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel" multiple onchange="handlePurchaseReceiptUpload(this)" style="border:1px solid var(--line);background:#fff;border-radius:2px;padding:8px;font-family:'IBM Plex Mono',monospace;font-size:12px;" />
-        <button type="button" id="btnOpenCameraCapture" class="btn ghost" onclick="openCameraCaptureModal(file => uploadPurchaseReceiptFiles([file]))" style="display:none;margin-left:6px;vertical-align:top;">📷 <span data-i18n="btnTakePhoto">拍照上傳</span></button>
             <div id="txBatchTrackWrap" style="display:none;"></div>
             <span id="purchaseAccWrap" style="display:none;align-items:center;gap:8px;flex-wrap:wrap;">
               <span class="cost-col" style="font-size:12px;color:var(--ink-soft);" data-i18n="paFormGstMode">金額</span>
@@ -1675,6 +1676,7 @@ body.no-cost-view .cost-col{display:none !important;}
       </div>
       <div id="txBatchExtraFields" style="display:none;"></div>
       <div id="txBatchList" style="margin-top:12px;"></div>
+      <div id="txNsSection" style="display:none;"></div>
       <div id="txPurchaseCostsWrap" style="display:none;"></div>
       <div id="txSubmitArea" style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;">
         <button class="btn" onclick="submitTxBatch()" data-i18n="btnRegister">提交</button>
@@ -1746,7 +1748,7 @@ body.no-cost-view .cost-col{display:none !important;}
       <p style="font-size:12.5px;color:var(--ink-soft);margin:0 0 14px;" data-i18n="pendingOrdersDesc">
         這裡是還沒「核對」的訂單,還沒真的扣庫存,只會先佔用「可訂數量」的額度。核對通過後會自動移到「已完成訂單」並正式扣庫存。
       </p>
-      <div class="form-grid" style="grid-template-columns:150px 150px minmax(120px,200px) minmax(120px,200px) auto;margin-bottom:14px;">
+      <div class="form-grid" style="grid-template-columns:150px 150px minmax(120px,200px) minmax(120px,200px) auto auto;margin-bottom:14px;">
         <div class="field">
           <label data-i18n="fieldFrom">從</label>
           <input type="date" id="pendingOrderDateFrom" onchange="renderPendingOrders()" />
@@ -1766,7 +1768,9 @@ body.no-cost-view .cost-col{display:none !important;}
           <input type="text" id="pendingOrderNoSearch" oninput="renderPendingOrders()" data-i18n-placeholder="phOrderNoSearch" placeholder="搜尋訂單號…" />
         </div>
         <button class="btn ghost" onclick="clearPendingOrderFilters()" style="align-self:flex-end;" data-i18n="btnClearFilter">清除篩選</button>
+        <button class="btn ghost" id="pendingBatchModeBtn" onclick="pendingBatchToggleMode()" style="align-self:flex-end;justify-self:end;" data-i18n="pbMode">批次列印模式</button>
       </div>
+      <div id="pendingBatchBar" style="display:none;align-items:center;gap:12px;flex-wrap:wrap;margin:0 0 10px;padding:8px 10px;background:var(--bg-soft,#f5f5f0);border:1px solid var(--line);border-radius:6px;"></div>
       <div id="pendingOrdersList">
         <div class="empty-note" data-i18n="noPendingOrders">還沒有符合條件的待處理訂單。</div>
       </div>
@@ -2613,6 +2617,7 @@ body.no-cost-view .cost-col{display:none !important;}
       <div class="section">
         <div class="toolbar">
           <div class="section-title" style="margin:0;"><span data-i18n="subtabLogDelivery">Delivery Note 紀錄</span></div>
+          <button class="btn ghost" onclick="dnRemainOpen()" data-i18n="dnRemBtn">匯出關聯單據剩餘數量</button>
         </div>
         <p style="font-size:12.5px;color:var(--ink-soft);margin:0 0 12px;" data-i18n="deliveryNoteLogDesc">
           列出所有 Delivery Note,依日期排序。列印過的顯示「已完成」,還沒列印的顯示「待處理」。
@@ -3241,7 +3246,7 @@ body.no-cost-view .cost-col{display:none !important;}
         <option value="monthly" data-i18n="freqMonthly">Monthly(每月)</option>
         <option value="none" data-i18n="freqNone">無固定頻率</option>
       </select>
-      <div style="font-size:11.5px;color:var(--ink-soft);margin-top:3px;" data-i18n="freqNoneHint">選「無固定頻率」的出貨方,訂貨頁面不會顯示平均使用量。</div>
+      <div style="font-size:11.5px;color:var(--ink-soft);margin-top:3px;" data-i18n="freqNoneHint">此欄位僅作登記用,不影響訂貨頁面的每週平均用量。</div>
     </div>
     <div class="field-block" id="partyDiscountBlock">
       <label>Discount</label>
@@ -3459,6 +3464,7 @@ body.no-cost-view .cost-col{display:none !important;}
 <script src="quick-lists.js"></script>
 <script src="stock-location.js"></script>
 <script src="non-sales-slip.js"></script>
+<script src="order-nonstock.js"></script>
 <script src="tx-party-picker.js"></script>
 <script src="doc-email.js"></script>
 <script src="logs.js"></script>
