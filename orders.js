@@ -599,24 +599,37 @@ function isPreVerificationStatus(order){
   return s === 'pending' || s === 'processing';
 }
 
-function populateCompletedOrderPartyFilter(){
-  ['completedOrderPartyFilter', 'recentCompletedOrderPartyFilter'].forEach(id => {
-    const sel = document.getElementById(id);
-    if(!sel) return;
-    const prev = sel.value;
-    sel.innerHTML = `<option value="">${t('optAllParties')}</option>` +
-      shippingParties.map(sp => `<option value="${sp.id}">${partyOptionLabel(sp).replace(/"/g,'&quot;')}</option>`).join('');
-    if(shippingParties.some(sp => sp.id === prev)) sel.value = prev;
-  });
-}
+// 出貨方篩選欄已改成搜尋欄(不再是下拉),這兩個函式保留給既有呼叫點,不用再填選項。
+function populateCompletedOrderPartyFilter(){}
+function populatePendingOrderPartyFilter(){}
 
-function populatePendingOrderPartyFilter(){
-  const sel = document.getElementById('pendingOrderPartyFilter');
-  if(!sel) return;
-  const prev = sel.value;
-  sel.innerHTML = `<option value="">${t('optAllParties')}</option>` +
-    shippingParties.map(sp => `<option value="${sp.id}">${partyOptionLabel(sp).replace(/"/g,'&quot;')}</option>`).join('');
-  if(shippingParties.some(sp => sp.id === prev)) sel.value = prev;
+// 出貨方搜尋:輸入文字就比對出貨方名稱/代碼(包含即可,不分大小寫)。
+// 從出貨方管理跳過來時用 orderPartyExact 記住精準的出貨方 id,搜尋欄裡的文字沒被改過就用 id 篩選,同名的不會混在一起。
+const orderPartyExact = {};   // { 搜尋欄元素 id: { id, label } }
+function orderPartySet(inputId, partyId){
+  const sp = shippingParties.find(x => x.id === partyId);
+  const el = document.getElementById(inputId);
+  if(!el) return;
+  if(!sp){ el.value = ''; return; }
+  el.value = partyOptionLabel(sp);
+  orderPartyExact[inputId] = { id: sp.id, label: el.value };
+}
+// 回傳 null(沒有篩選)或 (order) => boolean;另外 .single 是唯一符合的出貨方(匯出檔名用)
+function orderPartyFilterFn(inputId){
+  const el = document.getElementById(inputId);
+  const text = el ? el.value.trim() : '';
+  if(!text) return null;
+  const ex = orderPartyExact[inputId];
+  let ids;
+  if(ex && el.value === ex.label) ids = new Set([ex.id]);
+  else {
+    const q = text.toLowerCase();
+    ids = new Set(shippingParties.filter(sp => partyOptionLabel(sp).toLowerCase().includes(q) || (sp.name || '').toLowerCase().includes(q)).map(sp => sp.id));
+  }
+  const fn = o => !!o.partyId && ids.has(o.partyId);
+  fn.single = ids.size === 1 ? shippingParties.find(sp => ids.has(sp.id)) : null;
+  fn.text = text;
+  return fn;
 }
 
 // 四份訂單清單(待處理/已完成/訂購記錄/訂單核對頁面的左欄)共用同一組 expandedOrderIds /
@@ -740,8 +753,7 @@ function renderOrders(){
 }
 
 function renderCompletedOrdersInto(container, recentOnly){
-  const partyEl = document.getElementById(recentOnly ? 'recentCompletedOrderPartyFilter' : 'completedOrderPartyFilter');
-  const partyFilter = partyEl ? partyEl.value : '';
+  const partyFn = orderPartyFilterFn(recentOnly ? 'recentCompletedOrderPartyFilter' : 'completedOrderPartyFilter');
   let dateFrom = '', dateTo = '';
   if(recentOnly){
     const d = new Date(); d.setDate(d.getDate() - 30);
@@ -756,7 +768,7 @@ function renderCompletedOrdersInto(container, recentOnly){
   // 處理中訂單(o.deleted 但從沒被核對過)。取消的訂單不會再回到「待處理訂單」清單卡著(那邊
   // 已經把它們排除),移來這邊用不同的狀態標籤(已出貨 / 已取消)區分,方便一起查歷史紀錄。
   let list = orders.filter(o => orderStatus(o) === 'confirmed' || o.deleted);
-  if(partyFilter) list = list.filter(o => o.partyId === partyFilter);
+  if(partyFn) list = list.filter(partyFn);
   { const qEl = document.getElementById(recentOnly ? 'recentCompletedOrderNoSearch' : 'completedOrderNoSearch'); if(qEl && qEl.value.trim()) list = list.filter(o => orderNoMatches(o, qEl.value)); }
   if(dateFrom) list = list.filter(o => o.date >= dateFrom);
   if(dateTo) list = list.filter(o => o.date <= dateTo);
@@ -1142,14 +1154,14 @@ function renderPendingOrders(){
   const container = document.getElementById('pendingOrdersList');
   if(!container) return;
 
-  const partyFilter = document.getElementById('pendingOrderPartyFilter') ? document.getElementById('pendingOrderPartyFilter').value : '';
+  const partyFn = orderPartyFilterFn('pendingOrderPartyFilter');
   const dateFrom = document.getElementById('pendingOrderDateFrom') ? document.getElementById('pendingOrderDateFrom').value : '';
   const dateTo = document.getElementById('pendingOrderDateTo') ? document.getElementById('pendingOrderDateTo').value : '';
 
   // 已取消的訂單改到「已完成訂單」那邊用「已取消」標籤顯示(跟已出貨的放在一起查歷史),
   // 這裡不再列出,不然使用者要處理的訂單裡會一直卡著已經不用管的取消訂單。
   let list = orders.filter(o => isPreVerificationStatus(o) && !o.deleted);
-  if(partyFilter) list = list.filter(o => o.partyId === partyFilter);
+  if(partyFn) list = list.filter(partyFn);
   { const qEl = document.getElementById('pendingOrderNoSearch'); if(qEl && qEl.value.trim()) list = list.filter(o => orderNoMatches(o, qEl.value)); }
   if(dateFrom) list = list.filter(o => o.date >= dateFrom);
   if(dateTo) list = list.filter(o => o.date <= dateTo);
@@ -2597,13 +2609,13 @@ async function exportOrdersSheet(exportMode){
   const msg = document.getElementById('orderExportMsg');
   if(typeof XLSX === 'undefined'){ msg.className = 'msg error'; msg.textContent = 'Excel 套件載入失敗,請重新整理頁面再試一次'; return; }
 
-  const partyFilter = document.getElementById('completedOrderPartyFilter').value;
+  const partyFn = orderPartyFilterFn('completedOrderPartyFilter');
   const dateFrom = document.getElementById('completedOrderDateFrom').value;
   const dateTo = document.getElementById('completedOrderDateTo').value;
   await ensureOrdersLoadedFrom(dateFrom || '');
 
   let list = orders.filter(o => orderStatus(o) === 'confirmed' && !o.deleted);
-  if(partyFilter) list = list.filter(o => o.partyId === partyFilter);
+  if(partyFn) list = list.filter(partyFn);
   if(dateFrom) list = list.filter(o => o.date >= dateFrom);
   if(dateTo) list = list.filter(o => o.date <= dateTo);
 
@@ -2613,8 +2625,8 @@ async function exportOrdersSheet(exportMode){
     return;
   }
 
-  const partyObj = partyFilter ? shippingParties.find(sp => sp.id === partyFilter) : null;
-  const partyLabel = partyObj ? partyObj.name : 'All Customers';
+  const partyObj = partyFn ? partyFn.single : null;
+  const partyLabel = partyObj ? partyObj.name : (partyFn ? partyFn.text : 'All Customers');
   const dateLabel = dateFrom && dateTo
     ? (dateFrom === dateTo ? dateFrom : `${dateFrom} ~ ${dateTo}`)
     : (dateFrom ? `After ${dateFrom}` : (dateTo ? `Before ${dateTo}` : 'All dates'));

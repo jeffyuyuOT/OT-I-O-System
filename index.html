@@ -1774,9 +1774,7 @@ body.no-cost-view .cost-col{display:none !important;}
         </div>
         <div class="field">
           <label data-i18n="fieldShippingParty">出貨方</label>
-          <select id="pendingOrderPartyFilter" onchange="renderPendingOrders()">
-            <option value="" data-i18n="optAllParties">全部出貨方</option>
-          </select>
+          <input type="search" id="pendingOrderPartyFilter" autocomplete="off" oninput="renderPendingOrders()" data-i18n-placeholder="phPartySearch" placeholder="搜尋出貨方…" />
         </div>
         <div class="field">
           <label data-i18n="fieldOrderNoSearch">訂單號</label>
@@ -1797,9 +1795,7 @@ body.no-cost-view .cost-col{display:none !important;}
       <div class="form-grid" style="grid-template-columns:minmax(120px,200px) minmax(120px,200px) auto;margin-bottom:14px;">
         <div class="field">
           <label data-i18n="fieldShippingParty">出貨方</label>
-          <select id="recentCompletedOrderPartyFilter" onchange="renderOrders()">
-            <option value="" data-i18n="optAllParties">全部出貨方</option>
-          </select>
+          <input type="search" id="recentCompletedOrderPartyFilter" autocomplete="off" oninput="renderOrders()" data-i18n-placeholder="phPartySearch" placeholder="搜尋出貨方…" />
         </div>
         <div class="field">
           <label data-i18n="fieldOrderNoSearch">訂單號</label>
@@ -2512,9 +2508,7 @@ body.no-cost-view .cost-col{display:none !important;}
           </div>
           <div class="field">
             <label data-i18n="fieldShippingParty">出貨方</label>
-            <select id="completedOrderPartyFilter" onchange="renderOrders()">
-              <option value="" data-i18n="optAllParties">全部出貨方</option>
-            </select>
+            <input type="search" id="completedOrderPartyFilter" autocomplete="off" oninput="renderOrders()" data-i18n-placeholder="phPartySearch" placeholder="搜尋出貨方…" />
           </div>
           <div class="field">
             <label data-i18n="fieldOrderNoSearch">訂單號</label>

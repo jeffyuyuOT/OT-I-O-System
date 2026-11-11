@@ -320,8 +320,7 @@ function partyGoOrderHistoryInvoice(partyId){
   if(!partyTabAllowed('tab-log')) return;
   switchTab('tab-log');
   switchLogSubTab('subtab-log-completed');
-  const f = document.getElementById('completedOrderPartyFilter');
-  if(f) f.value = partyId;
+  orderPartySet('completedOrderPartyFilter', partyId);
   const from = document.getElementById('completedOrderDateFrom'), to = document.getElementById('completedOrderDateTo');
   if(from) from.value = ''; if(to) to.value = '';
   renderOrders();
