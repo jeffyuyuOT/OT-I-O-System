@@ -7,6 +7,7 @@
 // 資料表:sql/supplier_prepayments.sql。只有 admin / accountant 讀得到;倉管員看不到任何預付款資訊。
 // ============================================================
 Object.assign(I18N.zh, {
+  ppAutoConfirm: '這張進貨單載入的預估紀錄已預付 {amount}(共 {n} 筆預付款)。要現在自動抵扣這張進貨單的應付金額嗎?(會記一筆付款,方式 Prepayment)', ppAutoFailed: '進貨單已建立,但預付款自動抵扣失敗:{err}。請到會計 → Purchase List → 付款記錄手動抵扣。',
   subtabAccPrepay: '預付款', ppTitle: '供應商預付款', ppAdd: '＋ 登記預付款', ppEmpty: '還沒有預付款紀錄。',
   ppSumBalance: '未抵扣餘額', ppSumPaid: '預付總額', ppSumApplied: '已抵扣',
   ppSumPaidFy: '預付', ppSumAppliedFy: '抵扣', ppFltFrom: '從', ppFltTo: '到', ppFltAll: '全部', ppFltOpen: '有餘額', ppFltUsed: '已用完', ppFltClear: '清除篩選', ppEmptyFiltered: '沒有符合篩選的預付款。', ppColDate: '付款日期', ppColSupplier: '進貨方', ppColForecast: '預估紀錄', ppColAmount: '金額', ppColApplied: '已抵扣', ppColBalance: '餘額', ppColNote: '方式 / 備註',
@@ -21,6 +22,7 @@ Object.assign(I18N.zh, {
   arpStBalPrepay: 'Prepayments 供應商預付款(尚未抵扣)'
 });
 Object.assign(I18N.en, {
+  ppAutoConfirm: 'The forecast loaded into this purchase has {amount} prepaid ({n} prepayment(s)). Apply it to this purchase now? (A payment with method Prepayment will be recorded.)', ppAutoFailed: 'The purchase was created, but applying the prepayment failed: {err}. Apply it manually in Accounting → Purchase List → Payments.',
   subtabAccPrepay: 'Prepayments', ppTitle: 'Supplier prepayments', ppAdd: '＋ Add prepayment', ppEmpty: 'No prepayments yet.',
   ppSumBalance: 'Unapplied balance', ppSumPaid: 'Total prepaid', ppSumApplied: 'Applied',
   ppSumPaidFy: 'prepaid', ppSumAppliedFy: 'applied', ppFltFrom: 'From', ppFltTo: 'To', ppFltAll: 'All', ppFltOpen: 'With balance', ppFltUsed: 'Fully applied', ppFltClear: 'Clear filters', ppEmptyFiltered: 'No prepayments match the filters.', ppColDate: 'Paid on', ppColSupplier: 'Supplier', ppColForecast: 'Forecast record', ppColAmount: 'Amount', ppColApplied: 'Applied', ppColBalance: 'Balance', ppColNote: 'Method / note',
@@ -202,6 +204,29 @@ function ppOnForecastPick(rid){
   const sel = document.getElementById('ppFSup'); if(!sel) return;
   const r = (typeof forecastRecords !== 'undefined' ? forecastRecords : []).find(x => x.id === rid);
   if(r && r.supplierName){ sel.value = r.supplierName; sel.disabled = true; } else { sel.disabled = false; }
+}
+// 登記進貨時載入了進貨預估、而且那份預估有預付款 → 進貨單存好後問是否自動抵扣(金額 = 預付款餘額與進貨單未付金額較小者)
+async function ppAutoApplyForForecast(purchase, fids){
+  if(!ppOn() || !fids || !fids.length || purchase.inAccounting === false) return;
+  try{ if(!ppLoaded) await ppLoad(); if(typeof paLoadPayments === 'function') await paLoadPayments(); }catch(e){ return; }
+  if(ppErr) return;
+  const rows = ppRows.filter(r => fids.includes(r.forecast_id) && Number(r.amount) > 0 && ppBalanceOf(r) > 0.004);
+  if(!rows.length) return;
+  let room = ppR2(paInfo(purchase).balance);
+  if(!(room > 0.004)) return;
+  const plan = [];
+  rows.forEach(r => { const a = ppR2(Math.min(ppBalanceOf(r), room)); if(a > 0){ plan.push({ r, a }); room = ppR2(room - a); } });
+  if(!plan.length) return;
+  const total = ppR2(plan.reduce((x, p) => x + p.a, 0));
+  const ok = await new Promise(res => showConfirmModal(tf('ppAutoConfirm', { amount: ppM(total), n: plan.length }), () => res(true), () => res(false)));
+  if(!ok) return;
+  try{
+    for(const p of plan){
+      const { error } = await sb.rpc('prepayment_apply', { p_prepayment_id: p.r.id, p_purchase_id: purchase.id, p_date: purchase.date, p_amount: p.a });
+      if(error) throw error;
+    }
+  }catch(e){ console.error('預付款自動抵扣失敗', e); showInfoModal(tf('ppAutoFailed', { err: ppErrMsg(e) })); }
+  try{ await paLoadPayments(); await ppLoad(); }catch(e){}
 }
 // 選「+ 新增進貨方」:先把下拉還原成原本的選擇,開進貨方新增視窗;存好後把新進貨方加進下拉並選起來
 function ppOnSupChange(sel){

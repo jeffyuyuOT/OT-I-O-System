@@ -2204,6 +2204,11 @@ async function submitTxBatchSimple(date, msg){
         catch(e){ console.error('記錄批次位置失敗', e); showInfoModal(t('batchLocSaveFailed')); }
       }
     }
+    // 進貨預估有預付款 → 問是否自動抵扣這張進貨單
+    if(purchaseSaved && typeof ppAutoApplyForForecast === 'function'){
+      const fids = [...new Set(txBatchItems.map(it => it.forecastRecordId).filter(Boolean))];
+      if(fids.length) await ppAutoApplyForForecast(purchase, fids);
+    }
     if(typeof pcRememberExpenseNames === 'function' && purchase.costs) pcRememberExpenseNames(purchase.costs.expenses.map(e => e.name).concat((purchase.lineExpenses || []).map(l => l.name)));
     if(typeof pcReset === 'function') pcReset();
     if(typeof paFormReset === 'function') paFormReset();
