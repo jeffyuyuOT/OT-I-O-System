@@ -1037,6 +1037,10 @@ async function reconcileForecastScan(){
   if(diffs.length === 0) return;
 
   const kindLabel = { qty: t('forecastDiffQty'), extra: t('forecastDiffExtra'), missing: t('forecastDiffMissing') };
+  const copyOnly = loaded.every(li => li.fromCopy);   // 全是「複製上次進貨」帶入的,提示文字改成「上次進貨」
+  const _dt = document.getElementById('forecastScanDiffTitle'), _dd = document.getElementById('forecastScanDiffDesc');
+  if(_dt) _dt.textContent = t(copyOnly ? 'titleCopyScanDiff' : 'titleForecastScanDiff');
+  if(_dd) _dd.textContent = t(copyOnly ? 'copyScanDiffDesc' : 'forecastScanDiffDesc');
   document.getElementById('forecastScanDiffBody').innerHTML = `
     <table class="stock-table"><thead><tr>
       <th>${t('colProductName')}</th><th class="num">${t('colForecastDiffLoaded')}</th><th class="num">${t('colForecastDiffScanned')}</th><th>${t('colForecastDiffType')}</th>

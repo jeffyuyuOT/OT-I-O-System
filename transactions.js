@@ -888,6 +888,7 @@ let registerExistingItemEditKey = null; // 目前正在編輯數量的既有品�
 // 在確認視窗的總結裡列出來。key 是 productId,value 是 { type:'qty', newQty } 或 { type:'delete' }。
 let registerPendingItemChanges = {};
 
+let txHiddenAddOkId = null;
 function addToTxBatch(){
   const productSel = document.getElementById('txProduct');
   const productId = productSel.value;
@@ -900,6 +901,11 @@ function addToTxBatch(){
   if(registerOutKind === 'nonsales' && currentTxType === 'out' && qty < 0){ msg.className='msg error'; msg.textContent=t('errNsQtyPositive'); return; }
   const p = products.find(x => x.id === productId);
   if(!p) return;
+  // 進貨:從「★ 常進商品」選到隱藏商品(例如自動切換用的批量商品)時,先確認一次
+  if(currentTxType === 'in' && p.hidden && txHiddenAddOkId !== productId){
+    showConfirmModal(tf('txFreqHiddenConfirm', { name: p.name }), () => { txHiddenAddOkId = productId; try{ addToTxBatch(); } finally { txHiddenAddOkId = null; } });
+    return;
+  }
   // 批次追蹤:進貨時「同商品同有效期」才合併,不同有效期分行列出
   const bx = (typeof batchReadAddFields === 'function') ? batchReadAddFields() : { expiry: '', lot: '' };
   if(currentTxType === 'delivery' && typeof dnRefQtyLimit === 'function'){

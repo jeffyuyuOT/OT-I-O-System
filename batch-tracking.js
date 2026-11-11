@@ -1081,6 +1081,8 @@ async function batchViewPurchase(purchaseId){
   switchTab('tab-log');
   switchLogSubTab('subtab-log-purchases');
   ['purchaseLogDateFrom', 'purchaseLogDateTo', 'purchaseLogPartyFilter'].forEach(id => { const el = document.getElementById(id); if(el) el.value = ''; });
+  if(typeof purchaseLogPartyKey !== 'undefined') purchaseLogPartyKey = '';
+  if(typeof purchaseLogGotoId !== 'undefined') purchaseLogGotoId = purchaseId;
   if(typeof expandedPurchaseId !== 'undefined') expandedPurchaseId = purchaseId;
   if(typeof renderPurchaseLog === 'function') renderPurchaseLog();
   // 清單很長時,展開的那張單可能在畫面下方:捲到那一列

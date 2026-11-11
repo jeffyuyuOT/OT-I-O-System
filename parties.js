@@ -566,12 +566,9 @@ function supplierGoPurchaseHistory(supplierId){
   if(from) from.value = ''; if(to) to.value = '';
   const sel = document.getElementById('purchaseLogPartyFilter');
   if(sel){
-    // 篩選值用編號對應的 id('id:<supplierId>');這個進貨方還沒有任何進貨單時,選項清單裡不會有它,先補一個
-    const key = 'id:' + sup.id;
-    if(![...sel.options].some(o => o.value === key)){
-      const opt = document.createElement('option'); opt.value = key; opt.textContent = supplierOptionLabel(sup); sel.appendChild(opt);
-    }
-    sel.value = key;
+    // 用進貨方 id 精準篩選(這個進貨方還沒有任何進貨單時,結果就是空的);搜索欄顯示名稱
+    purchaseLogPartyKey = 'id:' + sup.id;
+    sel.value = supplierOptionLabel(sup);
   }
   renderPurchaseLog();
 }
