@@ -633,6 +633,15 @@ function refreshOrderLists(){
 // 待處理專用的刪除/改數量流程(不動進出貨紀錄,因為都還沒扣庫存),isPending=false 時維持原本
 // 「未出庫/已出庫」那套(因為已經扣過庫存、有真的出貨紀錄要處理)。
 // 品項備註:接在商品名稱後面,用斜體、淡色顯示(跟商品名稱區別)
+// 商品設為「不入公司帳」或「會計匯出不顯示」→ 訂單裡商品名旁標「不入帳」;只有看得到價格的角色才看得到
+function orderItemAcctTag(it){
+  if(!it || !it.productId) return '';
+  if(typeof canViewPrice === 'function' && !canViewPrice()) return '';
+  const p = (typeof products !== 'undefined') ? products.find(x => x.id === it.productId) : null;
+  if(!p) return '';
+  const off = (typeof isOffBooksProduct === 'function' && isOffBooksProduct(p)) || p.hideFromCompletedOrderExport === true;
+  return off ? ` <span title="${t('orderNoAcctTagTitle')}" style="display:inline-block;font-size:10.5px;font-weight:600;color:var(--ink-soft);background:var(--bg-soft,#eee);border:1px solid var(--line,#ccc);border-radius:4px;padding:0 5px;vertical-align:middle;">${t('orderNoAcctTag')}</span>` : '';
+}
 function orderItemNoteInline(it){
   return it && it.note ? ` <i style="font-size:11.5px;color:var(--ink-soft);font-weight:400;">${String(it.note).replace(/&/g,'&amp;').replace(/</g,'&lt;')}</i>` : '';
 }
@@ -660,7 +669,7 @@ function orderItemRowHtml(o, it, isPending, readOnly, context){
   if(isEditingQty){
     return `
       <div>
-        <span>${it.sku ? `<span class="sku-tooltip-trigger" data-sku="${it.sku.replace(/"/g,'&quot;')}">${it.name}</span>` : it.name}${orderItemNoteInline(it)}</span>
+        <span>${it.sku ? `<span class="sku-tooltip-trigger" data-sku="${it.sku.replace(/"/g,'&quot;')}">${it.name}</span>` : it.name}${orderItemNoteInline(it)}${orderItemAcctTag(it)}</span>
         <span>
           <input type="number" id="orderItemQtyInput_${context}_${o.id}_${it.productId}" value="${it.qty}" ${isPending ? 'min="0"' : ''} step="1"
             style="width:70px;font-family:inherit;font-size:inherit;" />
@@ -688,7 +697,7 @@ function orderItemRowHtml(o, it, isPending, readOnly, context){
   const actionLinks = `${canEdit ? `<span class="del-link" style="margin-left:8px;" onclick="startEditOrderItemQty('${context}','${o.id}','${it.productId}')">${t('btnEditQty')}</span>` : ''}
         ${(canEdit && context === 'verify' && typeof batchOrderItemButtonHtml === 'function') ? batchOrderItemButtonHtml(o, it) : ''}
         ${canEdit ? `<span class="del-link" style="margin-left:8px;color:var(--crit);" onclick="${deleteFn}('${o.id}','${it.productId}')">${t('btnDelete')}</span>` : ''}`;
-  const nameHtml = (it.sku ? `<span class="sku-tooltip-trigger" data-sku="${it.sku.replace(/"/g,'&quot;')}">${it.name}</span>` : it.name) + orderItemNoteInline(it);
+  const nameHtml = (it.sku ? `<span class="sku-tooltip-trigger" data-sku="${it.sku.replace(/"/g,'&quot;')}">${it.name}</span>` : it.name) + orderItemNoteInline(it) + orderItemAcctTag(it);
   const tail = `${(context === 'verify' && typeof batchOrderItemPreviewHtml === 'function') ? batchOrderItemPreviewHtml(o, it) : ''}`;
   if(priceOn){
     return `
