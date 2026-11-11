@@ -1423,12 +1423,24 @@ body.no-cost-view .cost-col{display:none !important;}
 
           <div style="display:flex;align-items:center;gap:8px;margin:16px 0 4px;">
             <input type="checkbox" id="autoBackupToggle" checked onchange="toggleAutoBackup(this.checked)" style="width:16px;height:16px;cursor:pointer;" />
-            <label for="autoBackupToggle" style="font-size:12.5px;color:var(--ink);font-weight:600;cursor:pointer;" data-i18n="autoBackupLabel">資料異動時自動備份(每日覆蓋一份)</label>
+            <label for="autoBackupToggle" style="font-size:12.5px;color:var(--ink);font-weight:600;cursor:pointer;" data-i18n="autoBackupLabelDaily">每天固定時間自動備份</label>
           </div>
-          <div style="display:flex;align-items:center;gap:8px;margin:0 0 8px;">
+          <p style="font-size:11.5px;color:var(--ink-soft);margin:0 0 8px;" data-i18n="abHelp">備份內容跟「匯出完整備份檔」一樣。限制:電腦要開著、用 Chrome / Edge、管理者已登入、系統頁面開著,到了設定的時間才會備份。重新開啟瀏覽器後,資料夾可能要按一次「重新授權」。沒選資料夾時,會用瀏覽器下載(存到預設下載位置)。</p>
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:0 0 8px;font-size:12.5px;">
+            <span data-i18n="abFolderLabel">備份資料夾:</span><span id="abFolderState"></span>
             <button class="btn ghost" style="padding:6px 12px;font-size:12px;" onclick="chooseBackupFolder()" data-i18n="btnChooseBackupFolder">📁 選擇自動備份資料夾</button>
+            <button class="btn ghost" id="abReauthBtn" style="padding:6px 12px;font-size:12px;display:none;" onclick="abReauth()" data-i18n="abReauth">重新授權</button>
+            <button class="btn ghost" style="padding:6px 12px;font-size:12px;" onclick="abTestBackup()" data-i18n="abTestBtn">立即測試備份</button>
+            <button class="btn ghost" style="padding:6px 12px;font-size:12px;" onclick="abClearFolder()" data-i18n="abClearBtn">清除</button>
           </div>
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:0 0 8px;font-size:12.5px;">
+            <span data-i18n="abTimeLabel">自動備份時間(布里斯本):</span>
+            <input type="time" id="abTimeInput" value="23:00" style="font-size:12.5px;" />
+            <button class="btn ghost" style="padding:6px 12px;font-size:12px;" onclick="abSaveTime()" data-i18n="abSaveTimeBtn">儲存時間</button>
+          </div>
+          <div id="abTestMsg" class="msg"></div>
           <p id="autoBackupStatus" style="font-size:11.5px;color:var(--ink-soft);margin:0;" data-i18n="autoBackupNotSetYet">尚未設定。</p>
+          <div id="abHistory"></div>
         </div>
 
         <div class="settings-card" data-sgroup="data">
@@ -4417,6 +4429,7 @@ async function startApp(){
     document.getElementById('importSection').style.display = 'none';
   }
   updateAutoBackupStatus();
+  if(typeof autoBackupInit === 'function') autoBackupInit();   // 每日固定時間自動備份(管理者)
   updateMultipackSettingsUI();
   const emptyBanner = document.getElementById('emptyDataBanner');
   if(emptyBanner) emptyBanner.style.display = (products.length === 0 && transactions.length === 0 && !isAccountantUser()) ? 'block' : 'none';
