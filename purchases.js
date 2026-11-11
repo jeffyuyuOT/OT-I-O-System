@@ -660,42 +660,46 @@ function renderEditPurchaseItemsList(){
     wrap.innerHTML = `<div class="empty-note" style="padding:8px 0;">${lang === 'en' ? 'No items.' : '（沒有品項）'}</div>`;
     return;
   }
-  // 欄位標題列:跟每列的版面對齊(品名 / 數量 / 單位 / 金額 / 移除),金額標題帶系統預設幣種。
+  // 一個商品一行(會計一次輸入大量價格時好看):品名 / 數量 / 單位 / 金額 / GST / 有效期 / 供應商批號 / 備註 / 移除。
+  // 用 grid 讓標題與每列欄位對齊;視窗太窄時橫向捲動,不換行。
+  const paOnNow = (typeof paOn === 'function' && paOn());
+  const batchOn = editPurchaseIsBatchTracked();
+  const cols = ['minmax(220px,1fr)', '84px', '54px', '110px'];
+  if(paOnNow) cols.push('96px');
+  if(batchOn) cols.push('138px', '120px', '46px');
+  cols.push('44px');
+  const grid = `display:grid;grid-template-columns:${cols.join(' ')};gap:8px;align-items:center;min-width:${cols.reduce((s, c) => s + (parseInt((c.match(/\d+/) || [0])[0], 10) || 0), 0) + 8 * cols.length}px;`;
   const hdrCss = 'font-size:11px;color:var(--ink-soft);';
-  const hdr = `<div style="display:flex;align-items:center;gap:8px;${hdrCss}">
-          <div style="flex:1 1 140px;min-width:0;"></div>
-          <span style="width:70px;">${t('colQty')}</span>
-          <span style="width:46px;flex:none;visibility:hidden;">${t('colQty')}</span>
-          <span style="width:90px;">${t('colAmount')} (${escapeHtmlForPrint(typeof getSystemCurrency === 'function' ? getSystemCurrency() : 'AUD')})</span>
-          ${(typeof paOn === 'function' && paOn()) ? '<span style="width:92px;">GST</span>' : ''}
-          <span style="visibility:hidden;">${t('btnRemoveItem')}</span>
+  const cur = escapeHtmlForPrint(typeof getSystemCurrency === 'function' ? getSystemCurrency() : 'AUD');
+  const hdr = `<div style="${grid}${hdrCss}position:sticky;top:0;background:var(--bg,#fff);z-index:1;padding:2px 0;">
+          <span></span><span>${t('colQty')}</span><span></span><span>${t('colAmount')} (${cur})</span>
+          ${paOnNow ? '<span>GST</span>' : ''}
+          ${batchOn ? `<span>${t('batchColExpiry')}</span><span>${t('batchLotLabel')}</span><span></span>` : ''}
+          <span></span>
         </div>`;
   wrap.innerHTML = `
-    <div style="display:flex;flex-direction:column;gap:6px;">
+    <div style="overflow-x:auto;">
+     <div style="display:flex;flex-direction:column;gap:0;">
       ${hdr}
       ${editPurchaseWorkingItems.map((it, i) => `
-        <div style="padding:6px 0;border-bottom:1px solid var(--line);${it._scanUpdated ? 'background:var(--warn-bg);' : ''}">
-         <div style="display:flex;align-items:center;gap:8px;">
-          <div style="flex:1 1 140px;min-width:0;font-size:12.5px;">
+        <div style="${grid}padding:5px 0;border-bottom:1px solid var(--line);${it._scanUpdated ? 'background:var(--warn-bg);' : ''}">
+          <div style="min-width:0;font-size:12.5px;line-height:1.3;">
             ${escapeHtmlForPrint(it.name || '')}${it.sku ? ` <span style="color:var(--ink-soft);">(${escapeHtmlForPrint(it.sku)})</span>` : ''}
             ${it.docType === 'credit_note' ? ` <span style="color:var(--crit);font-weight:600;font-size:11px;">(${t('docTypeCreditNoteBadge')})</span>` : ''}
             ${it._scanUpdated ? `<span style="color:var(--warn-dark);font-size:11px;margin-left:4px;">🔍</span>` : ''}
           </div>
-          <input type="number" value="${it.qty}" min="0" step="any" style="width:70px;" oninput="updateEditPurchaseItemQty(${i}, this.value)" />
-          <span style="font-size:11.5px;color:var(--ink-soft);width:46px;flex:none;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtmlForPrint(it.unit || '')}</span>
-          <input type="number" value="${it.amount !== undefined && it.amount !== null ? it.amount : ''}" min="0" step="any" placeholder="$" style="width:90px;" ${canEditPrice() ? '' : 'readonly title="' + t('priceReadOnlyTitle') + '"'} oninput="updateEditPurchaseItemAmount(${i}, this.value)" />
-          ${(typeof paOn === 'function' && paOn()) ? (it.noAcct ? '<span style="font-size:11.5px;color:var(--ink-soft);">' + t('paOffBooksShort') + '</span>' : paGstSelectHtml(it.gst, 'paEditSetGst(' + i + ', this.value)')) : ''}
+          <input type="number" value="${it.qty}" min="0" step="any" style="width:100%;" oninput="updateEditPurchaseItemQty(${i}, this.value)" />
+          <span style="font-size:11.5px;color:var(--ink-soft);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtmlForPrint(it.unit || '')}</span>
+          <input type="number" value="${it.amount !== undefined && it.amount !== null ? it.amount : ''}" min="0" step="any" placeholder="$" style="width:100%;" ${canEditPrice() ? '' : 'readonly title="' + t('priceReadOnlyTitle') + '"'} oninput="updateEditPurchaseItemAmount(${i}, this.value)" />
+          ${paOnNow ? (it.noAcct ? '<span style="font-size:11.5px;color:var(--ink-soft);">' + t('paOffBooksShort') + '</span>' : paGstSelectHtml(it.gst, 'paEditSetGst(' + i + ', this.value)')) : ''}
+          ${batchOn ? ((!it.noBatch) ? `
+          <input type="date" value="${it.expiry || ''}" title="${t('batchColExpiry')}" style="width:100%;" onchange="updateEditPurchaseItemExpiry(${i}, this.value)" />
+          <input type="text" value="${escapeHtmlForPrint(it.supplierLot || '')}" title="${t('batchFieldLot')}" style="width:100%;" oninput="updateEditPurchaseItemLot(${i}, this.value)" />
+          ${(it.docType === 'credit_note') ? '<span></span>' : `<button type="button" class="btn ghost" style="padding:2px 8px;" title="${t('batchFieldNote')}" onclick="editPurchaseOpenLineNote(${i})">📝${(it.batchNote !== undefined ? it.batchNote : batchLineNote(editPurchaseTargetId, it.productId, it.expiry || '')) ? ' ✓' : ''}</button>`}` : '<span></span><span></span><span></span>') : ''}
           <span class="del-link" onclick="removeEditPurchaseItem(${i})">${t('btnRemoveItem')}</span>
-         </div>
-         ${(editPurchaseIsBatchTracked() && !it.noBatch) ? `<div style="display:flex;align-items:center;gap:8px;margin-top:4px;flex-wrap:wrap;">
-          <span style="font-size:11.5px;color:var(--ink-soft);">${t('batchColExpiry')}</span>
-          <input type="date" value="${it.expiry || ''}" title="${t('batchColExpiry')}" style="width:122px;" onchange="updateEditPurchaseItemExpiry(${i}, this.value)" />
-          <span style="font-size:11.5px;color:var(--ink-soft);">${t('batchLotLabel')}</span>
-          <input type="text" value="${escapeHtmlForPrint(it.supplierLot || '')}" title="${t('batchFieldLot')}" style="width:96px;" oninput="updateEditPurchaseItemLot(${i}, this.value)" />
-          ${(it.docType === 'credit_note') ? '' : `<button type="button" class="btn ghost" style="padding:2px 8px;" title="${t('batchFieldNote')}" onclick="editPurchaseOpenLineNote(${i})">📝${(it.batchNote !== undefined ? it.batchNote : batchLineNote(editPurchaseTargetId, it.productId, it.expiry || '')) ? ' ✓' : ''}</button>`}
-         </div>` : ''}
         </div>
       `).join('')}
+     </div>
     </div>
   `;
 }
