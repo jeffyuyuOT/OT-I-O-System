@@ -330,6 +330,8 @@ function dnRefSet(ref){
 }
 function dnRefTypeLabel(type){ return type === 'nonsales' ? t('dnRefTypeNs') : t('dnRefTypeOrder'); }
 
+// 已簽收、或 Delivery Note 已經把全部商品送完(待簽收)的訂單,不再出現在「載入關聯單據」清單
+function dnRefBlocked(o){ return !!o.signedAt || dnOrderShipState(o.id) === 'done'; }
 async function dnRefSearch(){
   const inp = document.getElementById('txDnRef');
   const list = document.getElementById('txDnRefList');
@@ -337,20 +339,21 @@ async function dnRefSearch(){
   // 一改字就視為還沒選定,要重新從清單挑
   if(dnRefSelected && inp.value.trim() !== dnRefSelected.no) dnRefSelected = null;
   const seq = ++dnRefSeq;
-  await Promise.all([ensureOrdersLoadedFrom(''), ensureNonSalesSlipsLoaded()]);
+  await Promise.all([ensureOrdersLoadedFrom(''), ensureNonSalesSlipsLoaded(), ensureDeliveryNotesLoaded()]);
   if(seq !== dnRefSeq) return;
   const q = inp.value.trim().toLowerCase();
   const esc = escapeHtmlForPrint;
   // 表單上已經選了出貨方 → 訂單只列該出貨方的(非銷售出庫單本身沒有出貨方,不受影響)
   const partyId = (document.getElementById('txPartySelect') || {}).value || '';
   const all = [
-    ...orders.filter(o => !o.deleted && o.orderNo && (o.status || 'pending') === 'confirmed' && (!partyId || o.partyId === partyId))
+    ...orders.filter(o => !o.deleted && o.orderNo && (o.status || 'pending') === 'confirmed' && (!partyId || o.partyId === partyId) && !dnRefBlocked(o))
       .map(o => ({ type: 'order', id: o.id, no: String(o.orderNo), sub: o.partyName || o.customerName || '', date: o.date || '' })),
     ...nonSalesSlips.map(s => ({ type: 'nonsales', id: s.id, no: s.no, sub: s.reasonText || '', date: s.date || '' }))
   ];
   dnRefCandidates = all.filter(c => !q || c.no.toLowerCase().includes(q)).sort((a, b) => b.no.localeCompare(a.no)).slice(0, 30);
   if(dnRefCandidates.length === 0){
-    list.innerHTML = `<div style="padding:8px 10px;font-size:12.5px;color:var(--ink-soft);">${t('dnRefNoMatch')}</div>`;
+    const blockedHit = q && orders.some(o => !o.deleted && o.orderNo && String(o.orderNo).toLowerCase().includes(q) && (o.status || 'pending') === 'confirmed' && dnRefBlocked(o));
+    list.innerHTML = `<div style="padding:8px 10px;font-size:12.5px;color:var(--ink-soft);">${blockedHit ? t('dnRefBlockedMsg') : t('dnRefNoMatch')}</div>`;
   } else {
     list.innerHTML = dnRefCandidates.map((c, i) => `<div onmousedown="dnRefPick(${i})" style="padding:7px 10px;cursor:pointer;font-size:13px;border-bottom:1px solid var(--line);">
       <b>${esc(c.no)}</b> <span style="font-size:11.5px;color:var(--ink-soft);">· ${dnRefTypeLabel(c.type)}${c.sub ? ' · ' + esc(c.sub) : ''}${c.date ? ' · ' + esc(c.date) : ''}</span></div>`).join('');

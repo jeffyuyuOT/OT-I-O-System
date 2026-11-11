@@ -2451,10 +2451,11 @@ function editOrderViaRegister(orderId, mode){
 
 // 簽收:確認貨已經實際收到了。只有已經核對過、真的出貨的訂單(status='confirmed')才能簽收——
 // 還沒核對的訂單理論上貨還沒出,簽收沒有意義。簽收之後這張訂單就不能再修改(見 editable 判斷)。
-function signOrderHistory(orderId){
+async function signOrderHistory(orderId){
   const order = orders.find(o => o.id === orderId);
   if(!order || order.deleted || orderStatus(order) !== 'confirmed' || order.signedAt) return;
-  showConfirmModal(tf('confirmSignOrder', { orderNo: order.orderNo || orderId }), async () => {
+  const dnWarn = await dnSignWarning(order);   // 有關聯 Delivery Note 但還沒送完 → 警告文字取代一般確認文字
+  showConfirmModal(dnWarn || tf('confirmSignOrder', { orderNo: order.orderNo || orderId }), async () => {
     const prevSignedAt = order.signedAt;
     const prevSignInfo = order.signInfo;
     order.signedAt = new Date().toISOString();
@@ -2753,7 +2754,14 @@ function clearSignaturePad(){
   signaturePadHasContent = false;
 }
 
-function openWarehouseSignModal(orderId){
+async function openWarehouseSignModal(orderId){
+  const order = orders.find(o => o.id === orderId);
+  if(!order || order.deleted || order.signedAt) return;
+  const dnWarn = await dnSignWarning(order);
+  if(dnWarn){ showConfirmModal(dnWarn, () => openWarehouseSignModalNow(orderId)); return; }
+  openWarehouseSignModalNow(orderId);
+}
+function openWarehouseSignModalNow(orderId){
   const order = orders.find(o => o.id === orderId);
   if(!order || order.deleted || order.signedAt) return;
   warehouseSignOrderId = orderId;

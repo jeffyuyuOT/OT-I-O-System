@@ -1985,6 +1985,14 @@ function dnPrintHtml(data){
       <td>${escapeHtmlForPrint(n.unit || '')}</td>
     </tr>`).join('');
 
+  // 關聯的是訂單時,依「印完這張之後是否全部送完」加註:最後一批請客戶簽收訂單;還沒送完就請收齊後再簽收
+  const _fs = (typeof dnPrintFinalState === 'function') ? dnPrintFinalState(data) : null;
+  const _ono = escapeHtmlForPrint(data.ref ? data.ref.no : '');
+  const banner = _fs === 'final'
+    ? `<div class="dn-banner"><b>FINAL DELIVERY</b><span>All items of order ${_ono} have now been delivered.<br>Please sign for this order.</span></div>`
+    : (_fs === 'partial'
+      ? `<div class="dn-banner"><b>PARTIAL DELIVERY</b><span>Remaining items of order ${_ono} will be delivered separately.<br>Please sign for the order only after all items have been received.</span></div>`
+      : '');
   const html = `<!DOCTYPE html>
 <html>
 <head>
@@ -1999,6 +2007,9 @@ function dnPrintHtml(data){
   th, td{ padding:7px 10px; border:1px solid #999; font-size:13px; text-align:left; }
   th{ background:#eee; }
   .sku-col{ width:1%; white-space:nowrap; }
+  .dn-banner{ border:4px solid #111; padding:12px 16px; margin:14px 0 4px; text-align:center; }
+  .dn-banner b{ display:block; font-size:26px; letter-spacing:1.5px; }
+  .dn-banner span{ display:block; font-size:17px; font-weight:700; margin-top:4px; }
 </style>
 </head>
 <body>
@@ -2008,6 +2019,7 @@ function dnPrintHtml(data){
   <div class="meta">${escapeHtmlForPrint('Date')}: ${data.date}</div>
   <div class="meta">${escapeHtmlForPrint('Related Document')}: ${escapeHtmlForPrint(data.ref ? data.ref.no : '')}</div>
   ${data.note ? `<div class="meta">${escapeHtmlForPrint('Note')}: ${escapeHtmlForPrint(data.note)}</div>` : ''}
+  ${banner}
   <table>
     <thead><tr><th class="sku-col">${escapeHtmlForPrint('SKU')}</th><th>${escapeHtmlForPrint('Product Name')}</th><th>${escapeHtmlForPrint('Qty')}</th><th>${escapeHtmlForPrint('Unit')}</th></tr></thead>
     <tbody>${rowsHtml}</tbody>
