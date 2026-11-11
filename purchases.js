@@ -568,6 +568,13 @@ function populateEditPurchasePartySelect(currentName, currentSupplierId){
   populateEditPurchaseAddItemSelect();
   renderEditPurchaseItemsList();
   if(typeof pcEditInit === 'function') pcEditInit(p);
+  {
+    const pv = (typeof canViewPrice !== 'function') || canViewPrice();   // 倉管看不到價錢:金額、GST、入會計、成本/其他支出整區隱藏(儲存時原本的金額資料原樣保留)
+    const hide = (id, on) => { const el = document.getElementById(id); if(el) el.style.display = on ? 'none' : ''; };
+    if(!pv){ hide('editPurchaseAccWrap', true); hide('editPurchaseCostsWrap', true); }
+    else hide('editPurchaseCostsWrap', false);
+    hide('editPurchaseAddItemAmount', !pv);
+  }
   document.getElementById('editPurchaseModalOverlay').style.display = 'flex';
 }
 function closeEditPurchaseModal(){
@@ -685,8 +692,10 @@ function renderEditPurchaseItemsList(){
   // 用 grid 讓標題與每列欄位對齊;視窗太窄時橫向捲動,不換行。
   const paOnNow = (typeof paOn === 'function' && paOn());
   const batchOn = editPurchaseIsBatchTracked();
-  const cols = ['minmax(220px,1fr)', '84px', '54px', '110px'];
-  if(paOnNow) cols.push('96px');
+  const priceVis = (typeof canViewPrice !== 'function') || canViewPrice();   // 沒有「查看價錢」權限(倉管)整個價格區都不顯示
+  const cols = ['minmax(220px,1fr)', '84px', '54px'];
+  if(priceVis) cols.push('110px');
+  if(paOnNow && priceVis) cols.push('96px');
   if(batchOn) cols.push('138px', '120px', '46px');
   cols.push('44px');
   const grid = `display:grid;grid-template-columns:${cols.join(' ')};gap:8px;align-items:center;min-width:${cols.reduce((s, c) => s + (parseInt((c.match(/\d+/) || [0])[0], 10) || 0), 0) + 8 * cols.length}px;`;
@@ -695,8 +704,8 @@ function renderEditPurchaseItemsList(){
   const hdrCss = 'font-size:11px;color:var(--ink-soft);';
   const cur = escapeHtmlForPrint(typeof getSystemCurrency === 'function' ? getSystemCurrency() : 'AUD');
   const hdr = `<div style="${grid}${hdrCss}position:sticky;top:0;background:var(--bg,#fff);z-index:1;padding:2px 0;">
-          <span></span><span>${t('colQty')}</span><span></span><span>${t('colAmount')} (${cur})</span>
-          ${paOnNow ? '<span>GST</span>' : ''}
+          <span></span><span>${t('colQty')}</span><span></span>${priceVis ? `<span>${t('colAmount')} (${cur})</span>` : ''}
+          ${(paOnNow && priceVis) ? '<span>GST</span>' : ''}
           ${batchOn ? `<span>${t('batchColExpiry')}</span><span>${t('batchLotLabel')}</span><span></span>` : ''}
           <span></span>
         </div>`;
@@ -715,8 +724,8 @@ function renderEditPurchaseItemsList(){
           </div>
           <input type="number" value="${it.qty}" min="0" step="any" style="width:100%;" oninput="updateEditPurchaseItemQty(${i}, this.value)" />
           <span style="font-size:11.5px;color:var(--ink-soft);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtmlForPrint(it.unit || '')}</span>
-          <input type="number" value="${it.amount !== undefined && it.amount !== null ? it.amount : ''}" min="0" step="any" placeholder="$" style="width:100%;${flags[i] ? 'background:#fff4dc;border-color:#d97706;' : ''}" ${canEditPrice() ? (flags[i] ? 'title="' + escapeHtmlForPrint(flags[i].msg) + '"' : '') : 'readonly title="' + t('priceReadOnlyTitle') + '"'} oninput="updateEditPurchaseItemAmount(${i}, this.value, this)" />
-          ${paOnNow ? (it.noAcct ? '<span style="font-size:11.5px;color:var(--ink-soft);">' + t('paOffBooksShort') + '</span>' : paGstSelectHtml(it.gst, 'paEditSetGst(' + i + ', this.value)')) : ''}
+          ${priceVis ? `          <input type="number" value="${it.amount !== undefined && it.amount !== null ? it.amount : ''}" min="0" step="any" placeholder="$" style="width:100%;${flags[i] ? 'background:#fff4dc;border-color:#d97706;' : ''}" ${canEditPrice() ? (flags[i] ? 'title="' + escapeHtmlForPrint(flags[i].msg) + '"' : '') : 'readonly title="' + t('priceReadOnlyTitle') + '"'} oninput="updateEditPurchaseItemAmount(${i}, this.value, this)" />
+          ${paOnNow ? (it.noAcct ? '<span style="font-size:11.5px;color:var(--ink-soft);">' + t('paOffBooksShort') + '</span>' : paGstSelectHtml(it.gst, 'paEditSetGst(' + i + ', this.value)')) : ''}` : ''}
           ${batchOn ? ((!it.noBatch) ? `
           <input type="date" value="${it.expiry || ''}" title="${t('batchColExpiry')}" style="width:100%;" onchange="updateEditPurchaseItemExpiry(${i}, this.value)" />
           <input type="text" value="${escapeHtmlForPrint(it.supplierLot || '')}" title="${t('batchFieldLot')}" style="width:100%;" oninput="updateEditPurchaseItemLot(${i}, this.value)" />

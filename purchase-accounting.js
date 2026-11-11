@@ -231,6 +231,7 @@ function paEditSetGst(i, v){
 // 儲存前檢查(回傳錯誤文字或 ''),並把設定寫進 p
 function paEditCheck(items){
   if(!paOn()) return '';
+  if(typeof canViewPrice === 'function' && !canViewPrice()) return '';   // 沒有價錢權限的人不碰 GST,不擋他存檔
   const c = document.getElementById('editPurchaseAccToggle');
   if(!c || !c.checked) return '';
   const lineMiss = (typeof pcEd !== 'undefined' && pcEd && pcEd.lineExpenses ? pcEd.lineExpenses : []).filter(l => Number(l.amount) > 0 && l.gst !== true && l.gst !== false);
