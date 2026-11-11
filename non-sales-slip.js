@@ -330,6 +330,52 @@ function dnRefSet(ref){
 }
 function dnRefTypeLabel(type){ return type === 'nonsales' ? t('dnRefTypeNs') : t('dnRefTypeOrder'); }
 
+// ============================================================
+// Delivery Note →「從 Partially Shipped 訂單新增」:列出已核對、未簽收、Delivery Note 還沒送完的訂單,
+// 可用出貨方名稱/訂單號搜尋;挑了訂單就帶入出貨方 + 關聯單據,並直接開啟選商品視窗(剩餘數量)。
+// ============================================================
+let dnPartialSeq = 0;
+async function dnPartialRender(){
+  const sel = document.getElementById('txDnPartialSelect');
+  if(!sel) return;
+  const seq = ++dnPartialSeq;
+  const cur = sel.value;
+  if(!deliveryNotesLoaded) sel.innerHTML = `<option value="">${t('dnFilterLoading')}</option>`;
+  try{ await Promise.all([ensureOrdersLoadedFrom(''), ensureDeliveryNotesLoaded()]); }catch(e){}
+  if(seq !== dnPartialSeq) return;
+  const q = ((document.getElementById('txDnPartialSearch') || {}).value || '').trim().toLowerCase();
+  const esc = v => String(v === undefined || v === null ? '' : v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
+  const list = orders.filter(o => !o.deleted && o.orderNo && (o.status || 'pending') === 'confirmed' && !o.signedAt && dnOrderShipState(o.id) === 'partial')
+    .filter(o => !q || (String(o.orderNo) + ' ' + (o.partyName || '') + ' ' + (o.customerName || '')).toLowerCase().includes(q))
+    .sort((a, b) => String(b.orderNo).localeCompare(String(a.orderNo)));
+  sel.innerHTML = `<option value="">${list.length ? t('optSelectDeliveryNote') : t('dnPartialNone')}</option>` + list.map(o => {
+    const left = (dnRemainingList(o.id) || []).join(', ');
+    const lbl = `${o.orderNo} · ${o.partyName || o.customerName || ''}${o.date ? ' · ' + o.date : ''}${left ? ' · ' + (left.length > 50 ? left.slice(0, 50) + '…' : left) : ''}`;
+    return `<option value="${esc(o.id)}">${esc(lbl)}</option>`;
+  }).join('');
+  if(cur && list.some(o => o.id === cur)) sel.value = cur;
+}
+function dnPartialPick(orderId){
+  if(!orderId) return;
+  const o = orders.find(x => x.id === orderId);
+  if(!o) return;
+  registerDeliveryFlowType = 'new';   // 之後的行為跟「新增」完全一樣
+  registerLoadedDeliveryNoteId = null;
+  txBatchItems = []; txNsItems = [];
+  const dateInput = document.getElementById('txDate'); if(dateInput) dateInput.value = '';
+  const partySelect = document.getElementById('txPartySelect');
+  if(partySelect){
+    populateTxPartySelect();
+    partySelect.value = o.partyId || '';
+    if(typeof txPartyPickerApply === 'function') txPartyPickerApply();
+    if(typeof txPartyPickerRender === 'function') txPartyPickerRender();
+  }
+  dnRefSet({ type: 'order', id: o.id, no: String(o.orderNo) });
+  showTxMainFormArea(true);
+  renderTxSubmitArea(); renderTxBatchList(); renderProductSelect();
+  if(typeof dnOpenSelectModal === 'function') dnOpenSelectModal();
+}
+
 // 已簽收、或 Delivery Note 已經把全部商品送完(待簽收)的訂單,不再出現在「載入關聯單據」清單
 function dnRefBlocked(o){ return !!o.signedAt || dnOrderShipState(o.id) === 'done'; }
 async function dnRefSearch(){

@@ -424,7 +424,7 @@ function setTxDeliveryFlowType(flowType, skipLoad){
   if(!deliveryNotesLoaded && !skipLoad){
     // 「新增」不需要先等 Delivery Note 資料:畫面馬上顯示,資料在背景載入(搜尋關聯單據/儲存/列印時才會真的用到,那邊各自會等)。
     // 「載入/觀看」要列出已有的 Delivery Note,才需要等;載入失敗也只重畫一次,不再無限重試(之前失敗會一直重新載入、畫面卡住)。
-    if(flowType === 'new') ensureDeliveryNotesLoaded();
+    if(flowType === 'new' || flowType === 'partial') ensureDeliveryNotesLoaded();
     else { ensureDeliveryNotesLoaded().then(() => { if(currentTxType === 'delivery') setTxDeliveryFlowType(flowType, true); }); return; }
   }
   registerDeliveryFlowType = flowType;
@@ -432,6 +432,7 @@ function setTxDeliveryFlowType(flowType, skipLoad){
   txBatchItems = []; txNsItems = [];
   const noteSelectWrap = document.getElementById('txDeliveryNoteSelectWrap');
   const noteSelect = document.getElementById('txDeliveryNoteSelect');
+  { const _pw = document.getElementById('txDnPartialWrap'); if(_pw) _pw.style.display = flowType === 'partial' ? '' : 'none'; }
   const existingSection = document.getElementById('txExistingItemsSection');
   const viewSection = document.getElementById('txDeliveryViewSection');
   const partySelect = document.getElementById('txPartySelect');
@@ -462,6 +463,13 @@ function setTxDeliveryFlowType(flowType, skipLoad){
     if(viewSection) viewSection.style.display = 'none';
     if(noteSelectWrap) noteSelectWrap.style.display = 'none';
     showTxMainFormArea(true);
+  } else if(flowType === 'partial'){
+    // 從 Partially Shipped 訂單新增:先挑訂單(可用出貨方/單號搜尋),挑了之後帶入出貨方跟關聯單據,等於「新增」
+    if(viewSection) viewSection.style.display = 'none';
+    if(noteSelectWrap) noteSelectWrap.style.display = 'none';
+    showTxMainFormArea(false);
+    const _ps = document.getElementById('txDnPartialSearch'); if(_ps) _ps.value = '';
+    dnPartialRender();
   } else {
     if(viewSection) viewSection.style.display = 'none';
     if(noteSelectWrap) noteSelectWrap.style.display = 'none';
