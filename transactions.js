@@ -2139,6 +2139,7 @@ async function submitTxBatchSimple(date, msg){
     const purchase = {
       id: purchaseId,
       date, partyId: party, partyName: party, supplierId: purchaseSupplierIdFor(party), invoiceNo, note,
+      priceCheck: { status: 'pending' },   // 待會計核價
       items: txBatchItems.map(it => {
         const p = products.find(pp => pp.id === it.productId);
         if(p && p.parentId && p.autoConvertOnStockIn){

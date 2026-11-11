@@ -497,6 +497,7 @@ async function confirmSendPurchaseEmail(){
 // 品項時會連動重新產生這張進貨單底下的庫存異動紀錄(transactions)、自動調整目前庫存,兩邊才會
 // 一直保持一致,不會出現「進貨單寫的數字」跟「庫存異動紀錄/目前庫存」對不起來的情況。
 let editPurchaseTargetId = null;
+let editPurchasePreviewIdx = -1;
 let editPurchaseWorkingReceiptFiles = []; // 編輯中的收據附件清單(工作副本),按「取消」不會影響到原本存的資料,只有按「儲存」才會真的寫回去
 // 編輯中的品項清單(工作副本,深複製自 p.items),結構跟 p.items 一樣:
 // { productId, sku, name, unit, qty, amount?, docType?, sourceFilename? }。
@@ -551,6 +552,7 @@ function populateEditPurchasePartySelect(currentName, currentSupplierId){
   if(!p) return;
   editPurchaseTargetId = purchaseId;
   editPurchaseWorkingReceiptFiles = getPurchaseReceiptFileList(p).slice();
+  editPurchasePreviewIdx = -1;
   editPurchaseWorkingItems = (p.items || []).map(it => ({...it}));
   if(typeof paEditLoad === 'function') paEditLoad(p);   // 進貨帳務:入會計紀錄 / GST
   document.getElementById('editPurchaseDateInput').value = p.date || '';
@@ -598,9 +600,28 @@ function renderEditPurchaseReceiptList(){
           <option value="others" ${f.docType === 'others' ? 'selected' : ''}>${t('optDocTypeOthers')}</option>
         </select>
       ` : ''}
+      <span class="del-link" onclick="toggleEditPurchaseReceiptPreview(${i})">${t(editPurchasePreviewIdx === i ? 'epPreviewClose' : 'epPreview')}</span>
       <span class="del-link" onclick="removeEditPurchaseReceiptFile(${i})">${t('btnRemoveFile')}</span>
     </div>
   `).join('');
+  renderEditPurchaseReceiptPreview();
+}
+function toggleEditPurchaseReceiptPreview(i){
+  editPurchasePreviewIdx = (editPurchasePreviewIdx === i) ? -1 : i;
+  renderEditPurchaseReceiptList();
+}
+function renderEditPurchaseReceiptPreview(){
+  const box = document.getElementById('editPurchaseReceiptPreview'); if(!box) return;
+  const f = editPurchaseWorkingReceiptFiles[editPurchasePreviewIdx];
+  if(!f){ box.style.display = 'none'; box.innerHTML = ''; return; }
+  const name = (f.filename || f.url || '').toLowerCase().split('?')[0];
+  const u = escapeHtmlForPrint(f.url || '');
+  let inner;
+  if(/\.(png|jpe?g|gif|webp|bmp)$/.test(name)) inner = `<img src="${u}" style="max-width:100%;display:block;margin:0 auto;" />`;
+  else if(/\.pdf$/.test(name)) inner = `<iframe src="${u}" style="width:100%;height:100%;border:0;"></iframe>`;
+  else inner = `<div style="padding:12px;font-size:12.5px;color:var(--ink-soft);">${t('epNoPreview')}</div>`;
+  box.style.display = 'block';
+  box.innerHTML = `<div style="height:420px;min-height:160px;resize:vertical;overflow:auto;border:1px solid var(--line);border-radius:6px;background:#fff;">${inner}</div>`;
 }
 function setEditPurchaseReceiptFileDocType(index, docType){
   const f = editPurchaseWorkingReceiptFiles[index];
@@ -669,6 +690,8 @@ function renderEditPurchaseItemsList(){
   if(batchOn) cols.push('138px', '120px', '46px');
   cols.push('44px');
   const grid = `display:grid;grid-template-columns:${cols.join(' ')};gap:8px;align-items:center;min-width:${cols.reduce((s, c) => s + (parseInt((c.match(/\d+/) || [0])[0], 10) || 0), 0) + 8 * cols.length}px;`;
+  const flags = editPurchasePriceFlags();
+  const flagN = Object.keys(flags).length;
   const hdrCss = 'font-size:11px;color:var(--ink-soft);';
   const cur = escapeHtmlForPrint(typeof getSystemCurrency === 'function' ? getSystemCurrency() : 'AUD');
   const hdr = `<div style="${grid}${hdrCss}position:sticky;top:0;background:var(--bg,#fff);z-index:1;padding:2px 0;">
@@ -678,6 +701,7 @@ function renderEditPurchaseItemsList(){
           <span></span>
         </div>`;
   wrap.innerHTML = `
+    <div id="editPurchaseFlagBanner" style="display:${flagN ? 'block' : 'none'};font-size:12.5px;color:#9a6a00;background:#fff4dc;border-radius:6px;padding:5px 10px;margin-bottom:6px;">${flagN ? escapeHtmlForPrint(tf('epFlagSummary', { n: flagN })) : ''}</div>
     <div style="overflow-x:auto;">
      <div style="display:flex;flex-direction:column;gap:0;">
       ${hdr}
@@ -687,10 +711,11 @@ function renderEditPurchaseItemsList(){
             ${escapeHtmlForPrint(it.name || '')}${it.sku ? ` <span style="color:var(--ink-soft);">(${escapeHtmlForPrint(it.sku)})</span>` : ''}
             ${it.docType === 'credit_note' ? ` <span style="color:var(--crit);font-weight:600;font-size:11px;">(${t('docTypeCreditNoteBadge')})</span>` : ''}
             ${it._scanUpdated ? `<span style="color:var(--warn-dark);font-size:11px;margin-left:4px;">🔍</span>` : ''}
+            <span id="epFlagMk_${i}" style="display:${flags[i] ? 'inline' : 'none'};color:#d97706;cursor:help;" title="${flags[i] ? escapeHtmlForPrint(flags[i].msg) : ''}">⚠</span>
           </div>
           <input type="number" value="${it.qty}" min="0" step="any" style="width:100%;" oninput="updateEditPurchaseItemQty(${i}, this.value)" />
           <span style="font-size:11.5px;color:var(--ink-soft);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtmlForPrint(it.unit || '')}</span>
-          <input type="number" value="${it.amount !== undefined && it.amount !== null ? it.amount : ''}" min="0" step="any" placeholder="$" style="width:100%;" ${canEditPrice() ? '' : 'readonly title="' + t('priceReadOnlyTitle') + '"'} oninput="updateEditPurchaseItemAmount(${i}, this.value)" />
+          <input type="number" value="${it.amount !== undefined && it.amount !== null ? it.amount : ''}" min="0" step="any" placeholder="$" style="width:100%;${flags[i] ? 'background:#fff4dc;border-color:#d97706;' : ''}" ${canEditPrice() ? (flags[i] ? 'title="' + escapeHtmlForPrint(flags[i].msg) + '"' : '') : 'readonly title="' + t('priceReadOnlyTitle') + '"'} oninput="updateEditPurchaseItemAmount(${i}, this.value, this)" />
           ${paOnNow ? (it.noAcct ? '<span style="font-size:11.5px;color:var(--ink-soft);">' + t('paOffBooksShort') + '</span>' : paGstSelectHtml(it.gst, 'paEditSetGst(' + i + ', this.value)')) : ''}
           ${batchOn ? ((!it.noBatch) ? `
           <input type="date" value="${it.expiry || ''}" title="${t('batchColExpiry')}" style="width:100%;" onchange="updateEditPurchaseItemExpiry(${i}, this.value)" />
@@ -766,13 +791,55 @@ function updateEditPurchaseItemQty(index, value){
   it.qty = Number.isFinite(n) ? n : 0;
   delete it.rcv;   // 數量被改過,收據原始單位/數量不再準確 → 退回顯示主商品單位
 }
-function updateEditPurchaseItemAmount(index, value){
+// 會計核價輔助:缺價(沒填或 0)、或單價和同商品上一次進貨差超過 20% 的行,標黃色請會計確認
+function editPurchasePriceFlags(){
+  const out = {};
+  if(!canEditPrice()) return out;
+  const cur = purchases.find(x => x.id === editPurchaseTargetId);
+  const curDate = (cur && cur.date) || '';
+  const lastMap = {};
+  purchases.filter(x => x.id !== editPurchaseTargetId && (!curDate || (x.date || '') <= curDate))
+    .sort((a, b) => (b.date || '').localeCompare(a.date || '') || (b.createdAt || '').localeCompare(a.createdAt || ''))
+    .forEach(q => (q.items || []).forEach(it => {
+      if(!it.productId || lastMap[it.productId] !== undefined || it.noAcct || (it.docType && it.docType !== 'invoice')) return;
+      const a = Number(it.amount), n = Number(it.qty);
+      if(a > 0 && n > 0) lastMap[it.productId] = a / n;
+    }));
+  editPurchaseWorkingItems.forEach((it, i) => { const f = editPurchaseFlagFor(it, lastMap); if(f) out[i] = f; });
+  editPurchaseFlagLast = lastMap;
+  return out;
+}
+let editPurchaseFlagLast = {};
+function editPurchaseFlagFor(it, lastMap){
+  if(it.noAcct || (it.docType && it.docType !== 'invoice')) return null;
+  const a = Number(it.amount), n = Number(it.qty);
+  if(!(a > 0)) return { kind: 'missing', msg: t('epFlagMissing') };
+  const last = lastMap[it.productId];
+  if(last && n > 0){
+    const diff = (a / n - last) / last;
+    if(Math.abs(diff) > 0.2) return { kind: 'diff', msg: tf('epFlagDiff', { pct: (diff > 0 ? '+' : '') + Math.round(diff * 100), last: last.toFixed(2) }) };
+  }
+  return null;
+}
+function editPurchaseRefreshFlagUI(i, el){
+  const it = editPurchaseWorkingItems[i]; if(!it) return;
+  const f = editPurchaseFlagFor(it, editPurchaseFlagLast);
+  if(el){ el.style.background = f ? '#fff4dc' : ''; el.style.borderColor = f ? '#d97706' : ''; el.title = f ? f.msg : ''; }
+  const mk = document.getElementById('epFlagMk_' + i);
+  if(mk){ mk.style.display = f ? 'inline' : 'none'; mk.title = f ? f.msg : ''; }
+  const all = {}; let n = 0;
+  editPurchaseWorkingItems.forEach(x => { if(editPurchaseFlagFor(x, editPurchaseFlagLast)) n++; });
+  const b = document.getElementById('editPurchaseFlagBanner');
+  if(b){ b.style.display = n ? 'block' : 'none'; b.textContent = n ? tf('epFlagSummary', { n }) : ''; }
+}
+function updateEditPurchaseItemAmount(index, value, el){
   if(!canEditPrice()) return; // 沒有「編輯價錢」權限只能看不能改
   const it = editPurchaseWorkingItems[index];
   if(!it) return;
-  if(value === ''){ delete it.amount; return; }
+  if(value === ''){ delete it.amount; editPurchaseRefreshFlagUI(index, el); return; }
   const n = parseFloat(value);
   it.amount = Number.isFinite(n) ? n : undefined;
+  editPurchaseRefreshFlagUI(index, el);
 }
 function removeEditPurchaseItem(index){
   editPurchaseWorkingItems.splice(index, 1);
