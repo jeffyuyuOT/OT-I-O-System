@@ -916,7 +916,8 @@ function toggleOrderExpand(orderId){
 // 刪除整筆訂單採「軟刪除」:退回庫存、把訂單裡的商品跟訂單本身都標註為已刪除,
 // 但訂單紀錄仍保留在「已完成訂單」清單裡(顯示並標註已刪除),不會從紀錄裡清除。
 // 已簽收的訂單完全鎖住,整張訂單也不能刪除——簽收後不能再更動任何內容,只能疊加新增附註。
-function deleteCompletedOrder(orderId){
+async function deleteCompletedOrder(orderId){
+  try{ await ensureDeliveryNotesLoaded(); }catch(e){}
   const order = orders.find(o => o.id === orderId);
   if(!order) return;
   if(order.signedAt){
@@ -949,7 +950,8 @@ function deleteCompletedOrder(orderId){
 // (軟刪除),但仍保留在紀錄裡。
 // 已簽收的訂單完全鎖住,不能刪除品項、也不能改數量——簽收後這張訂單的所有內容都不能再更動,
 // 只能疊加新增附註,不能修改或刪除既有內容。
-function deleteOrderItem(orderId, productId){
+async function deleteOrderItem(orderId, productId){
+  try{ await ensureDeliveryNotesLoaded(); }catch(e){}
   const order = orders.find(o => o.id === orderId);
   if(!order) return;
   if(order.signedAt){
@@ -1043,6 +1045,9 @@ async function saveOrderItemQty(context, orderId, productId){
     return;
   }
 
+  try{ await ensureDeliveryNotesLoaded(); }catch(e){}
+  { const gm = { style: {} }; Object.defineProperty(gm, 'textContent', { set(v){ showInfoModal(v); } });
+    if(dnGuardOrderEdit(order, { [productId]: newQty }, [], gm, { nsOrder: true })) return; }   // 不能改到比 Delivery Note 已送數量還少
   if(!(await invGuardOrderEdit(order, {qty: { [productId]: newQty }}))) return;
 
   const oldQty = item.qty;
@@ -2454,8 +2459,9 @@ function editOrderViaRegister(orderId, mode){
 async function signOrderHistory(orderId){
   const order = orders.find(o => o.id === orderId);
   if(!order || order.deleted || orderStatus(order) !== 'confirmed' || order.signedAt) return;
-  const dnWarn = await dnSignWarning(order);   // 有關聯 Delivery Note 但還沒送完 → 警告文字取代一般確認文字
-  showConfirmModal(dnWarn || tf('confirmSignOrder', { orderNo: order.orderNo || orderId }), async () => {
+  const dnWarn = await dnSignWarning(order);   // 有關聯 Delivery Note 但還沒送完 → 不能簽收(避免誤按放棄剩餘貨物)
+  if(dnWarn){ showInfoModal(dnWarn); return; }
+  showConfirmModal(tf('confirmSignOrder', { orderNo: order.orderNo || orderId }), async () => {
     const prevSignedAt = order.signedAt;
     const prevSignInfo = order.signInfo;
     order.signedAt = new Date().toISOString();
@@ -2758,7 +2764,7 @@ async function openWarehouseSignModal(orderId){
   const order = orders.find(o => o.id === orderId);
   if(!order || order.deleted || order.signedAt) return;
   const dnWarn = await dnSignWarning(order);
-  if(dnWarn){ showConfirmModal(dnWarn, () => openWarehouseSignModalNow(orderId)); return; }
+  if(dnWarn){ showInfoModal(dnWarn); return; }
   openWarehouseSignModalNow(orderId);
 }
 function openWarehouseSignModalNow(orderId){

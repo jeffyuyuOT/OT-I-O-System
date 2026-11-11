@@ -305,7 +305,10 @@ async function dnSignWarning(order){
   return tf('dnSignWarn', { orderNo: order.orderNo || '', list: left.slice(0, 8).join(', ') + (left.length > 8 ? ' …' : '') });
 }
 function dnOrderBadgeHtml(o){
-  if(!o || o.deleted || dnOrderShipState(o.id) !== 'partial') return '';
+  if(!o || o.deleted) return '';
+  const st = dnOrderShipState(o.id);
+  if(st === 'done' && !o.signedAt && orderStatus(o) === 'confirmed') return `<span style="font-size:11px;font-weight:600;color:var(--safe);border:1px solid currentColor;border-radius:10px;padding:0 7px;white-space:nowrap;" title="${t('dnBadgeAwaitTitle')}">${t('dnBadgeAwait')}</span>`;
+  if(st !== 'partial') return '';
   return `<span style="font-size:11px;font-weight:600;color:var(--warn,#b45309);border:1px solid currentColor;border-radius:10px;padding:0 7px;white-space:nowrap;" title="${t('dnBadgePartialTitle')}">${t('dnBadgePartial')}</span>`;
 }
 function dnRecordHtml(type, id){
