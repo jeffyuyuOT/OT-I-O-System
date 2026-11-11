@@ -420,8 +420,13 @@ function setTxOutFlowType(flowType){
 // Delivery Note 的「新增」/「載入」切換,邏輯比照 setTxOutFlowType:「新增」直接展開空白表單;
 // 「載入」要先選出是哪一張 Delivery Note,選出來之前主表單保持隱藏。備註在這裡是必填
 // (相關已完成訂單號要寫在這裡),所以標籤文字改用「必填」版本。
-function setTxDeliveryFlowType(flowType){
-  if(!deliveryNotesLoaded){ ensureDeliveryNotesLoaded().then(() => setTxDeliveryFlowType(flowType)); return; }
+function setTxDeliveryFlowType(flowType, skipLoad){
+  if(!deliveryNotesLoaded && !skipLoad){
+    // 「新增」不需要先等 Delivery Note 資料:畫面馬上顯示,資料在背景載入(搜尋關聯單據/儲存/列印時才會真的用到,那邊各自會等)。
+    // 「載入/觀看」要列出已有的 Delivery Note,才需要等;載入失敗也只重畫一次,不再無限重試(之前失敗會一直重新載入、畫面卡住)。
+    if(flowType === 'new') ensureDeliveryNotesLoaded();
+    else { ensureDeliveryNotesLoaded().then(() => { if(currentTxType === 'delivery') setTxDeliveryFlowType(flowType, true); }); return; }
+  }
   registerDeliveryFlowType = flowType;
   registerLoadedDeliveryNoteId = null;
   txBatchItems = []; txNsItems = [];

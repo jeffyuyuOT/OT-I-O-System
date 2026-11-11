@@ -304,9 +304,11 @@ async function upsertOrders(orderList){
 }
 
 async function loadDeliveryNotes(){
+  const _t0 = Date.now();
   try{
     const { data, error } = await sb.from('delivery_notes').select('payload');
     if(error) throw error;
+    console.info('[DN載入]', (data || []).length, '筆,', Date.now() - _t0, 'ms');
     deliveryNotes = (data || []).map(r => r.payload);
     deliveryNotesLoaded = true;
     if(typeof dnBackfillNos === 'function') dnBackfillNos();
