@@ -1,6 +1,6 @@
 // 每日伺服器端備份:把 public schema 所有資料表倒成一個 gzip JSON,上傳到 Dropbox(App folder),並刪除超過保留天數的舊檔。
 // 由 pg_cron 每天呼叫一次(見 sql/daily_backup_cron.sql)。
-// 需要的 secrets:DROPBOX_APP_KEY, DROPBOX_APP_SECRET, DROPBOX_REFRESH_TOKEN, BACKUP_SECRET;選用 RETENTION_DAYS(預設 30)。
+// 需要的 secrets:DROPBOX_APP_KEY, DROPBOX_APP_SECRET, DROPBOX_REFRESH_TOKEN, BACKUP_SECRET;選用 RETENTION_DAYS(預設 90)。
 // (SUPABASE_DB_URL 是 Supabase 自動提供的)。部署時要關掉 JWT 驗證(--no-verify-jwt),改用 x-backup-secret 驗證。
 import postgres from "https://deno.land/x/postgresjs@v3.4.4/mod.js";
 
@@ -114,7 +114,7 @@ Deno.serve(async (req) => {
     if (!up.ok) throw new Error(`Dropbox upload failed: ${up.status} ${await up.text()}`);
 
     // 上傳成功後才清舊檔;清理失敗不算備份失敗,只記在 error 欄(ok 仍為 true)
-    try { deleted = await cleanupOld(token, Number(Deno.env.get("RETENTION_DAYS") || 30)); }
+    try { deleted = await cleanupOld(token, Number(Deno.env.get("RETENTION_DAYS") || 90)); }
     catch (e) { note = "cleanup: " + String((e as Error)?.message || e); }
   } catch (e) {
     error = String((e as Error)?.message || e);
