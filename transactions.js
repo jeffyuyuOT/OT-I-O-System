@@ -239,7 +239,9 @@ function txSupplierPurchases(){
   if(!name || typeof purchases === 'undefined') return [];
   const sid = purchaseSupplierIdFor(name);
   const low = name.toLowerCase();
-  return purchases.filter(p => sid ? p.supplierId === sid : (p.partyName || '').trim().toLowerCase() === low);
+  // 舊進貨單沒有 supplierId(只存了名稱):沒有 supplierId 的就用名稱比對,有 supplierId 的以 id 為準
+  const nm = p => (p.partyName || p.partyId || '').trim().toLowerCase();
+  return purchases.filter(p => p.supplierId ? (sid ? p.supplierId === sid : nm(p) === low) : nm(p) === low);
 }
 // 進貨單品項 → 登記進貨清單用的商品(自動切換過的用收據上的原商品/數量),發票以外(Credit Note、其他)不算
 function txPurchaseStockLines(p){
