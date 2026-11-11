@@ -770,16 +770,16 @@ function renderCompletedOrdersInto(container, recentOnly){
   // 已經把它們排除),移來這邊用不同的狀態標籤(已出貨 / 已取消)區分,方便一起查歷史紀錄。
   let list = orders.filter(o => orderStatus(o) === 'confirmed' || o.deleted);
   if(partyFn) list = list.filter(partyFn);
-  // 簽收狀態 / Delivery Note 出貨狀態篩選(取消的訂單不算在這兩種篩選裡)
-  { const sv = (document.getElementById(recentOnly ? 'recentCompletedOrderSignFilter' : 'completedOrderSignFilter') || {}).value || '';
+  // 狀態篩選:未簽收 / 已簽收 / Partially Shipped(有關聯 Delivery Note 但還沒送完)/ 已送完待簽收(取消的訂單不算)
+  { const sv = (document.getElementById(recentOnly ? 'recentCompletedOrderStatusFilter' : 'completedOrderStatusFilter') || {}).value || '';
     if(sv === 'unsigned') list = list.filter(o => !o.deleted && !o.signedAt);
     else if(sv === 'signed') list = list.filter(o => !!o.signedAt);
-    const dv = (document.getElementById(recentOnly ? 'recentCompletedOrderDnFilter' : 'completedOrderDnFilter') || {}).value || '';
-    if(dv){
+    else if(sv === 'partial' || sv === 'await'){
       if(!deliveryNotesLoaded){
         if(!dnFilterLoadTried){ dnFilterLoadTried = true; container.innerHTML = `<div class="empty-note">${t('dnFilterLoading')}</div>`; ensureDeliveryNotesLoaded().then(() => renderOrders()); return; }
         list = [];
-      } else list = list.filter(o => !o.deleted && dnOrderShipState(o.id) === dv);
+      } else if(sv === 'partial') list = list.filter(o => !o.deleted && dnOrderShipState(o.id) === 'partial');
+      else list = list.filter(o => !o.deleted && !o.signedAt && dnOrderShipState(o.id) === 'done');
     } }
   { const qEl = document.getElementById(recentOnly ? 'recentCompletedOrderNoSearch' : 'completedOrderNoSearch'); if(qEl && qEl.value.trim()) list = list.filter(o => orderNoMatches(o, qEl.value)); }
   if(dateFrom) list = list.filter(o => o.date >= dateFrom);
