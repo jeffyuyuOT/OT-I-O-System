@@ -1603,6 +1603,9 @@ body.no-cost-view .cost-col{display:none !important;}
           <input id="txNote" type="text" placeholder="例如:客戶訂單 #123" data-i18n-placeholder="txNotePlaceholderExample" />
         </div>
       </div>
+      <div id="txCopyLastRow" style="display:none;justify-content:flex-end;margin-top:8px;">
+        <button type="button" class="btn ghost" onclick="txCopyLastPurchase()" data-i18n="btnCopyLastPurchase">📋 複製上次進貨商品</button>
+      </div>
       <div id="txCnWrap" class="field" style="display:none;margin-top:10px;">
         <label data-i18n="icTxCnLabel">對應的 Credit Note(選填)</label>
         <select id="txCnSelect" onchange="icTxCnPick()"></select>
