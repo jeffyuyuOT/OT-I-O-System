@@ -252,8 +252,17 @@ function txPurchaseStockLines(p){
   const out = [];
   (p.items || []).forEach(it => {
     if(it.docType && it.docType !== 'invoice') return;
-    const pid = it.rcv ? it.rcv.productId : it.productId;
-    const qty = it.rcv ? Number(it.rcv.qty) : Number(it.qty);
+    let pid = it.rcv ? it.rcv.productId : it.productId;
+    let qty = it.rcv ? Number(it.rcv.qty) : Number(it.qty);
+    // 實際進貨的是「批量商品」(自動切換成主商品入庫):有 rcv 直接用收據上的批量商品;
+    // 舊進貨單沒存 rcv、只剩主商品時,主商品只有一個自動切換的批量商品就還原成它(數量 ÷ 換算重量)
+    if(!it.rcv){
+      const kids = (typeof products !== 'undefined' ? products : []).filter(x => x.parentId === it.productId && x.autoConvertOnStockIn);
+      if(kids.length === 1){
+        const w = kids[0].childWeight || 1, q = qty / w;
+        if(q > 0 && Math.abs(q - Math.round(q)) < 1e-6){ pid = kids[0].id; qty = Math.round(q); }
+      }
+    }
     if(!pid || !(qty > 0)) return;
     out.push({ pid, qty, amount: Number(it.amount) > 0 ? Number(it.amount) : 0 });
   });
