@@ -284,7 +284,7 @@ async function txCopyLastPurchase(){
   const lines = []; let skipped = 0;
   Object.keys(merged).forEach(pid => {
     const prod = products.find(x => x.id === pid);
-    if(!prod || prod.hidden){ skipped++; return; }
+    if(!prod){ skipped++; return; }
     lines.push({ prod, qty: merged[pid].qty, amount: merged[pid].amount });
   });
   if(!lines.length){ showInfoModal(t('txCopyNoUsable')); return; }
@@ -299,7 +299,10 @@ async function txCopyLastPurchase(){
     renderTxBatchList();
     if(msg){ msg.className = 'msg ok'; msg.textContent = tf('txCopyDone', { date: last.date || '', n: lines.length }) + (skipped ? ' ' + tf('txCopySkipped', { n: skipped }) : ''); }
   };
-  if(txBatchItems.length > 0) showConfirmModal(t('txCopyReplaceConfirm'), doCopy); else doCopy();
+  const go = () => { if(txBatchItems.length > 0) showConfirmModal(t('txCopyReplaceConfirm'), doCopy); else doCopy(); };
+  // 庫存總覽隱藏的商品(例如自動切換用的批量商品)也會帶入,但先跳視窗列出來,讓使用者確認匯入或取消
+  const hiddenNames = lines.filter(l => l.prod.hidden).map(l => l.prod.name + (l.prod.unit ? '(' + l.prod.unit + ')' : ''));
+  if(hiddenNames.length) showConfirmModal(tf('txCopyHiddenConfirm', { n: hiddenNames.length, names: hiddenNames.join('、') }), go); else go();
 }
 function populateTxPartyHistorySelect(){
   const sel = document.getElementById('txPartyHistorySelect');
