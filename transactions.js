@@ -241,7 +241,9 @@ function txSupplierPurchases(){
   const low = name.toLowerCase();
   // 進貨方 id 相同、或名稱相同(舊進貨單沒有 supplierId;名稱重複的進貨方視為同一家)都算同進貨方
   const nm = p => (p.partyName || p.partyId || '').trim().toLowerCase();
-  const res = purchases.filter(p => (sid && p.supplierId === sid) || nm(p) === low);
+  // 進貨單存的 supplierId 對應到的進貨方名稱相同(進貨方有重複建立、或進貨單名稱欄位不同)也算
+  const supName = id => { const sp = (typeof purchaseSuppliers !== 'undefined' ? purchaseSuppliers : []).find(x => x.id === id); return sp ? (sp.name || '').trim().toLowerCase() : ''; };
+  const res = purchases.filter(p => (sid && p.supplierId === sid) || nm(p) === low || (p.supplierId && supName(p.supplierId) === low));
   console.info('[進貨複製] 進貨方', name, 'id', sid || '(無)', '進貨單總數', purchases.length, '符合', res.length);
   return res;
 }
@@ -271,7 +273,11 @@ async function txCopyLastPurchase(){
   if(!name){ showInfoModal(t('txCopyNoParty')); return; }
   const list = txSupplierPurchases().filter(p => txPurchaseStockLines(p).length > 0)
     .sort((a, b) => (b.date || '').localeCompare(a.date || '') || (b.createdAt || '').localeCompare(a.createdAt || ''));
-  if(!list.length){ showInfoModal(tf('txCopyNoHistory', { name })); return; }
+  if(!list.length){
+    const matched = txSupplierPurchases();
+    showInfoModal(tf('txCopyNoHistory', { name }) + (matched.length ? '\n' + tf('txCopyNoLines', { n: matched.length }) : ''));
+    return;
+  }
   const last = list[0];
   const merged = {};
   txPurchaseStockLines(last).forEach(l => { const m = merged[l.pid] = merged[l.pid] || { qty: 0, amount: 0 }; m.qty += l.qty; m.amount += l.amount; });
@@ -281,7 +287,7 @@ async function txCopyLastPurchase(){
     if(!prod || prod.hidden){ skipped++; return; }
     lines.push({ prod, qty: merged[pid].qty, amount: merged[pid].amount });
   });
-  if(!lines.length){ showInfoModal(tf('txCopyNoHistory', { name })); return; }
+  if(!lines.length){ showInfoModal(t('txCopyNoUsable')); return; }
   const doCopy = () => {
     txBatchItems = [];
     lines.forEach(({ prod, qty, amount }) => {
