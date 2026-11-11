@@ -3476,7 +3476,7 @@ function renderProductSelect(){
   let freqList = [];
   if(currentTxType === 'in'){
     if(typeof purchasesLoaded !== 'undefined' && !purchasesLoaded && typeof ensurePurchasesLoaded === 'function'){ ensurePurchasesLoaded().then(() => renderProductSelect()).catch(() => {}); }
-    else freqList = txFrequentProductIds().filter(x => products.some(p => p.id === x.pid && !p.hidden));
+    else freqList = txFrequentProductIds().filter(x => products.some(p => p.id === x.pid));   // 含隱藏商品(例如自動切換用的批量商品)
   }
   catSel.innerHTML = `<option value="">${t('catFilterAll')}</option>` +
     (freqList.length ? `<option value="__freq__">★ ${t('catFilterFrequent')}</option>` : '') +
@@ -3491,8 +3491,9 @@ function renderProductSelect(){
   const freqCount = {};
   freqList.forEach(x => { freqCount[x.pid] = x.n; });
   const isFreq = catFilterVal === '__freq__';
-  let filteredProducts = (isFreq ? freqList.map(x => products.find(p => p.id === x.pid)).filter(Boolean) : (catFilterVal ? products.filter(p => (p.category || '未分類') === catFilterVal) : products))
-    .filter(p => !p.hidden);
+  let filteredProducts = isFreq
+    ? freqList.map(x => products.find(p => p.id === x.pid)).filter(Boolean)
+    : (catFilterVal ? products.filter(p => (p.category || '未分類') === catFilterVal) : products).filter(p => !p.hidden);
 
   // load-pending/load-completed 新增商品的下拉選單:預設只顯示這個出貨方訂貨時實際看得到的商品
   // (跟訂貨頁面同一套篩選邏輯:orderable、沒有全域隱藏、也沒有針對這個出貨方個別隱藏),
@@ -3515,7 +3516,7 @@ function renderProductSelect(){
     const _dd = dnRefDocCurrent();
     if(_dd){ const _ids = new Set(_dd.items.map(x => x.productId)); filteredProducts = filteredProducts.filter(p => _ids.has(p.id)); }
   }
-  sel.innerHTML = '<option value=""></option>' + (isFreq ? filteredProducts.slice() : filteredProducts.slice().sort(compareProductsBySortMode)).map(p => `<option value="${p.id}">${p.parentId ? '⧉ ' : ''}${p.name}(${p.unit})${isFreq && freqCount[p.id] ? ' · ' + tf('freqTimes', { n: freqCount[p.id] }) : ''}</option>`).join('');
+  sel.innerHTML = '<option value=""></option>' + (isFreq ? filteredProducts.slice() : filteredProducts.slice().sort(compareProductsBySortMode)).map(p => `<option value="${p.id}">${p.parentId ? '⧉ ' : ''}${p.name}(${p.unit})${isFreq && freqCount[p.id] ? ' · ' + tf('freqTimes', { n: freqCount[p.id] }) : ''}${isFreq && p.hidden ? ' · ' + t('freqHiddenTag') : ''}</option>`).join('');
   if(filteredProducts.some(p => p.id === prevVal)) sel.value = prevVal;
 
   const browseAllRow = document.getElementById('txBrowseAllProductsRow');
