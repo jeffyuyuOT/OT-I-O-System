@@ -1002,10 +1002,19 @@ async function reconcileForecastScan(){
   const diffs = []; // {kind:'qty'|'extra'|'missing', name, unit, loadedQty, scanQty}
   const qtyOverwrite = []; // [loadedItem, scanQty]
   const removeIds = new Set();
+  const replacedLoadedIds = new Set();   // 被收據(帶效期)取代的預估載入行
   Object.keys(agg).forEach(pid => {
     const a = agg[pid];
     const li = loaded.find(x => x.productId === pid);
     if(!li){ diffs.push({ kind: 'extra', name: a.name, unit: a.unit, loadedQty: null, scanQty: a.qty }); return; }
+    // 收據這個商品有效期(例如嘉南 Excel 拆成多個效期行):直接保留收據的行(帶效期/批號/金額),
+    // 把預估載入的那一行拿掉,但把來源預估表 id 帶到第一行,送出後才會刪掉那筆預估紀錄。
+    if(a.rows.some(r => r.expiry)){
+      a.rows[0].fromForecast = true; a.rows[0].forecastRecordId = li.forecastRecordId; a.rows[0].forecastRecordName = li.forecastRecordName;
+      replacedLoadedIds.add(li.batchItemId);
+      if(a.qty !== li.qty) diffs.push({ kind: 'qty', name: li.name, unit: li.unit, loadedQty: li.qty, scanQty: a.qty });
+      return;
+    }
     if(a.amount !== null) li.amount = a.amount;
     const first = a.rows[0];
     if(first.sourceFilename) li.sourceFilename = first.sourceFilename;
@@ -1023,7 +1032,7 @@ async function reconcileForecastScan(){
   const missing = loaded.filter(li => !scannedPids.has(li.productId));
   missing.forEach(li => diffs.push({ kind: 'missing', name: li.name, unit: li.unit, loadedQty: li.qty, scanQty: null }));
 
-  txBatchItems = txBatchItems.filter(it => !removeIds.has(it.batchItemId));
+  txBatchItems = txBatchItems.filter(it => !removeIds.has(it.batchItemId) && !replacedLoadedIds.has(it.batchItemId));
   receiptOcrSessionBatchItemIds = receiptOcrSessionBatchItemIds.filter(id => !removeIds.has(id));
   if(diffs.length === 0) return;
 
