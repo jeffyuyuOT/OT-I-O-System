@@ -9,6 +9,16 @@
 // 進貨方下拉篩選(比照「進出貨紀錄」子分頁的篩選列)。匯出是針對「單一張進貨單」,不是整份清單
 // (每張單通常對應同一張收據/同一個進貨方,合併匯出反而不好用)。
 let expandedPurchaseId = null;
+let purchaseLogEstOnly = false;   // 只看含「預估」其他支出、還沒補實際金額的進貨單
+function togglePurchaseLogEstOnly(){ purchaseLogEstOnly = !purchaseLogEstOnly; renderPurchaseLog(); }
+// 同一進貨方、同一個 Invoice No.(不分大小寫、去頭尾空白)已經存在的進貨單(excludeId = 編輯中的那張)
+function findDuplicatePurchase(partyName, supplierId, invoiceNo, excludeId){
+  const inv = (invoiceNo || '').trim().toLowerCase();
+  if(!inv) return null;
+  const nm = (partyName || '').trim().toLowerCase();
+  return (purchases || []).find(p => p.id !== excludeId && (p.invoiceNo || '').trim().toLowerCase() === inv &&
+    ((supplierId && p.supplierId === supplierId) || (nm && (p.partyName || '').trim().toLowerCase() === nm))) || null;
+}
 function togglePurchaseDetail(id){
   expandedPurchaseId = (expandedPurchaseId === id) ? null : id;
   renderPurchaseLog();
@@ -17,6 +27,7 @@ function clearPurchaseLogFilters(){
   document.getElementById('purchaseLogDateFrom').value = '';
   document.getElementById('purchaseLogDateTo').value = '';
   document.getElementById('purchaseLogPartyFilter').value = '';
+  purchaseLogEstOnly = false;
   renderPurchaseLog();
 }
 // 「已寄過 email」小圖示旁邊顯示的簡短時間文字——一張單可能補寄過好幾次(每次寄送都會覆蓋
@@ -72,19 +83,26 @@ function renderPurchaseLog(){
   const dateTo = document.getElementById('purchaseLogDateTo').value;
   const partyFilter = partySel.value;
 
+  // 金額、成本、預估支出屬於會計資料:沒有「查看價錢」權限的人(例如倉庫管理員)只看得到品項與數量
+  const priceOn = (typeof canViewPrice !== 'function') || canViewPrice();
   let filtered = purchases.slice();
   if(dateFrom) filtered = filtered.filter(p => (p.date || '') >= dateFrom);
   if(dateTo) filtered = filtered.filter(p => (p.date || '') <= dateTo);
   if(partyFilter) filtered = filtered.filter(p => purchasePartyKey(p) === partyFilter);
+  // 含預估其他支出的進貨單(只算符合日期/進貨方篩選的),頂端提示並可一鍵只看這些
+  const hasEst = p => (p.costs && (p.costs.expenses || []).some(e => e.estimated));
+  const estCount = priceOn ? filtered.filter(hasEst).length : 0;
+  if(priceOn && purchaseLogEstOnly) filtered = filtered.filter(hasEst);
+  const estBanner = (priceOn && (estCount > 0 || purchaseLogEstOnly)) ? `<div style="background:var(--warn-bg,#fff7e6);border:1px solid var(--warn-dark,#b45309);border-radius:8px;padding:8px 12px;margin-bottom:8px;font-size:12.5px;display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;"><span>⚠ ${escapeHtmlForPrint(tf('pcEstPendingBanner', { n: estCount }))}</span><button class="btn ghost" style="font-size:12px;" onclick="togglePurchaseLogEstOnly()">${t(purchaseLogEstOnly ? 'pcEstShowAll' : 'pcEstShowOnly')}</button></div>` : '';
 
   if(filtered.length === 0){
-    container.innerHTML = `<div class="empty-note">${t('noPurchasesYet')}</div>`;
+    container.innerHTML = estBanner + `<div class="empty-note">${t('noPurchasesYet')}</div>`;
     return;
   }
   const sorted = filtered.sort((a, b) => (b.date || '').localeCompare(a.date || '') || (b.createdAt || '').localeCompare(a.createdAt || ''));
   // 批次追蹤開啟時,批次號獨立一欄(不再塞在 Invoice 欄裡,沒有 Invoice No. 時才不會被誤認成 Invoice)
   const showBatchCol = typeof batchActive === 'function' && batchActive();
-  container.innerHTML = `<table class="stock-table purchase-log-table">
+  container.innerHTML = estBanner + `<table class="stock-table purchase-log-table">
       <thead><tr>
         <th>${t('colPurchaseDate')}</th>
         <th>${t('colPurchaseParty')}</th>
@@ -96,7 +114,7 @@ function renderPurchaseLog(){
         ${sorted.map(p => `
           <tr>
             <td class="pl-date" style="cursor:pointer;white-space:nowrap;" onclick="togglePurchaseDetail('${p.id}')"><span class="td-mobile-label">${t('colPurchaseDate')}</span><span style="display:inline-block;width:14px;">${expandedPurchaseId === p.id ? '▾' : '▸'}</span>${escapeHtmlForPrint(p.date || '')}</td>
-            <td class="pl-party" style="cursor:pointer;" onclick="togglePurchaseDetail('${p.id}')"><span class="td-mobile-label">${t('colPurchaseParty')}</span>${escapeHtmlForPrint(purchasePartyLabel(p))}${(typeof pcEstimateBadge === 'function') ? pcEstimateBadge(p) : ''}</td>
+            <td class="pl-party" style="cursor:pointer;" onclick="togglePurchaseDetail('${p.id}')"><span class="td-mobile-label">${t('colPurchaseParty')}</span>${escapeHtmlForPrint(purchasePartyLabel(p))}${(priceOn && typeof pcEstimateBadge === 'function') ? pcEstimateBadge(p) : ''}</td>
             <td class="pl-invoice" style="cursor:pointer;" onclick="togglePurchaseDetail('${p.id}')"><span class="td-mobile-label">${t('colPurchaseInvoiceNo')}</span>${escapeHtmlForPrint(p.invoiceNo || '')}${getPurchaseReceiptFileList(p).length > 0 ? ` <span title="${t('hasReceiptAttachedTitle')}">📎</span>` : ''}</td>
             ${showBatchCol ? (() => { const bt = (typeof batchPurchaseTagHtml === 'function') ? batchPurchaseTagHtml(p).trim() : ''; return `<td class="pl-batch" style="cursor:pointer;" onclick="togglePurchaseDetail('${p.id}')">${bt ? `<span class="td-mobile-label">${t('batchColBatch')}</span>${bt}` : ''}</td>`; })() : ''}
             <td class="pl-actions" style="white-space:nowrap;">
@@ -110,23 +128,23 @@ function renderPurchaseLog(){
           <tr>
             <td colspan="${showBatchCol ? 5 : 4}" style="background:#fff;">
               ${orderBlockHtml('items', 'orderBlockItems', `<table class="stock-table" style="margin:2px 0;background:transparent;">
-                <thead><tr><th>${t('colProduct')}</th><th class="num">${t('colQty')}</th>${(p.items || []).some(it => it.amount) ? `<th class="num">${(typeof pcPurchaseTotals === 'function' && p.costs && pcPurchaseTotals(p).expenses > 0) ? t('colBasePrice') : t('colAmount')}</th>` : ''}${(typeof pcPurchaseTotals === 'function' && p.costs && pcPurchaseTotals(p).expenses > 0) ? `<th class="num">${t('colTotalPrice')}</th>` : ''}</tr></thead>
+                <thead><tr><th>${t('colProduct')}</th><th class="num">${t('colQty')}</th>${(priceOn && (p.items || []).some(it => it.amount)) ? `<th class="num">${(priceOn && typeof pcPurchaseTotals === 'function' && p.costs && pcPurchaseTotals(p).expenses > 0) ? t('colBasePrice') : t('colAmount')}</th>` : ''}${(priceOn && typeof pcPurchaseTotals === 'function' && p.costs && pcPurchaseTotals(p).expenses > 0) ? `<th class="num">${t('colTotalPrice')}</th>` : ''}</tr></thead>
                 <tbody>
                   ${(p.items || []).map(it => {
                     const isCreditNote = it.docType === 'credit_note';
                     const displayQty = isCreditNote ? -it.qty : it.qty;
                     const badge = isCreditNote ? ` <span style="color:var(--crit);font-weight:600;font-size:11px;">(${t('docTypeCreditNoteBadge')})</span>` : '';
-                    const amountCell = (p.items || []).some(x => x.amount)
-                      ? `<td class="num">${it.amount ? Number(isCreditNote ? -it.amount : it.amount).toFixed(2) : '–'}${(it.amount && !isCreditNote && !(typeof pcPurchaseTotals === 'function' && p.costs && pcPurchaseTotals(p).expenses > 0)) ? ` <span class="batch-info-icon" style="cursor:pointer;" title="${escapeHtmlForPrint(t('pcPdTitle'))}" onclick="pcShowItemPrice('${p.id}','item',${(p.items || []).indexOf(it)})">ⓘ</span>` : ''}</td>` : '';
-                    const totalCell = (typeof pcPurchaseTotals === 'function' && p.costs && pcPurchaseTotals(p).expenses > 0)
+                    const amountCell = (priceOn && (p.items || []).some(x => x.amount))
+                      ? `<td class="num">${it.amount ? Number(isCreditNote ? -it.amount : it.amount).toFixed(2) : '–'}${(it.amount && !isCreditNote && !(priceOn && typeof pcPurchaseTotals === 'function' && p.costs && pcPurchaseTotals(p).expenses > 0)) ? ` <span class="batch-info-icon" style="cursor:pointer;" title="${escapeHtmlForPrint(t('pcPdTitle'))}" onclick="pcShowItemPrice('${p.id}','item',${(p.items || []).indexOf(it)})">ⓘ</span>` : ''}</td>` : '';
+                    const totalCell = (priceOn && typeof pcPurchaseTotals === 'function' && p.costs && pcPurchaseTotals(p).expenses > 0)
                       ? `<td class="num"><strong>${(typeof pcItemPrices === 'function' && pcItemPrices(it).total !== null) ? pcItemPrices(it).total.toFixed(2) : '–'}</strong>${((it.totalAmount !== undefined && it.totalAmount !== null || it.amount) && !isCreditNote) ? ` <span class="batch-info-icon" style="cursor:pointer;" title="${escapeHtmlForPrint(t('pcPdTitle'))}" onclick="pcShowItemPrice('${p.id}','item',${(p.items || []).indexOf(it)})">ⓘ</span>` : ''}</td>` : '';
                     const rq = it.rcv ? `${isCreditNote ? -it.rcv.qty : it.rcv.qty} ${escapeHtmlForPrint(it.rcv.unit || '')}` : `${displayQty} ${escapeHtmlForPrint(it.unit || '')}`;
                     const swNote = it.rcv ? `<div style="color:var(--ink-soft);font-size:11px;">${escapeHtmlForPrint(tf('purchaseConvertedNote', { name: it.name, qty: displayQty, unit: it.unit || '' }))}</div>` : '';
                     const shownName = (it.rcv && it.rcv.name) ? it.rcv.name : it.name;
                     return `<tr><td>${escapeHtmlForPrint(shownName)}${badge}${swNote}</td><td class="num">${rq}</td>${amountCell}${totalCell}</tr>`;
-                  }).join('')}${(p.nonStockItems || []).map(n => `<tr style="background:var(--bg-soft,#f5f5f0);"><td>${escapeHtmlForPrint(n.name || '')} <span style="color:var(--ink-soft);font-size:11px;">(${t('pcNonStockBadge')})</span></td><td class="num">${n.qty} ${escapeHtmlForPrint(n.unit || '')}</td>${(p.items || []).some(x => x.amount) ? `<td class="num">${Number(n.amount || 0).toFixed(2)}${(Number(n.amount) && !(typeof pcPurchaseTotals === 'function' && p.costs && pcPurchaseTotals(p).expenses > 0)) ? ` <span class="batch-info-icon" style="cursor:pointer;" title="${escapeHtmlForPrint(t('pcPdTitle'))}" onclick="pcShowItemPrice('${p.id}','ns',${(p.nonStockItems || []).indexOf(n)})">ⓘ</span>` : ''}</td>` : ''}${(typeof pcPurchaseTotals === 'function' && p.costs && pcPurchaseTotals(p).expenses > 0) ? (n.totalAmount !== undefined && n.totalAmount !== null ? `<td class="num"><strong>${Number(n.totalAmount).toFixed(2)}</strong> <span class="batch-info-icon" style="cursor:pointer;" title="${escapeHtmlForPrint(t('pcPdTitle'))}" onclick="pcShowItemPrice('${p.id}','ns',${(p.nonStockItems || []).indexOf(n)})">ⓘ</span></td>` : '<td class="num">–</td>') : ''}</tr>`).join('')}${(p.lineExpenses || []).map(l => `<tr style="background:var(--bg-soft,#f5f5f0);"><td>${escapeHtmlForPrint(l.name || '')} <span style="color:var(--ink-soft);font-size:11px;">(${t('pcLineExpBadge')})</span></td><td class="num"></td>${(p.items || []).some(x => x.amount) ? `<td class="num">${Number(l.amount || 0).toFixed(2)}</td>` : ''}${(typeof pcPurchaseTotals === 'function' && p.costs && pcPurchaseTotals(p).expenses > 0) ? '<td class="num">–</td>' : ''}</tr>`).join('')}
+                  }).join('')}${(p.nonStockItems || []).map(n => `<tr style="background:var(--bg-soft,#f5f5f0);"><td>${escapeHtmlForPrint(n.name || '')} <span style="color:var(--ink-soft);font-size:11px;">(${t('pcNonStockBadge')})</span></td><td class="num">${n.qty} ${escapeHtmlForPrint(n.unit || '')}</td>${(priceOn && (p.items || []).some(x => x.amount)) ? `<td class="num">${Number(n.amount || 0).toFixed(2)}${(Number(n.amount) && !(priceOn && typeof pcPurchaseTotals === 'function' && p.costs && pcPurchaseTotals(p).expenses > 0)) ? ` <span class="batch-info-icon" style="cursor:pointer;" title="${escapeHtmlForPrint(t('pcPdTitle'))}" onclick="pcShowItemPrice('${p.id}','ns',${(p.nonStockItems || []).indexOf(n)})">ⓘ</span>` : ''}</td>` : ''}${(priceOn && typeof pcPurchaseTotals === 'function' && p.costs && pcPurchaseTotals(p).expenses > 0) ? (n.totalAmount !== undefined && n.totalAmount !== null ? `<td class="num"><strong>${Number(n.totalAmount).toFixed(2)}</strong> <span class="batch-info-icon" style="cursor:pointer;" title="${escapeHtmlForPrint(t('pcPdTitle'))}" onclick="pcShowItemPrice('${p.id}','ns',${(p.nonStockItems || []).indexOf(n)})">ⓘ</span></td>` : '<td class="num">–</td>') : ''}</tr>`).join('')}${(p.lineExpenses || []).map(l => `<tr style="background:var(--bg-soft,#f5f5f0);"><td>${escapeHtmlForPrint(l.name || '')} <span style="color:var(--ink-soft);font-size:11px;">(${t('pcLineExpBadge')})</span></td><td class="num"></td>${(priceOn && (p.items || []).some(x => x.amount)) ? `<td class="num">${Number(l.amount || 0).toFixed(2)}</td>` : ''}${(priceOn && typeof pcPurchaseTotals === 'function' && p.costs && pcPurchaseTotals(p).expenses > 0) ? '<td class="num">–</td>' : ''}</tr>`).join('')}
                 </tbody>
-              </table>${(p.costs && typeof pcPurchaseTotals === 'function') ? (() => { const tt = pcPurchaseTotals(p); return `<div style="font-size:12.5px;margin-top:4px;display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;"><span>${t('lblInvoiceSubtotal')}: <strong>${tt.base.toFixed(2)}</strong>${tt.expenses > 0 ? ` + ${t('lblOtherExpensesTotal')}: <strong>${tt.expenses.toFixed(2)}</strong> = ${t('lblPurchaseGrandTotal')}: <strong>${tt.total.toFixed(2)}</strong>` : ''} ${p.costs.baseCurrency || 'AUD'}${p.costs.overseas ? ` (${tf('pcInvoiceCurrencyShort', { cur: p.costs.currency })})` : ''}</span>${(typeof pcHasOriginalData === 'function' && pcHasOriginalData(p)) ? `<button class="btn ghost" style="font-size:12px;" onclick="pcOpenOriginalModal('${p.id}')">${t('pcViewOriginal')}</button>` : ''}</div>`; })() : ''}`)}
+              </table>${(priceOn && p.costs && typeof pcPurchaseTotals === 'function') ? (() => { const tt = pcPurchaseTotals(p); return `<div style="font-size:12.5px;margin-top:4px;display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;"><span>${t('lblInvoiceSubtotal')}: <strong>${tt.base.toFixed(2)}</strong>${tt.expenses > 0 ? ` + ${t('lblOtherExpensesTotal')}: <strong>${tt.expenses.toFixed(2)}</strong> = ${t('lblPurchaseGrandTotal')}: <strong>${tt.total.toFixed(2)}</strong>` : ''} ${p.costs.baseCurrency || 'AUD'}${p.costs.overseas ? ` (${tf('pcInvoiceCurrencyShort', { cur: p.costs.currency })})` : ''}</span>${(typeof pcHasOriginalData === 'function' && pcHasOriginalData(p)) ? `<button class="btn ghost" style="font-size:12px;" onclick="pcOpenOriginalModal('${p.id}')">${t('pcViewOriginal')}</button>` : ''}</div>`; })() : ''}`)}
               ${p.note ? orderBlockHtml('remark', 'orderBlockRemark', `<p style="font-size:12.5px;color:var(--ink);margin:0;">${tf('purchaseNoteLabel', { note: escapeHtmlForPrint(p.note) })}</p>`) : ''}
               ${orderBlockHtml('party', 'orderBlockReceipt', getPurchaseReceiptFileList(p).length > 0
                 ? getPurchaseReceiptFileList(p).map(f => `<a href="${f.url}" target="_blank" style="font-size:12.5px;display:block;">📎 ${escapeHtmlForPrint(f.filename || t('linkViewUploadedReceipt'))}</a>`).join('')
@@ -479,6 +497,7 @@ async function confirmSendPurchaseEmail(){
 // 品項時會連動重新產生這張進貨單底下的庫存異動紀錄(transactions)、自動調整目前庫存,兩邊才會
 // 一直保持一致,不會出現「進貨單寫的數字」跟「庫存異動紀錄/目前庫存」對不起來的情況。
 let editPurchaseTargetId = null;
+let editPurchasePreviewIdx = -1;
 let editPurchaseWorkingReceiptFiles = []; // 編輯中的收據附件清單(工作副本),按「取消」不會影響到原本存的資料,只有按「儲存」才會真的寫回去
 // 編輯中的品項清單(工作副本,深複製自 p.items),結構跟 p.items 一樣:
 // { productId, sku, name, unit, qty, amount?, docType?, sourceFilename? }。
@@ -533,6 +552,7 @@ function populateEditPurchasePartySelect(currentName, currentSupplierId){
   if(!p) return;
   editPurchaseTargetId = purchaseId;
   editPurchaseWorkingReceiptFiles = getPurchaseReceiptFileList(p).slice();
+  editPurchasePreviewIdx = -1;
   editPurchaseWorkingItems = (p.items || []).map(it => ({...it}));
   if(typeof paEditLoad === 'function') paEditLoad(p);   // 進貨帳務:入會計紀錄 / GST
   document.getElementById('editPurchaseDateInput').value = p.date || '';
@@ -548,6 +568,13 @@ function populateEditPurchasePartySelect(currentName, currentSupplierId){
   populateEditPurchaseAddItemSelect();
   renderEditPurchaseItemsList();
   if(typeof pcEditInit === 'function') pcEditInit(p);
+  {
+    const pv = (typeof canViewPrice !== 'function') || canViewPrice();   // 倉管看不到價錢:金額、GST、入會計、成本/其他支出整區隱藏(儲存時原本的金額資料原樣保留)
+    const hide = (id, on) => { const el = document.getElementById(id); if(el) el.style.display = on ? 'none' : ''; };
+    if(!pv){ hide('editPurchaseAccWrap', true); hide('editPurchaseCostsWrap', true); }
+    else hide('editPurchaseCostsWrap', false);
+    hide('editPurchaseAddItemAmount', !pv);
+  }
   document.getElementById('editPurchaseModalOverlay').style.display = 'flex';
 }
 function closeEditPurchaseModal(){
@@ -580,9 +607,28 @@ function renderEditPurchaseReceiptList(){
           <option value="others" ${f.docType === 'others' ? 'selected' : ''}>${t('optDocTypeOthers')}</option>
         </select>
       ` : ''}
+      <span class="del-link" onclick="toggleEditPurchaseReceiptPreview(${i})">${t(editPurchasePreviewIdx === i ? 'epPreviewClose' : 'epPreview')}</span>
       <span class="del-link" onclick="removeEditPurchaseReceiptFile(${i})">${t('btnRemoveFile')}</span>
     </div>
   `).join('');
+  renderEditPurchaseReceiptPreview();
+}
+function toggleEditPurchaseReceiptPreview(i){
+  editPurchasePreviewIdx = (editPurchasePreviewIdx === i) ? -1 : i;
+  renderEditPurchaseReceiptList();
+}
+function renderEditPurchaseReceiptPreview(){
+  const box = document.getElementById('editPurchaseReceiptPreview'); if(!box) return;
+  const f = editPurchaseWorkingReceiptFiles[editPurchasePreviewIdx];
+  if(!f){ box.style.display = 'none'; box.innerHTML = ''; return; }
+  const name = (f.filename || f.url || '').toLowerCase().split('?')[0];
+  const u = escapeHtmlForPrint(f.url || '');
+  let inner;
+  if(/\.(png|jpe?g|gif|webp|bmp)$/.test(name)) inner = `<img src="${u}" style="max-width:100%;display:block;margin:0 auto;" />`;
+  else if(/\.pdf$/.test(name)) inner = `<iframe src="${u}" style="width:100%;height:100%;border:0;"></iframe>`;
+  else inner = `<div style="padding:12px;font-size:12.5px;color:var(--ink-soft);">${t('epNoPreview')}</div>`;
+  box.style.display = 'block';
+  box.innerHTML = `<div style="height:420px;min-height:160px;resize:vertical;overflow:auto;border:1px solid var(--line);border-radius:6px;background:#fff;">${inner}</div>`;
 }
 function setEditPurchaseReceiptFileDocType(index, docType){
   const f = editPurchaseWorkingReceiptFiles[index];
@@ -642,42 +688,52 @@ function renderEditPurchaseItemsList(){
     wrap.innerHTML = `<div class="empty-note" style="padding:8px 0;">${lang === 'en' ? 'No items.' : '（沒有品項）'}</div>`;
     return;
   }
-  // 欄位標題列:跟每列的版面對齊(品名 / 數量 / 單位 / 金額 / 移除),金額標題帶系統預設幣種。
+  // 一個商品一行(會計一次輸入大量價格時好看):品名 / 數量 / 單位 / 金額 / GST / 有效期 / 供應商批號 / 備註 / 移除。
+  // 用 grid 讓標題與每列欄位對齊;視窗太窄時橫向捲動,不換行。
+  const paOnNow = (typeof paOn === 'function' && paOn());
+  const batchOn = editPurchaseIsBatchTracked();
+  const priceVis = (typeof canViewPrice !== 'function') || canViewPrice();   // 沒有「查看價錢」權限(倉管)整個價格區都不顯示
+  const cols = ['minmax(220px,1fr)', '84px', '54px'];
+  if(priceVis) cols.push('110px');
+  if(paOnNow && priceVis) cols.push('96px');
+  if(batchOn) cols.push('138px', '120px', '46px');
+  cols.push('44px');
+  const grid = `display:grid;grid-template-columns:${cols.join(' ')};gap:8px;align-items:center;min-width:${cols.reduce((s, c) => s + (parseInt((c.match(/\d+/) || [0])[0], 10) || 0), 0) + 8 * cols.length}px;`;
+  const flags = editPurchasePriceFlags();
+  const flagN = Object.keys(flags).length;
   const hdrCss = 'font-size:11px;color:var(--ink-soft);';
-  const hdr = `<div style="display:flex;align-items:center;gap:8px;${hdrCss}">
-          <div style="flex:1 1 140px;min-width:0;"></div>
-          <span style="width:70px;">${t('colQty')}</span>
-          <span style="width:46px;flex:none;visibility:hidden;">${t('colQty')}</span>
-          <span style="width:90px;">${t('colAmount')} (${escapeHtmlForPrint(typeof getSystemCurrency === 'function' ? getSystemCurrency() : 'AUD')})</span>
-          ${(typeof paOn === 'function' && paOn()) ? '<span style="width:92px;">GST</span>' : ''}
-          <span style="visibility:hidden;">${t('btnRemoveItem')}</span>
+  const cur = escapeHtmlForPrint(typeof getSystemCurrency === 'function' ? getSystemCurrency() : 'AUD');
+  const hdr = `<div style="${grid}${hdrCss}position:sticky;top:0;background:var(--bg,#fff);z-index:1;padding:2px 0;">
+          <span></span><span>${t('colQty')}</span><span></span>${priceVis ? `<span>${t('colAmount')} (${cur})</span>` : ''}
+          ${(paOnNow && priceVis) ? '<span>GST</span>' : ''}
+          ${batchOn ? `<span>${t('batchColExpiry')}</span><span>${t('batchLotLabel')}</span><span></span>` : ''}
+          <span></span>
         </div>`;
   wrap.innerHTML = `
-    <div style="display:flex;flex-direction:column;gap:6px;">
+    <div id="editPurchaseFlagBanner" style="display:${flagN ? 'block' : 'none'};font-size:12.5px;color:#9a6a00;background:#fff4dc;border-radius:6px;padding:5px 10px;margin-bottom:6px;">${flagN ? escapeHtmlForPrint(tf('epFlagSummary', { n: flagN })) : ''}</div>
+    <div style="overflow-x:auto;">
+     <div style="display:flex;flex-direction:column;gap:0;">
       ${hdr}
       ${editPurchaseWorkingItems.map((it, i) => `
-        <div style="padding:6px 0;border-bottom:1px solid var(--line);${it._scanUpdated ? 'background:var(--warn-bg);' : ''}">
-         <div style="display:flex;align-items:center;gap:8px;">
-          <div style="flex:1 1 140px;min-width:0;font-size:12.5px;">
+        <div style="${grid}padding:5px 0;border-bottom:1px solid var(--line);${it._scanUpdated ? 'background:var(--warn-bg);' : ''}">
+          <div style="min-width:0;font-size:12.5px;line-height:1.3;">
             ${escapeHtmlForPrint(it.name || '')}${it.sku ? ` <span style="color:var(--ink-soft);">(${escapeHtmlForPrint(it.sku)})</span>` : ''}
             ${it.docType === 'credit_note' ? ` <span style="color:var(--crit);font-weight:600;font-size:11px;">(${t('docTypeCreditNoteBadge')})</span>` : ''}
             ${it._scanUpdated ? `<span style="color:var(--warn-dark);font-size:11px;margin-left:4px;">🔍</span>` : ''}
+            <span id="epFlagMk_${i}" style="display:${flags[i] ? 'inline' : 'none'};color:#d97706;cursor:help;" title="${flags[i] ? escapeHtmlForPrint(flags[i].msg) : ''}">⚠</span>
           </div>
-          <input type="number" value="${it.qty}" min="0" step="any" style="width:70px;" oninput="updateEditPurchaseItemQty(${i}, this.value)" />
-          <span style="font-size:11.5px;color:var(--ink-soft);width:46px;flex:none;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtmlForPrint(it.unit || '')}</span>
-          <input type="number" value="${it.amount !== undefined && it.amount !== null ? it.amount : ''}" min="0" step="any" placeholder="$" style="width:90px;" ${canEditPrice() ? '' : 'readonly title="' + t('priceReadOnlyTitle') + '"'} oninput="updateEditPurchaseItemAmount(${i}, this.value)" />
-          ${(typeof paOn === 'function' && paOn()) ? (it.noAcct ? '<span style="font-size:11.5px;color:var(--ink-soft);">' + t('paOffBooksShort') + '</span>' : paGstSelectHtml(it.gst, 'paEditSetGst(' + i + ', this.value)')) : ''}
+          <input type="number" value="${it.qty}" min="0" step="any" style="width:100%;" oninput="updateEditPurchaseItemQty(${i}, this.value)" />
+          <span style="font-size:11.5px;color:var(--ink-soft);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtmlForPrint(it.unit || '')}</span>
+          ${priceVis ? `          <input type="number" value="${it.amount !== undefined && it.amount !== null ? it.amount : ''}" min="0" step="any" placeholder="$" style="width:100%;${flags[i] ? 'background:#fff4dc;border-color:#d97706;' : ''}" ${canEditPrice() ? (flags[i] ? 'title="' + escapeHtmlForPrint(flags[i].msg) + '"' : '') : 'readonly title="' + t('priceReadOnlyTitle') + '"'} oninput="updateEditPurchaseItemAmount(${i}, this.value, this)" />
+          ${paOnNow ? (it.noAcct ? '<span style="font-size:11.5px;color:var(--ink-soft);">' + t('paOffBooksShort') + '</span>' : paGstSelectHtml(it.gst, 'paEditSetGst(' + i + ', this.value)')) : ''}` : ''}
+          ${batchOn ? ((!it.noBatch) ? `
+          <input type="date" value="${it.expiry || ''}" title="${t('batchColExpiry')}" style="width:100%;" onchange="updateEditPurchaseItemExpiry(${i}, this.value)" />
+          <input type="text" value="${escapeHtmlForPrint(it.supplierLot || '')}" title="${t('batchFieldLot')}" style="width:100%;" oninput="updateEditPurchaseItemLot(${i}, this.value)" />
+          ${(it.docType === 'credit_note') ? '<span></span>' : `<button type="button" class="btn ghost" style="padding:2px 8px;" title="${t('batchFieldNote')}" onclick="editPurchaseOpenLineNote(${i})">📝${(it.batchNote !== undefined ? it.batchNote : batchLineNote(editPurchaseTargetId, it.productId, it.expiry || '')) ? ' ✓' : ''}</button>`}` : '<span></span><span></span><span></span>') : ''}
           <span class="del-link" onclick="removeEditPurchaseItem(${i})">${t('btnRemoveItem')}</span>
-         </div>
-         ${(editPurchaseIsBatchTracked() && !it.noBatch) ? `<div style="display:flex;align-items:center;gap:8px;margin-top:4px;flex-wrap:wrap;">
-          <span style="font-size:11.5px;color:var(--ink-soft);">${t('batchColExpiry')}</span>
-          <input type="date" value="${it.expiry || ''}" title="${t('batchColExpiry')}" style="width:122px;" onchange="updateEditPurchaseItemExpiry(${i}, this.value)" />
-          <span style="font-size:11.5px;color:var(--ink-soft);">${t('batchLotLabel')}</span>
-          <input type="text" value="${escapeHtmlForPrint(it.supplierLot || '')}" title="${t('batchFieldLot')}" style="width:96px;" oninput="updateEditPurchaseItemLot(${i}, this.value)" />
-          ${(it.docType === 'credit_note') ? '' : `<button type="button" class="btn ghost" style="padding:2px 8px;" title="${t('batchFieldNote')}" onclick="editPurchaseOpenLineNote(${i})">📝${(it.batchNote !== undefined ? it.batchNote : batchLineNote(editPurchaseTargetId, it.productId, it.expiry || '')) ? ' ✓' : ''}</button>`}
-         </div>` : ''}
         </div>
       `).join('')}
+     </div>
     </div>
   `;
 }
@@ -744,13 +800,55 @@ function updateEditPurchaseItemQty(index, value){
   it.qty = Number.isFinite(n) ? n : 0;
   delete it.rcv;   // 數量被改過,收據原始單位/數量不再準確 → 退回顯示主商品單位
 }
-function updateEditPurchaseItemAmount(index, value){
+// 會計核價輔助:缺價(沒填或 0)、或單價和同商品上一次進貨差超過 20% 的行,標黃色請會計確認
+function editPurchasePriceFlags(){
+  const out = {};
+  if(!canEditPrice()) return out;
+  const cur = purchases.find(x => x.id === editPurchaseTargetId);
+  const curDate = (cur && cur.date) || '';
+  const lastMap = {};
+  purchases.filter(x => x.id !== editPurchaseTargetId && (!curDate || (x.date || '') <= curDate))
+    .sort((a, b) => (b.date || '').localeCompare(a.date || '') || (b.createdAt || '').localeCompare(a.createdAt || ''))
+    .forEach(q => (q.items || []).forEach(it => {
+      if(!it.productId || lastMap[it.productId] !== undefined || it.noAcct || (it.docType && it.docType !== 'invoice')) return;
+      const a = Number(it.amount), n = Number(it.qty);
+      if(a > 0 && n > 0) lastMap[it.productId] = a / n;
+    }));
+  editPurchaseWorkingItems.forEach((it, i) => { const f = editPurchaseFlagFor(it, lastMap); if(f) out[i] = f; });
+  editPurchaseFlagLast = lastMap;
+  return out;
+}
+let editPurchaseFlagLast = {};
+function editPurchaseFlagFor(it, lastMap){
+  if(it.noAcct || (it.docType && it.docType !== 'invoice')) return null;
+  const a = Number(it.amount), n = Number(it.qty);
+  if(!(a > 0)) return { kind: 'missing', msg: t('epFlagMissing') };
+  const last = lastMap[it.productId];
+  if(last && n > 0){
+    const diff = (a / n - last) / last;
+    if(Math.abs(diff) > 0.2) return { kind: 'diff', msg: tf('epFlagDiff', { pct: (diff > 0 ? '+' : '') + Math.round(diff * 100), last: last.toFixed(2) }) };
+  }
+  return null;
+}
+function editPurchaseRefreshFlagUI(i, el){
+  const it = editPurchaseWorkingItems[i]; if(!it) return;
+  const f = editPurchaseFlagFor(it, editPurchaseFlagLast);
+  if(el){ el.style.background = f ? '#fff4dc' : ''; el.style.borderColor = f ? '#d97706' : ''; el.title = f ? f.msg : ''; }
+  const mk = document.getElementById('epFlagMk_' + i);
+  if(mk){ mk.style.display = f ? 'inline' : 'none'; mk.title = f ? f.msg : ''; }
+  const all = {}; let n = 0;
+  editPurchaseWorkingItems.forEach(x => { if(editPurchaseFlagFor(x, editPurchaseFlagLast)) n++; });
+  const b = document.getElementById('editPurchaseFlagBanner');
+  if(b){ b.style.display = n ? 'block' : 'none'; b.textContent = n ? tf('epFlagSummary', { n }) : ''; }
+}
+function updateEditPurchaseItemAmount(index, value, el){
   if(!canEditPrice()) return; // 沒有「編輯價錢」權限只能看不能改
   const it = editPurchaseWorkingItems[index];
   if(!it) return;
-  if(value === ''){ delete it.amount; return; }
+  if(value === ''){ delete it.amount; editPurchaseRefreshFlagUI(index, el); return; }
   const n = parseFloat(value);
   it.amount = Number.isFinite(n) ? n : undefined;
+  editPurchaseRefreshFlagUI(index, el);
 }
 function removeEditPurchaseItem(index){
   editPurchaseWorkingItems.splice(index, 1);
@@ -984,6 +1082,14 @@ async function confirmEditPurchase(){
     msgEl.className = 'msg error';
     msgEl.textContent = t('errEnterPositiveQty');
     return;
+  }
+  // 改了進貨方或 Invoice No. 之後和別張進貨單重複 → 先確認
+  if(invoiceVal && (invoiceVal !== (p.invoiceNo || '') || partyVal !== (p.partyName || ''))){
+    const dup = findDuplicatePurchase(partyVal, editPurchaseSupplierId || p.supplierId || '', invoiceVal, p.id);
+    if(dup){
+      const ok = await new Promise(res => showConfirmModal(tf('errDupInvoiceConfirm', { party: dup.partyName || '', inv: dup.invoiceNo || '', date: dup.date || '' }), () => res(true), () => res(false)));
+      if(!ok) return;
+    }
   }
 
   // 品項清單存檔前先去掉 _scanUpdated(只是編輯畫面上用來標記「這行剛被掃描結果蓋過」的暫時

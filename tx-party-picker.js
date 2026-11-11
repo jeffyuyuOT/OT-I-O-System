@@ -34,10 +34,10 @@ function txPartyPickerRender(searchText){
       ${hasCapability('cap-manage-parties') ? `<b class="batch-link" style="cursor:pointer;" title="${esc(t('icEditPartyTip'))}" onclick="openPartyEditModal('${esc(sp.id)}')">${esc(label)}</b>` : `<b>${esc(label)}</b>`}
       <span class="del-link" onclick="txPartyPickerClear()">${t('icChangeParty')}</span>${typeof partyDiscountBadgeHtml === 'function' ? partyDiscountBadgeHtml(sp) : ''}</div>`;
   } else {
-    box.innerHTML = `<div style="display:flex;gap:6px;align-items:center;">
-      <input id="txPartySearch" type="text" autocomplete="off" placeholder="${esc(t('icPartySearchPh'))}" value="${esc(searchText || '')}" oninput="txPartyPickerSearch(this.value)" onfocus="txPartyPickerSearch(this.value)" style="flex:1;min-width:0;" />
-      ${hasCapability('cap-manage-parties') ? `<button class="btn ghost" type="button" style="white-space:nowrap;padding:6px 10px;" onclick="txPartyPickerAdd()">＋ ${t('icAddParty')}</button>` : ''}</div>
-      <div id="txPartySearchList" style="display:none;position:absolute;left:0;right:0;top:100%;z-index:30;background:var(--bg,#fff);border:1px solid var(--line);max-height:220px;overflow:auto;box-shadow:0 4px 12px rgba(0,0,0,.12);"></div>`;
+    // 搜尋框撐滿整欄、跟旁邊的欄位對齊;「＋ 新增出貨方」用絕對定位放在搜尋框正下方,不會把這一欄撐高
+    box.innerHTML = `<div style="position:relative;"><input id="txPartySearch" type="text" autocomplete="off" placeholder="${esc(t('icPartySearchPh'))}" value="${esc(searchText || '')}" oninput="txPartyPickerSearch(this.value)" onfocus="txPartyPickerSearch(this.value)" style="width:100%;box-sizing:border-box;" />
+      <div id="txPartySearchList" style="display:none;position:absolute;left:0;right:0;top:100%;z-index:30;background:var(--bg,#fff);border:1px solid var(--line);max-height:220px;overflow:auto;box-shadow:0 4px 12px rgba(0,0,0,.12);"></div></div>
+      ${hasCapability('cap-manage-parties') ? `<span class="del-link" style="position:absolute;left:0;top:100%;margin-top:3px;font-size:12px;white-space:nowrap;" onclick="txPartyPickerAdd()">＋ ${t('icAddParty')}</span>` : ''}`;
   }
 }
 function txPartyPickerSearch(v){
@@ -95,10 +95,9 @@ function txSupplierPickerRender(searchText){
     box.innerHTML = `<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;min-height:34px;"><b>${esc(supplierOptionLabel(sup))}</b>
       <span class="del-link" onclick="txSupplierPickerClear()">${t('icChangeParty')}</span></div>`;
   } else {
-    box.innerHTML = `<div style="display:flex;gap:6px;align-items:center;">
-      <input id="txSupplierSearch" type="text" autocomplete="off" placeholder="${esc(t('txSupplierSearchPh'))}" value="${esc(searchText || '')}" oninput="txSupplierPickerSearch(this.value)" onfocus="txSupplierPickerSearch(this.value)" style="flex:1;min-width:0;" />
-      <button class="btn ghost" type="button" style="white-space:nowrap;padding:6px 10px;" onclick="txSupplierPickerNew()">＋ ${t('txSupplierAdd')}</button></div>
-      <div id="txSupplierSearchList" style="display:none;position:absolute;left:0;right:0;top:100%;z-index:30;background:var(--bg,#fff);border:1px solid var(--line);max-height:220px;overflow:auto;box-shadow:0 4px 12px rgba(0,0,0,.12);"></div>`;
+    box.innerHTML = `<div style="position:relative;"><input id="txSupplierSearch" type="text" autocomplete="off" placeholder="${esc(t('txSupplierSearchPh'))}" value="${esc(searchText || '')}" oninput="txSupplierPickerSearch(this.value)" onfocus="txSupplierPickerSearch(this.value)" style="width:100%;box-sizing:border-box;" />
+      <div id="txSupplierSearchList" style="display:none;position:absolute;left:0;right:0;top:100%;z-index:30;background:var(--bg,#fff);border:1px solid var(--line);max-height:220px;overflow:auto;box-shadow:0 4px 12px rgba(0,0,0,.12);"></div></div>
+      <span class="del-link" style="position:absolute;left:0;top:100%;margin-top:3px;font-size:12px;white-space:nowrap;" onclick="txSupplierPickerNew()">＋ ${t('txSupplierAdd')}</span>`;
   }
 }
 function txSupplierPickerSearch(v){
@@ -117,6 +116,13 @@ function txSupplierPickerPick(id){
   hs.value = id; onTxPartyHistorySelectChange(id);
 }
 function txSupplierPickerNew(){
+  // 開啟「新增進貨方」編輯視窗(可填聯絡人、付款天數等),存好後自動選取這個新進貨方
+  const q = ((document.getElementById('txSupplierSearch') || {}).value || '').trim();
+  if(typeof openSupplierEditModal === 'function'){
+    openSupplierEditModal(null, q);
+    supplierEditOnSaved = sup => { if(sup && sup.id) txSupplierPickerPick(sup.id); };
+    return;
+  }
   const hs = document.getElementById('txPartyHistorySelect'); if(!hs) return;
   hs.value = '__new__'; onTxPartyHistorySelectChange('__new__');
 }

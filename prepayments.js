@@ -7,6 +7,7 @@
 // 資料表:sql/supplier_prepayments.sql。只有 admin / accountant 讀得到;倉管員看不到任何預付款資訊。
 // ============================================================
 Object.assign(I18N.zh, {
+  ppAutoConfirm: '這張進貨單載入的預估紀錄已預付 {amount}(共 {n} 筆預付款)。要現在自動抵扣這張進貨單的應付金額嗎?(會記一筆付款,方式 Prepayment)', ppAutoFailed: '進貨單已建立,但預付款自動抵扣失敗:{err}。請到會計 → Purchase List → 付款記錄手動抵扣。',
   subtabAccPrepay: '預付款', ppTitle: '供應商預付款', ppAdd: '＋ 登記預付款', ppEmpty: '還沒有預付款紀錄。',
   ppSumBalance: '未抵扣餘額', ppSumPaid: '預付總額', ppSumApplied: '已抵扣',
   ppSumPaidFy: '預付', ppSumAppliedFy: '抵扣', ppFltFrom: '從', ppFltTo: '到', ppFltAll: '全部', ppFltOpen: '有餘額', ppFltUsed: '已用完', ppFltClear: '清除篩選', ppEmptyFiltered: '沒有符合篩選的預付款。', ppColDate: '付款日期', ppColSupplier: '進貨方', ppColForecast: '預估紀錄', ppColAmount: '金額', ppColApplied: '已抵扣', ppColBalance: '餘額', ppColNote: '方式 / 備註',
@@ -16,11 +17,12 @@ Object.assign(I18N.zh, {
   ppDeleteConfirm: '確定刪除這筆預付款?', ppErrInUse: '這筆預付款已經抵扣過進貨單,不能刪除或把金額改得比已抵扣的少。請先到進貨單的付款記錄刪除抵扣的那一筆。',
   ppErrExceeds: '退回金額超過這個進貨方目前的預付款餘額。', ppNeedSql: '請先在 Supabase 執行 sql/supplier_prepayments.sql 才能使用預付款。', ppSaveFailed: '儲存失敗,請再試一次。',
   ppApplyTitle: '用預付款抵扣', ppApplyPick: '選擇預付款', ppApplyAmount: '抵扣金額', ppApplyBtn: '抵扣', ppApplyBad: '抵扣金額必須大於 0,不能超過預付款餘額,也不能超過這張進貨單的未付金額。',
-  ppApplyLinked: '(連結這張進貨單的預估紀錄)', ppApplyAvail: '可用餘額', ppApplyRemain: '餘額',
+  ppApplyLinked: '(連結這張進貨單的預估紀錄)', ppApplyAvail: '可用餘額', ppApplyRemain: '餘額', ppApplyHint: '⚠ 此進貨方還有預付款餘額 {total}(共 {n} 筆),記得抵扣',
   ppBtnRegister: '預付款', ppPaidTag: '已預付 {a}', ppForecastPaid: '預付款',
   arpStBalPrepay: 'Prepayments 供應商預付款(尚未抵扣)'
 });
 Object.assign(I18N.en, {
+  ppAutoConfirm: 'The forecast loaded into this purchase has {amount} prepaid ({n} prepayment(s)). Apply it to this purchase now? (A payment with method Prepayment will be recorded.)', ppAutoFailed: 'The purchase was created, but applying the prepayment failed: {err}. Apply it manually in Accounting → Purchase List → Payments.',
   subtabAccPrepay: 'Prepayments', ppTitle: 'Supplier prepayments', ppAdd: '＋ Add prepayment', ppEmpty: 'No prepayments yet.',
   ppSumBalance: 'Unapplied balance', ppSumPaid: 'Total prepaid', ppSumApplied: 'Applied',
   ppSumPaidFy: 'prepaid', ppSumAppliedFy: 'applied', ppFltFrom: 'From', ppFltTo: 'To', ppFltAll: 'All', ppFltOpen: 'With balance', ppFltUsed: 'Fully applied', ppFltClear: 'Clear filters', ppEmptyFiltered: 'No prepayments match the filters.', ppColDate: 'Paid on', ppColSupplier: 'Supplier', ppColForecast: 'Forecast record', ppColAmount: 'Amount', ppColApplied: 'Applied', ppColBalance: 'Balance', ppColNote: 'Method / note',
@@ -30,7 +32,7 @@ Object.assign(I18N.en, {
   ppDeleteConfirm: 'Delete this prepayment?', ppErrInUse: 'This prepayment has already been applied to a purchase, so it cannot be deleted or reduced below the applied amount. Delete the applied payment on the purchase first.',
   ppErrExceeds: 'The refund is more than this supplier\'s current prepayment balance.', ppNeedSql: 'Run sql/supplier_prepayments.sql in Supabase first to use prepayments.', ppSaveFailed: 'Save failed, please try again.',
   ppApplyTitle: 'Apply a prepayment', ppApplyPick: 'Prepayment', ppApplyAmount: 'Amount to apply', ppApplyBtn: 'Apply', ppApplyBad: 'The amount must be above 0, not more than the prepayment balance, and not more than this purchase\'s unpaid amount.',
-  ppApplyLinked: '(forecast record linked to this purchase)', ppApplyAvail: 'available', ppApplyRemain: 'balance',
+  ppApplyLinked: '(forecast record linked to this purchase)', ppApplyAvail: 'available', ppApplyRemain: 'balance', ppApplyHint: '⚠ This supplier has {total} of unused prepayment ({n}). Remember to apply it.',
   ppBtnRegister: 'Prepayment', ppPaidTag: 'Prepaid {a}', ppForecastPaid: 'Prepayments',
   arpStBalPrepay: 'Prepayments to suppliers (not yet applied)'
 });
@@ -185,7 +187,7 @@ async function ppOpenForm(id, forecastId){
   ov.innerHTML = `<div class="modal-box" style="max-width:min(520px,96vw);max-height:92vh;overflow:auto;">
     <div class="section-title" style="margin-top:0;">${ed ? t('ppFormEdit') : t('ppFormAdd')}</div>
     <div class="form-grid" style="grid-template-columns:1fr 1fr;gap:8px;">
-      <div class="field" style="grid-column:1/3;"><label>${t('ppFSupplier')}</label><select id="ppFSup" ${(!ed && recSup(ppEdit.forecastId)) ? 'disabled' : ''}><option value="">${t('ppFPickSupplier')}</option>${sups.map(s => `<option value="${ppEsc(s.name)}" data-id="${ppEsc(s.id)}" ${s.name === supV ? 'selected' : ''}>${ppEsc(s.name)}</option>`).join('')}</select></div>
+      <div class="field" style="grid-column:1/3;"><label>${t('ppFSupplier')}</label><select id="ppFSup" onchange="ppOnSupChange(this)" ${(!ed && recSup(ppEdit.forecastId)) ? 'disabled' : ''}><option value="">${t('ppFPickSupplier')}</option><option value="__new__">${t('optAddNewSupplier')}</option>${sups.map(s => `<option value="${ppEsc(s.name)}" data-id="${ppEsc(s.id)}" ${s.name === supV ? 'selected' : ''}>${ppEsc(s.name)}</option>`).join('')}</select></div>
       <div class="field" style="grid-column:1/3;"><label>${t('ppFForecast')}</label><select id="ppFForecast" onchange="ppOnForecastPick(this.value)"><option value="">${t('ppFNone')}</option>${recs.map(r => `<option value="${ppEsc(r.id)}" ${r.id === ppEdit.forecastId ? 'selected' : ''}>${ppEsc(r.name)}</option>`).join('')}${(ppEdit.forecastId && !recs.some(r => r.id === ppEdit.forecastId)) ? `<option value="${ppEsc(ppEdit.forecastId)}" selected>${ppEsc(tf('ppForecastGoneOpt', { n: (ed && ed.forecast_name) || '' }))}</option>` : ''}</select></div>
       <div class="field"><label>${t('ppFDate')}</label><input type="date" id="ppFDate" value="${ppEsc(ed ? ed.pay_date : paToday())}" /></div>
       <div class="field"><label>${t('ppFAmount')}</label><input type="number" id="ppFAmount" step="0.01" min="0" value="${ed ? ppM(Math.abs(ed.amount)) : ''}" placeholder="0.00" /></div>
@@ -202,6 +204,45 @@ function ppOnForecastPick(rid){
   const sel = document.getElementById('ppFSup'); if(!sel) return;
   const r = (typeof forecastRecords !== 'undefined' ? forecastRecords : []).find(x => x.id === rid);
   if(r && r.supplierName){ sel.value = r.supplierName; sel.disabled = true; } else { sel.disabled = false; }
+}
+// 登記進貨時載入了進貨預估、而且那份預估有預付款 → 進貨單存好後問是否自動抵扣(金額 = 預付款餘額與進貨單未付金額較小者)
+async function ppAutoApplyForForecast(purchase, fids){
+  if(!ppOn() || !fids || !fids.length || purchase.inAccounting === false) return;
+  try{ if(!ppLoaded) await ppLoad(); if(typeof paLoadPayments === 'function') await paLoadPayments(); }catch(e){ return; }
+  if(ppErr) return;
+  const rows = ppRows.filter(r => fids.includes(r.forecast_id) && Number(r.amount) > 0 && ppBalanceOf(r) > 0.004);
+  if(!rows.length) return;
+  let room = ppR2(paInfo(purchase).balance);
+  if(!(room > 0.004)) return;
+  const plan = [];
+  rows.forEach(r => { const a = ppR2(Math.min(ppBalanceOf(r), room)); if(a > 0){ plan.push({ r, a }); room = ppR2(room - a); } });
+  if(!plan.length) return;
+  const total = ppR2(plan.reduce((x, p) => x + p.a, 0));
+  const ok = await new Promise(res => showConfirmModal(tf('ppAutoConfirm', { amount: ppM(total), n: plan.length }), () => res(true), () => res(false)));
+  if(!ok) return;
+  try{
+    for(const p of plan){
+      const { error } = await sb.rpc('prepayment_apply', { p_prepayment_id: p.r.id, p_purchase_id: purchase.id, p_date: purchase.date, p_amount: p.a });
+      if(error) throw error;
+    }
+  }catch(e){ console.error('預付款自動抵扣失敗', e); showInfoModal(tf('ppAutoFailed', { err: ppErrMsg(e) })); }
+  try{ await paLoadPayments(); await ppLoad(); }catch(e){}
+}
+// 選「+ 新增進貨方」:先把下拉還原成原本的選擇,開進貨方新增視窗;存好後把新進貨方加進下拉並選起來
+function ppOnSupChange(sel){
+  if(sel.value !== '__new__'){ sel.dataset.prev = sel.value; return; }
+  sel.value = sel.dataset.prev || '';
+  if(typeof openSupplierEditModal !== 'function') return;
+  openSupplierEditModal(null, '');
+  const ov = document.getElementById('supplierEditModalOverlay'); if(ov) ov.style.zIndex = '1300';   // 要蓋在預付款視窗(1250)上面
+  supplierEditOnSaved = sup => {
+    const el = document.getElementById('ppFSup'); if(!el) return;
+    const o = document.createElement('option');
+    o.value = sup.name; o.setAttribute('data-id', sup.id); o.textContent = sup.name;
+    const anchor = el.querySelector('option[value="__new__"]');
+    el.insertBefore(o, anchor ? anchor.nextSibling : null);
+    el.value = sup.name; el.dataset.prev = sup.name;
+  };
 }
 function ppCloseForm(){ const o = document.getElementById('ppFormOverlay'); if(o) o.remove(); ppEdit = null; }
 async function ppSave(){
@@ -257,6 +298,7 @@ function ppApplyHtml(p, tg){
   const first = c[0], def = Math.min(first.bal, Math.max(0, tg.info.balance));
   return `<div style="margin-top:12px;padding-top:10px;border-top:1px solid var(--line);">
     <div style="font-size:12.5px;font-weight:700;margin-bottom:6px;">${t('ppApplyTitle')}</div>
+    <div style="font-size:12.5px;color:#b45309;background:#fef3c7;border-radius:6px;padding:6px 10px;margin-bottom:8px;">${tf('ppApplyHint', { total: ppM(c.reduce((a, x) => a + x.bal, 0)), n: c.length })}</div>
     <div class="form-grid" style="grid-template-columns:2fr 1fr 1fr auto;gap:8px;align-items:end;">
       <div class="field"><label>${t('ppApplyPick')}</label><select id="ppApplySel" onchange="ppApplySelChange()">${c.map(x => `<option value="${ppEsc(x.r.id)}" data-bal="${ppM(x.bal)}">${ppEsc(paDmy(x.r.pay_date))} · ${ppEsc(x.r.forecast_name || x.r.note || 'Prepayment')} · ${t('ppApplyRemain')} ${ppM(x.bal)}${x.linked ? ' ' + t('ppApplyLinked') : ''}</option>`).join('')}</select></div>
       <div class="field"><label>${t('paPayDate')}</label><input type="date" id="ppApplyDate" value="${ppEsc(paToday())}" /></div>

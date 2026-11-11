@@ -1627,6 +1627,9 @@ body.no-cost-view .cost-col{display:none !important;}
               <label for="purchaseEmailToggle" style="font-size:12.5px;color:var(--ink);font-weight:600;cursor:pointer;white-space:nowrap;" data-i18n="chkEmailToAccounting">寄送給會計</label>
             </span>
           </div>
+          <div id="txCopyLastRow" style="display:none;align-items:center;margin-left:auto;">
+            <button type="button" class="btn ghost" onclick="txCopyLastPurchase()" data-i18n="btnCopyLastPurchase">📋 複製上次進貨商品</button>
+          </div>
         </div>
         <div id="purchaseReceiptUploadMsg" style="font-size:11.5px;margin-top:4px;"></div>
         <div id="purchaseReceiptPreviewWrap" style="display:none;margin-top:8px;flex-direction:column;gap:4px;"></div>
@@ -3010,7 +3013,7 @@ body.no-cost-view .cost-col{display:none !important;}
 </div>
 
 <div id="editPurchaseModalOverlay" class="modal-overlay" style="display:none;" onclick="if(event.target===this) closeEditPurchaseModal();">
-  <div class="modal-box" style="max-width:min(560px, 94vw);">
+  <div class="modal-box" style="max-width:min(1120px, 96vw);width:min(1120px, 96vw);">
     <div class="section-title" style="margin-bottom:12px;" data-i18n="modalEditPurchaseTitle">編輯進貨單</div>
     <div class="form-grid" style="grid-template-columns:1fr 1fr;margin-bottom:0;">
       <div class="field">
@@ -3034,6 +3037,7 @@ body.no-cost-view .cost-col{display:none !important;}
     <div class="field-block">
       <label data-i18n="fieldPurchaseReceipt">收據/發票附件(選填,圖片或 PDF,可選取多個檔案)</label>
       <div id="editPurchaseReceiptExistingWrap" style="display:flex;flex-direction:column;gap:4px;margin-bottom:8px;"></div>
+      <div id="editPurchaseReceiptPreview" style="display:none;margin-bottom:8px;"></div>
       <input type="file" id="editPurchaseReceiptInput" accept="image/*,application/pdf,.xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel" multiple onchange="handleEditPurchaseReceiptUpload(this)" style="border:1px solid var(--line);background:#fff;border-radius:2px;padding:8px;font-family:'IBM Plex Mono',monospace;font-size:12px;width:100%;box-sizing:border-box;" />
       <div id="editPurchaseReceiptUploadMsg" style="font-size:11.5px;margin-top:4px;"></div>
       <button type="button" class="btn ghost" style="margin-top:8px;font-size:12px;" onclick="scanReceiptForEditPurchase()" data-i18n="btnScanReceiptToFillQty">🔍 用收據掃描帶入數量/金額</button>
@@ -3041,6 +3045,10 @@ body.no-cost-view .cost-col{display:none !important;}
       <div id="editPurchaseScanUnmatchedWrap" style="font-size:11.5px;margin-top:4px;color:var(--warn-dark);"></div>
     </div>
     <div class="field-block" id="editPurchaseAccWrap" style="display:none;">
+      <div id="editPurchaseChkWrap" style="display:none;align-items:center;gap:8px;margin-bottom:8px;padding:6px 10px;background:#fef3c7;border-radius:6px;">
+        <input type="checkbox" id="editPurchaseChkToggle" style="width:16px;height:16px;cursor:pointer;" />
+        <label for="editPurchaseChkToggle" style="font-size:12.5px;font-weight:600;cursor:pointer;margin:0;" data-i18n="paChkEditLabel">已對照收據核對價格</label>
+      </div>
       <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
         <input type="checkbox" id="editPurchaseAccToggle" style="width:16px;height:16px;cursor:pointer;" />
         <label for="editPurchaseAccToggle" style="font-size:12.5px;font-weight:600;cursor:pointer;margin:0;" data-i18n="chkInAccounting">入會計紀錄</label>
@@ -3168,6 +3176,7 @@ body.no-cost-view .cost-col{display:none !important;}
     </div>
     <div id="receiptOcrConfirmMsg" class="msg"></div>
     <div class="modal-actions" style="flex-wrap:wrap;">
+      <button class="btn ghost" onclick="addOcrLineAsLineExpense()" data-i18n="btnOcrAsLineExpense">加到其他支出</button>
       <button class="btn ghost" onclick="skipReceiptOcrLineOnce()" data-i18n="btnSkipOnce">跳過(不記住)</button>
       <button class="btn ghost" onclick="skipReceiptOcrLine()" data-i18n="btnSkip">略過(自動跳過)</button>
       <button class="btn ghost" onclick="cancelReceiptOcrSequence()" data-i18n="btnCancel">取消全部</button>

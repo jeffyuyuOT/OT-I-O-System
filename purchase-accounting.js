@@ -7,8 +7,8 @@
 //   inAccounting(false = 不入會計;沒有這個欄位的舊進貨單一律算入會計)、gstMode('ex' 金額不含 GST / 'inc' 含 GST)、items[].gst(true / false)
 // ============================================================
 const PA_GST_RATE = 0.10;
-const PA_METHODS = ['Bank Transfer', 'Cash', 'Card', 'Cheque', 'Other'];
-let paFilter = { from: '', to: '', status: '', sup: '', q: '' };
+const PA_METHODS = ['Bank Transfer', 'Cash', 'Card', 'Cheque', 'Credit Note', 'Other'];
+let paFilter = { from: '', to: '', status: '', sup: '', q: '', chk: '' };
 let paRows = [];            // purchase_payments 全部資料
 let paErr = '';             // '' | 'sql' | 'error'
 let paPay = null;           // 付款記錄視窗狀態 { id, editingId }
@@ -116,6 +116,20 @@ function paShowFx(pid, eid, name){
   const base = p.costs.baseCurrency || 'AUD';
   showInfoModal(tf('paFxDetail', { name: e.name || '', amt: paM2(e.amount), cur: e.currency, rate: Number(e.rate).toFixed(6).replace(/0+$/, '').replace(/\.$/, ''), aud: paM2(e.aud), base, date: paDmy(p.date) }));
 }
+// ---- 核價狀態:倉管登記進貨後是「待核價」,會計對照收據核完價格後標成「已核價」(沒有這個欄位的舊進貨單不顯示) ----
+function paChkState(p){ return (p && p.priceCheck && p.priceCheck.status) || ''; }
+function paChkBadge(p){
+  const st = paChkState(p); if(!st) return '';
+  const pending = st === 'pending';
+  return ` <span style="display:inline-block;padding:1px 7px;border-radius:10px;font-size:10.5px;font-weight:700;white-space:nowrap;background:${pending ? '#fff4dc' : '#e7f6ec'};color:${pending ? '#9a6a00' : '#1d7a3c'};">${paEsc(t(pending ? 'paChkPending' : 'paChkChecked'))}</span>`;
+}
+async function paSetChecked(id, on){
+  const p = purchases.find(x => x.id === id); if(!p || !canEditPrice()) return;
+  const prev = p.priceCheck;
+  p.priceCheck = on ? { status: 'checked', at: new Date().toISOString(), by: (currentUser && (currentUser.email || currentUser.name || currentUser.username)) || '' } : { status: 'pending' };
+  try{ await upsertPurchase(p); paCloseOverlay('paDetailsOverlay'); paRenderList(); }
+  catch(e){ console.error(e); if(prev) p.priceCheck = prev; else delete p.priceCheck; showInfoModal(t('invPaidFailed')); }
+}
 function paStatusBadge(st){
   const col = { paid: ['#e7f6ec', '#1d7a3c'], partial: ['#fff4dc', '#9a6a00'], unpaid: ['#eef0f3', '#555'], overpaid: ['#efe6fb', '#6b3fa0'] }[st] || ['#eee', '#555'];
   return `<span style="display:inline-block;padding:1px 8px;border-radius:10px;font-size:11px;font-weight:700;background:${col[0]};color:${col[1]};white-space:nowrap;">${paEsc(t('invSt_' + st))}</span>`;
@@ -201,6 +215,8 @@ function paEditLoad(p){
   const w = document.getElementById('editPurchaseAccWrap'); if(!w) return;
   w.style.display = paOn() ? 'block' : 'none';
   const c = document.getElementById('editPurchaseAccToggle'); if(c) c.checked = paCounted(p);
+  const ckw = document.getElementById('editPurchaseChkWrap'); if(ckw) ckw.style.display = canEditPrice() ? 'flex' : 'none';
+  const ck = document.getElementById('editPurchaseChkToggle'); if(ck) ck.checked = paChkState(p) === 'checked';
   const g = document.getElementById('editPurchaseGstMode'); if(g) g.value = p.gstMode === 'inc' ? 'inc' : 'ex';
   const dd = document.getElementById('editPurchaseDueDate'); if(dd) dd.value = p.dueDate || '';
   const iv = document.getElementById('editPurchaseInvDate'); if(iv) iv.value = p.invoiceDate || '';
@@ -215,6 +231,7 @@ function paEditSetGst(i, v){
 // 儲存前檢查(回傳錯誤文字或 ''),並把設定寫進 p
 function paEditCheck(items){
   if(!paOn()) return '';
+  if(typeof canViewPrice === 'function' && !canViewPrice()) return '';   // 沒有價錢權限的人不碰 GST,不擋他存檔
   const c = document.getElementById('editPurchaseAccToggle');
   if(!c || !c.checked) return '';
   const lineMiss = (typeof pcEd !== 'undefined' && pcEd && pcEd.lineExpenses ? pcEd.lineExpenses : []).filter(l => Number(l.amount) > 0 && l.gst !== true && l.gst !== false);
@@ -226,6 +243,12 @@ function paEditApply(p){
   if(!paOn()) return;
   const c = document.getElementById('editPurchaseAccToggle'), g = document.getElementById('editPurchaseGstMode');
   p.inAccounting = !c || c.checked;
+  const ck = document.getElementById('editPurchaseChkToggle');
+  if(ck && canEditPrice()){
+    const was = paChkState(p);
+    if(ck.checked){ if(was !== 'checked') p.priceCheck = { status: 'checked', at: new Date().toISOString(), by: (currentUser && (currentUser.email || currentUser.name || currentUser.username)) || '' }; }
+    else if(was === 'checked') p.priceCheck = { status: 'pending' };
+  }
   p.gstMode = g && g.value === 'inc' ? 'inc' : 'ex';
   const dd = document.getElementById('editPurchaseDueDate');
   if(dd){ if(dd.value) p.dueDate = dd.value; else delete p.dueDate; }
@@ -275,6 +298,7 @@ function paFiltered(){
     && (!f.from || (p.date || '') >= f.from) && (!f.to || (p.date || '') <= f.to)
     && (!f.sup || (p.partyName || '') === f.sup)
     && (!f.status || paInfo(p).status === f.status)
+    && (!f.chk || paChkState(p) === f.chk)
     && (!q || [p.partyName, p.invoiceNo, p.note].join(' ').toLowerCase().includes(q)))
     .sort((a, b) => (b.date || '').localeCompare(a.date || '') || (b.createdAt || '').localeCompare(a.createdAt || ''));
 }
@@ -295,7 +319,7 @@ function paRenderList(){
       sum.t += i.total; sum.p += i.paid; sum.b += i.balance;
       html += `<tr>
       <td style="white-space:nowrap;">${paEsc(paDmy(p.date))}</td>
-      <td>${paEsc(p.partyName || '')}</td>
+      <td>${paEsc(p.partyName || '')}${paChkBadge(p)}</td>
       <td>${paEsc(p.invoiceNo || '')}</td>
       <td class="num"><b>${paM2(i.total)}</b></td>
       <td class="num">${paM2(i.paid)}</td><td class="num"><b>${paM2(i.balance)}</b></td>
@@ -319,6 +343,7 @@ function paRenderList(){
       <div class="field"><label>${t('lblToDate')}</label><input type="date" id="paFlt_to" value="${paEsc(f.to)}" onchange="paOnFilter()" /></div>
       <div class="field"><label>${t('paColSupplier')}</label>${sel('paFlt_sup', f.sup, [['', t('invFltAll')]].concat(sups.map(x => [x, x])))}</div>
       <div class="field"><label>${t('invFltStatus')}</label>${sel('paFlt_status', f.status, [['', t('invFltAll')], ['unpaid', t('invSt_unpaid')], ['partial', t('invSt_partial')], ['paid', t('invSt_paid')], ['overpaid', t('invSt_overpaid')]])}</div>
+      <div class="field"><label>${t('paChkFilter')}</label>${sel('paFlt_chk', f.chk, [['', t('invFltAll')], ['pending', t('paChkPending')], ['checked', t('paChkChecked')]])}</div>
       <div class="field" style="min-width:220px;"><label>${t('invFltSearch')}</label><input type="search" id="paFlt_q" value="${paEsc(f.q)}" oninput="paOnFilter(true)" placeholder="${paEsc(t('paSearchPh'))}" /></div>
       <button class="btn ghost" onclick="paClearFilter()" style="align-self:flex-end;">${t('btnClearFilter')}</button>
       <button class="btn ghost exp-btn" onclick="paExportXlsx()" style="align-self:flex-end;">${t('accExportXlsx')}</button>
@@ -359,13 +384,13 @@ function paOnFilter(keepFocus){
   paFilter = {
     from: (document.getElementById('paFlt_from') || {}).value || '', to: (document.getElementById('paFlt_to') || {}).value || '',
     sup: (document.getElementById('paFlt_sup') || {}).value || '', status: (document.getElementById('paFlt_status') || {}).value || '',
-    q: (document.getElementById('paFlt_q') || {}).value || ''
+    q: (document.getElementById('paFlt_q') || {}).value || '', chk: (document.getElementById('paFlt_chk') || {}).value || ''
   };
   const pos = keepFocus ? ((document.getElementById('paFlt_q') || {}).selectionStart || 0) : 0;
   paRenderList();
   if(keepFocus){ const el = document.getElementById('paFlt_q'); if(el){ el.focus(); try{ el.setSelectionRange(pos, pos); }catch(e){} } }
 }
-function paClearFilter(){ paFilter = { from: '', to: '', status: '', sup: '', q: '' }; paRenderList(); }
+function paClearFilter(){ paFilter = { from: '', to: '', status: '', sup: '', q: '', chk: '' }; paRenderList(); }
 function paCloseOverlay(id){ const o = document.getElementById(id); if(o) o.remove(); }
 
 // ---- 詳細資料 ----
@@ -373,14 +398,21 @@ function paOpenDetails(id){
   const p = purchases.find(x => x.id === id); if(!p) return;
   const i = paInfo(p);
   const row = (k, v) => `<tr><td style="color:var(--ink-soft);white-space:nowrap;vertical-align:top;">${k}</td><td>${v === '' || v === null || v === undefined ? '–' : v}</td></tr>`;
-  const items = (p.items || []).filter(it => it.docType !== 'others' && !it.noAcct).map(it => {
+  const pdIcon = (kind, idx) => (typeof pcShowItemPrice === 'function') ? ` <span class="batch-info-icon" style="cursor:pointer;" title="${paEsc(t('pcPdTitle'))}" onclick="pcShowItemPrice('${paEsc(p.id)}','${kind}',${idx})">ⓘ</span>` : '';
+  const items = (p.items || []).map((it, idx) => ({ it, idx })).filter(({ it }) => it.docType !== 'others' && !it.noAcct).map(({ it, idx }) => {
     const sign = it.docType === 'credit_note' ? -1 : 1;
     const g = it.gst === true ? 'GST' : (it.gst === false ? t('paGstNone') : '<span style="color:#b26a00;">' + paEsc(t('paGstUnset')) + '</span>');
-    return `<tr><td>${paEsc(it.name || '')}${it.docType === 'credit_note' ? ` <span style="color:var(--crit);font-size:11px;">(${t('docTypeCreditNoteBadge')})</span>` : ''}</td><td class="num">${paEsc(it.qty)} ${paEsc(it.unit || '')}</td><td class="num">${it.amount !== undefined && it.amount !== null ? paM2(sign * Number(it.amount)) : '–'}</td><td>${g}</td></tr>`;
+    // 自動切換過的品項:顯示收據上的商品/單位/數量(例如 Grape x 20 Bottles 10 Carton),不顯示換算後的主商品數量
+    const shownName = (it.rcv && it.rcv.name) ? it.rcv.name : (it.name || '');
+    const shownQty = it.rcv ? it.rcv.qty : it.qty;
+    const shownUnit = it.rcv ? (it.rcv.unit || '') : (it.unit || '');
+    const swNote = it.rcv ? ` <span class="batch-info-icon" style="cursor:help;" title="${paEsc(tf('purchaseConvertedNote', { name: it.name, qty: it.qty, unit: it.unit || '' }))}" onclick="showInfoModal(this.title)">⇄</span>` : '';
+    const hasAmt = it.amount !== undefined && it.amount !== null;
+    return `<tr><td>${paEsc(shownName)}${it.docType === 'credit_note' ? ` <span style="color:var(--crit);font-size:11px;">(${t('docTypeCreditNoteBadge')})</span>` : ''}${swNote}</td><td class="num">${paEsc(shownQty)} ${paEsc(shownUnit)}</td><td class="num">${hasAmt ? paM2(sign * Number(it.amount)) : '–'}${(hasAmt && it.docType !== 'credit_note') ? pdIcon('item', idx) : ''}</td><td>${g}</td></tr>`;
   }).join('');
-  const nsDetail = (p.nonStockItems || []).map(n => {
+  const nsDetail = (p.nonStockItems || []).map((n, nIdx) => {
     const g = n.gst === true ? 'GST' : (n.gst === false ? t('paGstNone') : '<span style="color:#b26a00;">' + paEsc(t('paGstUnset')) + '</span>');
-    return `<tr style="background:var(--bg-soft,#f5f5f0);"><td>${paEsc(n.name || '')} <span style="color:var(--ink-soft);font-size:11px;">(${t('pcNonStockBadge')})</span></td><td class="num">${paEsc(n.qty)} ${paEsc(n.unit || '')}</td><td class="num">${paM2(Number(n.amount) || 0)}</td><td>${g}</td></tr>`;
+    return `<tr style="background:var(--bg-soft,#f5f5f0);"><td>${paEsc(n.name || '')} <span style="color:var(--ink-soft);font-size:11px;">(${t('pcNonStockBadge')})</span></td><td class="num">${paEsc(n.qty)} ${paEsc(n.unit || '')}</td><td class="num">${paM2(Number(n.amount) || 0)}${Number(n.amount) ? pdIcon('ns', nIdx) : ''}</td><td>${g}</td></tr>`;
   }).join('');
   const offCnt = (p.items || []).filter(it => it.noAcct).length;
   const lineItems = (p.lineExpenses || []).map(l => {
@@ -394,7 +426,7 @@ function paOpenDetails(id){
   ov.onclick = e => { if(e.target === ov) paCloseOverlay('paDetailsOverlay'); };
   ov.innerHTML = `<div class="modal-box" style="max-width:min(600px,96vw);max-height:92vh;overflow:auto;">
     <div class="section-title" style="margin-top:0;">${t('paDetailTitle')}</div>
-    <div style="font-size:12.5px;margin:0 0 8px;">${paEsc(p.partyName || '')} · ${paStatusBadge(i.status)}</div>
+    <div style="font-size:12.5px;margin:0 0 8px;">${paEsc(p.partyName || '')} · ${paStatusBadge(i.status)}${paChkBadge(p)}</div>
     <table style="width:100%;font-size:13px;border-collapse:collapse;"><tbody>
       ${row(t('colDate'), paEsc(paDmy(p.date)))}
       ${row('Invoice No', paEsc(p.invoiceNo || ''))}
@@ -413,6 +445,7 @@ function paOpenDetails(id){
     ${offCnt > 0 ? `<div style="margin-top:6px;font-size:12px;color:var(--ink-soft);">${paEsc(tf('paOffBooksNote', { n: offCnt }))}</div>` : ''}
     <div class="modal-actions">
       <button class="btn ghost" onclick="paCloseOverlay('paDetailsOverlay')">${t('btnClose')}</button>
+      ${canEditPrice() ? `<button class="btn ghost" onclick="paSetChecked('${paEsc(p.id)}', ${paChkState(p) !== 'checked'})">${t(paChkState(p) === 'checked' ? 'paChkUnmark' : 'paChkMark')}</button>` : ''}
       <button class="btn ghost" onclick="paCloseOverlay('paDetailsOverlay');openEditPurchaseModal('${paEsc(p.id)}')">${t('btnEdit')}</button>
       <button class="btn ghost" onclick="paRemoveFromAccounting('${paEsc(p.id)}')">${t('paBtnRemove')}</button>
     </div>

@@ -34,6 +34,7 @@ function setTxType(type){
   // 不然選過一次之後切別的類型,這塊清單會一直卡著不消失。
   if(invoiceFieldWrap) invoiceFieldWrap.style.display = 'none';
   if(mainGridEl) mainGridEl.style.gridTemplateColumns = '1fr 1fr 1.4fr';
+  { const cp = document.getElementById('txCopyLastRow'); if(cp) cp.style.display = (type === 'in') ? 'flex' : 'none'; }
   if(deliveryViewSection) deliveryViewSection.style.display = 'none';
   const receiptWrap = document.getElementById('purchaseReceiptWrap');
   if(receiptWrap && type !== 'in') receiptWrap.style.display = 'none';
@@ -231,6 +232,78 @@ function purchaseSupplierIdFor(partyName){
   return same.length === 1 ? same[0].id : '';
 }
 let txSelectedSupplierId = '';   // 登記進貨:下拉選到的進貨方 id(名稱可以重複,用 id 區分);手動輸入新名稱時是空字串
+// ---- 登記進貨:同進貨方的歷史進貨 ----
+// 目前選的進貨方的所有進貨單(下拉選到的 id 優先;手動輸入的名稱則用名稱比對)
+function txSupplierPurchases(){
+  const name = ((document.getElementById('txParty') || {}).value || '').trim();
+  if(!name || typeof purchases === 'undefined') return [];
+  const sid = purchaseSupplierIdFor(name);
+  const low = name.toLowerCase();
+  // 進貨方 id 相同、或名稱相同(舊進貨單沒有 supplierId;名稱重複的進貨方視為同一家)都算同進貨方
+  const nm = p => (p.partyName || p.partyId || '').trim().toLowerCase();
+  // 進貨單存的 supplierId 對應到的進貨方名稱相同(進貨方有重複建立、或進貨單名稱欄位不同)也算
+  const supName = id => { const sp = (typeof purchaseSuppliers !== 'undefined' ? purchaseSuppliers : []).find(x => x.id === id); return sp ? (sp.name || '').trim().toLowerCase() : ''; };
+  const res = purchases.filter(p => (sid && p.supplierId === sid) || nm(p) === low || (p.supplierId && supName(p.supplierId) === low));
+  console.info('[進貨複製] 進貨方', name, 'id', sid || '(無)', '進貨單總數', purchases.length, '符合', res.length);
+  return res;
+}
+// 進貨單品項 → 登記進貨清單用的商品(自動切換過的用收據上的原商品/數量),發票以外(Credit Note、其他)不算
+function txPurchaseStockLines(p){
+  const out = [];
+  (p.items || []).forEach(it => {
+    if(it.docType && it.docType !== 'invoice') return;
+    const pid = it.rcv ? it.rcv.productId : it.productId;
+    const qty = it.rcv ? Number(it.rcv.qty) : Number(it.qty);
+    if(!pid || !(qty > 0)) return;
+    out.push({ pid, qty, amount: Number(it.amount) > 0 ? Number(it.amount) : 0 });
+  });
+  return out;
+}
+// 同進貨方進貨次數最多的商品(次數相同:最近買過的排前面)
+function txFrequentProductIds(){
+  const list = txSupplierPurchases().slice().sort((a, b) => (b.date || '').localeCompare(a.date || '') || (b.createdAt || '').localeCompare(a.createdAt || ''));
+  const cnt = {}, order = [];
+  list.forEach(p => { new Set(txPurchaseStockLines(p).map(l => l.pid)).forEach(pid => { if(!cnt[pid]){ cnt[pid] = 0; order.push(pid); } cnt[pid]++; }); });
+  return order.map((pid, i) => ({ pid, n: cnt[pid], i })).sort((a, b) => b.n - a.n || a.i - b.i);
+}
+async function txCopyLastPurchase(){
+  const msg = document.getElementById('txMsg');
+  try{ await ensurePurchasesLoaded(); }catch(e){}
+  const name = ((document.getElementById('txParty') || {}).value || '').trim();
+  if(!name){ showInfoModal(t('txCopyNoParty')); return; }
+  const list = txSupplierPurchases().filter(p => txPurchaseStockLines(p).length > 0)
+    .sort((a, b) => (b.date || '').localeCompare(a.date || '') || (b.createdAt || '').localeCompare(a.createdAt || ''));
+  if(!list.length){
+    const matched = txSupplierPurchases();
+    showInfoModal(tf('txCopyNoHistory', { name }) + (matched.length ? '\n' + tf('txCopyNoLines', { n: matched.length }) : ''));
+    return;
+  }
+  const last = list[0];
+  const merged = {};
+  txPurchaseStockLines(last).forEach(l => { const m = merged[l.pid] = merged[l.pid] || { qty: 0, amount: 0 }; m.qty += l.qty; m.amount += l.amount; });
+  const lines = []; let skipped = 0;
+  Object.keys(merged).forEach(pid => {
+    const prod = products.find(x => x.id === pid);
+    if(!prod){ skipped++; return; }
+    lines.push({ prod, qty: merged[pid].qty, amount: merged[pid].amount });
+  });
+  if(!lines.length){ showInfoModal(t('txCopyNoUsable')); return; }
+  const doCopy = () => {
+    txBatchItems = [];
+    lines.forEach(({ prod, qty, amount }) => {
+      // fromForecast:沿用「載入預估」的比對機制,之後掃描收據時會以收據的數量/金額為準,並標出差異
+      const item = { batchItemId: genId(), productId: prod.id, sku: prod.sku || '', name: prod.name, unit: prod.unit, qty, fromForecast: true, fromCopy: true };
+      if(amount > 0) item.amount = amount;
+      txBatchItems.push(item);
+    });
+    renderTxBatchList();
+    if(msg){ msg.className = 'msg ok'; msg.textContent = tf('txCopyDone', { date: last.date || '', n: lines.length }) + (skipped ? ' ' + tf('txCopySkipped', { n: skipped }) : ''); }
+  };
+  const go = () => { if(txBatchItems.length > 0) showConfirmModal(t('txCopyReplaceConfirm'), doCopy); else doCopy(); };
+  // 庫存總覽隱藏的商品(例如自動切換用的批量商品)也會帶入,但先跳視窗列出來,讓使用者確認匯入或取消
+  const hiddenNames = lines.filter(l => l.prod.hidden).map(l => l.prod.name + (l.prod.unit ? '(' + l.prod.unit + ')' : ''));
+  if(hiddenNames.length) showConfirmModal(tf('txCopyHiddenConfirm', { n: hiddenNames.length, names: hiddenNames.join('、') }), go); else go();
+}
 function populateTxPartyHistorySelect(){
   const sel = document.getElementById('txPartyHistorySelect');
   if(!sel) return;
@@ -257,6 +330,7 @@ function onTxPartyHistorySelectChange(value){
     partyInput.value = sup ? sup.name : '';
   }
   if(typeof txSupplierPickerRender === 'function') txSupplierPickerRender();
+  if(typeof renderProductSelect === 'function' && currentTxType === 'in') renderProductSelect();   // 「常進商品」分類跟著進貨方變
 }
 
 function resetRegisterOutFlow(){
@@ -2031,6 +2105,16 @@ async function submitTxBatchSimple(date, msg){
   // 進貨帳務:有價錢的品項要有 GST;沒勾「入會計紀錄」卻有價錢 → 先確認
   if(currentTxType === 'in' && typeof paPreSubmit === 'function' && !(await paPreSubmit(msg))) return;
 
+  // 同一進貨方、同一個 Invoice No. 已經登記過 → 先確認,避免重複入庫
+  if(currentTxType === 'in' && invoiceNo && typeof findDuplicatePurchase === 'function'){
+    try{ await ensurePurchasesLoaded(); }catch(e){}
+    const dup = findDuplicatePurchase(party, purchaseSupplierIdFor(party), invoiceNo, null);
+    if(dup){
+      const ok = await new Promise(res => showConfirmModal(tf('errDupInvoiceConfirm', { party: dup.partyName || '', inv: dup.invoiceNo || '', date: dup.date || '' }), () => res(true), () => res(false)));
+      if(!ok) return;
+    }
+  }
+
   const purchaseId = currentTxType === 'in' ? genId() : null; // 一整批進貨(不管品項有幾個)共用同一個進貨單 ID
 
   // 「直接出貨」(currentTxType === 'out')的話,扣庫存之前先問清楚每個商品要從哪個位置扣——
@@ -2129,6 +2213,7 @@ async function submitTxBatchSimple(date, msg){
     const purchase = {
       id: purchaseId,
       date, partyId: party, partyName: party, supplierId: purchaseSupplierIdFor(party), invoiceNo, note,
+      priceCheck: { status: 'pending' },   // 待會計核價
       items: txBatchItems.map(it => {
         const p = products.find(pp => pp.id === it.productId);
         if(p && p.parentId && p.autoConvertOnStockIn){
@@ -2166,7 +2251,23 @@ async function submitTxBatchSimple(date, msg){
     if(typeof pcApplyToPurchase === 'function') pcApplyToPurchase(purchase); // 幣種換算 + 其他支出分攤 → 底價/總價
     let purchaseSaved = false;
     try{ await upsertPurchase(purchase); purchases.push(purchase); purchaseSaved = true; }
-    catch(e){ console.error('儲存進貨單失敗', e); }
+    catch(e){
+      console.error('儲存進貨單失敗', e);
+      // 進貨單沒存成功:把剛寫入的庫存異動退回,清單與表單保留,讓使用者可以直接再按一次送出,
+      // 不會出現「庫存加了、卻沒有進貨單/批次」的狀況。
+      let rolledBack = false;
+      try{
+        await deleteTransactions(newTxs);
+        newTxs.forEach(tx => { const i = transactions.indexOf(tx); if(i >= 0) transactions.splice(i, 1); });
+        rolledBack = true;
+      } catch(e2){ console.error('退回進貨庫存異動失敗', e2); }
+      msg.className = 'msg error';
+      msg.textContent = '⚠ ' + t(rolledBack ? 'errPurchaseSaveFailedRolledBack' : 'errPurchaseSaveFailedNotRolledBack');
+      renderAll();
+      return;
+    }
+    // Credit Note 抵扣(上一票破損折抵):進貨單存好後記一筆「Credit Note」付款,不動庫存與成本
+    if(purchaseSaved && typeof pcSaveCreditDeduct === 'function') await pcSaveCreditDeduct(purchase);
     // 批次追蹤:建立批次(必要時一併建立期初批次)。失敗不影響進貨本身,提示後可到編輯進貨單重新儲存補建。
     if(batchTrackThis && purchaseSaved){
       let batchCreated = false;
@@ -2177,6 +2278,11 @@ async function submitTxBatchSimple(date, msg){
         try{ await batchApplyPurchaseLocations(purchase, txBatchItems); }
         catch(e){ console.error('記錄批次位置失敗', e); showInfoModal(t('batchLocSaveFailed')); }
       }
+    }
+    // 進貨預估有預付款 → 問是否自動抵扣這張進貨單
+    if(purchaseSaved && typeof ppAutoApplyForForecast === 'function'){
+      const fids = [...new Set(txBatchItems.map(it => it.forecastRecordId).filter(Boolean))];
+      if(fids.length) await ppAutoApplyForForecast(purchase, fids);
     }
     if(typeof pcRememberExpenseNames === 'function' && purchase.costs) pcRememberExpenseNames(purchase.costs.expenses.map(e => e.name).concat((purchase.lineExpenses || []).map(l => l.name)));
     if(typeof pcReset === 'function') pcReset();
@@ -3366,17 +3472,28 @@ function renderProductSelect(){
   const catSel = document.getElementById('txProductCategoryFilter');
   const prevCat = catSel.value;
   const usedCats = categoryOrder.filter(c => products.some(p => (p.category || '未分類') === c));
+  // 進貨:同進貨方有進貨紀錄時,「全部分類」下面多一個「常進商品」(進貨次數多到少)
+  let freqList = [];
+  if(currentTxType === 'in'){
+    if(typeof purchasesLoaded !== 'undefined' && !purchasesLoaded && typeof ensurePurchasesLoaded === 'function'){ ensurePurchasesLoaded().then(() => renderProductSelect()).catch(() => {}); }
+    else freqList = txFrequentProductIds().filter(x => products.some(p => p.id === x.pid));   // 含隱藏商品(例如自動切換用的批量商品)
+  }
   catSel.innerHTML = `<option value="">${t('catFilterAll')}</option>` +
+    (freqList.length ? `<option value="__freq__">★ ${t('catFilterFrequent')}</option>` : '') +
     usedCats.map(c => `<option value="${c}">${catLabel(c)}</option>`).join('');
-  if(usedCats.includes(prevCat)) catSel.value = prevCat;
+  if(usedCats.includes(prevCat) || (prevCat === '__freq__' && freqList.length)) catSel.value = prevCat;
   const catFilterVal = catSel.value;
 
   const sel = document.getElementById('txProduct');
   const prevVal = sel.value;
   // 庫存總覽設定隱藏的商品,登記進出貨新增商品時的下拉選單一律不顯示(不管是進貨/出貨/庫存調整
   // 或任何其他模式)——隱藏通常代表這項商品已經停用/不再進貨,不應該還讓人選到去登記異動。
-  let filteredProducts = (catFilterVal ? products.filter(p => (p.category || '未分類') === catFilterVal) : products)
-    .filter(p => !p.hidden);
+  const freqCount = {};
+  freqList.forEach(x => { freqCount[x.pid] = x.n; });
+  const isFreq = catFilterVal === '__freq__';
+  let filteredProducts = isFreq
+    ? freqList.map(x => products.find(p => p.id === x.pid)).filter(Boolean)
+    : (catFilterVal ? products.filter(p => (p.category || '未分類') === catFilterVal) : products).filter(p => !p.hidden);
 
   // load-pending/load-completed 新增商品的下拉選單:預設只顯示這個出貨方訂貨時實際看得到的商品
   // (跟訂貨頁面同一套篩選邏輯:orderable、沒有全域隱藏、也沒有針對這個出貨方個別隱藏),
@@ -3399,7 +3516,7 @@ function renderProductSelect(){
     const _dd = dnRefDocCurrent();
     if(_dd){ const _ids = new Set(_dd.items.map(x => x.productId)); filteredProducts = filteredProducts.filter(p => _ids.has(p.id)); }
   }
-  sel.innerHTML = '<option value=""></option>' + filteredProducts.slice().sort(compareProductsBySortMode).map(p => `<option value="${p.id}">${p.parentId ? '⧉ ' : ''}${p.name}(${p.unit})</option>`).join('');
+  sel.innerHTML = '<option value=""></option>' + (isFreq ? filteredProducts.slice() : filteredProducts.slice().sort(compareProductsBySortMode)).map(p => `<option value="${p.id}">${p.parentId ? '⧉ ' : ''}${p.name}(${p.unit})${isFreq && freqCount[p.id] ? ' · ' + tf('freqTimes', { n: freqCount[p.id] }) : ''}${isFreq && p.hidden ? ' · ' + t('freqHiddenTag') : ''}</option>`).join('');
   if(filteredProducts.some(p => p.id === prevVal)) sel.value = prevVal;
 
   const browseAllRow = document.getElementById('txBrowseAllProductsRow');

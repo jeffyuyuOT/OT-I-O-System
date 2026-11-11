@@ -26,7 +26,7 @@ let pcState = pcNewState();
 function pcNewState(){
   // 換算幣種固定跟隨「系統預設幣種」(見 settings.js getSystemCurrency,預設 AUD),這裡不能另外選。
   // currency = 發票幣種;rates[cur] = 1 單位 cur 等於多少系統幣種;ratesBase = 這些匯率是對哪個幣種取的
-  return { overseas: false, currency: '', rates: {}, ratesBase: '', manual: {}, expenses: [], lineExpenses: [], nonStock: [], basis: 'volume' };
+  return { overseas: false, currency: '', rates: {}, ratesBase: '', manual: {}, expenses: [], lineExpenses: [], nonStock: [], creditDeduct: [], basis: 'volume' };
 }
 function pcActive(){
   return typeof batchActive === 'function' && batchActive() && typeof canEditPrice === 'function' && canEditPrice();
@@ -306,6 +306,72 @@ function pcUpdateExpense(id, field, value){
 function pcSetBasis(b){ pcState.basis = b; pcRender(); }
 function pcReset(){ pcState = pcNewState(); pcRender(); }
 
+
+// ---------- Credit Note 抵扣(上一票破損折抵等)----------
+// 只抵扣「應付貨款」:進貨單總額、庫存、成本、批次都不變;送出進貨單後自動記一筆付款(方式 = Credit Note)。
+// 金額用發票幣種輸入,記付款時換算成系統幣種。
+function pcCdOn(){ return pcActive() && typeof paOn === 'function' && paOn(); }
+function pcCdAdd(){ pcState.creditDeduct.push({ id: genId(), name: '', qty: '', price: '' }); pcRender(); }
+function pcCdRemove(id){ pcState.creditDeduct = pcState.creditDeduct.filter(x => x.id !== id); pcRender(); }
+function pcCdUpdate(id, field, value){
+  const x = pcState.creditDeduct.find(r => r.id === id); if(!x) return;
+  if(field === 'name') x.name = value;
+  else { const n = parseFloat(value); x[field] = (isFinite(n) && n >= 0) ? n : ''; }
+  pcRender();
+}
+function pcCdRows(){
+  return (pcState.creditDeduct || []).map(x => {
+    const price = Number(x.price), qty = Number(x.qty);
+    const amount = (isFinite(price) && price > 0) ? pcRound2(qty > 0 ? qty * price : price) : 0;
+    return { id: x.id, name: (x.name || '').trim(), qty: qty > 0 ? qty : null, price: isFinite(price) ? price : 0, amount };
+  }).filter(x => x.amount > 0 || x.name);
+}
+function pcCdTotal(){ return pcRound2(pcCdRows().reduce((s, x) => s + x.amount, 0)); }
+function pcCdCurrency(){ return (pcState.overseas && pcState.currency) ? pcState.currency : pcBase(); }
+function pcCdSectionHtml(){
+  if(!pcCdOn()) return '';
+  const cur = pcCdCurrency(), base = pcBase();
+  const rate = pcRateOf(cur);
+  const rows = (pcState.creditDeduct || []).map(x => `
+    <div style="display:flex;gap:6px;align-items:center;margin:4px 0;flex-wrap:wrap;">
+      <input type="text" value="${pcEsc(x.name)}" placeholder="${t('pcCdName')}" style="width:190px;" onchange="pcCdUpdate('${x.id}','name',this.value)" />
+      <input type="number" step="1" min="0" value="${x.qty === '' ? '' : x.qty}" placeholder="${t('pcCdQty')}" style="width:80px;" onchange="pcCdUpdate('${x.id}','qty',this.value)" />
+      <input type="number" step="0.01" min="0" value="${x.price === '' ? '' : x.price}" placeholder="${t('pcCdPrice')}" style="width:110px;" onchange="pcCdUpdate('${x.id}','price',this.value)" />
+      <span style="font-size:12px;color:var(--ink-soft);">${cur}</span>
+      <button class="btn ghost" onclick="pcCdRemove('${x.id}')" title="${t('btnDelete')}">✕</button>
+    </div>`).join('');
+  const tot = pcCdTotal();
+  return `
+      <div style="font-size:12.5px;font-weight:700;margin-top:12px;">${t('pcCdTitle')}</div>
+      <div style="font-size:11.5px;color:var(--ink-soft);margin-bottom:2px;">${t('pcCdHint')}</div>
+      ${rows}
+      <button class="btn ghost" onclick="pcCdAdd()" style="margin-top:2px;">${t('pcCdAdd')}</button>
+      ${tot > 0 ? `<div style="font-size:12.5px;margin-top:6px;">${t('pcCdTotal')}: <strong>${pcFmt(tot)} ${cur}</strong>${(cur !== base && rate) ? ` ≈ <strong>${pcFmt(pcRound2(tot * rate))} ${base}</strong>` : ''}</div>` : ''}`;
+}
+// 送出進貨單、進貨單存好之後呼叫:記一筆 Credit Note 付款。失敗不影響進貨單,提示後可到 Purchase List 手動補記。
+async function pcSaveCreditDeduct(purchase){
+  const rows = pcCdRows().filter(x => x.amount > 0);
+  if(!rows.length) return;
+  const cur = pcCdCurrency(), base = pcBase();
+  const rate = pcRateOf(cur) || 1;
+  const orig = pcRound2(rows.reduce((s, x) => s + x.amount, 0));
+  let aud = pcRound2(orig * rate);
+  const detail = rows.map(x => `${x.name || '–'}${x.qty ? ' ' + x.qty + '×' + x.price : ''} = ${pcFmt(x.amount)}`).join('、');
+  const note = `${t('pcCdNotePrefix')}:${detail}${cur !== base ? ` (${cur} ${pcFmt(orig)} × ${rate})` : ''}`;
+  try{
+    if(typeof paLoadPayments === 'function') await paLoadPayments();
+    const total = (typeof paInfo === 'function') ? paInfo(purchase).total : null;
+    if(total !== null && aud > total + 0.004) aud = pcRound2(total);   // 抵扣不能超過進貨單金額
+    if(!(aud > 0)) return;
+    const { error } = await sb.rpc('purchase_payment_save', { p_purchase_id: purchase.id, p_payment_id: null, p_date: purchase.date, p_amount: aud, p_method: 'Credit Note', p_note: note });
+    if(error) throw error;
+    if(typeof paLoadPayments === 'function') await paLoadPayments();
+  }catch(e){
+    console.error('記錄 Credit Note 抵扣失敗', e);
+    showInfoModal(tf('pcCdSaveFailed', { amount: pcFmt(orig), cur }));
+  }
+}
+
 // ---------- 商品列的其他支出(收據上本來就有的,例如 fuel levy)----------
 // 放在進貨單商品清單裡、標示「其他支出」;金額跟商品一樣用發票幣種輸入,送出時換算成系統幣種。
 // 它們併入分攤池,和下面「跟此進貨單相關的其他支出」加起來一起分攤到商品上,自己不被分攤。
@@ -519,6 +585,7 @@ function pcValidate(){
   pcErrPopup = false;
   if(!pcActive()) return '';
   if(pcState.overseas && pcState.currency !== pcBase() && !pcRateOf(pcState.currency)) return tf('pcErrNoRate', { cur: pcState.currency });
+  if(pcCdOn() && pcCdTotal() > 0 && pcCdCurrency() !== pcBase() && !pcRateOf(pcCdCurrency())) return tf('pcErrNoRate', { cur: pcCdCurrency() });
   // 完全空白的支出列直接略過;只填一半的擋下
   const rows = pcExpenseRows().filter(e => e.name || e.amount !== null);
   for(const e of rows){
@@ -763,6 +830,7 @@ function pcRender(){
       ${rateRows}` : ''}
       ${foreign.length ? `<div style="font-size:11.5px;color:var(--ink-soft);margin-top:4px;">${t('pcRateSourceNote')}</div>
       ${(pcState.fetchFailed || []).length ? `<div style="font-size:12px;color:var(--warn);">${tf('pcRateFetchFailed', { cur: pcState.fetchFailed.join(', ') })}</div>` : ''}` : ''}
+      ${pcCdSectionHtml()}
       ${preview}
     </div>`;
 }
