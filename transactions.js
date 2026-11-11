@@ -2191,6 +2191,8 @@ async function submitTxBatchSimple(date, msg){
       renderAll();
       return;
     }
+    // Credit Note 抵扣(上一票破損折抵):進貨單存好後記一筆「Credit Note」付款,不動庫存與成本
+    if(purchaseSaved && typeof pcSaveCreditDeduct === 'function') await pcSaveCreditDeduct(purchase);
     // 批次追蹤:建立批次(必要時一併建立期初批次)。失敗不影響進貨本身,提示後可到編輯進貨單重新儲存補建。
     if(batchTrackThis && purchaseSaved){
       let batchCreated = false;

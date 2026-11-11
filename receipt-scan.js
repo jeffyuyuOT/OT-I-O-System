@@ -456,6 +456,78 @@ async function syncOcrMemoryToFinalParty(finalParty){
   }
 }
 
+
+// ============================================================
+// 嘉南(Jia Nan Sin)Excel 專用匯入:在瀏覽器裡直接讀,不經掃描服務。
+//  · 數量/單價/金額/編號:「報關清單」分頁(數量空白的列 = 這次沒進,略過)
+//  · 效期:「生產&有效日期」分頁,用「編號」(BATCH CODE)對應,不用品名/單位(那頁的單位欄位不可靠)
+//  · 一格有多個效期,例如 "2027.12.15*102\n2028.01.21*18" → 依數量拆成多行
+//  · 辨識方式是看分頁名稱,不是看供應商名稱;不符合就回傳 null,照舊交給掃描服務
+// ============================================================
+function rcvJnNormCode(v){ return (v === null || v === undefined) ? '' : String(v).trim().replace(/\s+/g, ''); }
+function rcvJnParseDate(txt){
+  const m = String(txt || '').match(/(\d{4})[.\-\/](\d{1,2})[.\-\/](\d{1,2})/);
+  if(!m) return '';
+  return `${m[1]}-${String(m[2]).padStart(2, '0')}-${String(m[3]).padStart(2, '0')}`;
+}
+// "2027.12.15*102\n2028.01.21*18" → [{expiry, qty|null}]
+function rcvJnParseExpiryCell(v){
+  if(v === null || v === undefined || v === '') return [];
+  if(v instanceof Date){ const d = v.toISOString().slice(0, 10); return d ? [{ expiry: d, qty: null }] : []; }
+  return String(v).split(/[\r\n;]+/).map(x => x.trim()).filter(Boolean).map(part => {
+    const exp = rcvJnParseDate(part);
+    const q = part.match(/\*\s*(\d+(?:\.\d+)?)/);
+    return exp ? { expiry: exp, qty: q ? Number(q[1]) : null } : null;
+  }).filter(Boolean);
+}
+function rcvJnParseWorkbook(wb, filename){
+  const mainName = wb.SheetNames.find(n => n.trim() === '報關清單');
+  const expName = wb.SheetNames.find(n => /有效日期|效期/.test(n));
+  if(!mainName || !expName) return null;
+  const grid = nm => XLSX.utils.sheet_to_json(wb.Sheets[nm], { header: 1, raw: true, defval: null });
+  const main = grid(mainName), exp = grid(expName);
+  const findCol = (hdr, re, from) => { for(let i = from || 0; i < hdr.length; i++){ if(hdr[i] !== null && re.test(String(hdr[i]))) return i; } return -1; };
+  const mh = main[0] || [];
+  const cName = findCol(mh, /品名/), cQty = findCol(mh, /^\s*數量\s*$/), cPrice = findCol(mh, /單價/), cAmt = findCol(mh, /金額/), cCode = findCol(mh, /編號/);
+  if(cName < 0 || cQty < 0 || cPrice < 0 || cCode < 0) return null;
+  // 效期頁:BATCH CODE / BEST BEFORE
+  const eh = exp[0] || [];
+  const eCode = findCol(eh, /BATCH|編號/i), eBest = findCol(eh, /BEST|效期/i);
+  if(eCode < 0 || eBest < 0) return null;
+  const expByCode = {};
+  exp.slice(1).forEach(r => { const k = rcvJnNormCode(r[eCode]); if(k) expByCode[k] = r[eBest]; });
+
+  const lines = [], warnings = [];
+  main.slice(1).forEach(r => {
+    const name = r[cName] ? String(r[cName]).trim() : '';
+    const qty = Number(r[cQty]);
+    if(!name || !(qty > 0)) return;
+    const price = Number(r[cPrice]) || 0;
+    const code = rcvJnNormCode(r[cCode]);
+    const parts = code ? rcvJnParseExpiryCell(expByCode[code]) : [];
+    const base = { description: name, docType: 'invoice', sourceFilename: filename, scanId: null, supplierLot: code, unitPrice: price };
+    if(parts.length === 0){
+      lines.push(Object.assign({}, base, { qty, amount: price ? Math.round(qty * price * 100) / 100 : null, expiry: '' }));
+    } else if(parts.length === 1 || parts.every(p => p.qty === null)){
+      lines.push(Object.assign({}, base, { qty, amount: price ? Math.round(qty * price * 100) / 100 : null, expiry: parts[0].expiry }));
+    } else {
+      const sum = parts.reduce((x, p) => x + (p.qty || 0), 0);
+      if(sum !== qty) warnings.push(`${name}:效期數量合計 ${sum} ≠ 數量 ${qty}`);
+      parts.forEach(p => { const q = p.qty || 0; if(q > 0) lines.push(Object.assign({}, base, { qty: q, amount: price ? Math.round(q * price * 100) / 100 : null, expiry: p.expiry })); });
+      if(sum < qty) lines.push(Object.assign({}, base, { qty: qty - sum, amount: price ? Math.round((qty - sum) * price * 100) / 100 : null, expiry: '' }));
+    }
+  });
+  return lines.length ? { lines, warnings } : null;
+}
+async function rcvTryLocalExcel(file){
+  if(typeof XLSX === 'undefined') return null;
+  try{
+    const buf = await (await fetch(file.url)).arrayBuffer();
+    const wb = XLSX.read(buf, { type: 'array', cellDates: false });
+    return rcvJnParseWorkbook(wb, file.filename);
+  }catch(e){ console.error('本機解析 Excel 失敗,改用掃描服務', e); return null; }
+}
+
 async function scanReceiptForItems(){
   if(!hasFeature('receiptScanModule')) return;
   const msgEl = document.getElementById('purchaseReceiptScanMsg');
@@ -504,6 +576,14 @@ async function scanReceiptForItems(){
       msgEl.textContent = scannableFiles.length > 1
         ? tf('scanningFileMsg', { current: fileIdx + 1, total: scannableFiles.length, name: file.filename })
         : (isPdf ? t('convertingPdfMsg') : t('scanningReceiptMsg'));
+      if(isExcel){
+        const local = await rcvTryLocalExcel(file);
+        if(local){
+          allLines = allLines.concat(local.lines);
+          if(local.warnings.length) showInfoModal('⚠ ' + t('rcvJnWarnTitle') + '\n' + local.warnings.join('\n'));
+          continue;
+        }
+      }
       const ocrSources = isExcel ? [file.url] : (isPdf ? await renderAllPdfPagesAsImageDataUrls(file.url) : [file.url]);
       let fileScanId = null;
       for(let i = 0; i < ocrSources.length; i++){
@@ -602,15 +682,17 @@ async function scanReceiptForItems(){
 // 系統自動加總過,反而看不出計算依據。畫面上(renderTxBatchList)會在同一個商品有多筆「不同
 // 文件來源」的時候,額外顯示一行「淨」的加總方便核對,但那只是顯示層面的呈現,底層資料還是
 // 分開的。
-function addOcrLineToTxBatch(productId, qty, amount, docType, sourceFilename, ocrDescription){
+function addOcrLineToTxBatch(productId, qty, amount, docType, sourceFilename, ocrDescription, extra){
+  extra = extra || {};
   const p = products.find(x => x.id === productId);
   if(!p) return;
   const existing = txBatchItems.find(it =>
-    it.productId === productId && it.docType === docType && it.sourceFilename === sourceFilename && !it.expiry
+    it.productId === productId && it.docType === docType && it.sourceFilename === sourceFilename && (it.expiry || '') === (extra.expiry || '')
   );
   let affectedBatchItemId;
   if(existing){
     existing.qty += qty;
+    if(extra.supplierLot && !existing.supplierLot) existing.supplierLot = extra.supplierLot;
     if(amount !== null && amount !== undefined) existing.amount = (existing.amount || 0) + amount;
     if(ocrDescription){
       existing.ocrDescriptions = existing.ocrDescriptions || [];
@@ -622,6 +704,8 @@ function addOcrLineToTxBatch(productId, qty, amount, docType, sourceFilename, oc
     if(amount !== null && amount !== undefined) item.amount = amount;
     if(docType) item.docType = docType;
     if(sourceFilename) item.sourceFilename = sourceFilename;
+    if(extra.expiry) item.expiry = extra.expiry;
+    if(extra.supplierLot) item.supplierLot = extra.supplierLot;
     // 記住這一行原本收據上讀到的描述文字(可能不只一個,同一個商品在同一份文件裡出現好幾次
     // 會合併成一行,但各自的描述文字都要記住)——之後真正送出登記進出貨時,要用這個回頭去
     // 更新記憶對照表(見 submitTxBatchSimple 裡的 syncOcrMemoryToFinalParty),確保記憶對照表
@@ -655,7 +739,7 @@ function processNextReceiptOcrLine(){
   }
   if(memory && memory.type === 'product'){
     // 已經有記憶對照過,不用問,照 OCR 讀到的數量/金額直接加入清單。
-    addOcrLineToTxBatch(memory.product.id, line.qty, line.amount, line.docType, line.sourceFilename, normalizeReceiptLineText(line.description));
+    addOcrLineToTxBatch(memory.product.id, line.qty, line.amount, line.docType, line.sourceFilename, normalizeReceiptLineText(line.description), { expiry: line.expiry, supplierLot: line.supplierLot });
     receiptOcrConfirmedLinesForCorrection.push({
       name: line.description,
       qty: line.qty,
@@ -816,7 +900,7 @@ async function confirmReceiptOcrLine(){
 
   const line = pendingReceiptOcrLines.shift();
   const finalAmount = (amount && amount > 0) ? amount : null;
-  addOcrLineToTxBatch(productId, qty, finalAmount, line.docType, line.sourceFilename, normalizeReceiptLineText(line.description));
+  addOcrLineToTxBatch(productId, qty, finalAmount, line.docType, line.sourceFilename, normalizeReceiptLineText(line.description), { expiry: line.expiry, supplierLot: line.supplierLot });
   await rememberReceiptLineMapping(getLiveReceiptPartyValue(), normalizeReceiptLineText(line.description), productId);
   // 收集這行使用者實際確認的結果,等這次掃描全部處理完再一次回報給掃描服務(見
   // reportReceiptScanCorrections)——略過的行(公司資訊、地址之類)不算品項,不放進來。
@@ -834,6 +918,19 @@ async function confirmReceiptOcrLine(){
 // 只是這次掃描不想加這個品項而已,不代表以後每次掃到同一個供應商、同樣的文字都要自動跳過。
 // 「略過這一行」比較適合公司資訊、地址這種真的不是商品、以後也不會是商品的雜訊;這個「跳過
 // 此商品」則適合「這次剛好不訂這個」但下次可能還是要問的情況,不會把這個判斷永久記住。
+// 對不上商品的行(運費、疊櫃費、雜項…):先加到「商品列的其他支出」(金額用發票幣種),之後可以在清單裡手動調整
+function addOcrLineAsLineExpense(){
+  const line = pendingReceiptOcrLines.shift();
+  if(line && typeof pcState !== 'undefined' && typeof pcActive === 'function' && pcActive()){
+    const amt = parseFloat(document.getElementById('receiptOcrAmountInput').value);
+    const total = (amt > 0) ? amt : (line.amount || '');
+    pcState.lineExpenses.push({ id: genId(), name: String(line.description || '').trim(), amount: total === '' ? '' : Number(total) });
+    renderTxBatchList();
+  }
+  document.getElementById('receiptOcrConfirmModalOverlay').style.display = 'none';
+  processNextReceiptOcrLine();
+}
+
 function skipReceiptOcrLineOnce(){
   pendingReceiptOcrLines.shift();
   document.getElementById('receiptOcrConfirmModalOverlay').style.display = 'none';

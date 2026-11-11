@@ -7,7 +7,7 @@
 //   inAccounting(false = 不入會計;沒有這個欄位的舊進貨單一律算入會計)、gstMode('ex' 金額不含 GST / 'inc' 含 GST)、items[].gst(true / false)
 // ============================================================
 const PA_GST_RATE = 0.10;
-const PA_METHODS = ['Bank Transfer', 'Cash', 'Card', 'Cheque', 'Other'];
+const PA_METHODS = ['Bank Transfer', 'Cash', 'Card', 'Cheque', 'Credit Note', 'Other'];
 let paFilter = { from: '', to: '', status: '', sup: '', q: '' };
 let paRows = [];            // purchase_payments 全部資料
 let paErr = '';             // '' | 'sql' | 'error'
