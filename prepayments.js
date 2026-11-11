@@ -185,7 +185,7 @@ async function ppOpenForm(id, forecastId){
   ov.innerHTML = `<div class="modal-box" style="max-width:min(520px,96vw);max-height:92vh;overflow:auto;">
     <div class="section-title" style="margin-top:0;">${ed ? t('ppFormEdit') : t('ppFormAdd')}</div>
     <div class="form-grid" style="grid-template-columns:1fr 1fr;gap:8px;">
-      <div class="field" style="grid-column:1/3;"><label>${t('ppFSupplier')}</label><select id="ppFSup" ${(!ed && recSup(ppEdit.forecastId)) ? 'disabled' : ''}><option value="">${t('ppFPickSupplier')}</option>${sups.map(s => `<option value="${ppEsc(s.name)}" data-id="${ppEsc(s.id)}" ${s.name === supV ? 'selected' : ''}>${ppEsc(s.name)}</option>`).join('')}</select></div>
+      <div class="field" style="grid-column:1/3;"><label>${t('ppFSupplier')}</label><select id="ppFSup" onchange="ppOnSupChange(this)" ${(!ed && recSup(ppEdit.forecastId)) ? 'disabled' : ''}><option value="">${t('ppFPickSupplier')}</option><option value="__new__">${t('optAddNewSupplier')}</option>${sups.map(s => `<option value="${ppEsc(s.name)}" data-id="${ppEsc(s.id)}" ${s.name === supV ? 'selected' : ''}>${ppEsc(s.name)}</option>`).join('')}</select></div>
       <div class="field" style="grid-column:1/3;"><label>${t('ppFForecast')}</label><select id="ppFForecast" onchange="ppOnForecastPick(this.value)"><option value="">${t('ppFNone')}</option>${recs.map(r => `<option value="${ppEsc(r.id)}" ${r.id === ppEdit.forecastId ? 'selected' : ''}>${ppEsc(r.name)}</option>`).join('')}${(ppEdit.forecastId && !recs.some(r => r.id === ppEdit.forecastId)) ? `<option value="${ppEsc(ppEdit.forecastId)}" selected>${ppEsc(tf('ppForecastGoneOpt', { n: (ed && ed.forecast_name) || '' }))}</option>` : ''}</select></div>
       <div class="field"><label>${t('ppFDate')}</label><input type="date" id="ppFDate" value="${ppEsc(ed ? ed.pay_date : paToday())}" /></div>
       <div class="field"><label>${t('ppFAmount')}</label><input type="number" id="ppFAmount" step="0.01" min="0" value="${ed ? ppM(Math.abs(ed.amount)) : ''}" placeholder="0.00" /></div>
@@ -202,6 +202,22 @@ function ppOnForecastPick(rid){
   const sel = document.getElementById('ppFSup'); if(!sel) return;
   const r = (typeof forecastRecords !== 'undefined' ? forecastRecords : []).find(x => x.id === rid);
   if(r && r.supplierName){ sel.value = r.supplierName; sel.disabled = true; } else { sel.disabled = false; }
+}
+// 選「+ 新增進貨方」:先把下拉還原成原本的選擇,開進貨方新增視窗;存好後把新進貨方加進下拉並選起來
+function ppOnSupChange(sel){
+  if(sel.value !== '__new__'){ sel.dataset.prev = sel.value; return; }
+  sel.value = sel.dataset.prev || '';
+  if(typeof openSupplierEditModal !== 'function') return;
+  openSupplierEditModal(null, '');
+  const ov = document.getElementById('supplierEditModalOverlay'); if(ov) ov.style.zIndex = '1300';   // 要蓋在預付款視窗(1250)上面
+  supplierEditOnSaved = sup => {
+    const el = document.getElementById('ppFSup'); if(!el) return;
+    const o = document.createElement('option');
+    o.value = sup.name; o.setAttribute('data-id', sup.id); o.textContent = sup.name;
+    const anchor = el.querySelector('option[value="__new__"]');
+    el.insertBefore(o, anchor ? anchor.nextSibling : null);
+    el.value = sup.name; el.dataset.prev = sup.name;
+  };
 }
 function ppCloseForm(){ const o = document.getElementById('ppFormOverlay'); if(o) o.remove(); ppEdit = null; }
 async function ppSave(){
