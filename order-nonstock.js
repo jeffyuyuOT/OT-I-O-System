@@ -263,6 +263,26 @@ function dnLinkedNotes(refId){
   return (typeof deliveryNotes !== 'undefined' ? deliveryNotes : []).filter(n => n && !n.deleted && n.ref && n.ref.id === refId)
     .slice().sort((a, b) => (a.date || '').localeCompare(b.date || ''));
 }
+// 這張訂單的 Delivery Note 出貨狀態:'none' 沒有關聯 DN / 'partial' 有關聯 DN 但還沒送完(Partially Shipped)/ 'done' 已送完;
+// DN 資料還沒載入回傳 null。「已送」只算已完成(已列印)的 DN,待處理的 DN 在列印時才扣,跟選商品視窗同一套規則。
+function dnOrderShipState(orderId){
+  if(typeof deliveryNotesLoaded === 'undefined' || !deliveryNotesLoaded) return null;
+  const linked = dnLinkedNotes(orderId);
+  if(!linked.length) return 'none';
+  const src = dnRefSourceRaw({ type: 'order', id: orderId });
+  if(!src) return 'none';
+  const items = {}, ns = {};
+  linked.filter(n => n.status === 'completed').forEach(n => {
+    (n.items || []).forEach(it => { items[it.productId] = (items[it.productId] || 0) + (Number(it.qty) || 0); });
+    (n.nonStockItems || []).forEach(x => { const k = x.name + '|' + (x.unit || ''); ns[k] = (ns[k] || 0) + (Number(x.qty) || 0); });
+  });
+  const left = src.items.some(it => it.qty - (items[it.productId] || 0) > 1e-9) || src.ns.some(n => n.qty - (ns[n.name + '|' + (n.unit || '')] || 0) > 1e-9);
+  return left ? 'partial' : 'done';
+}
+function dnOrderBadgeHtml(o){
+  if(!o || o.deleted || dnOrderShipState(o.id) !== 'partial') return '';
+  return `<span style="font-size:11px;font-weight:600;color:var(--warn,#b45309);border:1px solid currentColor;border-radius:10px;padding:0 7px;white-space:nowrap;" title="${t('dnBadgePartialTitle')}">${t('dnBadgePartial')}</span>`;
+}
 function dnRecordHtml(type, id){
   const esc = escapeHtmlForPrint;
   const src = dnRefSourceRaw({ type, id });

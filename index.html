@@ -1792,7 +1792,7 @@ body.no-cost-view .cost-col{display:none !important;}
     <div id="subtab-order-completed" class="subtab-content section">
       <div class="section-title" style="margin:0 0 6px;" data-i18n="subtabCompletedOrders">已完成訂單</div>
       <p data-hint-always="1" style="font-size:12.5px;color:var(--ink-soft);margin:0 0 10px;" data-i18n="completedOrders30DayNote">此頁面僅顯示最近 30 天的紀錄,如果要看之前的紀錄,請到「歷史紀錄」→「已完成訂單」查閱。</p>
-      <div class="form-grid" style="grid-template-columns:minmax(120px,200px) minmax(120px,200px) auto;margin-bottom:14px;">
+      <div class="form-grid" style="grid-template-columns:minmax(120px,200px) minmax(120px,200px) minmax(110px,150px) minmax(150px,220px) auto;margin-bottom:14px;">
         <div class="field">
           <label data-i18n="fieldShippingParty">出貨方</label>
           <input type="search" id="recentCompletedOrderPartyFilter" autocomplete="off" oninput="renderOrders()" data-i18n-placeholder="phPartySearch" placeholder="搜尋出貨方…" />
@@ -1801,7 +1801,15 @@ body.no-cost-view .cost-col{display:none !important;}
           <label data-i18n="fieldOrderNoSearch">訂單號</label>
           <input type="text" id="recentCompletedOrderNoSearch" oninput="renderOrders()" data-i18n-placeholder="phOrderNoSearch" placeholder="搜尋訂單號…" />
         </div>
-        <button class="btn ghost" onclick="document.getElementById('recentCompletedOrderPartyFilter').value='';document.getElementById('recentCompletedOrderNoSearch').value='';renderOrders()" style="align-self:flex-end;" data-i18n="btnClearFilter">清除篩選</button>
+        <div class="field">
+          <label data-i18n="fieldSignStatus">簽收狀態</label>
+          <select id="recentCompletedOrderSignFilter" onchange="renderOrders()"><option value="" data-i18n="optAllStatus">全部</option><option value="unsigned" data-i18n="optUnsigned">未簽收</option><option value="signed" data-i18n="optSigned">已簽收</option></select>
+        </div>
+        <div class="field">
+          <label data-i18n="fieldDnStatus">Delivery Note</label>
+          <select id="recentCompletedOrderDnFilter" onchange="renderOrders()"><option value="" data-i18n="optAllStatus">全部</option><option value="none" data-i18n="optDnNone">沒有 Delivery Note</option><option value="partial" data-i18n="optDnPartial">Partially Shipped(未送完)</option><option value="done" data-i18n="optDnDone">已送完</option></select>
+        </div>
+        <button class="btn ghost" onclick="document.getElementById('recentCompletedOrderPartyFilter').value='';document.getElementById('recentCompletedOrderNoSearch').value='';document.getElementById('recentCompletedOrderSignFilter').value='';document.getElementById('recentCompletedOrderDnFilter').value='';renderOrders()" style="align-self:flex-end;" data-i18n="btnClearFilter">清除篩選</button>
       </div>
       <div id="recentCompletedOrdersList">
         <div class="empty-note" data-i18n="noCompletedOrders">還沒有任何已完成的訂單。</div>
@@ -2497,7 +2505,7 @@ body.no-cost-view .cost-col{display:none !important;}
 
       <div id="subtab-log-completed" class="subtab-content">
         <div class="section-title" style="margin:0 0 10px;" data-i18n="subtabCompletedOrders">已完成訂單</div>
-        <div class="form-grid" style="grid-template-columns:150px 150px minmax(120px,200px) minmax(120px,200px) auto;margin-bottom:14px;">
+        <div class="form-grid" style="grid-template-columns:150px 150px minmax(120px,200px) minmax(120px,200px) minmax(110px,150px) minmax(150px,220px) auto;margin-bottom:14px;">
           <div class="field">
             <label data-i18n="fieldFrom">從</label>
             <input type="date" id="completedOrderDateFrom" onchange="onCompletedOrderDateFromChange()" />
@@ -2513,6 +2521,14 @@ body.no-cost-view .cost-col{display:none !important;}
           <div class="field">
             <label data-i18n="fieldOrderNoSearch">訂單號</label>
             <input type="text" id="completedOrderNoSearch" oninput="renderOrders()" data-i18n-placeholder="phOrderNoSearch" placeholder="搜尋訂單號…" />
+          </div>
+          <div class="field">
+            <label data-i18n="fieldSignStatus">簽收狀態</label>
+            <select id="completedOrderSignFilter" onchange="renderOrders()"><option value="" data-i18n="optAllStatus">全部</option><option value="unsigned" data-i18n="optUnsigned">未簽收</option><option value="signed" data-i18n="optSigned">已簽收</option></select>
+          </div>
+          <div class="field">
+            <label data-i18n="fieldDnStatus">Delivery Note</label>
+            <select id="completedOrderDnFilter" onchange="renderOrders()"><option value="" data-i18n="optAllStatus">全部</option><option value="none" data-i18n="optDnNone">沒有 Delivery Note</option><option value="partial" data-i18n="optDnPartial">Partially Shipped(未送完)</option><option value="done" data-i18n="optDnDone">已送完</option></select>
           </div>
           <button class="btn ghost" onclick="clearCompletedOrderFilters()" style="align-self:flex-end;" data-i18n="btnClearFilter">清除篩選</button>
         </div>

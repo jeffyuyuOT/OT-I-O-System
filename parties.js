@@ -321,6 +321,7 @@ function partyGoOrderHistoryInvoice(partyId){
   switchTab('tab-log');
   switchLogSubTab('subtab-log-completed');
   orderPartySet('completedOrderPartyFilter', partyId);
+  ['completedOrderSignFilter', 'completedOrderDnFilter'].forEach(id => { const e = document.getElementById(id); if(e) e.value = ''; });
   const from = document.getElementById('completedOrderDateFrom'), to = document.getElementById('completedOrderDateTo');
   if(from) from.value = ''; if(to) to.value = '';
   renderOrders();

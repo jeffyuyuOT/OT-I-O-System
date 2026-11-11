@@ -752,6 +752,7 @@ function renderOrders(){
   else if(recentVisible) renderCompletedOrdersInto(recentC, true);
 }
 
+let dnFilterLoadTried = false;   // Delivery Note 資料只自動載入一次,載入失敗就不再重試(避免無限重畫)
 function renderCompletedOrdersInto(container, recentOnly){
   const partyFn = orderPartyFilterFn(recentOnly ? 'recentCompletedOrderPartyFilter' : 'completedOrderPartyFilter');
   let dateFrom = '', dateTo = '';
@@ -769,6 +770,17 @@ function renderCompletedOrdersInto(container, recentOnly){
   // 已經把它們排除),移來這邊用不同的狀態標籤(已出貨 / 已取消)區分,方便一起查歷史紀錄。
   let list = orders.filter(o => orderStatus(o) === 'confirmed' || o.deleted);
   if(partyFn) list = list.filter(partyFn);
+  // 簽收狀態 / Delivery Note 出貨狀態篩選(取消的訂單不算在這兩種篩選裡)
+  { const sv = (document.getElementById(recentOnly ? 'recentCompletedOrderSignFilter' : 'completedOrderSignFilter') || {}).value || '';
+    if(sv === 'unsigned') list = list.filter(o => !o.deleted && !o.signedAt);
+    else if(sv === 'signed') list = list.filter(o => !!o.signedAt);
+    const dv = (document.getElementById(recentOnly ? 'recentCompletedOrderDnFilter' : 'completedOrderDnFilter') || {}).value || '';
+    if(dv){
+      if(!deliveryNotesLoaded){
+        if(!dnFilterLoadTried){ dnFilterLoadTried = true; container.innerHTML = `<div class="empty-note">${t('dnFilterLoading')}</div>`; ensureDeliveryNotesLoaded().then(() => renderOrders()); return; }
+        list = [];
+      } else list = list.filter(o => !o.deleted && dnOrderShipState(o.id) === dv);
+    } }
   { const qEl = document.getElementById(recentOnly ? 'recentCompletedOrderNoSearch' : 'completedOrderNoSearch'); if(qEl && qEl.value.trim()) list = list.filter(o => orderNoMatches(o, qEl.value)); }
   if(dateFrom) list = list.filter(o => o.date >= dateFrom);
   if(dateTo) list = list.filter(o => o.date <= dateTo);
@@ -815,7 +827,7 @@ function renderCompletedOrdersInto(container, recentOnly){
             ${o.remark ? `<span title="${t('orderHasRemarkTitle')}" style="margin-left:6px;color:var(--yellow-dark);">📝</span>` : ''}
             ${wasModified ? `<span title="${t('orderWasModifiedTitle')}" style="margin-left:6px;color:var(--warn);">✎</span>` : ''}
           </span>
-          <span class="order-card-status" style="display:inline-flex;align-items:center;gap:6px;">${o.emailedAt ? `<span style="color:var(--safe);font-size:12px;" title="${tf('emailedToTitle', { email: o.emailedTo || '', when: o.emailedAt })}">${t('alreadyEmailedBadge')}</span><span style="color:var(--ink-soft);font-size:10.5px;">${formatEmailedTimeShort(o.emailedAt)}</span>` : ''}${o.signedAt ? `<span title="${tf('orderSignedAtTitle', {datetime: formatOrderDateTime(o.signedAt)})}" style="color:var(--safe);">✔ ${t('statusSigned')}</span>` : ''}${invLinkedBadgeHtml(o)}<span class="order-status-pill ${o.deleted ? 'deleted' : 'confirmed'}">${o.deleted ? t('statusOrderCancelled') : t('statusCompleted')}</span>
+          <span class="order-card-status" style="display:inline-flex;align-items:center;gap:6px;">${dnOrderBadgeHtml(o)}${o.emailedAt ? `<span style="color:var(--safe);font-size:12px;" title="${tf('emailedToTitle', { email: o.emailedTo || '', when: o.emailedAt })}">${t('alreadyEmailedBadge')}</span><span style="color:var(--ink-soft);font-size:10.5px;">${formatEmailedTimeShort(o.emailedAt)}</span>` : ''}${o.signedAt ? `<span title="${tf('orderSignedAtTitle', {datetime: formatOrderDateTime(o.signedAt)})}" style="color:var(--safe);">✔ ${t('statusSigned')}</span>` : ''}${invLinkedBadgeHtml(o)}<span class="order-status-pill ${o.deleted ? 'deleted' : 'confirmed'}">${o.deleted ? t('statusOrderCancelled') : t('statusCompleted')}</span>
             <span class="order-head-action" onclick="event.stopPropagation()"><button class="btn ghost" onclick="openOrderActionModal('${o.id}', 'completed')">${t('lblAction')} ▾</button></span></span>
         </div>
         ${isExpanded ? `

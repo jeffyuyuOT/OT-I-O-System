@@ -24,6 +24,7 @@ async function onCompletedOrderDateFromChange(){
 function clearCompletedOrderFilters(){
   document.getElementById('completedOrderPartyFilter').value = '';
   { const q = document.getElementById('completedOrderNoSearch'); if(q) q.value = ''; }
+  ['completedOrderSignFilter', 'completedOrderDnFilter'].forEach(id => { const e = document.getElementById(id); if(e) e.value = ''; });
   document.getElementById('completedOrderDateFrom').value = defaultHistoryFromDate();
   document.getElementById('completedOrderDateTo').value = '';
   renderOrders();
