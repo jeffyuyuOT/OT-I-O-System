@@ -1,7 +1,7 @@
-# 每日伺服器端備份(正式版)→ Dropbox,保留 90 天
+# 每日伺服器端備份(正式版)→ Dropbox,保留 30 天
 
 備份內容:public schema 所有資料表的完整內容(gzip JSON,檔名 `Apps/<你的 App 名稱>/daily/YYYY-MM-DD.json.gz`,布里斯本日期)。
-每次備份成功後,函式會自動刪除檔名日期超過 90 天的舊檔(可用 secret `RETENTION_DAYS` 調整)。
+每次備份成功後,函式會自動刪除檔名日期超過 30 天的舊檔(可用 secret `RETENTION_DAYS` 調整)。
 不含:Storage 裡的收據檔案、登入帳號(auth.users)。這是災難復原用的完整資料庫快照;日常還原仍用 App 內的備份檔。
 
 ## 設定步驟(只做正式版)
@@ -14,7 +14,7 @@
    - 回傳 JSON 裡的 `refresh_token` 就是要的(不會過期)。code 只能用一次、很快失效。
 3. **Supabase SQL Editor** 執行 `sql/backup_log.sql`。
 4. **設定 secrets**(Dashboard → Edge Functions → Secrets,或 CLI `supabase secrets set ...`):
-   `DROPBOX_APP_KEY`、`DROPBOX_APP_SECRET`、`DROPBOX_REFRESH_TOKEN`、`BACKUP_SECRET`(自己產生一串長亂數);選用 `RETENTION_DAYS`(預設 90)。
+   `DROPBOX_APP_KEY`、`DROPBOX_APP_SECRET`、`DROPBOX_REFRESH_TOKEN`、`BACKUP_SECRET`(自己產生一串長亂數);選用 `RETENTION_DAYS`(預設 30)。
 5. **部署**:`supabase functions deploy daily-backup --no-verify-jwt --project-ref <正式版 ref>`(Dashboard 貼程式碼部署時,要把 Verify JWT 關掉)。
 6. **手動測試**:
    `curl -X POST https://<ref>.supabase.co/functions/v1/daily-backup -H "x-backup-secret: <BACKUP_SECRET>"`
