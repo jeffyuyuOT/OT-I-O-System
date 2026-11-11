@@ -8,77 +8,145 @@
 // 同一個分類的寫法)等系統設置分頁裡的各種讀取/存檔/切換函式。
 // ============================================================
 
-// 資料異動時,等待短暫靜止期後自動備份一次,
-// 避免連續操作(例如連續增減庫存)時每次都觸發。
-function scheduleAutoBackup(){
-  if(!autoBackupEnabled) return;
-  clearTimeout(autoBackupTimer);
-  autoBackupTimer = setTimeout(runAutoBackup, 2500);
+// ============================================================
+// 自動備份(每天固定時間,布里斯本時間;仿 OT Portal BK)
+// - 備份內容跟手動「匯出完整備份」完全一樣(共用 buildFullBackupObject)
+// - 一定要:電腦開著、Chrome / Edge、管理者已登入、系統頁面開著,時間到才會備份
+// - 資料夾授權記在這台電腦的瀏覽器(IndexedDB);重新開啟後可能要按一次「重新授權」
+// - 沒選資料夾 = 下載模式(瀏覽器自動下載到預設下載位置)
+// - 備份歷史存在資料庫(app_data: autoBackupLog),任何電腦都看得到;不屬於備份檔內容,還原備份不會改動它
+// ============================================================
+function scheduleAutoBackup(){ /* 舊的「每次異動就備份」模式已改成每天固定時間,這裡保留空函式給原本的呼叫 */ }
+
+let abTime = '23:00';          // 每天備份時間(布里斯本)
+let abLog = [];                // [{date, ok, at, file, reason, mode, test}]
+let abSince = '';              // 開啟自動備份的日期
+let abRunning = false;
+let abInited = false;
+let abTimerId = null;
+
+function abNowBris(){
+  const p = new Intl.DateTimeFormat('en-CA', { timeZone: 'Australia/Brisbane', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false })
+    .formatToParts(new Date()).reduce((o, x) => { o[x.type] = x.value; return o; }, {});
+  const hh = p.hour === '24' ? '00' : p.hour;
+  return { date: `${p.year}-${p.month}-${p.day}`, time: `${hh}:${p.minute}` };
 }
-
-function todayBackupFilename(){
-  const d = new Date();
-  const pad = n => String(n).padStart(2,'0');
-  const dateStr = `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
-  return `stock_ledger_backup_${dateStr}.json`;
+function abAddDays(dateStr, n){
+  const d = new Date(dateStr + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() + n);
+  return d.toISOString().slice(0, 10);
 }
+function abIsAdmin(){ return !!(currentUser && currentUser.role === 'admin'); }
+function todayBackupFilename(){ return `stock_ledger_backup_${abNowBris().date}.json`; }
 
-async function runAutoBackup(){
-  await Promise.all([ensureTransactionsLoadedFrom(''), ensureOrdersLoadedFrom(''), loadExportEmailLogs()]);
-  const filename = todayBackupFilename();
-  const backup = {
-    exportedAt: new Date().toISOString(),
-    version: 5,
-    products,
-    transactions,
-    orders,
-    shippingParties,
-    categoryOrder,
-    quickLists,
-    forecastRecords,
-    forecastPrefs: { unitChoice: forecastUnitChoice, boxBasis: forecastBoxBasis },
-    exportEmailLogs,
-    purchaseSuppliers
-  };
-  try{ await loadReceiptLineMappings(); backup.receiptLineMappings = receiptLineMappings; }
-  catch(e){ console.error('自動備份:讀取收據掃描記憶失敗,這份備份不含收據掃描記憶', e); }
-  try{ const bt = await batchExportForBackup(); if(bt) backup.batchTracking = bt; }
-  catch(e){ console.error('自動備份:讀取批次資料失敗,這份備份不含批次資料', e); }
-  try{ backup.productLocations = await exportProductLocationsForBackup(); }
-  catch(e){ console.error('自動備份:讀取庫存分布失敗,這份備份不含庫存分布', e); }
-  try{ if(typeof psExportForBackup === 'function') backup.priceData = await psExportForBackup(); }
-  catch(e){ console.error('自動備份:讀取 Price Setting / 售價紀錄失敗,這份備份不含這些資料', e); }
-  try{ if(typeof invExportForBackup === 'function' && currentUser && currentUser.role === 'admin'){ const iv = await invExportForBackup(); if(iv) backup.invoiceData = iv; } }
-  catch(e){ console.error('自動備份:讀取 Invoice 失敗,這份備份不含 Invoice', e); }
-  try{ if(typeof acctSettingsBackupExport === 'function') backup.acctSettings = await acctSettingsBackupExport(); }catch(e){ console.error('備份:讀取會計設定失敗', e); }
-  const content = JSON.stringify(backup, null, 2);
+// ---- 資料夾授權記在瀏覽器 IndexedDB ----
+function abIdb(){
+  return new Promise((res, rej) => {
+    const r = indexedDB.open('ot-backup', 1);
+    r.onupgradeneeded = () => r.result.createObjectStore('kv');
+    r.onsuccess = () => res(r.result);
+    r.onerror = () => rej(r.error);
+  });
+}
+async function abIdbGet(k){ const db = await abIdb(); return new Promise((res, rej) => { const q = db.transaction('kv').objectStore('kv').get(k); q.onsuccess = () => res(q.result); q.onerror = () => rej(q.error); }); }
+async function abIdbSet(k, v){ const db = await abIdb(); return new Promise((res, rej) => { const tx = db.transaction('kv', 'readwrite'); tx.objectStore('kv').put(v, k); tx.oncomplete = () => res(); tx.onerror = () => rej(tx.error); }); }
+async function abIdbDel(k){ const db = await abIdb(); return new Promise((res, rej) => { const tx = db.transaction('kv', 'readwrite'); tx.objectStore('kv').delete(k); tx.oncomplete = () => res(); tx.onerror = () => rej(tx.error); }); }
 
-  if(backupDirHandle){
-    try{
-      // 已授權資料夾:同一天的檔名一樣,每次會直接覆蓋,不會跳出任何視窗。
-      const fileHandle = await backupDirHandle.getFileHandle(filename, { create: true });
-      const writable = await fileHandle.createWritable();
-      await writable.write(content);
-      await writable.close();
-      lastAutoBackupAt = new Date();
-      lastAutoBackupMode = 'folder';
-      updateAutoBackupStatus();
-      return;
-    } catch(e){
-      console.error('寫入備份資料夾失敗,改用下載模式', e);
-      // 授權可能過期或被撤銷,清掉 handle 讓使用者重新選擇
-      backupDirHandle = null;
-    }
-  }
-
-  // 備援:沒有(或失去)資料夾授權時,退回瀏覽器下載。
-  // 注意:同一天內多次下載,瀏覽器通常會自動加上 (1)(2) 等尾碼,無法真正覆蓋同一份檔案。
+async function abDirPermission(prompt){
+  if(!backupDirHandle) return 'none';
   try{
-    downloadFile(filename, content, 'application/json');
-    lastAutoBackupAt = new Date();
-    lastAutoBackupMode = 'download';
-  } catch(e){ console.error('自動備份下載失敗', e); }
+    const opts = { mode: 'readwrite' };
+    let p = await backupDirHandle.queryPermission(opts);
+    if(p === 'prompt' && prompt) p = await backupDirHandle.requestPermission(opts);
+    return p;
+  }catch(e){ console.error('檢查資料夾權限失敗', e); return 'denied'; }
+}
+
+async function abSaveLog(){
+  try{ await dbSet('autoBackupLog', JSON.stringify(abLog.slice(0, 60))); }
+  catch(e){ console.error('儲存備份歷史失敗', e); }
+}
+function abRecord(entry){
+  const sameDay = abLog.filter(x => x.date === entry.date);
+  // 當天已經有成功的,後來的失敗不覆蓋它
+  if(!entry.ok && sameDay.some(x => x.ok)) return;
+  abLog = [entry].concat(abLog.filter(x => x.date !== entry.date)).sort((a, b) => b.date.localeCompare(a.date));
+  abSaveLog();
+}
+
+// trigger: 'schedule' 時間到自動跑 | 'test' 使用者按「立即測試備份」
+async function abRunBackup(trigger){
+  if(abRunning) return null;
+  abRunning = true;
+  const today = abNowBris().date;
+  const filename = `stock_ledger_backup_${today}.json`;
+  const entry = { date: today, ok: false, at: new Date().toISOString(), file: filename, reason: '', mode: backupDirHandle ? 'folder' : 'download', test: trigger === 'test' };
+  try{
+    if(backupDirHandle){
+      // 要在使用者按鈕的當下就問權限(之後 await 太久會失去「使用者操作」狀態,瀏覽器就不給授權)
+      const perm = await abDirPermission(trigger === 'test');
+      if(perm !== 'granted') throw new Error(t('abErrNeedReauth'));
+    }
+    const backup = await buildFullBackupObject();
+    const content = JSON.stringify(backup, null, 2);
+    if(backupDirHandle){
+      const fh = await backupDirHandle.getFileHandle(filename, { create: true });
+      const w = await fh.createWritable();
+      await w.write(content); await w.close();
+    } else {
+      downloadFile(filename, content, 'application/json');
+    }
+    entry.ok = true;
+  } catch(e){
+    console.error('自動備份失敗', e);
+    const tag = e && e.backupTag;
+    entry.reason = tag ? t('abErrPart_' + tag) : ((e && e.message) || String(e));
+  }
+  abRecord(entry);
+  abRunning = false;
   updateAutoBackupStatus();
+  return entry;
+}
+
+function abTick(){
+  if(!autoBackupEnabled || !abIsAdmin() || abRunning || !abInited) return;
+  const n = abNowBris();
+  if(n.time < abTime) return;
+  if(abLog.some(e => e.date === n.date && e.ok)) return;
+  // 今天失敗過:30 分鐘後再試一次,不要每分鐘重試
+  if(abLog.some(e => e.date === n.date && !e.ok && Date.now() - new Date(e.at).getTime() < 30 * 60 * 1000)) return;
+  abRunBackup('schedule');
+}
+
+async function autoBackupInit(){
+  if(abInited) return;
+  abInited = true;
+  try{ const r = await dbGet('autoBackupTime'); if(r && /^\d{2}:\d{2}$/.test(r.value)) abTime = r.value; }catch(e){}
+  try{ const r = await dbGet('autoBackupLog'); if(r && r.value){ const arr = JSON.parse(r.value); if(Array.isArray(arr)) abLog = arr; } }catch(e){}
+  try{ const r = await dbGet('autoBackupSince'); if(r && r.value) abSince = r.value; }catch(e){}
+  if(!abSince && autoBackupEnabled){ abSince = abNowBris().date; try{ await dbSet('autoBackupSince', abSince); }catch(e){} }
+  try{ if(window.indexedDB){ const h = await abIdbGet('dirHandle'); if(h) backupDirHandle = h; } }catch(e){ console.error('讀取備份資料夾授權失敗', e); }
+  updateAutoBackupStatus();
+  if(!abTimerId) abTimerId = setInterval(abTick, 60 * 1000);
+  setTimeout(abTick, 5000);
+  setTimeout(abCheckMissed, 3000);
+}
+
+// 進入系統時,檢查最近 7 天有沒有哪一天沒備份成功,有的話跳警示(只提醒一次)
+function abCheckMissed(){
+  if(!autoBackupEnabled || !abIsAdmin() || !abSince) return;
+  let ack = ''; try{ ack = localStorage.getItem('ot_ab_ack') || ''; }catch(e){}
+  const today = abNowBris().date;
+  const lines = [];
+  for(let i = 1; i <= 7; i++){
+    const d = abAddDays(today, -i);
+    if(d < abSince || d <= ack) continue;
+    if(abLog.some(e => e.date === d && e.ok)) continue;
+    const f = abLog.find(e => e.date === d && !e.ok);
+    lines.push(d + ':' + (f ? (t('abMissFailed') + (f.reason || '')) : t('abMissNoRun')));
+  }
+  if(!lines.length) return;
+  try{ localStorage.setItem('ot_ab_ack', abAddDays(today, -1)); }catch(e){}
+  showInfoModal(t('abMissTitle') + '\n\n' + lines.join('\n'));
 }
 
 async function chooseBackupFolder(){
@@ -93,14 +161,36 @@ async function chooseBackupFolder(){
     const handle = await window.showDirectoryPicker({ mode: 'readwrite' });
     backupDirHandle = handle;
     lastAutoBackupMode = 'folder';
+    try{ await abIdbSet('dirHandle', handle); }catch(e){ console.error('記住備份資料夾失敗', e); }
     updateAutoBackupStatus();
   } catch(e){
-    // 使用者取消選擇,或環境(例如沙盒 iframe)直接擋掉這個功能
     console.error('選擇備份資料夾失敗', e);
     if(e && e.name !== 'AbortError'){
       alert('無法取得資料夾存取權限(目前的瀏覽環境可能限制此功能),將維持一般下載模式作為備援。');
     }
   }
+}
+async function abClearFolder(){
+  backupDirHandle = null; lastAutoBackupMode = null;
+  try{ await abIdbDel('dirHandle'); }catch(e){}
+  updateAutoBackupStatus();
+}
+async function abReauth(){
+  await abDirPermission(true);
+  updateAutoBackupStatus();
+}
+async function abTestBackup(){
+  const el = document.getElementById('abTestMsg');
+  if(el){ el.className = 'msg'; el.textContent = t('abTesting'); }
+  const e = await abRunBackup('test');
+  if(el && e){ el.className = e.ok ? 'msg ok' : 'msg error'; el.textContent = e.ok ? tf('abTestOk', { file: e.file }) : ('⚠ ' + e.reason); }
+}
+async function abSaveTime(){
+  const v = (document.getElementById('abTimeInput') || {}).value || '';
+  if(!/^\d{2}:\d{2}$/.test(v)) return;
+  abTime = v;
+  try{ await dbSet('autoBackupTime', v); }catch(e){ console.error('儲存備份時間失敗', e); }
+  updateAutoBackupStatus();
 }
 
 // 從一個資料夾控制代碼裡,找出檔名符合 stock_ledger_backup_YYYY-MM-DD.json 格式、日期最新的一份。
@@ -202,37 +292,7 @@ async function restoreFromBackupFolder(){
   }
 
   showConfirmModal(tf('confirmRestoreLatestBackup', { filename: found.filename, products: backup.products.length, transactions: backup.transactions.length }), async () => {
-    products = backup.products;
-    transactions = backup.transactions;
-    orders = Array.isArray(backup.orders) ? backup.orders : [];
-    shippingParties = Array.isArray(backup.shippingParties) ? backup.shippingParties : [];
-    shippingParties.forEach(sp => { if(!Array.isArray(sp.hiddenProductIds)) sp.hiddenProductIds = []; });
-    recomputeOrderCounterFromOrders();
-    if(Array.isArray(backup.categoryOrder) && backup.categoryOrder.length > 0){
-      categoryOrder = backup.categoryOrder;
-    }
-    await saveProducts();
-    await replaceAllTransactions(transactions);
-    await replaceAllOrders(orders);
-    await saveShippingParties();
-    await saveCategoryOrder();
-    try{ if(typeof acctSettingsBackupRestore === 'function') await acctSettingsBackupRestore(backup); }catch(e){ console.error('還原會計設定失敗', e); }
-    await restoreQuickListsFromBackup(backup);
-    const forecastRestoreOk = await restoreForecastDataFromBackup(backup);
-    const batchRes = await batchRestoreFromBackup(backup);
-    try{ await restoreProductLocationsFromBackup(backup); }catch(e){ console.error('還原庫存分布失敗', e); }
-    try{ if(typeof psRestoreFromBackup === 'function') await psRestoreFromBackup(backup); }catch(e){ console.error('還原 Price Setting / 售價紀錄失敗', e); }
-    try{ if(typeof invRestoreFromBackup === 'function') await invRestoreFromBackup(backup); }catch(e){ console.error('還原 Invoice 失敗', e); }
-    await locationLogReplace(locationLogRowsFromBackup(backup));   // 庫存分布紀錄一起還原(舊備份沒有 = 清空)
-    if(Array.isArray(backup.purchaseSuppliers)){
-      try{ await replaceAllPurchaseSuppliers(backup.purchaseSuppliers); }
-      catch(e){ console.error('還原進貨方失敗', e); }
-    }
-    if(Array.isArray(backup.receiptLineMappings)){
-      try{ await replaceAllReceiptLineMappings(backup.receiptLineMappings); }
-      catch(e){ console.error('還原收據掃描記憶失敗', e); }
-    }
-    const seqSynced = await syncOrderNoSequenceAfterRestore(orders);
+    const { forecastRestoreOk, batchRes, seqSynced } = await applyBackupData(backup);
     // 這個資料夾既然能讀,順便記起來,之後自動備份也直接寫進同一個地方。
     backupDirHandle = dirHandle;
     lastAutoBackupMode = 'folder';
@@ -487,19 +547,28 @@ function updateAutoBackupStatus(){
   const box = document.getElementById('autoBackupToggle');
   if(box) box.checked = autoBackupEnabled;
   if(!el) return;
-  if(!autoBackupEnabled){
-    el.textContent = t('autoBackupOffStatus');
-    return;
+  const esc = escapeHtmlForPrint;
+  const ti = document.getElementById('abTimeInput'); if(ti && document.activeElement !== ti) ti.value = abTime;
+  const folderEl = document.getElementById('abFolderState');
+  const reauthBtn = document.getElementById('abReauthBtn');
+  if(folderEl){
+    if(!window.showDirectoryPicker){ folderEl.textContent = t('abFolderUnsupported'); }
+    else if(backupDirHandle){
+      folderEl.innerHTML = `<b>${esc(backupDirHandle.name || '')}</b> <span id="abPermState" style="color:var(--ink-soft);"></span>`;
+      abDirPermission(false).then(p => {
+        const ps = document.getElementById('abPermState');
+        if(ps){ ps.textContent = p === 'granted' ? t('abPermOk') : t('abPermNeed'); ps.style.color = p === 'granted' ? 'var(--safe)' : 'var(--crit)'; }
+        if(reauthBtn) reauthBtn.style.display = p === 'granted' ? 'none' : '';
+      });
+    } else { folderEl.textContent = t('abFolderNone'); if(reauthBtn) reauthBtn.style.display = 'none'; }
   }
-  const filename = todayBackupFilename();
-  if(backupDirHandle){
-    el.textContent = lastAutoBackupAt
-      ? tf('autoBackupFolderStatusWithTime', { time: lastAutoBackupAt.toLocaleString('zh-TW'), filename })
-      : tf('autoBackupFolderStatusNoTime', { filename });
-  } else if(lastAutoBackupMode === 'download'){
-    el.textContent = tf('autoBackupDownloadModeStatus', { time: lastAutoBackupAt ? lastAutoBackupAt.toLocaleString('zh-TW') : '' });
-  } else {
-    el.textContent = t('autoBackupNoFolderStatus');
+  if(!autoBackupEnabled){ el.textContent = t('autoBackupOffStatus'); }
+  else el.textContent = tf('abOnStatus', { since: abSince || '–', time: abTime }) + (backupDirHandle ? '' : ' ' + t('abDownloadNote'));
+  const hist = document.getElementById('abHistory');
+  if(hist){
+    const rows = abLog.slice(0, 14);
+    hist.innerHTML = rows.length ? `<table class="stock-table" style="margin-top:8px;"><thead><tr><th>${t('abColDate')}</th><th>${t('abColResult')}</th><th>${t('abColTime')}</th><th>${t('abColFile')}</th></tr></thead><tbody>
+      ${rows.map(r => `<tr><td>${esc(r.date)}</td><td style="color:${r.ok ? 'var(--safe)' : 'var(--crit)'};font-weight:600;">${t(r.ok ? 'abOk' : 'abFail')}${r.test ? ' (' + t('abTestTag') + ')' : ''}</td><td>${esc(new Date(r.at).toLocaleString('zh-TW', { timeZone: 'Australia/Brisbane' }))}</td><td style="font-size:12px;">${esc(r.ok ? (r.file + (r.mode === 'download' ? ' · ' + t('abDownloadTag') : '')) : (r.reason || ''))}</td></tr>`).join('')}</tbody></table>` : '';
   }
 }
 
@@ -507,6 +576,7 @@ async function toggleAutoBackup(checked){
   autoBackupEnabled = checked;
   try{ await dbSet('autoBackupEnabled', String(checked)); }
   catch(e){ console.error('儲存自動備份設定失敗', e); }
+  if(checked && !abSince){ abSince = abNowBris().date; try{ await dbSet('autoBackupSince', abSince); }catch(e){} }
   updateAutoBackupStatus();
 }
 
@@ -648,7 +718,9 @@ async function clearInventoryLogsAndResetOrders(){
   }
 }
 
-async function exportFullBackup(){
+// 完整備份內容:手動匯出跟每日自動備份共用這一份,之後新增資料只要改這裡。
+// 批次 / Price Setting / Invoice 讀取失敗 = 丟出錯誤(e.backupTag),寧可不產生備份,也不要產生缺資料、之後還原會清掉資料的備份。
+async function buildFullBackupObject(){
   await ensureAllDataLoaded();
   await loadExportEmailLogs();
   const backup = {
@@ -670,30 +742,29 @@ async function exportFullBackup(){
     purchaseSuppliers
   };
   try{ await loadReceiptLineMappings(); backup.receiptLineMappings = receiptLineMappings; }
-  catch(e){ console.error('匯出備份:讀取收據掃描記憶失敗,這份備份不含收據掃描記憶', e); }
-  const msg0 = document.getElementById('backupMsg');
+  catch(e){ console.error('備份:讀取收據掃描記憶失敗,這份備份不含收據掃描記憶', e); }
   try{ backup.productLocations = await exportProductLocationsForBackup(); }
-  catch(e){ console.error('匯出備份:讀取庫存分布失敗,這份備份不含庫存分布', e); }
+  catch(e){ console.error('備份:讀取庫存分布失敗,這份備份不含庫存分布', e); }
   try{ const bt = await batchExportForBackup(); if(bt) backup.batchTracking = bt; }
-  catch(e){
-    console.error('匯出備份:讀取批次資料失敗', e);
-    if(msg0){ msg0.className = 'msg error'; msg0.textContent = t('warnBatchBackupReadFailed'); }
-    return;   // 寧可不產生備份,也不要產生一份缺批次資料、之後還原會清掉批次的備份
-  }
+  catch(e){ console.error('備份:讀取批次資料失敗', e); e.backupTag = 'batch'; throw e; }
   try{ if(typeof psExportForBackup === 'function') backup.priceData = await psExportForBackup(); }
-  catch(e){
-    console.error('匯出備份:讀取 Price Setting / 售價紀錄失敗', e);
-    if(msg0){ msg0.className = 'msg error'; msg0.textContent = t('warnPriceBackupReadFailed'); }
-    return;
-  }
+  catch(e){ console.error('備份:讀取 Price Setting / 售價紀錄失敗', e); e.backupTag = 'price'; throw e; }
   try{ if(typeof invExportForBackup === 'function' && currentUser && currentUser.role === 'admin'){ const iv = await invExportForBackup(); if(iv) backup.invoiceData = iv; } }
+  catch(e){ console.error('備份:讀取 Invoice 失敗', e); e.backupTag = 'invoice'; throw e; }
+  try{ if(typeof acctSettingsBackupExport === 'function') backup.acctSettings = await acctSettingsBackupExport(); }catch(e){ console.error('備份:讀取會計設定失敗', e); }
+  return backup;
+}
+
+async function exportFullBackup(){
+  const msg0 = document.getElementById('backupMsg');
+  let backup;
+  try{ backup = await buildFullBackupObject(); }
   catch(e){
-    console.error('匯出備份:讀取 Invoice 失敗', e);
-    if(msg0){ msg0.className = 'msg error'; msg0.textContent = t('warnInvoiceBackupReadFailed'); }
+    const warn = { batch: 'warnBatchBackupReadFailed', price: 'warnPriceBackupReadFailed', invoice: 'warnInvoiceBackupReadFailed' }[e && e.backupTag];
+    if(msg0){ msg0.className = 'msg error'; msg0.textContent = warn ? t(warn) : ('匯出備份失敗:' + ((e && e.message) || e)); }
     return;
   }
   const filename = `stock_ledger_backup_${todayISO()}.json`;
-  try{ if(typeof acctSettingsBackupExport === 'function') backup.acctSettings = await acctSettingsBackupExport(); }catch(e){ console.error('備份:讀取會計設定失敗', e); }
   const content = JSON.stringify(backup, null, 2);
   const msg = document.getElementById('backupMsg');
 
@@ -721,41 +792,8 @@ async function exportFullBackup(){
   msg.textContent = tf('exportedBackupMsg', { filename, products: products.length, transactions: transactions.length });
 }
 
-function importFullBackup(){
-  const fileInput = document.getElementById('backupImportFile');
-  const msg = document.getElementById('backupMsg');
-  const file = fileInput.files[0];
-  if(!file){ msg.className='msg error'; msg.textContent='請先選擇備份檔'; return; }
-
-  showConfirmModal('還原備份會完全覆蓋目前 App 裡的商品跟進出貨紀錄,確定要繼續嗎?', () => {
-    if(file.size === 0){
-      msg.className = 'msg error';
-      msg.textContent = '這個檔案是空的(0 bytes),請確認是不是正確的備份檔';
-      return;
-    }
-    const reader = new FileReader();
-    reader.onerror = () => {
-      msg.className = 'msg error';
-      msg.textContent = '讀取檔案失敗,瀏覽器無法存取這個檔案。請重新選擇檔案再試一次。';
-    };
-    reader.onload = async (e) => {
-      try{
-        const raw = e.target.result;
-        if(!raw || typeof raw !== 'string' || raw.trim() === ''){
-          throw new Error('檔案內容是空的');
-        }
-        let backup;
-        try{
-          backup = JSON.parse(raw);
-        } catch(parseErr){
-          throw new Error('不是有效的 JSON 檔案(' + parseErr.message + ')。開頭內容:' + raw.slice(0, 60));
-        }
-        if(!backup || typeof backup !== 'object'){
-          throw new Error('這個檔案格式不正確,不是有效的備份檔');
-        }
-        if(!Array.isArray(backup.products) || !Array.isArray(backup.transactions)){
-          throw new Error('這個檔案缺少 products 或 transactions 欄位,不是有效的備份檔');
-        }
+// 還原備份的共用流程:手動選檔還原、從資料夾讀最新備份還原都走這裡,確保兩條路徑還原的資料一樣完整
+async function applyBackupData(backup){
         products = backup.products;
         transactions = backup.transactions;
         orders = Array.isArray(backup.orders) ? backup.orders : [];
@@ -812,6 +850,45 @@ function importFullBackup(){
         await loadDeliveryNotes();
         await loadPurchases();
         const seqSynced = await syncOrderNoSequenceAfterRestore(orders);
+        return { forecastRestoreOk, batchRes, seqSynced };
+}
+
+function importFullBackup(){
+  const fileInput = document.getElementById('backupImportFile');
+  const msg = document.getElementById('backupMsg');
+  const file = fileInput.files[0];
+  if(!file){ msg.className='msg error'; msg.textContent='請先選擇備份檔'; return; }
+
+  showConfirmModal('還原備份會完全覆蓋目前 App 裡的商品跟進出貨紀錄,確定要繼續嗎?', () => {
+    if(file.size === 0){
+      msg.className = 'msg error';
+      msg.textContent = '這個檔案是空的(0 bytes),請確認是不是正確的備份檔';
+      return;
+    }
+    const reader = new FileReader();
+    reader.onerror = () => {
+      msg.className = 'msg error';
+      msg.textContent = '讀取檔案失敗,瀏覽器無法存取這個檔案。請重新選擇檔案再試一次。';
+    };
+    reader.onload = async (e) => {
+      try{
+        const raw = e.target.result;
+        if(!raw || typeof raw !== 'string' || raw.trim() === ''){
+          throw new Error('檔案內容是空的');
+        }
+        let backup;
+        try{
+          backup = JSON.parse(raw);
+        } catch(parseErr){
+          throw new Error('不是有效的 JSON 檔案(' + parseErr.message + ')。開頭內容:' + raw.slice(0, 60));
+        }
+        if(!backup || typeof backup !== 'object'){
+          throw new Error('這個檔案格式不正確,不是有效的備份檔');
+        }
+        if(!Array.isArray(backup.products) || !Array.isArray(backup.transactions)){
+          throw new Error('這個檔案缺少 products 或 transactions 欄位,不是有效的備份檔');
+        }
+        const { forecastRestoreOk, batchRes, seqSynced } = await applyBackupData(backup);
         msg.className = seqSynced ? 'msg ok' : 'msg error';
         msg.textContent = tf('restoredBackupMsg', { products: products.length, transactions: transactions.length, orders: orders.length })
           + (seqSynced ? '' : ' ' + t('warnOrderNoSeqSyncFailed')) + (forecastRestoreOk ? '' : ' ' + t('warnForecastRestoreFailed')) + batchRestoreMsg(batchRes);
