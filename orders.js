@@ -655,6 +655,15 @@ function orderItemAcctTag(it){
   const off = (typeof isOffBooksProduct === 'function' && isOffBooksProduct(p)) || p.hideFromCompletedOrderExport === true;
   return off ? ` <span title="${t('orderNoAcctTagTitle')}" style="display:inline-block;font-size:11.5px;font-weight:600;color:#b4531f;background:#fdecdc;border:1px solid #f2c9a3;border-radius:4px;padding:1px 7px;vertical-align:middle;letter-spacing:.5px;">${t('orderNoAcctTag')}</span>` : '';
 }
+// 會計角色:不入帳的商品整列調淡(看得到但不搶眼)
+function orderItemDimStyle(it){
+  if(!(typeof isAccountantUser === 'function' && isAccountantUser())) return '';
+  if(!it || !it.productId) return '';
+  const p = (typeof products !== 'undefined') ? products.find(x => x.id === it.productId) : null;
+  if(!p) return '';
+  const off = (typeof isOffBooksProduct === 'function' && isOffBooksProduct(p)) || p.hideFromCompletedOrderExport === true;
+  return off ? 'opacity:.55;' : '';
+}
 function orderItemNoteInline(it){
   return it && it.note ? ` <i style="font-size:11.5px;color:var(--ink-soft);font-weight:400;">${String(it.note).replace(/&/g,'&amp;').replace(/</g,'&lt;')}</i>` : '';
 }
@@ -714,7 +723,7 @@ function orderItemRowHtml(o, it, isPending, readOnly, context){
   const tail = `${(context === 'verify' && typeof batchOrderItemPreviewHtml === 'function') ? batchOrderItemPreviewHtml(o, it) : ''}`;
   if(priceOn){
     return `
-    <div style="flex-wrap:wrap;">
+    <div style="flex-wrap:wrap;${orderItemDimStyle(it)}">
       <span style="flex:1;min-width:0;">${nameHtml}</span>
       <span style="display:inline-flex;align-items:center;gap:10px;">
         <span style="${SP_QTY_W}">${qtyDisplay}</span>
@@ -727,7 +736,7 @@ function orderItemRowHtml(o, it, isPending, readOnly, context){
   `;
   }
   return `
-    <div style="flex-wrap:wrap;">
+    <div style="flex-wrap:wrap;${orderItemDimStyle(it)}">
       <span>${nameHtml}</span>
       <span>${qtyDisplay}
         ${actionLinks}
