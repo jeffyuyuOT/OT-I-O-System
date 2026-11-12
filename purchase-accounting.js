@@ -178,6 +178,19 @@ function paItemGstCalcHtml(it, mode){
   const ex = mode === 'inc' ? a - g : a;
   return `<div style="font-size:10.5px;color:var(--ink-soft);white-space:nowrap;margin-top:2px;">${paEsc(t('paCalcEx'))} ${paR2(ex).toFixed(2)} · GST ${paR2(g).toFixed(2)}</div>`;
 }
+// 登記進貨清單:每一列的「不含稅」「GST 金額」兩個欄位(跟表頭對齊);沒選 GST / 未設定 / 不入帳 / 海外進口 → 顯示 –
+function paGstSplitCellsHtml(obj, mode, skip){
+  const dash = '<span style="color:var(--ink-soft);">–</span>';
+  let ex = null, g = null;
+  const a = obj ? Number(obj.amount) : NaN;
+  if(!skip && obj && a > 0){
+    const sign = obj.docType === 'credit_note' ? -1 : 1;
+    if(obj.gst === true){ const gg = mode === 'inc' ? a * PA_GST_RATE / (1 + PA_GST_RATE) : a * PA_GST_RATE; g = sign * paR2(gg); ex = sign * paR2(mode === 'inc' ? a - gg : a); }
+    else if(obj.gst === false){ ex = sign * paR2(a); g = 0; }
+  }
+  const f = v => v === null ? dash : v.toFixed(2);
+  return `<td class="row-num tx-excl" data-label="${paEsc(t('paColEx'))}">${f(ex)}</td><td class="row-num tx-gstamt" data-label="${paEsc(t('paColGstAmt'))}">${f(g)}</td>`;
+}
 // ---- 收據 GST 總額(選填核對欄):跟系統算出的 GST 比對,只提醒、不影響成本與會計數字 ----
 function paReceiptGstSystem(edit){
   let items, lineExps, ns, mode;

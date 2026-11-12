@@ -424,6 +424,7 @@ function pcLineExpenseRowsHtml(cols){
         <td class="row-num"></td>
         ${cols.batch ? '<td></td><td></td>' : ''}
         <td class="row-num tx-amt" data-label="${t('colAmount')}"><input type="number" class="order-qty-input" step="0.01" min="0" value="${l.amount === '' || l.amount === undefined ? '' : l.amount}" placeholder="–" onchange="pcUpdateLineExpense('${l.id}','amount',this.value)" /></td>
+        ${cols.gst ? paGstSplitCellsHtml(l, paFormGstMode(), false) : ''}
         ${cols.gst ? `<td class="row-num tx-gst" data-label="GST">${paGstSelectHtml(l.gst, "pcUpdateLineExpense('" + l.id + "','gst',this.value)")}</td>` : ''}
         <td class="row-action"><button onclick="pcRemoveLineExpense('${l.id}')" title="${t('btnDelete')}">✕</button></td>
       </tr>`).join('');
@@ -485,6 +486,7 @@ function pcNonStockRowsHtml(cols){
         <td class="row-num"><input type="number" class="order-qty-input" step="any" min="0" value="${n.qty === '' || n.qty === undefined ? '' : n.qty}" onchange="pcUpdateNonStock('${n.id}','qty',this.value)" /><input type="text" value="${pcEsc(n.unit || '')}" placeholder="${t('pcNonStockUnit')}" style="width:56px;margin-left:4px;" onchange="pcUpdateNonStock('${n.id}','unit',this.value)" /></td>
         ${cols.batch ? '<td></td><td></td>' : ''}
         <td class="row-num tx-amt" data-label="${t('colAmount')}"><input type="number" class="order-qty-input" step="0.01" min="0" value="${n.amount === '' || n.amount === undefined ? '' : n.amount}" placeholder="–" onchange="pcUpdateNonStock('${n.id}','amount',this.value)" /></td>
+        ${cols.gst ? paGstSplitCellsHtml(n, paFormGstMode(), false) : ''}
         ${cols.gst ? `<td class="row-num tx-gst" data-label="GST">${paGstSelectHtml(n.gst, "pcUpdateNonStock('" + n.id + "','gst',this.value)")}</td>` : ''}
         <td class="row-action"><button onclick="pcRemoveNonStock('${n.id}')" title="${t('btnDelete')}">✕</button></td>
       </tr>`).join('');
