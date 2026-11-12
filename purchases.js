@@ -730,7 +730,7 @@ function renderEditPurchaseItemsList(){
           <input type="number" value="${it.qty}" min="0" step="any" style="width:100%;" oninput="updateEditPurchaseItemQty(${i}, this.value)" />
           <span style="font-size:11.5px;color:var(--ink-soft);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtmlForPrint(it.unit || '')}</span>
           ${priceVis ? `          <input type="number" value="${it.amount !== undefined && it.amount !== null ? it.amount : ''}" min="0" step="any" placeholder="$" style="width:100%;${flags[i] ? 'background:#fff4dc;border-color:#d97706;' : ''}" ${canEditPrice() ? (flags[i] ? 'title="' + escapeHtmlForPrint(flags[i].msg) + '"' : '') : 'readonly title="' + t('priceReadOnlyTitle') + '"'} oninput="updateEditPurchaseItemAmount(${i}, this.value, this)" />
-          ${paOnNow ? (it.noAcct ? '<span style="font-size:11.5px;color:var(--ink-soft);">' + t('paOffBooksShort') + '</span>' : ((typeof pcEd !== 'undefined' && pcEd && pcEd.import) ? paImportNoteHtml() : paGstSelectHtml(it.gst, 'paEditSetGst(' + i + ', this.value)'))) : ''}` : ''}
+          ${paOnNow ? (it.noAcct ? '<span style="font-size:11.5px;color:var(--ink-soft);">' + t('paOffBooksShort') + '</span>' : ((typeof pcEd !== 'undefined' && pcEd && pcEd.import) ? paImportNoteHtml() : paGstSelectHtml(it.gst, 'paEditSetGst(' + i + ', this.value)') + paItemGstCalcHtml(it, (document.getElementById('editPurchaseGstMode') || {}).value === 'inc' ? 'inc' : 'ex'))) : ''}` : ''}
           ${batchOn ? ((!it.noBatch) ? `
           <input type="date" value="${it.expiry || ''}" title="${t('batchColExpiry')}" style="width:100%;" onchange="updateEditPurchaseItemExpiry(${i}, this.value)" />
           <input type="text" value="${escapeHtmlForPrint(it.supplierLot || '')}" title="${t('batchFieldLot')}" style="width:100%;" oninput="updateEditPurchaseItemLot(${i}, this.value)" />
@@ -1140,6 +1140,7 @@ async function confirmEditPurchase(){
 
   msgEl.className = 'msg'; msgEl.textContent = t('savingMsg');
   const oldDate = p.date, oldParty = p.partyName, oldInvoice = p.invoiceNo, oldNote = p.note;
+  const oldGstSig = JSON.stringify([p.gstMode === 'inc' ? 'inc' : 'ex', (p.items || []).map(i => i.gst === true)]);   // 含 GST 時批次成本要扣掉 GST:模式或品項 GST 變了要重存批次
   p.date = dateVal;
   p.partyName = partyVal;
   p.partyId = partyVal;
@@ -1148,6 +1149,7 @@ async function confirmEditPurchase(){
   p.note = noteVal;
   p.items = cleanItems;
   if(typeof paEditApply === 'function') paEditApply(p);   // 入會計紀錄 / GST 模式
+  const gstCostChanged = (JSON.stringify([p.gstMode === 'inc' ? 'inc' : 'ex', (p.items || []).map(i => i.gst === true)]) !== oldGstSig) && (p.gstMode === 'inc' || oldGstSig.indexOf('"inc"') >= 0);
   p.receiptFiles = editPurchaseWorkingReceiptFiles.slice();
   delete p.receiptUrl; // 舊格式欄位一旦編輯過就統一改用新的 receiptFiles 陣列,不留舊欄位造成混淆
   delete p.receiptFilename;
@@ -1185,7 +1187,7 @@ async function confirmEditPurchase(){
       }
     }
     // 批次追蹤:同步批次(數量/有效期/批號/日期/Invoice/供應商有改才呼叫)
-    if(p.batchTracked && typeof batchSavePurchase === 'function' && (itemsChanged || costsChanged || dateVal !== oldDate || partyVal !== oldParty || invoiceVal !== oldInvoice)){
+    if(p.batchTracked && typeof batchSavePurchase === 'function' && (itemsChanged || costsChanged || gstCostChanged || dateVal !== oldDate || partyVal !== oldParty || invoiceVal !== oldInvoice)){
       const locBefore = (typeof batchSnapshotPurchaseLocs === 'function') ? batchSnapshotPurchaseLocs(p.id) : null;
       try{
         await batchSavePurchase(p);

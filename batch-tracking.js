@@ -688,8 +688,23 @@ function batchNetPurchaseLines(items){
   return out;
 }
 
+// 批次成本一律不含 GST:進貨單選「金額含 GST」時,有 GST 的品項金額換算成不含稅(÷1.1)再記成本;
+// 分攤的其他支出(totalAmount − amount)維持不變。「金額不含 GST」、無 GST 品項、海外進口單都不用換算。
+function batchCostItems(purchase){
+  const items = (purchase && purchase.items) || [];
+  if(!purchase || purchase.gstMode !== 'inc') return items;
+  const k = 1 + ((typeof PA_GST_RATE === 'number') ? PA_GST_RATE : 0.1);
+  return items.map(it => {
+    if(it.gst !== true || it.docType === 'others' || it.noAcct) return it;
+    const c = Object.assign({}, it);
+    if(it.amount !== undefined && it.amount !== null && it.amount !== '') c.amount = Number(it.amount) / k;
+    if(it.totalAmount !== undefined && it.totalAmount !== null) c.totalAmount = Number(c.amount || 0) + (Number(it.totalAmount) - Number(it.amount || 0));
+    if(it.origAmount !== undefined && it.origAmount !== null) c.origAmount = Number(it.origAmount) / k;
+    return c;
+  });
+}
 async function batchSavePurchase(purchase){
-  const lines = batchNetPurchaseLines(purchase.items || []);
+  const lines = batchNetPurchaseLines(batchCostItems(purchase));
   const payload = lines.map(l => ({
     product_id: l.productId, expiry: l.expiry || '', qty: l.qty,
     amount: l.amount === null ? null : l.amount, supplier_lot: l.supplierLot || '',

@@ -162,6 +162,14 @@ function paFormGstMode(){ const g = document.getElementById('purchaseGstMode'); 
 // 登記進貨表單目前是「海外進口」→ 收據上的商品、其他支出一律沒有 GST(不用選)
 function paImportOn(){ return typeof pcState !== 'undefined' && typeof pcActive === 'function' && pcActive() && !!pcState.overseas; }
 function paImportNoteHtml(){ return `<span style="font-size:11.5px;color:var(--ink-soft);">${paEsc(t('paImportNoGst'))}</span>`; }
+// 品項金額旁邊的唯讀提示:這一行系統算出的「不含稅 / GST」(只有選了「GST」的品項才有)。mode = 'ex' 金額不含 GST;'inc' 金額已含 GST
+function paItemGstCalcHtml(it, mode){
+  if(!it || it.gst !== true) return '';
+  const a = Number(it.amount); if(!(a > 0)) return '';
+  const g = mode === 'inc' ? a * PA_GST_RATE / (1 + PA_GST_RATE) : a * PA_GST_RATE;
+  const ex = mode === 'inc' ? a - g : a;
+  return `<div style="font-size:10.5px;color:var(--ink-soft);white-space:nowrap;margin-top:2px;">${paEsc(t('paCalcEx'))} ${paR2(ex).toFixed(2)} · GST ${paR2(g).toFixed(2)}</div>`;
+}
 function paGstSelectHtml(val, onchange){
   const v = val === true ? 'y' : (val === false ? 'n' : '');
   return `<select onchange="${onchange}" style="font-size:12px;max-width:92px;${v === '' ? 'border-color:#d9a400;background:#fff9e6;' : ''}">
