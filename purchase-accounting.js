@@ -155,6 +155,8 @@ function paFormReset(){
   const g = document.getElementById('purchaseGstMode'); if(g) g.value = 'ex';
   const d = document.getElementById('purchaseDueDate'); if(d) d.value = '';
   const iv = document.getElementById('purchaseInvDate'); if(iv) iv.value = '';
+  const rg = document.getElementById('purchaseReceiptGst'); if(rg) rg.value = '';
+  paReceiptGstHintUpdate();
 }
 // 是否入會計由商品設定決定(商品主檔「不入公司帳」),進貨單不再手動勾選;全部是不入帳商品的單會自動不出現在 Purchase List
 function paFormInAccounting(){ return true; }
@@ -169,6 +171,43 @@ function paItemGstCalcHtml(it, mode){
   const g = mode === 'inc' ? a * PA_GST_RATE / (1 + PA_GST_RATE) : a * PA_GST_RATE;
   const ex = mode === 'inc' ? a - g : a;
   return `<div style="font-size:10.5px;color:var(--ink-soft);white-space:nowrap;margin-top:2px;">${paEsc(t('paCalcEx'))} ${paR2(ex).toFixed(2)} · GST ${paR2(g).toFixed(2)}</div>`;
+}
+// ---- 收據 GST 總額(選填核對欄):跟系統算出的 GST 比對,只提醒、不影響成本與會計數字 ----
+function paReceiptGstSystem(edit){
+  let items, lineExps, ns, mode;
+  if(edit){
+    if(typeof pcEd !== 'undefined' && pcEd && pcEd.import) return null;
+    const g = document.getElementById('editPurchaseGstMode');
+    mode = g && g.value === 'inc' ? 'inc' : 'ex';
+    items = (typeof editPurchaseWorkingItems !== 'undefined' ? editPurchaseWorkingItems : []).map(it => ({ amount: it.amount, gst: (it.gst === true || it.gst === false) ? it.gst : paProductGst(it.productId), docType: it.docType, noAcct: !!it.noAcct }));
+    lineExps = (typeof pcEd !== 'undefined' && pcEd && pcEd.lineExpenses) ? pcEd.lineExpenses : [];
+    ns = (typeof pcEd !== 'undefined' && pcEd && pcEd.nonStock) ? pcEd.nonStock : [];
+  } else {
+    if(paImportOn()) return null;
+    mode = paFormGstMode();
+    items = (typeof txBatchItems !== 'undefined' ? txBatchItems : []).map(it => ({ amount: it.amount, gst: (it.gst === true || it.gst === false) ? it.gst : paProductGst(it.productId), docType: it.docType, noAcct: paProductOffBooks(it.productId) }));
+    lineExps = (typeof pcState !== 'undefined' && pcState.lineExpenses) ? pcState.lineExpenses : [];
+    ns = (typeof pcState !== 'undefined' && pcState.nonStock) ? pcState.nonStock : [];
+  }
+  return paTotals({ gstMode: mode, items, lineExpenses: lineExps, nonStockItems: ns }).gst;
+}
+function paReceiptGstValue(edit){
+  const el = document.getElementById(edit ? 'editPurchaseReceiptGst' : 'purchaseReceiptGst');
+  if(!el || el.value === '') return null;
+  const n = parseFloat(el.value); return (isFinite(n) && n >= 0) ? paR2(n) : null;
+}
+function paReceiptGstHintUpdate(){
+  [false, true].forEach(edit => {
+    const hint = document.getElementById(edit ? 'editPurchaseReceiptGstHint' : 'purchaseReceiptGstHint');
+    const inp = document.getElementById(edit ? 'editPurchaseReceiptGst' : 'purchaseReceiptGst');
+    if(!hint || !inp) return;
+    const sys = paReceiptGstSystem(edit), recv = paReceiptGstValue(edit);
+    inp.style.display = hint.style.display = (sys === null) ? 'none' : '';
+    if(sys === null || recv === null){ hint.textContent = ''; return; }
+    const diff = paR2(recv - sys);
+    if(Math.abs(diff) <= 0.05){ hint.style.color = 'var(--safe)'; hint.textContent = tf('paReceiptGstOk', { sys: sys.toFixed(2) }); }
+    else { hint.style.color = '#b26a00'; hint.textContent = tf('paReceiptGstDiff', { sys: sys.toFixed(2), diff: (diff > 0 ? '+' : '') + diff.toFixed(2) }); }
+  });
 }
 function paGstSelectHtml(val, onchange){
   const v = val === true ? 'y' : (val === false ? 'n' : '');
@@ -202,6 +241,11 @@ async function paPreSubmit(msg){
       msg.textContent = '⚠ ' + tf('paErrNeedGst', { names: miss.map(x => x.name).join('、') });
       return false;
     }
+    { const sys = paReceiptGstSystem(false), recv = paReceiptGstValue(false);
+      if(sys !== null && recv !== null && Math.abs(recv - sys) > 0.05){
+        const ok = await new Promise(res => showConfirmModal(tf('paReceiptGstConfirm', { recv: recv.toFixed(2), sys: sys.toFixed(2) }), () => res(true), () => res(false)));
+        if(!ok) return false;
+      } }
     return true;
   }
   if(priced.length === 0) return true;
@@ -214,6 +258,7 @@ function paApplyToPurchase(purchase, srcItems){
   purchase.gstMode = paFormGstMode();
   { const d = document.getElementById('purchaseDueDate'); if(d && d.value) purchase.dueDate = d.value; else delete purchase.dueDate; }
   { const iv = document.getElementById('purchaseInvDate'); if(iv && iv.value) purchase.invoiceDate = iv.value; else delete purchase.invoiceDate; }
+  { const rg = paImportOn() ? null : paReceiptGstValue(false); if(rg !== null) purchase.receiptGst = rg; else delete purchase.receiptGst; }
   (purchase.items || []).forEach((it, i) => {
     const s = srcItems[i];
     if(paProductOffBooks(it.productId) || (s && paProductOffBooks(s.productId))){ it.noAcct = true; delete it.gst; return; }
@@ -235,6 +280,7 @@ function paEditLoad(p){
   const g = document.getElementById('editPurchaseGstMode'); if(g) g.value = p.gstMode === 'inc' ? 'inc' : 'ex';
   const dd = document.getElementById('editPurchaseDueDate'); if(dd) dd.value = p.dueDate || '';
   const iv = document.getElementById('editPurchaseInvDate'); if(iv) iv.value = p.invoiceDate || '';
+  const rg = document.getElementById('editPurchaseReceiptGst'); if(rg) rg.value = (p.receiptGst !== undefined && p.receiptGst !== null) ? p.receiptGst : '';
   // 舊進貨單的品項沒有 GST 資料:商品資料有設定的自動帶入
   paAutoFillGst(editPurchaseWorkingItems);
 }
@@ -270,6 +316,7 @@ function paEditApply(p){
   if(dd){ if(dd.value) p.dueDate = dd.value; else delete p.dueDate; }
   const iv = document.getElementById('editPurchaseInvDate');
   if(iv){ if(iv.value) p.invoiceDate = iv.value; else delete p.invoiceDate; }
+  { const rg = (typeof pcEd !== 'undefined' && pcEd && pcEd.import) ? null : paReceiptGstValue(true); if(rg !== null) p.receiptGst = rg; else delete p.receiptGst; }
 }
 
 // ------------------------------------------------------------

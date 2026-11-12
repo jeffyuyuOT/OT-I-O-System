@@ -1059,6 +1059,7 @@ function renderTxBatchList(){
       ${showSellCol ? (() => { const tt = spTxItemsTotal(sellPartyId); const miss = tt.missing ? ` <span style="font-weight:400;font-size:11px;color:var(--ink-soft);">(${tf('spTotalMissing', { n: tt.missing })})</span>` : ''; const lead = (registerOutFlowType === 'load-pending' || registerOutFlowType === 'load-completed') ? t('spAddedItemsTotal') + ' · ' : ''; const tail = `<td colspan="${(showBatchCols ? 2 : 0) + (showAmountCol ? 1 : 0) + 1}"></td>`; const r = (lab, v, strong) => `<tr style="font-weight:${strong ? 700 : 600};"><td class="row-name" colspan="3" style="text-align:right;">${lab}</td><td class="row-num"><span style="${SP_TOTAL_PILL}">${spMoney(v)}</span></td>${tail}</tr>`; return `<tfoot>${r(lead + t('spSaleAmt') + miss, tt.sum, false)}${r(t('spGstAmt'), tt.gst, false)}${r(t('spTotalAmt'), spRound2(tt.sum + tt.gst), true)}</tfoot>`; })() : ''}
     </table>${lineExpAddBtn}
   `;
+  if(typeof paReceiptGstHintUpdate === 'function') paReceiptGstHintUpdate();
 }
 
 // 從「登記進出貨」的待送出清單裡按「切換」:直接沿用庫存總覽同一套切換視窗(批量商品↔主商品)。

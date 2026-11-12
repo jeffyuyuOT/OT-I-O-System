@@ -741,6 +741,7 @@ function renderEditPurchaseItemsList(){
      </div>
     </div>
   `;
+  if(typeof paReceiptGstHintUpdate === 'function') paReceiptGstHintUpdate();
 }
 function editPurchaseIsBatchTracked(){
   if(typeof batchActive !== 'function' || !batchActive()) return false;
