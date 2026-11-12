@@ -4404,7 +4404,6 @@ function updateImportCountDisplay(){
 async function startApp(){
   document.getElementById('txDate').value = todayISO();
   document.getElementById('txImportDate').value = todayISO();
-  document.getElementById('orderDate').value = todayISO();
   setTxType('in');
   await loadData();
   // setTxType('in') 在這個函式一開始、loadData() 還沒跑完之前就先執行過了(為了讓表單欄位
