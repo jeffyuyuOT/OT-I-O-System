@@ -784,6 +784,7 @@ function editPurchaseOpenLineNote(index){
   ov.id = 'editPurchaseLineNoteOverlay'; ov.className = 'modal-overlay'; ov.style.display = 'flex'; ov.style.zIndex = '1250';
   ov.innerHTML = `<div class="modal-box" style="max-width:min(420px,94vw);">
     <div class="section-title" style="margin-top:0;">${t('batchFieldNote')} · ${escapeHtmlForPrint(it.name || '')}</div>
+    ${(editPurchaseIsBatchTracked() && !it.noBatch && typeof batchLineLocText === 'function') ? `<div class="field"><label>${t('batchLocTitle')}</label><div style="font-size:12.5px;color:var(--ink-soft);">${escapeHtmlForPrint(batchLineLocText(editPurchaseTargetId, it.productId, it.expiry || '') || t('unassignedLocationLabel'))}</div></div>` : ''}
     ${((typeof canViewPrice !== 'function') || canViewPrice()) ? `<div class="field"><label>${t('batchColExpiry')}</label><input id="editPurchaseLineExpiryInput" type="date" value="${escapeHtmlForPrint(it.expiry || '')}" style="width:100%;" /></div>
     <div class="field" style="margin-top:8px;"><label>${t('batchFieldLot')}</label><input id="editPurchaseLineLotInput" type="text" value="${escapeHtmlForPrint(it.supplierLot || '')}" style="width:100%;" /></div>
     <div style="font-size:12px;color:var(--ink-soft);margin:8px 0 2px;">${t('batchFieldNote')}</div>` : ''}
@@ -887,6 +888,12 @@ function populateEditPurchaseAddItemSelect(){
   sel.innerHTML = `<option value="">${t('optSelectProduct')}</option>` +
     sorted.map(p => `<option value="${p.id}">${escapeHtmlForPrint(p.name)}${p.sku ? ` (${escapeHtmlForPrint(p.sku)})` : ''}</option>`).join('');
   sel.value = '';
+  // 商品很多:改成可搜尋(打字會跳出相似的商品名),跟登記進貨的商品欄一樣
+  if(typeof makeSelectSearchable === 'function'){
+    makeSelectSearchable('editPurchaseAddItemSelect');
+    const w = sel.closest('.searchable-select-wrap');
+    if(w){ w.style.flex = '1 1 200px'; w.style.minWidth = '160px'; w.style.width = 'auto'; }
+  }
 }
 function addEditPurchaseItem(){
   const sel = document.getElementById('editPurchaseAddItemSelect');

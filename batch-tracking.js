@@ -2488,6 +2488,12 @@ async function batchSyncPurchaseLocAfterEdit(purchaseId, before){
   }
   if(changed){ try{ if(typeof refreshStockLocationView === 'function') refreshStockLocationView(); }catch(e){} }
 }
+// 編輯進貨單視窗:這個商品行(商品+有效期)目前記錄的位置(唯讀);沒有位置資料回傳 ''
+function batchLineLocText(purchaseId, productId, expiry){
+  const it = batchData.items.find(i => i.purchaseId === purchaseId && i.productId === productId && (i.expiry || '') === (expiry || ''));
+  const locs = it ? (batchItemLocs[it.id] || []) : [];
+  return locs.map(l => `${l.code}×${batchFmtQty(l.qty)}`).join(', ');
+}
 // 編輯進貨單視窗:這個商品行(商品+有效期)目前的批次備註
 function batchLineNote(purchaseId, productId, expiry){
   const it = batchData.items.find(i => i.purchaseId === purchaseId && i.productId === productId && (i.expiry || '') === (expiry || ''));
