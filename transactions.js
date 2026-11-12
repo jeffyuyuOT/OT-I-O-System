@@ -432,7 +432,8 @@ function setTxDeliveryFlowType(flowType, skipLoad){
   txBatchItems = []; txNsItems = [];
   const noteSelectWrap = document.getElementById('txDeliveryNoteSelectWrap');
   const noteSelect = document.getElementById('txDeliveryNoteSelect');
-  { const _pw = document.getElementById('txDnPartialWrap'); if(_pw) _pw.style.display = flowType === 'partial' ? '' : 'none'; }
+  { const _pw = document.getElementById('txDnPartialWrap'); if(_pw) _pw.style.display = flowType === 'partial' ? '' : 'none';
+    const _rw = document.getElementById('txDnRefWrap'); if(_rw) _rw.style.display = flowType === 'partial' ? 'none' : ''; }   // 「從 Partially Shipped 訂單新增」用上面那欄選單據,關聯單據欄隱藏
   const existingSection = document.getElementById('txExistingItemsSection');
   const viewSection = document.getElementById('txDeliveryViewSection');
   const partySelect = document.getElementById('txPartySelect');
@@ -468,6 +469,7 @@ function setTxDeliveryFlowType(flowType, skipLoad){
     if(viewSection) viewSection.style.display = 'none';
     if(noteSelectWrap) noteSelectWrap.style.display = 'none';
     showTxMainFormArea(false);
+    dnPartialPickedNo = '';
     const _ps = document.getElementById('txDnPartialSearch'); if(_ps) _ps.value = '';
     const _pl = document.getElementById('txDnPartialList'); if(_pl) _pl.style.display = 'none';
   } else {

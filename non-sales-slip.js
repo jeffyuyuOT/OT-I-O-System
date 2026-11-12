@@ -336,6 +336,7 @@ function dnRefTypeLabel(type){ return type === 'nonsales' ? t('dnRefTypeNs') : t
 // ============================================================
 let dnPartialSeq = 0;
 let dnPartialShown = [];
+let dnPartialPickedNo = '';   // 目前挑中的訂單號(輸入框顯示它;這時再點進輸入框要列出全部,方便換單)
 async function dnPartialRender(){
   const inp = document.getElementById('txDnPartialSearch');
   const box = document.getElementById('txDnPartialList');
@@ -345,7 +346,7 @@ async function dnPartialRender(){
   if(!deliveryNotesLoaded) box.innerHTML = `<div style="padding:8px 10px;font-size:12.5px;color:var(--ink-soft);">${t('dnFilterLoading')}</div>`;
   try{ await Promise.all([ensureOrdersLoadedFrom(''), ensureDeliveryNotesLoaded()]); }catch(e){}
   if(seq !== dnPartialSeq) return;
-  const q = inp.value.trim().toLowerCase();
+  const q = inp.value.trim() === dnPartialPickedNo ? '' : inp.value.trim().toLowerCase();
   const esc = escapeHtmlForPrint;
   dnPartialShown = orders.filter(o => !o.deleted && o.orderNo && (o.status || 'pending') === 'confirmed' && !o.signedAt && dnOrderShipState(o.id) === 'partial')
     .filter(o => !q || (String(o.orderNo) + ' ' + (o.partyName || '') + ' ' + (o.customerName || '')).toLowerCase().includes(q))
@@ -361,8 +362,8 @@ function dnPartialPick(i){
   const o = dnPartialShown[i];
   if(!o) return;
   const box = document.getElementById('txDnPartialList'); if(box) box.style.display = 'none';
-  const inp = document.getElementById('txDnPartialSearch'); if(inp) inp.value = '';
-  const wrap = document.getElementById('txDnPartialWrap'); if(wrap) wrap.style.display = 'none';   // 挑完就收起來,後面只用「關聯單據」欄(內容一樣,要換訂單就在那邊重新搜尋)
+  dnPartialPickedNo = String(o.orderNo);
+  const inp = document.getElementById('txDnPartialSearch'); if(inp) inp.value = dnPartialPickedNo;   // 這個模式下「關聯單據」欄隱藏,由這一欄負責(可再搜尋出貨方換單)
   registerDeliveryFlowType = 'new';   // 之後的行為跟「新增」完全一樣
   registerLoadedDeliveryNoteId = null;
   txBatchItems = []; txNsItems = [];
