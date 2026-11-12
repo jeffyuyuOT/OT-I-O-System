@@ -518,7 +518,7 @@ function paOpenDetails(id){
     const shownUnit = it.rcv ? (it.rcv.unit || '') : (it.unit || '');
     const swNote = it.rcv ? ` <span class="batch-info-icon" style="cursor:help;" title="${paEsc(tf('purchaseConvertedNote', { name: it.name, qty: it.qty, unit: it.unit || '' }))}" onclick="showInfoModal(this.title)">⇄</span>` : '';
     const hasAmt = it.amount !== undefined && it.amount !== null;
-    return `<tr><td>${paEsc(shownName)}${it.docType === 'credit_note' ? ` <span style="color:var(--crit);font-size:11px;">(${t('docTypeCreditNoteBadge')})</span>` : ''}${swNote}</td><td class="num">${paEsc(shownQty)} ${paEsc(shownUnit)}</td><td class="num">${hasAmt ? paM2(sign * Number(it.amount)) : '–'}${(hasAmt && it.docType !== 'credit_note') ? pdIcon('item', idx) : ''}</td><td>${g}</td></tr>`;
+    return `<tr><td>${paEsc(shownName)}${it.docType === 'credit_note' ? ` <span style="color:var(--crit);font-size:11px;">(${t('docTypeCreditNoteBadge')})</span>` : ''}${(typeof batchLineNoHtml === 'function') ? batchLineNoHtml(p.id, it.productId, it.expiry || '') : ''}${swNote}</td><td class="num">${paEsc(shownQty)} ${paEsc(shownUnit)}</td><td class="num">${hasAmt ? paM2(sign * Number(it.amount)) : '–'}${(hasAmt && it.docType !== 'credit_note') ? pdIcon('item', idx) : ''}</td><td>${g}</td></tr>`;
   }).join('');
   const nsDetail = (p.nonStockItems || []).map((n, nIdx) => {
     const g = n.gst === true ? 'GST' : (n.gst === false ? t('paGstNone') : '<span style="color:#b26a00;">' + paEsc(t('paGstUnset')) + '</span>');

@@ -2488,6 +2488,14 @@ async function batchSyncPurchaseLocAfterEdit(purchaseId, before){
   }
   if(changed){ try{ if(typeof refreshStockLocationView === 'function') refreshStockLocationView(); }catch(e){} }
 }
+// 進貨單詳細資料:這個商品行(商品+有效期)對應的批次號(只讀);沒開批次追蹤或查不到回傳 ''
+function batchLineNoHtml(purchaseId, productId, expiry){
+  try{
+    if(typeof batchActive !== 'function' || !batchActive() || !batchData || !batchData.items) return '';
+    const it = batchData.items.find(i => i.purchaseId === purchaseId && i.productId === productId && (i.expiry || '') === (expiry || ''));
+    return it && it.batchNo ? ` <span class="batch-tag" title="${batchEsc(t('batchNoLabel'))}">${batchEsc(it.batchNo)}</span>` : '';
+  }catch(e){ return ''; }
+}
 // 編輯進貨單視窗:這個商品行(商品+有效期)目前記錄的位置(唯讀);沒有位置資料回傳 ''
 function batchLineLocText(purchaseId, productId, expiry){
   const it = batchData.items.find(i => i.purchaseId === purchaseId && i.productId === productId && (i.expiry || '') === (expiry || ''));
