@@ -263,6 +263,54 @@ function dnLinkedNotes(refId){
   return (typeof deliveryNotes !== 'undefined' ? deliveryNotes : []).filter(n => n && !n.deleted && n.ref && n.ref.id === refId)
     .slice().sort((a, b) => (a.date || '').localeCompare(b.date || ''));
 }
+// 這張訂單的 Delivery Note 出貨狀態:'none' 沒有關聯 DN / 'partial' 有關聯 DN 但還沒送完(Partially Shipped)/ 'done' 已送完;
+// DN 資料還沒載入回傳 null。「已送」只算已完成(已列印)的 DN,待處理的 DN 在列印時才扣,跟選商品視窗同一套規則。
+function dnOrderShipState(orderId){
+  if(typeof deliveryNotesLoaded === 'undefined' || !deliveryNotesLoaded) return null;
+  if(!dnLinkedNotes(orderId).length) return 'none';
+  const left = dnRemainingList(orderId);
+  if(left === null) return 'none';
+  return left.length ? 'partial' : 'done';
+}
+// 這張訂單還沒送完的商品(扣掉已完成的 Delivery Note)。extra = 要一併算成已送的那一張(正在印的),
+// excludeId = 已完成清單裡要略過的那一張(避免跟 extra 重複計算)。讀不到訂單回傳 null。
+function dnRemainingList(orderId, extra, excludeId){
+  const src = dnRefSourceRaw({ type: 'order', id: orderId });
+  if(!src) return null;
+  const items = {}, ns = {};
+  const add = n => {
+    (n.items || []).forEach(it => { items[it.productId] = (items[it.productId] || 0) + (Number(it.qty) || 0); });
+    (n.nonStockItems || []).forEach(x => { const k = x.name + '|' + (x.unit || ''); ns[k] = (ns[k] || 0) + (Number(x.qty) || 0); });
+  };
+  dnLinkedNotes(orderId).filter(n => n.status === 'completed' && n.id !== excludeId).forEach(add);
+  if(extra) add(extra);
+  const out = [];
+  const fmt = n => Math.round(n * 1000) / 1000;
+  src.items.forEach(it => { const r = it.qty - (items[it.productId] || 0); if(r > 1e-9) out.push(`${it.name} ${fmt(r)} ${it.unit || ''}`.trim()); });
+  src.ns.forEach(n => { const r = n.qty - (ns[n.name + '|' + (n.unit || '')] || 0); if(r > 1e-9) out.push(`${n.name} ${fmt(r)} ${n.unit || ''}`.trim()); });
+  return out;
+}
+// 印這張 Delivery Note 之後,關聯訂單:'final' 全部送完(最後一批)/ 'partial' 還有商品沒送 / null 不是訂單(非銷售出庫單不用簽收)或讀不到
+function dnPrintFinalState(data){
+  if(!data || !data.ref || data.ref.type !== 'order') return null;
+  const left = dnRemainingList(data.ref.id, data, data.id);
+  if(left === null) return null;
+  return left.length ? 'partial' : 'final';
+}
+// 簽收前檢查:這張訂單有關聯 Delivery Note 而且還有商品沒送完 → 回傳警告文字(沒問題回傳 '')
+async function dnSignWarning(order){
+  try{ await ensureDeliveryNotesLoaded(); }catch(e){ return ''; }
+  if(dnOrderShipState(order.id) !== 'partial') return '';
+  const left = dnRemainingList(order.id) || [];
+  return tf('dnSignWarn', { orderNo: order.orderNo || '', list: left.slice(0, 8).join(', ') + (left.length > 8 ? ' …' : '') });
+}
+function dnOrderBadgeHtml(o){
+  if(!o || o.deleted) return '';
+  const st = dnOrderShipState(o.id);
+  if(st === 'done' && !o.signedAt && orderStatus(o) === 'confirmed') return `<span style="font-size:11px;font-weight:600;color:var(--safe);border:1px solid currentColor;border-radius:10px;padding:0 7px;white-space:nowrap;" title="${t('dnBadgeAwaitTitle')}">${t('dnBadgeAwait')}</span>`;
+  if(st !== 'partial') return '';
+  return `<span style="font-size:11px;font-weight:600;color:var(--warn,#b45309);border:1px solid currentColor;border-radius:10px;padding:0 7px;white-space:nowrap;" title="${t('dnBadgePartialTitle')}">${t('dnBadgePartial')}</span>`;
+}
 function dnRecordHtml(type, id){
   const esc = escapeHtmlForPrint;
   const src = dnRefSourceRaw({ type, id });

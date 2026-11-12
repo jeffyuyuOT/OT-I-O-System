@@ -1397,6 +1397,7 @@ function invGotoOrder(orderId){
     const sel = document.getElementById('logSubtabSelect'); if(sel) sel.value = 'subtab-log-completed';
     switchLogSubTab('subtab-log-completed');
     const pf = document.getElementById('completedOrderPartyFilter'); if(pf) pf.value = '';
+    ['completedOrderStatusFilter'].forEach(id => { const e = document.getElementById(id); if(e) e.value = ''; });
     const df = document.getElementById('completedOrderDateFrom'); if(df) df.value = '';
     const dt = document.getElementById('completedOrderDateTo'); if(dt) dt.value = '';
     renderOrders();

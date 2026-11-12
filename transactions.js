@@ -420,13 +420,20 @@ function setTxOutFlowType(flowType){
 // Delivery Note 的「新增」/「載入」切換,邏輯比照 setTxOutFlowType:「新增」直接展開空白表單;
 // 「載入」要先選出是哪一張 Delivery Note,選出來之前主表單保持隱藏。備註在這裡是必填
 // (相關已完成訂單號要寫在這裡),所以標籤文字改用「必填」版本。
-function setTxDeliveryFlowType(flowType){
-  if(!deliveryNotesLoaded){ ensureDeliveryNotesLoaded().then(() => setTxDeliveryFlowType(flowType)); return; }
+function setTxDeliveryFlowType(flowType, skipLoad){
+  if(!deliveryNotesLoaded && !skipLoad){
+    // 「新增」不需要先等 Delivery Note 資料:畫面馬上顯示,資料在背景載入(搜尋關聯單據/儲存/列印時才會真的用到,那邊各自會等)。
+    // 「載入/觀看」要列出已有的 Delivery Note,才需要等;載入失敗也只重畫一次,不再無限重試(之前失敗會一直重新載入、畫面卡住)。
+    if(flowType === 'new' || flowType === 'partial') ensureDeliveryNotesLoaded();
+    else { ensureDeliveryNotesLoaded().then(() => { if(currentTxType === 'delivery') setTxDeliveryFlowType(flowType, true); }); return; }
+  }
   registerDeliveryFlowType = flowType;
   registerLoadedDeliveryNoteId = null;
   txBatchItems = []; txNsItems = [];
   const noteSelectWrap = document.getElementById('txDeliveryNoteSelectWrap');
   const noteSelect = document.getElementById('txDeliveryNoteSelect');
+  { const _pw = document.getElementById('txDnPartialWrap'); if(_pw) _pw.style.display = flowType === 'partial' ? '' : 'none';
+    const _rw = document.getElementById('txDnRefWrap'); if(_rw) _rw.style.display = flowType === 'partial' ? 'none' : ''; }   // 「從 Partially Shipped 訂單新增」用上面那欄選單據,關聯單據欄隱藏
   const existingSection = document.getElementById('txExistingItemsSection');
   const viewSection = document.getElementById('txDeliveryViewSection');
   const partySelect = document.getElementById('txPartySelect');
@@ -457,6 +464,14 @@ function setTxDeliveryFlowType(flowType){
     if(viewSection) viewSection.style.display = 'none';
     if(noteSelectWrap) noteSelectWrap.style.display = 'none';
     showTxMainFormArea(true);
+  } else if(flowType === 'partial'){
+    // 從 Partially Shipped 訂單新增:先挑訂單(可用出貨方/單號搜尋),挑了之後帶入出貨方跟關聯單據,等於「新增」
+    if(viewSection) viewSection.style.display = 'none';
+    if(noteSelectWrap) noteSelectWrap.style.display = 'none';
+    showTxMainFormArea(false);
+    dnPartialPickedNo = '';
+    const _ps = document.getElementById('txDnPartialSearch'); if(_ps) _ps.value = '';
+    const _pl = document.getElementById('txDnPartialList'); if(_pl) _pl.style.display = 'none';
   } else {
     if(viewSection) viewSection.style.display = 'none';
     if(noteSelectWrap) noteSelectWrap.style.display = 'none';
@@ -1985,6 +2000,14 @@ function dnPrintHtml(data){
       <td>${escapeHtmlForPrint(n.unit || '')}</td>
     </tr>`).join('');
 
+  // 關聯的是訂單時,依「印完這張之後是否全部送完」加註:最後一批請客戶簽收訂單;還沒送完就請收齊後再簽收
+  const _fs = (typeof dnPrintFinalState === 'function') ? dnPrintFinalState(data) : null;
+  const _ono = escapeHtmlForPrint(data.ref ? data.ref.no : '');
+  const banner = _fs === 'final'
+    ? `<div class="dn-banner"><b>FINAL DELIVERY</b><span>All items of order ${_ono} have now been delivered.<br>Please sign for this order.</span></div>`
+    : (_fs === 'partial'
+      ? `<div class="dn-banner"><b>PARTIAL DELIVERY</b><span>Remaining items of order ${_ono} will be delivered separately.<br>Please sign for the order only after all items have been received.</span></div>`
+      : '');
   const html = `<!DOCTYPE html>
 <html>
 <head>
@@ -1999,6 +2022,9 @@ function dnPrintHtml(data){
   th, td{ padding:7px 10px; border:1px solid #999; font-size:13px; text-align:left; }
   th{ background:#eee; }
   .sku-col{ width:1%; white-space:nowrap; }
+  .dn-banner{ border:4px solid #111; padding:12px 16px; margin:14px 0 4px; text-align:center; }
+  .dn-banner b{ display:block; font-size:26px; letter-spacing:1.5px; }
+  .dn-banner span{ display:block; font-size:17px; font-weight:700; margin-top:4px; }
 </style>
 </head>
 <body>
@@ -2008,6 +2034,7 @@ function dnPrintHtml(data){
   <div class="meta">${escapeHtmlForPrint('Date')}: ${data.date}</div>
   <div class="meta">${escapeHtmlForPrint('Related Document')}: ${escapeHtmlForPrint(data.ref ? data.ref.no : '')}</div>
   ${data.note ? `<div class="meta">${escapeHtmlForPrint('Note')}: ${escapeHtmlForPrint(data.note)}</div>` : ''}
+  ${banner}
   <table>
     <thead><tr><th class="sku-col">${escapeHtmlForPrint('SKU')}</th><th>${escapeHtmlForPrint('Product Name')}</th><th>${escapeHtmlForPrint('Qty')}</th><th>${escapeHtmlForPrint('Unit')}</th></tr></thead>
     <tbody>${rowsHtml}</tbody>
@@ -2016,14 +2043,27 @@ function dnPrintHtml(data){
 </html>`;
   return html;
 }
-function dnOpenPrintWindow(html){
-  const printWindow = window.open('', '_blank');
-  if(!printWindow){ showInfoModal(t('errPrintPopupBlocked')); return false; }
-  printWindow.document.write(html);
-  printWindow.document.close();
-  printWindow.onload = () => { printWindow.focus(); printWindow.print(); };
+// 列印:在目前頁面裡藏一個 iframe 直接叫出列印對話框,不開新視窗/新分頁——印完(或取消)就還在原本的系統畫面,
+// 桌面版 App(網頁安裝到桌面)也不會再跳出一個要手動關掉的瀏覽器視窗。
+function printHtmlInFrame(html){
+  const iframe = document.createElement('iframe');
+  iframe.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0;';
+  document.body.appendChild(iframe);
+  const d = iframe.contentWindow.document;
+  d.open(); d.write(html); d.close();
+  let removed = false;
+  const cleanup = () => { if(removed) return; removed = true; try{ iframe.remove(); }catch(e){} };
+  const go = () => {
+    try{
+      iframe.contentWindow.onafterprint = () => setTimeout(cleanup, 500);
+      iframe.contentWindow.focus(); iframe.contentWindow.print();
+    }catch(e){ console.error(e); cleanup(); return; }
+    setTimeout(cleanup, 120000);   // 保險:有些瀏覽器不會觸發 afterprint
+  };
+  if(iframe.contentWindow.document.readyState === 'complete') setTimeout(go, 250); else iframe.onload = () => setTimeout(go, 250);
   return true;
 }
+function dnOpenPrintWindow(html){ return printHtmlInFrame(html); }
 // Delivery Note「列印」:直接開列印視窗,不會存進資料庫——跟「儲存」是兩條分開的路徑,列印過
 // 不代表這張 Note 就被記錄下來了,兩者互不影響。
 async function printDeliveryNote(){
@@ -2898,7 +2938,7 @@ async function submitAdjustmentFlow(date, msg){
   showConfirmModal(t('confirmStockAdjustment'), async () => {
     let slipPw = null, slipNo = '';
     if(wantSlip){
-      slipPw = window.open('', '_blank');   // 在確認的當下同步開啟,才不會被擋彈出視窗
+      slipPw = {};   // 改用頁面內列印,不再開新視窗(這個物件只是代表「要印」)
       try{ await ensureNonSalesSlipsLoaded(); slipNo = await nsNextNo(); }
       catch(e){ try{ if(slipPw) slipPw.close(); }catch(_){} msg.className='msg error'; msg.textContent=`⚠ ${t('errNsNeedSql')}`; return; }
     }

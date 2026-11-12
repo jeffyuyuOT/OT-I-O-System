@@ -111,7 +111,7 @@ async function submitNonSalesSlip(date, msg){
 
   showConfirmModal(t('confirmNsSlip'), async () => {
     // 列印視窗要在使用者按下確認的當下同步開啟,才不會被瀏覽器當成彈出視窗擋掉
-    const pw = window.open('', '_blank');
+    const pw = {};   // 改用頁面內列印,不再開新視窗
     const closeWin = () => { try{ if(pw) pw.close(); }catch(e){} };
     let no;
     try{ no = await nsNextNo(); }
@@ -218,9 +218,7 @@ function nsSlipHtml(slip){
 }
 function nsWriteSlipToWindow(slip, pw){
   if(!pw){ showInfoModal(t('errPrintPopupBlocked')); return; }
-  pw.document.write(nsSlipHtml(slip));
-  pw.document.close();
-  pw.onload = () => { pw.focus(); pw.print(); };
+  printHtmlInFrame(nsSlipHtml(slip));
 }
 function nsViewSlip(id){
   const slip = nonSalesSlips.find(s => s.id === id); if(!slip) return;
@@ -262,8 +260,7 @@ async function nsSavePdf(id){
 function nsReprintSlip(id){
   const slip = nonSalesSlips.find(s => s.id === id);
   if(!slip) return;
-  const pw = window.open('', '_blank');
-  nsWriteSlipToWindow(slip, pw);
+  nsWriteSlipToWindow(slip, {});
 }
 
 // ---- 歷史紀錄 → 非銷售出庫單 ----
@@ -330,6 +327,63 @@ function dnRefSet(ref){
 }
 function dnRefTypeLabel(type){ return type === 'nonsales' ? t('dnRefTypeNs') : t('dnRefTypeOrder'); }
 
+// ============================================================
+// Delivery Note →「從 Partially Shipped 訂單新增」:列出已核對、未簽收、Delivery Note 還沒送完的訂單,
+// 可用出貨方名稱/訂單號搜尋;挑了訂單就帶入出貨方 + 關聯單據,並直接開啟選商品視窗(剩餘數量)。
+// ============================================================
+let dnPartialSeq = 0;
+let dnPartialShown = [];
+let dnPartialPickedNo = '';   // 目前挑中的訂單號(輸入框顯示它;這時再點進輸入框要列出全部,方便換單)
+async function dnPartialRender(){
+  const inp = document.getElementById('txDnPartialSearch');
+  const box = document.getElementById('txDnPartialList');
+  if(!inp || !box) return;
+  const seq = ++dnPartialSeq;
+  box.style.display = '';
+  if(!deliveryNotesLoaded) box.innerHTML = `<div style="padding:8px 10px;font-size:12.5px;color:var(--ink-soft);">${t('dnFilterLoading')}</div>`;
+  try{ await Promise.all([ensureOrdersLoadedFrom(''), ensureDeliveryNotesLoaded()]); }catch(e){}
+  if(seq !== dnPartialSeq) return;
+  const q = inp.value.trim() === dnPartialPickedNo ? '' : inp.value.trim().toLowerCase();
+  const esc = escapeHtmlForPrint;
+  dnPartialShown = orders.filter(o => !o.deleted && o.orderNo && (o.status || 'pending') === 'confirmed' && !o.signedAt && dnOrderShipState(o.id) === 'partial')
+    .filter(o => !q || (String(o.orderNo) + ' ' + (o.partyName || '') + ' ' + (o.customerName || '')).toLowerCase().includes(q))
+    .sort((a, b) => String(b.orderNo).localeCompare(String(a.orderNo))).slice(0, 30);
+  box.innerHTML = dnPartialShown.length ? dnPartialShown.map((o, i) => {
+    const left = (dnRemainingList(o.id) || []).join(', ');
+    return `<div onmousedown="dnPartialPick(${i})" style="padding:7px 10px;cursor:pointer;font-size:13px;border-bottom:1px solid var(--line);">
+      <b>${esc(o.orderNo)}</b> <span style="font-size:11.5px;color:var(--ink-soft);">· ${esc(o.partyName || o.customerName || '')}${o.date ? ' · ' + esc(o.date) : ''}</span>
+      ${left ? `<div style="font-size:11.5px;color:var(--warn,#b45309);">${esc(left.length > 70 ? left.slice(0, 70) + '…' : left)}</div>` : ''}</div>`;
+  }).join('') : `<div style="padding:8px 10px;font-size:12.5px;color:var(--ink-soft);">${t('dnPartialNone')}</div>`;
+}
+function dnPartialPick(i){
+  const o = dnPartialShown[i];
+  if(!o) return;
+  const box = document.getElementById('txDnPartialList'); if(box) box.style.display = 'none';
+  dnPartialPickedNo = String(o.orderNo);
+  const inp = document.getElementById('txDnPartialSearch'); if(inp) inp.value = dnPartialPickedNo;   // 這個模式下「關聯單據」欄隱藏,由這一欄負責(可再搜尋出貨方換單)
+  registerDeliveryFlowType = 'new';   // 之後的行為跟「新增」完全一樣
+  registerLoadedDeliveryNoteId = null;
+  txBatchItems = []; txNsItems = [];
+  const dateInput = document.getElementById('txDate'); if(dateInput) dateInput.value = '';
+  const partySelect = document.getElementById('txPartySelect');
+  if(partySelect){
+    populateTxPartySelect();
+    partySelect.value = o.partyId || '';
+    if(typeof txPartyPickerApply === 'function') txPartyPickerApply();
+    if(typeof txPartyPickerRender === 'function') txPartyPickerRender();
+  }
+  dnRefSet({ type: 'order', id: o.id, no: String(o.orderNo) });
+  showTxMainFormArea(true);
+  renderTxSubmitArea(); renderTxBatchList(); renderProductSelect();
+  if(typeof dnOpenSelectModal === 'function') dnOpenSelectModal();
+}
+document.addEventListener('click', e => {
+  const box = document.getElementById('txDnPartialList'); const inp = document.getElementById('txDnPartialSearch');
+  if(box && e.target !== inp && !box.contains(e.target)) box.style.display = 'none';
+});
+
+// 已簽收、或 Delivery Note 已經把全部商品送完(待簽收)的訂單,不再出現在「載入關聯單據」清單
+function dnRefBlocked(o){ return !!o.signedAt || dnOrderShipState(o.id) === 'done'; }
 async function dnRefSearch(){
   const inp = document.getElementById('txDnRef');
   const list = document.getElementById('txDnRefList');
@@ -337,20 +391,21 @@ async function dnRefSearch(){
   // 一改字就視為還沒選定,要重新從清單挑
   if(dnRefSelected && inp.value.trim() !== dnRefSelected.no) dnRefSelected = null;
   const seq = ++dnRefSeq;
-  await Promise.all([ensureOrdersLoadedFrom(''), ensureNonSalesSlipsLoaded()]);
+  await Promise.all([ensureOrdersLoadedFrom(''), ensureNonSalesSlipsLoaded(), ensureDeliveryNotesLoaded()]);
   if(seq !== dnRefSeq) return;
   const q = inp.value.trim().toLowerCase();
   const esc = escapeHtmlForPrint;
   // 表單上已經選了出貨方 → 訂單只列該出貨方的(非銷售出庫單本身沒有出貨方,不受影響)
   const partyId = (document.getElementById('txPartySelect') || {}).value || '';
   const all = [
-    ...orders.filter(o => !o.deleted && o.orderNo && (o.status || 'pending') === 'confirmed' && (!partyId || o.partyId === partyId))
+    ...orders.filter(o => !o.deleted && o.orderNo && (o.status || 'pending') === 'confirmed' && (!partyId || o.partyId === partyId) && !dnRefBlocked(o))
       .map(o => ({ type: 'order', id: o.id, no: String(o.orderNo), sub: o.partyName || o.customerName || '', date: o.date || '' })),
     ...nonSalesSlips.map(s => ({ type: 'nonsales', id: s.id, no: s.no, sub: s.reasonText || '', date: s.date || '' }))
   ];
   dnRefCandidates = all.filter(c => !q || c.no.toLowerCase().includes(q)).sort((a, b) => b.no.localeCompare(a.no)).slice(0, 30);
   if(dnRefCandidates.length === 0){
-    list.innerHTML = `<div style="padding:8px 10px;font-size:12.5px;color:var(--ink-soft);">${t('dnRefNoMatch')}</div>`;
+    const blockedHit = q && orders.some(o => !o.deleted && o.orderNo && String(o.orderNo).toLowerCase().includes(q) && (o.status || 'pending') === 'confirmed' && dnRefBlocked(o));
+    list.innerHTML = `<div style="padding:8px 10px;font-size:12.5px;color:var(--ink-soft);">${blockedHit ? t('dnRefBlockedMsg') : t('dnRefNoMatch')}</div>`;
   } else {
     list.innerHTML = dnRefCandidates.map((c, i) => `<div onmousedown="dnRefPick(${i})" style="padding:7px 10px;cursor:pointer;font-size:13px;border-bottom:1px solid var(--line);">
       <b>${esc(c.no)}</b> <span style="font-size:11.5px;color:var(--ink-soft);">· ${dnRefTypeLabel(c.type)}${c.sub ? ' · ' + esc(c.sub) : ''}${c.date ? ' · ' + esc(c.date) : ''}</span></div>`).join('');

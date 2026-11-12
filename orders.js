@@ -599,24 +599,37 @@ function isPreVerificationStatus(order){
   return s === 'pending' || s === 'processing';
 }
 
-function populateCompletedOrderPartyFilter(){
-  ['completedOrderPartyFilter', 'recentCompletedOrderPartyFilter'].forEach(id => {
-    const sel = document.getElementById(id);
-    if(!sel) return;
-    const prev = sel.value;
-    sel.innerHTML = `<option value="">${t('optAllParties')}</option>` +
-      shippingParties.map(sp => `<option value="${sp.id}">${partyOptionLabel(sp).replace(/"/g,'&quot;')}</option>`).join('');
-    if(shippingParties.some(sp => sp.id === prev)) sel.value = prev;
-  });
-}
+// 出貨方篩選欄已改成搜尋欄(不再是下拉),這兩個函式保留給既有呼叫點,不用再填選項。
+function populateCompletedOrderPartyFilter(){}
+function populatePendingOrderPartyFilter(){}
 
-function populatePendingOrderPartyFilter(){
-  const sel = document.getElementById('pendingOrderPartyFilter');
-  if(!sel) return;
-  const prev = sel.value;
-  sel.innerHTML = `<option value="">${t('optAllParties')}</option>` +
-    shippingParties.map(sp => `<option value="${sp.id}">${partyOptionLabel(sp).replace(/"/g,'&quot;')}</option>`).join('');
-  if(shippingParties.some(sp => sp.id === prev)) sel.value = prev;
+// 出貨方搜尋:輸入文字就比對出貨方名稱/代碼(包含即可,不分大小寫)。
+// 從出貨方管理跳過來時用 orderPartyExact 記住精準的出貨方 id,搜尋欄裡的文字沒被改過就用 id 篩選,同名的不會混在一起。
+const orderPartyExact = {};   // { 搜尋欄元素 id: { id, label } }
+function orderPartySet(inputId, partyId){
+  const sp = shippingParties.find(x => x.id === partyId);
+  const el = document.getElementById(inputId);
+  if(!el) return;
+  if(!sp){ el.value = ''; return; }
+  el.value = partyOptionLabel(sp);
+  orderPartyExact[inputId] = { id: sp.id, label: el.value };
+}
+// 回傳 null(沒有篩選)或 (order) => boolean;另外 .single 是唯一符合的出貨方(匯出檔名用)
+function orderPartyFilterFn(inputId){
+  const el = document.getElementById(inputId);
+  const text = el ? el.value.trim() : '';
+  if(!text) return null;
+  const ex = orderPartyExact[inputId];
+  let ids;
+  if(ex && el.value === ex.label) ids = new Set([ex.id]);
+  else {
+    const q = text.toLowerCase();
+    ids = new Set(shippingParties.filter(sp => partyOptionLabel(sp).toLowerCase().includes(q) || (sp.name || '').toLowerCase().includes(q)).map(sp => sp.id));
+  }
+  const fn = o => !!o.partyId && ids.has(o.partyId);
+  fn.single = ids.size === 1 ? shippingParties.find(sp => ids.has(sp.id)) : null;
+  fn.text = text;
+  return fn;
 }
 
 // 四份訂單清單(待處理/已完成/訂購記錄/訂單核對頁面的左欄)共用同一組 expandedOrderIds /
@@ -739,9 +752,9 @@ function renderOrders(){
   else if(recentVisible) renderCompletedOrdersInto(recentC, true);
 }
 
+let dnFilterLoadTried = false;   // Delivery Note 資料只自動載入一次,載入失敗就不再重試(避免無限重畫)
 function renderCompletedOrdersInto(container, recentOnly){
-  const partyEl = document.getElementById(recentOnly ? 'recentCompletedOrderPartyFilter' : 'completedOrderPartyFilter');
-  const partyFilter = partyEl ? partyEl.value : '';
+  const partyFn = orderPartyFilterFn(recentOnly ? 'recentCompletedOrderPartyFilter' : 'completedOrderPartyFilter');
   let dateFrom = '', dateTo = '';
   if(recentOnly){
     const d = new Date(); d.setDate(d.getDate() - 30);
@@ -756,7 +769,18 @@ function renderCompletedOrdersInto(container, recentOnly){
   // 處理中訂單(o.deleted 但從沒被核對過)。取消的訂單不會再回到「待處理訂單」清單卡著(那邊
   // 已經把它們排除),移來這邊用不同的狀態標籤(已出貨 / 已取消)區分,方便一起查歷史紀錄。
   let list = orders.filter(o => orderStatus(o) === 'confirmed' || o.deleted);
-  if(partyFilter) list = list.filter(o => o.partyId === partyFilter);
+  if(partyFn) list = list.filter(partyFn);
+  // 狀態篩選:未簽收 / 已簽收 / Partially Shipped(有關聯 Delivery Note 但還沒送完)/ 已送完待簽收(取消的訂單不算)
+  { const sv = (document.getElementById(recentOnly ? 'recentCompletedOrderStatusFilter' : 'completedOrderStatusFilter') || {}).value || '';
+    if(sv === 'unsigned') list = list.filter(o => !o.deleted && !o.signedAt);
+    else if(sv === 'signed') list = list.filter(o => !!o.signedAt);
+    else if(sv === 'partial' || sv === 'await'){
+      if(!deliveryNotesLoaded){
+        if(!dnFilterLoadTried){ dnFilterLoadTried = true; container.innerHTML = `<div class="empty-note">${t('dnFilterLoading')}</div>`; ensureDeliveryNotesLoaded().then(() => renderOrders()); return; }
+        list = [];
+      } else if(sv === 'partial') list = list.filter(o => !o.deleted && dnOrderShipState(o.id) === 'partial');
+      else list = list.filter(o => !o.deleted && !o.signedAt && dnOrderShipState(o.id) === 'done');
+    } }
   { const qEl = document.getElementById(recentOnly ? 'recentCompletedOrderNoSearch' : 'completedOrderNoSearch'); if(qEl && qEl.value.trim()) list = list.filter(o => orderNoMatches(o, qEl.value)); }
   if(dateFrom) list = list.filter(o => o.date >= dateFrom);
   if(dateTo) list = list.filter(o => o.date <= dateTo);
@@ -803,7 +827,7 @@ function renderCompletedOrdersInto(container, recentOnly){
             ${o.remark ? `<span title="${t('orderHasRemarkTitle')}" style="margin-left:6px;color:var(--yellow-dark);">📝</span>` : ''}
             ${wasModified ? `<span title="${t('orderWasModifiedTitle')}" style="margin-left:6px;color:var(--warn);">✎</span>` : ''}
           </span>
-          <span class="order-card-status" style="display:inline-flex;align-items:center;gap:6px;">${o.emailedAt ? `<span style="color:var(--safe);font-size:12px;" title="${tf('emailedToTitle', { email: o.emailedTo || '', when: o.emailedAt })}">${t('alreadyEmailedBadge')}</span><span style="color:var(--ink-soft);font-size:10.5px;">${formatEmailedTimeShort(o.emailedAt)}</span>` : ''}${o.signedAt ? `<span title="${tf('orderSignedAtTitle', {datetime: formatOrderDateTime(o.signedAt)})}" style="color:var(--safe);">✔ ${t('statusSigned')}</span>` : ''}${invLinkedBadgeHtml(o)}<span class="order-status-pill ${o.deleted ? 'deleted' : 'confirmed'}">${o.deleted ? t('statusOrderCancelled') : t('statusCompleted')}</span>
+          <span class="order-card-status" style="display:inline-flex;align-items:center;gap:6px;">${o.emailedAt ? `<span style="color:var(--safe);font-size:12px;" title="${tf('emailedToTitle', { email: o.emailedTo || '', when: o.emailedAt })}">${t('alreadyEmailedBadge')}</span><span style="color:var(--ink-soft);font-size:10.5px;">${formatEmailedTimeShort(o.emailedAt)}</span>` : ''}${o.signedAt ? `<span title="${tf('orderSignedAtTitle', {datetime: formatOrderDateTime(o.signedAt)})}" style="color:var(--safe);">✔ ${t('statusSigned')}</span>` : ''}${invLinkedBadgeHtml(o)}${dnOrderBadgeHtml(o)}<span class="order-status-pill ${o.deleted ? 'deleted' : 'confirmed'}">${o.deleted ? t('statusOrderCancelled') : t('statusCompleted')}</span>
             <span class="order-head-action" onclick="event.stopPropagation()"><button class="btn ghost" onclick="openOrderActionModal('${o.id}', 'completed')">${t('lblAction')} ▾</button></span></span>
         </div>
         ${isExpanded ? `
@@ -892,7 +916,8 @@ function toggleOrderExpand(orderId){
 // 刪除整筆訂單採「軟刪除」:退回庫存、把訂單裡的商品跟訂單本身都標註為已刪除,
 // 但訂單紀錄仍保留在「已完成訂單」清單裡(顯示並標註已刪除),不會從紀錄裡清除。
 // 已簽收的訂單完全鎖住,整張訂單也不能刪除——簽收後不能再更動任何內容,只能疊加新增附註。
-function deleteCompletedOrder(orderId){
+async function deleteCompletedOrder(orderId){
+  try{ await ensureDeliveryNotesLoaded(); }catch(e){}
   const order = orders.find(o => o.id === orderId);
   if(!order) return;
   if(order.signedAt){
@@ -925,7 +950,8 @@ function deleteCompletedOrder(orderId){
 // (軟刪除),但仍保留在紀錄裡。
 // 已簽收的訂單完全鎖住,不能刪除品項、也不能改數量——簽收後這張訂單的所有內容都不能再更動,
 // 只能疊加新增附註,不能修改或刪除既有內容。
-function deleteOrderItem(orderId, productId){
+async function deleteOrderItem(orderId, productId){
+  try{ await ensureDeliveryNotesLoaded(); }catch(e){}
   const order = orders.find(o => o.id === orderId);
   if(!order) return;
   if(order.signedAt){
@@ -1019,6 +1045,9 @@ async function saveOrderItemQty(context, orderId, productId){
     return;
   }
 
+  try{ await ensureDeliveryNotesLoaded(); }catch(e){}
+  { const gm = { style: {} }; Object.defineProperty(gm, 'textContent', { set(v){ showInfoModal(v); } });
+    if(dnGuardOrderEdit(order, { [productId]: newQty }, [], gm, { nsOrder: true })) return; }   // 不能改到比 Delivery Note 已送數量還少
   if(!(await invGuardOrderEdit(order, {qty: { [productId]: newQty }}))) return;
 
   const oldQty = item.qty;
@@ -1142,14 +1171,14 @@ function renderPendingOrders(){
   const container = document.getElementById('pendingOrdersList');
   if(!container) return;
 
-  const partyFilter = document.getElementById('pendingOrderPartyFilter') ? document.getElementById('pendingOrderPartyFilter').value : '';
+  const partyFn = orderPartyFilterFn('pendingOrderPartyFilter');
   const dateFrom = document.getElementById('pendingOrderDateFrom') ? document.getElementById('pendingOrderDateFrom').value : '';
   const dateTo = document.getElementById('pendingOrderDateTo') ? document.getElementById('pendingOrderDateTo').value : '';
 
   // 已取消的訂單改到「已完成訂單」那邊用「已取消」標籤顯示(跟已出貨的放在一起查歷史),
   // 這裡不再列出,不然使用者要處理的訂單裡會一直卡著已經不用管的取消訂單。
   let list = orders.filter(o => isPreVerificationStatus(o) && !o.deleted);
-  if(partyFilter) list = list.filter(o => o.partyId === partyFilter);
+  if(partyFn) list = list.filter(partyFn);
   { const qEl = document.getElementById('pendingOrderNoSearch'); if(qEl && qEl.value.trim()) list = list.filter(o => orderNoMatches(o, qEl.value)); }
   if(dateFrom) list = list.filter(o => o.date >= dateFrom);
   if(dateTo) list = list.filter(o => o.date <= dateTo);
@@ -1417,17 +1446,7 @@ async function printOrderDocument(orderId, opts){
 </body>
 </html>`;
   if(opts.returnHtml) return html;   // 批次列印:只要 HTML,由呼叫端合併後一次列印
-  const printWindow = window.open('', '_blank');
-  if(!printWindow){
-    showInfoModal(t('errPrintPopupBlocked'));
-    return;
-  }
-  printWindow.document.write(html);
-  printWindow.document.close();
-  printWindow.onload = () => {
-    printWindow.focus();
-    printWindow.print();
-  };
+  printHtmlInFrame(html);   // 頁面內列印,不開新視窗
   return true;   // 真的有印(取消位置選擇、視窗被擋都不會到這裡)
 }
 
@@ -2427,9 +2446,11 @@ function editOrderViaRegister(orderId, mode){
 
 // 簽收:確認貨已經實際收到了。只有已經核對過、真的出貨的訂單(status='confirmed')才能簽收——
 // 還沒核對的訂單理論上貨還沒出,簽收沒有意義。簽收之後這張訂單就不能再修改(見 editable 判斷)。
-function signOrderHistory(orderId){
+async function signOrderHistory(orderId){
   const order = orders.find(o => o.id === orderId);
   if(!order || order.deleted || orderStatus(order) !== 'confirmed' || order.signedAt) return;
+  const dnWarn = await dnSignWarning(order);   // 有關聯 Delivery Note 但還沒送完 → 不能簽收(避免誤按放棄剩餘貨物)
+  if(dnWarn){ showInfoModal(dnWarn); return; }
   showConfirmModal(tf('confirmSignOrder', { orderNo: order.orderNo || orderId }), async () => {
     const prevSignedAt = order.signedAt;
     const prevSignInfo = order.signInfo;
@@ -2597,13 +2618,13 @@ async function exportOrdersSheet(exportMode){
   const msg = document.getElementById('orderExportMsg');
   if(typeof XLSX === 'undefined'){ msg.className = 'msg error'; msg.textContent = 'Excel 套件載入失敗,請重新整理頁面再試一次'; return; }
 
-  const partyFilter = document.getElementById('completedOrderPartyFilter').value;
+  const partyFn = orderPartyFilterFn('completedOrderPartyFilter');
   const dateFrom = document.getElementById('completedOrderDateFrom').value;
   const dateTo = document.getElementById('completedOrderDateTo').value;
   await ensureOrdersLoadedFrom(dateFrom || '');
 
   let list = orders.filter(o => orderStatus(o) === 'confirmed' && !o.deleted);
-  if(partyFilter) list = list.filter(o => o.partyId === partyFilter);
+  if(partyFn) list = list.filter(partyFn);
   if(dateFrom) list = list.filter(o => o.date >= dateFrom);
   if(dateTo) list = list.filter(o => o.date <= dateTo);
 
@@ -2613,8 +2634,8 @@ async function exportOrdersSheet(exportMode){
     return;
   }
 
-  const partyObj = partyFilter ? shippingParties.find(sp => sp.id === partyFilter) : null;
-  const partyLabel = partyObj ? partyObj.name : 'All Customers';
+  const partyObj = partyFn ? partyFn.single : null;
+  const partyLabel = partyObj ? partyObj.name : (partyFn ? partyFn.text : 'All Customers');
   const dateLabel = dateFrom && dateTo
     ? (dateFrom === dateTo ? dateFrom : `${dateFrom} ~ ${dateTo}`)
     : (dateFrom ? `After ${dateFrom}` : (dateTo ? `Before ${dateTo}` : 'All dates'));
@@ -2729,7 +2750,14 @@ function clearSignaturePad(){
   signaturePadHasContent = false;
 }
 
-function openWarehouseSignModal(orderId){
+async function openWarehouseSignModal(orderId){
+  const order = orders.find(o => o.id === orderId);
+  if(!order || order.deleted || order.signedAt) return;
+  const dnWarn = await dnSignWarning(order);
+  if(dnWarn){ showInfoModal(dnWarn); return; }
+  openWarehouseSignModalNow(orderId);
+}
+function openWarehouseSignModalNow(orderId){
   const order = orders.find(o => o.id === orderId);
   if(!order || order.deleted || order.signedAt) return;
   warehouseSignOrderId = orderId;

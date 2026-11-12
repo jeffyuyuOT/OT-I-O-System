@@ -30,9 +30,11 @@ function txPartyPickerRender(searchText){
   const sp = sel.value ? (shippingParties || []).find(x => x.id === sel.value) : null;
   if(sp){
     const label = icPartyLabel(sp);
-    box.innerHTML = `<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;min-height:34px;">
+    // 名稱+「更換」固定一行(高度跟旁邊的輸入欄一致);Discount 標籤用絕對定位放在正下方,不會把這一欄撐高、把出貨方往上擠
+    const discHtml = typeof partyDiscountBadgeHtml === 'function' ? partyDiscountBadgeHtml(sp) : '';
+    box.innerHTML = `<div style="position:relative;"><div style="display:flex;align-items:center;gap:8px;min-height:34px;">
       ${hasCapability('cap-manage-parties') ? `<b class="batch-link" style="cursor:pointer;" title="${esc(t('icEditPartyTip'))}" onclick="openPartyEditModal('${esc(sp.id)}')">${esc(label)}</b>` : `<b>${esc(label)}</b>`}
-      <span class="del-link" onclick="txPartyPickerClear()">${t('icChangeParty')}</span>${typeof partyDiscountBadgeHtml === 'function' ? partyDiscountBadgeHtml(sp) : ''}</div>`;
+      <span class="del-link" onclick="txPartyPickerClear()">${t('icChangeParty')}</span></div>${discHtml ? `<div style="position:absolute;left:0;top:100%;margin-top:2px;white-space:nowrap;z-index:1;">${discHtml}</div>` : ''}</div>`;
   } else {
     // 搜尋框撐滿整欄、跟旁邊的欄位對齊;「＋ 新增出貨方」用絕對定位放在搜尋框正下方,不會把這一欄撐高
     box.innerHTML = `<div style="position:relative;"><input id="txPartySearch" type="text" autocomplete="off" placeholder="${esc(t('icPartySearchPh'))}" value="${esc(searchText || '')}" oninput="txPartyPickerSearch(this.value)" onfocus="txPartyPickerSearch(this.value)" style="width:100%;box-sizing:border-box;" />

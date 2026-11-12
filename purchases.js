@@ -27,6 +27,7 @@ function clearPurchaseLogFilters(){
   document.getElementById('purchaseLogDateFrom').value = '';
   document.getElementById('purchaseLogDateTo').value = '';
   document.getElementById('purchaseLogPartyFilter').value = '';
+  purchaseLogPartyKey = '';
   purchaseLogEstOnly = false;
   renderPurchaseLog();
 }
@@ -54,41 +55,35 @@ function purchasePartyLabel(p){
   return p.partyName || p.partyId || '';
 }
 
+const PURCHASE_LOG_PAGE_SIZE = 50;
+let purchaseLogPage = 1, purchaseLogSig = '', purchaseLogPartyKey = '', purchaseLogGotoId = null;
+function purchaseLogGoPage(n){
+  purchaseLogPage = n;
+  renderPurchaseLog();
+  const el = document.getElementById('purchaseLogTable');
+  if(el && el.scrollIntoView) el.scrollIntoView({ block: 'start' });
+}
+// 進貨方搜索欄:手動輸入就不再用「從進貨方管理跳過來」的精準 id 篩選
+function onPurchaseLogPartyInput(){ purchaseLogPartyKey = ''; renderPurchaseLog(); }
 function renderPurchaseLog(){
   const container = document.getElementById('purchaseLogTable');
   if(!container) return;
   if(!purchasesLoaded){ ensurePurchasesLoaded().then(renderPurchaseLog); return; }
 
-  // 進貨方下拉篩選的選項,依目前所有進貨單裡實際出現過的進貨方動態產生,並保留使用者原本選的值
-  // (如果篩選後那個進貨方已經不在清單裡,才會被重設成「全部對象」)。
-  const partySel = document.getElementById('purchaseLogPartyFilter');
-  const prevParty = partySel.value;
-  // 篩選值:有進貨方 id 的用 'id:<id>';舊進貨單沒有 id 時,名稱剛好只對應一個進貨方就歸給它,否則用 'name:<名稱>'
-  const partyOpts = new Map();   // key -> label
-  purchases.forEach(p => {
-    const key = purchasePartyKey(p);
-    if(key === 'name:' || partyOpts.has(key)) return;
-    partyOpts.set(key, purchasePartyLabel(p));
-  });
-  // 從「進貨方管理 → 進貨紀錄」跳過來時,這個進貨方可能還沒有任何進貨單:仍保留它的選項,篩選結果就是空的
-  if(prevParty && prevParty.startsWith('id:') && !partyOpts.has(prevParty)){
-    const sup = purchaseSuppliers.find(x => 'id:' + x.id === prevParty);
-    if(sup) partyOpts.set(prevParty, supplierOptionLabel(sup));
-  }
-  const sortedOpts = [...partyOpts.entries()].sort((a, b) => a[1].localeCompare(b[1]));
-  partySel.innerHTML = `<option value="">${t('logPartyAll')}</option>` + sortedOpts.map(([k, label]) => `<option value="${k.replace(/"/g,'&quot;')}">${escapeHtmlForPrint(label)}</option>`).join('');
-  if(partyOpts.has(prevParty)) partySel.value = prevParty;
-
   const dateFrom = document.getElementById('purchaseLogDateFrom').value;
   const dateTo = document.getElementById('purchaseLogDateTo').value;
-  const partyFilter = partySel.value;
+  const partyText = (document.getElementById('purchaseLogPartyFilter').value || '').trim().toLowerCase();
 
   // 金額、成本、預估支出屬於會計資料:沒有「查看價錢」權限的人(例如倉庫管理員)只看得到品項與數量
   const priceOn = (typeof canViewPrice !== 'function') || canViewPrice();
   let filtered = purchases.slice();
   if(dateFrom) filtered = filtered.filter(p => (p.date || '') >= dateFrom);
   if(dateTo) filtered = filtered.filter(p => (p.date || '') <= dateTo);
-  if(partyFilter) filtered = filtered.filter(p => purchasePartyKey(p) === partyFilter);
+  if(purchaseLogPartyKey) filtered = filtered.filter(p => purchasePartyKey(p) === purchaseLogPartyKey);
+  else if(partyText) filtered = filtered.filter(p => (purchasePartyLabel(p) + ' ' + (p.partyName || '')).toLowerCase().includes(partyText));
+  // 篩選條件一變就回到第 1 頁
+  const sig = [dateFrom, dateTo, purchaseLogPartyKey, partyText, purchaseLogEstOnly].join('|');
+  if(sig !== purchaseLogSig){ purchaseLogSig = sig; purchaseLogPage = 1; }
   // 含預估其他支出的進貨單(只算符合日期/進貨方篩選的),頂端提示並可一鍵只看這些
   const hasEst = p => (p.costs && (p.costs.expenses || []).some(e => e.estimated));
   const estCount = priceOn ? filtered.filter(hasEst).length : 0;
@@ -100,9 +95,19 @@ function renderPurchaseLog(){
     return;
   }
   const sorted = filtered.sort((a, b) => (b.date || '').localeCompare(a.date || '') || (b.createdAt || '').localeCompare(a.createdAt || ''));
+  // 分頁:每頁 PURCHASE_LOG_PAGE_SIZE 筆;「查看進貨單」跳過來時,翻到那張單所在的頁
+  const pageCount = Math.max(1, Math.ceil(sorted.length / PURCHASE_LOG_PAGE_SIZE));
+  if(purchaseLogGotoId){ const gi = sorted.findIndex(p => p.id === purchaseLogGotoId); if(gi >= 0) purchaseLogPage = Math.floor(gi / PURCHASE_LOG_PAGE_SIZE) + 1; purchaseLogGotoId = null; }
+  purchaseLogPage = Math.min(Math.max(1, purchaseLogPage), pageCount);
+  const pageRows = sorted.slice((purchaseLogPage - 1) * PURCHASE_LOG_PAGE_SIZE, purchaseLogPage * PURCHASE_LOG_PAGE_SIZE);
+  const pager = pageCount > 1 ? `<div style="display:flex;align-items:center;justify-content:center;gap:12px;margin:10px 0;font-size:13px;">
+      <button class="btn ghost" ${purchaseLogPage <= 1 ? 'disabled' : ''} onclick="purchaseLogGoPage(${purchaseLogPage - 1})">‹ ${t('plPrev')}</button>
+      <span>${tf('plPageInfo', { p: purchaseLogPage, n: pageCount, total: sorted.length })}</span>
+      <button class="btn ghost" ${purchaseLogPage >= pageCount ? 'disabled' : ''} onclick="purchaseLogGoPage(${purchaseLogPage + 1})">${t('plNext')} ›</button>
+    </div>` : '';
   // 批次追蹤開啟時,批次號獨立一欄(不再塞在 Invoice 欄裡,沒有 Invoice No. 時才不會被誤認成 Invoice)
   const showBatchCol = typeof batchActive === 'function' && batchActive();
-  container.innerHTML = estBanner + `<table class="stock-table purchase-log-table">
+  container.innerHTML = estBanner + pager + `<table class="stock-table purchase-log-table">
       <thead><tr>
         <th>${t('colPurchaseDate')}</th>
         <th>${t('colPurchaseParty')}</th>
@@ -111,7 +116,7 @@ function renderPurchaseLog(){
         <th></th>
       </tr></thead>
       <tbody>
-        ${sorted.map(p => `
+        ${pageRows.map(p => `
           <tr>
             <td class="pl-date" style="cursor:pointer;white-space:nowrap;" onclick="togglePurchaseDetail('${p.id}')"><span class="td-mobile-label">${t('colPurchaseDate')}</span><span style="display:inline-block;width:14px;">${expandedPurchaseId === p.id ? '▾' : '▸'}</span>${escapeHtmlForPrint(p.date || '')}</td>
             <td class="pl-party" style="cursor:pointer;" onclick="togglePurchaseDetail('${p.id}')"><span class="td-mobile-label">${t('colPurchaseParty')}</span>${escapeHtmlForPrint(purchasePartyLabel(p))}${(priceOn && typeof pcEstimateBadge === 'function') ? pcEstimateBadge(p) : ''}</td>
@@ -154,7 +159,7 @@ function renderPurchaseLog(){
           ` : ''}
         `).join('')}
       </tbody>
-    </table>`;
+    </table>` + pager;
 }
 
 // 匯出「單一張」進貨單:格式跟資料維護「匯出進貨」用的欄位不太一樣——一張進貨單通常對應同一天、
