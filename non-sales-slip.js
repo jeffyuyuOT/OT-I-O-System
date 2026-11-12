@@ -361,7 +361,8 @@ function dnPartialPick(i){
   const o = dnPartialShown[i];
   if(!o) return;
   const box = document.getElementById('txDnPartialList'); if(box) box.style.display = 'none';
-  const inp = document.getElementById('txDnPartialSearch'); if(inp) inp.value = String(o.orderNo);
+  const inp = document.getElementById('txDnPartialSearch'); if(inp) inp.value = '';
+  const wrap = document.getElementById('txDnPartialWrap'); if(wrap) wrap.style.display = 'none';   // 挑完就收起來,後面只用「關聯單據」欄(內容一樣,要換訂單就在那邊重新搜尋)
   registerDeliveryFlowType = 'new';   // 之後的行為跟「新增」完全一樣
   registerLoadedDeliveryNoteId = null;
   txBatchItems = []; txNsItems = [];
