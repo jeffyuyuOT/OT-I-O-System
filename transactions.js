@@ -987,7 +987,9 @@ function renderTxBatchList(){
   // 出貨(新增訂單 / 載入待處理訂單加品項):顯示 Sell price(依出貨方 Discount 與預計批次),受系統設置開關控制
   const showGstCol = showAmountCol && typeof paOn === 'function' && paOn();   // 進貨帳務:每個品項的 GST
   if(showGstCol) paAutoFillGst(txBatchItems);
-  const lineExpCols = { batch: showBatchCols, amount: showAmountCol, gst: showGstCol };
+  // 看得到價錢的人:金額欄需要空間,有效期 / 位置收進每一行的「詳細資料」圖示;倉管(看不到價錢)維持直接在清單上輸入
+  const batchInline = showBatchCols && !showAmountCol;
+  const lineExpCols = { batch: batchInline, amount: showAmountCol, gst: showGstCol };
   const showSellCol = typeof spEnabled === 'function' && spEnabled() && currentTxType === 'out' && (registerOutFlowType === 'new-order' || registerOutFlowType === 'load-pending' || registerOutFlowType === 'load-completed');
   const sellPartyId = showSellCol ? ((document.getElementById('txPartySelect') || {}).value || '') : '';
   // 同一個商品在清單裡出現不只一筆(常見情境:發票登記了5箱,後來因為缺貨開的 Credit Note
@@ -1014,7 +1016,7 @@ function renderTxBatchList(){
         </td>
         ${showSellCol ? `<td class="row-num tx-sell">${spTxItemPriceHtml(it, sellPartyId)}</td>` : ''}
         ${showSellCol ? `<td class="row-num tx-sell"><span style="${SP_TOTAL_PILL}">${spTxItemTotalHtml(it, sellPartyId)}</span></td>` : ''}
-        ${showBatchCols ? (!batchProductTracked(it.productId) ? '<td></td><td></td>' : `<td class="row-num tx-exp" data-label="${t('batchColExpiry')}"><input type="date" class="order-qty-input" style="width:128px;" value="${it.expiry || ''}" onchange="updateTxBatchItemExpiry('${it.batchItemId}', this.value)" onblur="commitTxBatchItemExpiry('${it.batchItemId}')" /></td>
+        ${batchInline ? (!batchProductTracked(it.productId) ? '<td></td><td></td>' : `<td class="row-num tx-exp" data-label="${t('batchColExpiry')}"><input type="date" class="order-qty-input" style="width:128px;" value="${it.expiry || ''}" onchange="updateTxBatchItemExpiry('${it.batchItemId}', this.value)" onblur="commitTxBatchItemExpiry('${it.batchItemId}')" /></td>
         
         ${(typeof batchLocCellHtml === 'function') ? batchLocCellHtml(it) : '<td></td>'}`) : ''}
         ${showAmountCol ? `<td class="row-num tx-amt" data-label="${t('colAmount')}"><input type="number" class="order-qty-input" step="0.01" min="0" value="${(it.amount !== undefined && it.amount !== null) ? it.amount : ''}" placeholder="–" ${canEditPrice() ? '' : 'readonly'} onchange="updateTxBatchItemAmount('${it.batchItemId}', this.value)" /></td>` : ''}
@@ -1043,7 +1045,7 @@ function renderTxBatchList(){
           <td class="row-name">${tf('netQtyRowLabel', { name: it.name })}</td>
           <td class="row-num">${netQty}<span class="row-unit">${it.unit}</span></td>
           ${showSellCol ? '<td></td><td></td>' : ''}
-          ${showBatchCols ? '<td></td><td></td>' : ''}
+          ${batchInline ? '<td></td><td></td>' : ''}
           ${showAmountCol ? `<td class="row-num tx-amt">${netAmount !== null ? Number(netAmount).toFixed(2) : '–'}</td>` : ''}
           ${showGstCol ? '<td></td><td></td><td></td>' : ''}
           <td class="row-action"></td>
@@ -1055,7 +1057,7 @@ function renderTxBatchList(){
   const lineExpAddBtn = (showAmountCol && typeof pcLineExpenseAddButtonHtml === 'function') ? pcLineExpenseAddButtonHtml() : '';
   container.innerHTML = `
     <table class="stock-table">
-      <thead><tr><th>${t('colProduct')}</th><th class="num">${t('colQty')}</th>${showSellCol ? `<th class="num">${t('spColUnitPrice')}</th><th class="num">${t('spColTotalPrice')}</th>` : ''}${showBatchCols ? `<th class="num">${t('batchColExpiry')}</th><th style="min-width:140px;padding-left:18px;">${t('batchLocTitle')}</th>` : ''}${showAmountCol ? `<th class="num">${t('colAmount')}${(typeof pcAmountColSuffix === 'function') ? pcAmountColSuffix() : ''}</th>` : ''}${showGstCol ? `<th class="num">${t('paColEx')}</th><th class="num">${t('paColGstAmt')}</th><th>GST</th>` : ''}<th></th></tr></thead>
+      <thead><tr><th>${t('colProduct')}</th><th class="num">${t('colQty')}</th>${showSellCol ? `<th class="num">${t('spColUnitPrice')}</th><th class="num">${t('spColTotalPrice')}</th>` : ''}${batchInline ? `<th class="num">${t('batchColExpiry')}</th><th style="min-width:140px;padding-left:18px;">${t('batchLocTitle')}</th>` : ''}${showAmountCol ? `<th class="num">${t('colAmount')}${(typeof pcAmountColSuffix === 'function') ? pcAmountColSuffix() : ''}</th>` : ''}${showGstCol ? `<th class="num">${t('paColEx')}</th><th class="num">${t('paColGstAmt')}</th><th>GST</th>` : ''}<th></th></tr></thead>
       <tbody>${rowsHtml}${lineExpRowsHtml}</tbody>
       ${showSellCol ? (() => { const tt = spTxItemsTotal(sellPartyId); const miss = tt.missing ? ` <span style="font-weight:400;font-size:11px;color:var(--ink-soft);">(${tf('spTotalMissing', { n: tt.missing })})</span>` : ''; const lead = (registerOutFlowType === 'load-pending' || registerOutFlowType === 'load-completed') ? t('spAddedItemsTotal') + ' · ' : ''; const tail = `<td colspan="${(showBatchCols ? 2 : 0) + (showAmountCol ? 1 : 0) + 1}"></td>`; const r = (lab, v, strong) => `<tr style="font-weight:${strong ? 700 : 600};"><td class="row-name" colspan="3" style="text-align:right;">${lab}</td><td class="row-num"><span style="${SP_TOTAL_PILL}">${spMoney(v)}</span></td>${tail}</tr>`; return `<tfoot>${r(lead + t('spSaleAmt') + miss, tt.sum, false)}${r(t('spGstAmt'), tt.gst, false)}${r(t('spTotalAmt'), spRound2(tt.sum + tt.gst), true)}</tfoot>`; })() : ''}
     </table>${lineExpAddBtn}

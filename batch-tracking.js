@@ -2160,31 +2160,49 @@ async function batchSaveSetLocations(){
 
 // ---- 進貨清單每行的「填寫詳細資料」:供應商批號、備註(備註顯示在批次追蹤商品頁的詳細資料) ----
 function batchTxDetailButtonHtml(it){
-  const has = !!((it.supplierLot || '').trim() || (it.note || '').trim());
+  const price = (typeof canViewPrice === 'function') && canViewPrice();
+  const trk = price && it.docType !== 'credit_note' && batchProductTracked(it.productId);
+  const has = !!((it.supplierLot || '').trim() || (it.note || '').trim() || (trk && (it.expiry || (it.locs && it.locs.length))));
   return `<button onclick="batchTxOpenDetails('${it.batchItemId}')" title="${batchEsc(t('batchTxDetailsTitle'))}">📝${has ? ' ✓' : ''}</button>`;
 }
 function batchTxOpenDetails(itemId){
   const it = txBatchItems.find(x => x.batchItemId === itemId);
   if(!it) return;
   const old = document.getElementById('batchTxDetOverlay'); if(old) old.remove();
+  // 看得到價錢的人:有效期 / 位置也在這裡填(清單上為了給金額欄空間不顯示)
+  const showExpLoc = (typeof canViewPrice === 'function') && canViewPrice() && it.docType !== 'credit_note' && it.qty > 0 && batchProductTracked(it.productId);
+  const locs = it.locs || [];
+  const un = it.qty - (typeof batchLocAssigned === 'function' ? batchLocAssigned(it) : 0);
+  const locSummary = locs.length
+    ? locs.map(l => `${batchEsc(l.code)}×${batchFmtQty(l.qty)}`).join(', ') + (un > 1e-9 ? `, ${t('unassignedLocationLabel')}×${batchFmtQty(un)}` : '')
+    : t('unassignedLocationLabel');
   const ov = document.createElement('div');
   ov.id = 'batchTxDetOverlay'; ov.className = 'modal-overlay'; ov.style.display = 'flex'; ov.style.zIndex = '1100';
   ov.innerHTML = `<div class="modal-box" style="max-width:min(460px,94vw);">
     <div class="section-title" style="margin-top:0;">${t('batchTxDetailsTitle')} · ${batchEsc(it.name)}</div>
-    <div class="field"><label>${t('batchFieldLot')}</label><input id="batchTxDetLot" type="text" value="${batchEsc(it.supplierLot || '')}" style="width:100%;" /></div>
+    ${showExpLoc ? `<div class="field"><label>${t('batchColExpiry')}</label><input id="batchTxDetExpiry" type="date" value="${batchEsc(it.expiry || '')}" style="width:100%;" /></div>
+    <div class="field" style="margin-top:8px;"><label>${t('batchLocTitle')}</label>
+      <div style="font-size:12.5px;"><span style="color:var(--ink-soft);">${locSummary}</span> <button type="button" class="btn ghost" onclick="batchTxSaveDetails('${itemId}', true)">${t('batchLocEditTitle')}</button></div></div>` : ''}
+    <div class="field" style="margin-top:8px;"><label>${t('batchFieldLot')}</label><input id="batchTxDetLot" type="text" value="${batchEsc(it.supplierLot || '')}" style="width:100%;" /></div>
     <div class="field" style="margin-top:8px;"><label>${t('batchFieldNote')}</label><textarea id="batchTxDetNote" rows="3" style="width:100%;">${batchEsc(it.note || '')}</textarea></div>
     <div class="modal-actions"><button class="btn ghost" onclick="document.getElementById('batchTxDetOverlay').remove()">${t('btnCancel')}</button><button class="btn" onclick="batchTxSaveDetails('${itemId}')">${t('btnSave')}</button></div>
   </div>`;
   document.body.appendChild(ov);
 }
-function batchTxSaveDetails(itemId){
+function batchTxSaveDetails(itemId, openLoc){
   const it = txBatchItems.find(x => x.batchItemId === itemId);
   const ov = document.getElementById('batchTxDetOverlay');
+  let expChanged = false;
   if(it){
     it.supplierLot = document.getElementById('batchTxDetLot').value.trim();
     it.note = document.getElementById('batchTxDetNote').value.trim();
+    const ex = document.getElementById('batchTxDetExpiry');
+    if(ex){ const nv = ex.value || ''; expChanged = nv !== (it.expiry || ''); it.expiry = nv; }
   }
   if(ov) ov.remove();
+  if(openLoc){ renderTxBatchList(); batchLocOpenEditor(itemId); return; }
+  // 有效期改了:跟清單上直接改有效期一樣,同商品同有效期的行合併(commit 內會重新畫清單)
+  if(it && expChanged && typeof commitTxBatchItemExpiry === 'function'){ commitTxBatchItemExpiry(itemId); return; }
   renderTxBatchList();
 }
 
