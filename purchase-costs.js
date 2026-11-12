@@ -420,7 +420,7 @@ function pcLineExpenseRowsHtml(cols){
   const dl = `<datalist id="pcLineExpNameList">${pcLineExpenseNames().map(n => `<option value="${pcEsc(n)}"></option>`).join('')}</datalist>`;
   const rows = (pcState.lineExpenses || []).map(l => `
       <tr style="background:var(--bg-soft,#f5f5f0);">
-        <td class="row-name"><input type="text" list="pcLineExpNameList" value="${pcEsc(l.name)}" placeholder="${t('pcLineExpName')}" style="width:min(200px,60vw);" onchange="pcUpdateLineExpense('${l.id}','name',this.value)" /> <span style="color:var(--ink-soft);font-weight:600;font-size:11px;">(${t('pcLineExpBadge')})</span></td>
+        <td class="row-name"><input type="text" list="pcLineExpNameList" value="${pcEsc(l.name)}" placeholder="${t('pcLineExpName')}" style="width:min(170px,60vw);" onchange="pcUpdateLineExpense('${l.id}','name',this.value)" /> <span style="color:var(--ink-soft);font-weight:600;font-size:11px;">(${t('pcLineExpBadge')})</span></td>
         <td class="row-num"></td>
         ${cols.batch ? '<td></td><td></td>' : ''}
         <td class="row-num tx-amt" data-label="${t('colAmount')}"><input type="number" class="order-qty-input" step="0.01" min="0" value="${l.amount === '' || l.amount === undefined ? '' : l.amount}" placeholder="–" onchange="pcUpdateLineExpense('${l.id}','amount',this.value)" /></td>
@@ -482,7 +482,7 @@ function pcNonStockRowsHtml(cols){
   const dl = `<datalist id="pcNonStockNameList">${pcNonStockNames().map(n => `<option value="${pcEsc(n)}"></option>`).join('')}</datalist>`;
   const rows = (pcState.nonStock || []).map(n => `
       <tr style="background:var(--bg-soft,#f5f5f0);">
-        <td class="row-name"><input type="text" list="pcNonStockNameList" value="${pcEsc(n.name)}" placeholder="${t('pcNonStockName')}" style="width:min(200px,60vw);" onchange="pcUpdateNonStock('${n.id}','name',this.value)" /> <span style="color:var(--ink-soft);font-weight:600;font-size:11px;">(${t('pcNonStockBadge')})</span>${pcNsAllocHtml(n, "pcUpdateNonStock('" + n.id + "',", pcState.basis)}</td>
+        <td class="row-name"><input type="text" list="pcNonStockNameList" value="${pcEsc(n.name)}" placeholder="${t('pcNonStockName')}" style="width:min(170px,60vw);" onchange="pcUpdateNonStock('${n.id}','name',this.value)" /> <span style="color:var(--ink-soft);font-weight:600;font-size:11px;">(${t('pcNonStockBadge')})</span>${pcNsAllocHtml(n, "pcUpdateNonStock('" + n.id + "',", pcState.basis)}</td>
         <td class="row-num"><input type="number" class="order-qty-input" step="any" min="0" value="${n.qty === '' || n.qty === undefined ? '' : n.qty}" onchange="pcUpdateNonStock('${n.id}','qty',this.value)" /><input type="text" value="${pcEsc(n.unit || '')}" placeholder="${t('pcNonStockUnit')}" style="width:56px;margin-left:4px;" onchange="pcUpdateNonStock('${n.id}','unit',this.value)" /></td>
         ${cols.batch ? '<td></td><td></td>' : ''}
         <td class="row-num tx-amt" data-label="${t('colAmount')}"><input type="number" class="order-qty-input" step="0.01" min="0" value="${n.amount === '' || n.amount === undefined ? '' : n.amount}" placeholder="–" onchange="pcUpdateNonStock('${n.id}','amount',this.value)" /></td>
