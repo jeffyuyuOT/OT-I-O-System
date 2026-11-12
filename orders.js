@@ -653,7 +653,7 @@ function orderItemAcctTag(it){
   const p = (typeof products !== 'undefined') ? products.find(x => x.id === it.productId) : null;
   if(!p) return '';
   const off = (typeof isOffBooksProduct === 'function' && isOffBooksProduct(p)) || p.hideFromCompletedOrderExport === true;
-  return off ? ` <span title="${t('orderNoAcctTagTitle')}" style="display:inline-block;font-size:11.5px;font-weight:700;color:#fff;background:#c0392b;border:1px solid #a93226;border-radius:4px;padding:1px 7px;vertical-align:middle;letter-spacing:.5px;">${t('orderNoAcctTag')}</span>` : '';
+  return off ? ` <span title="${t('orderNoAcctTagTitle')}" style="display:inline-block;font-size:11.5px;font-weight:600;color:#b4531f;background:#fdecdc;border:1px solid #f2c9a3;border-radius:4px;padding:1px 7px;vertical-align:middle;letter-spacing:.5px;">${t('orderNoAcctTag')}</span>` : '';
 }
 function orderItemNoteInline(it){
   return it && it.note ? ` <i style="font-size:11.5px;color:var(--ink-soft);font-weight:400;">${String(it.note).replace(/&/g,'&amp;').replace(/</g,'&lt;')}</i>` : '';
