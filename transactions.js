@@ -2043,14 +2043,27 @@ function dnPrintHtml(data){
 </html>`;
   return html;
 }
-function dnOpenPrintWindow(html){
-  const printWindow = window.open('', '_blank');
-  if(!printWindow){ showInfoModal(t('errPrintPopupBlocked')); return false; }
-  printWindow.document.write(html);
-  printWindow.document.close();
-  printWindow.onload = () => { printWindow.focus(); printWindow.print(); };
+// 列印:在目前頁面裡藏一個 iframe 直接叫出列印對話框,不開新視窗/新分頁——印完(或取消)就還在原本的系統畫面,
+// 桌面版 App(網頁安裝到桌面)也不會再跳出一個要手動關掉的瀏覽器視窗。
+function printHtmlInFrame(html){
+  const iframe = document.createElement('iframe');
+  iframe.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0;';
+  document.body.appendChild(iframe);
+  const d = iframe.contentWindow.document;
+  d.open(); d.write(html); d.close();
+  let removed = false;
+  const cleanup = () => { if(removed) return; removed = true; try{ iframe.remove(); }catch(e){} };
+  const go = () => {
+    try{
+      iframe.contentWindow.onafterprint = () => setTimeout(cleanup, 500);
+      iframe.contentWindow.focus(); iframe.contentWindow.print();
+    }catch(e){ console.error(e); cleanup(); return; }
+    setTimeout(cleanup, 120000);   // 保險:有些瀏覽器不會觸發 afterprint
+  };
+  if(iframe.contentWindow.document.readyState === 'complete') setTimeout(go, 250); else iframe.onload = () => setTimeout(go, 250);
   return true;
 }
+function dnOpenPrintWindow(html){ return printHtmlInFrame(html); }
 // Delivery Note「列印」:直接開列印視窗,不會存進資料庫——跟「儲存」是兩條分開的路徑,列印過
 // 不代表這張 Note 就被記錄下來了,兩者互不影響。
 async function printDeliveryNote(){
@@ -2925,7 +2938,7 @@ async function submitAdjustmentFlow(date, msg){
   showConfirmModal(t('confirmStockAdjustment'), async () => {
     let slipPw = null, slipNo = '';
     if(wantSlip){
-      slipPw = window.open('', '_blank');   // 在確認的當下同步開啟,才不會被擋彈出視窗
+      slipPw = {};   // 改用頁面內列印,不再開新視窗(這個物件只是代表「要印」)
       try{ await ensureNonSalesSlipsLoaded(); slipNo = await nsNextNo(); }
       catch(e){ try{ if(slipPw) slipPw.close(); }catch(_){} msg.className='msg error'; msg.textContent=`⚠ ${t('errNsNeedSql')}`; return; }
     }

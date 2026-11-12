@@ -111,7 +111,7 @@ async function submitNonSalesSlip(date, msg){
 
   showConfirmModal(t('confirmNsSlip'), async () => {
     // 列印視窗要在使用者按下確認的當下同步開啟,才不會被瀏覽器當成彈出視窗擋掉
-    const pw = window.open('', '_blank');
+    const pw = {};   // 改用頁面內列印,不再開新視窗
     const closeWin = () => { try{ if(pw) pw.close(); }catch(e){} };
     let no;
     try{ no = await nsNextNo(); }
@@ -218,9 +218,7 @@ function nsSlipHtml(slip){
 }
 function nsWriteSlipToWindow(slip, pw){
   if(!pw){ showInfoModal(t('errPrintPopupBlocked')); return; }
-  pw.document.write(nsSlipHtml(slip));
-  pw.document.close();
-  pw.onload = () => { pw.focus(); pw.print(); };
+  printHtmlInFrame(nsSlipHtml(slip));
 }
 function nsViewSlip(id){
   const slip = nonSalesSlips.find(s => s.id === id); if(!slip) return;
@@ -262,8 +260,7 @@ async function nsSavePdf(id){
 function nsReprintSlip(id){
   const slip = nonSalesSlips.find(s => s.id === id);
   if(!slip) return;
-  const pw = window.open('', '_blank');
-  nsWriteSlipToWindow(slip, pw);
+  nsWriteSlipToWindow(slip, {});
 }
 
 // ---- 歷史紀錄 → 非銷售出庫單 ----

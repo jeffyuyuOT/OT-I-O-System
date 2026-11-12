@@ -1446,17 +1446,7 @@ async function printOrderDocument(orderId, opts){
 </body>
 </html>`;
   if(opts.returnHtml) return html;   // 批次列印:只要 HTML,由呼叫端合併後一次列印
-  const printWindow = window.open('', '_blank');
-  if(!printWindow){
-    showInfoModal(t('errPrintPopupBlocked'));
-    return;
-  }
-  printWindow.document.write(html);
-  printWindow.document.close();
-  printWindow.onload = () => {
-    printWindow.focus();
-    printWindow.print();
-  };
+  printHtmlInFrame(html);   // 頁面內列印,不開新視窗
   return true;   // 真的有印(取消位置選擇、視窗被擋都不會到這裡)
 }
 
