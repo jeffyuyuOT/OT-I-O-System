@@ -315,6 +315,8 @@ function paEditLoad(p){
   const w = document.getElementById('editPurchaseAccWrap'); if(!w) return;
   w.style.display = paOn() ? 'block' : 'none';
   const c = document.getElementById('editPurchaseAccToggle'); if(c) c.checked = paCounted(p);
+  // 是否入會計預設由商品判斷(有任何入帳商品就算);只有已被「從會計移除」的進貨單才顯示這個勾選框,讓它可以重新加入
+  const accW = document.getElementById('editPurchaseAccToggleWrap'); if(accW) accW.style.display = (p.inAccounting === false) ? 'inline-flex' : 'none';
   const ckw = document.getElementById('editPurchaseChkWrap'); if(ckw) ckw.style.display = canEditPrice() ? 'flex' : 'none';
   const ck = document.getElementById('editPurchaseChkToggle'); if(ck) ck.checked = paChkState(p) === 'checked';
   const g = document.getElementById('editPurchaseGstMode'); if(g) g.value = p.gstMode === 'inc' ? 'inc' : 'ex';
@@ -333,18 +335,23 @@ function paEditSetGst(i, v){
 function paEditCheck(items){
   if(!paOn()) return '';
   if(typeof canViewPrice === 'function' && !canViewPrice()) return '';   // 沒有價錢權限的人不碰 GST,不擋他存檔
-  const c = document.getElementById('editPurchaseAccToggle');
-  if(!c || !c.checked) return '';
+  if(!paEditIncluded()) return '';
   if(typeof pcEd !== 'undefined' && pcEd && pcEd.import) return '';   // 海外進口的進貨單不需要選 GST
   const lineMiss = (typeof pcEd !== 'undefined' && pcEd && pcEd.lineExpenses ? pcEd.lineExpenses : []).filter(l => Number(l.amount) > 0 && l.gst !== true && l.gst !== false);
   const nsMiss = (typeof pcEd !== 'undefined' && pcEd && pcEd.nonStock ? pcEd.nonStock : []).filter(n => Number(n.amount) > 0 && n.gst !== true && n.gst !== false);
   const miss = items.filter(it => it.docType !== 'others' && !it.noAcct && Number(it.amount) > 0 && it.gst !== true && it.gst !== false).concat(lineMiss.map(l => ({ name: l.name || '(其他支出)' })), nsMiss.map(n => ({ name: n.name || '(非入庫商品)' })));
   return miss.length ? tf('paErrNeedGst', { names: miss.map(x => x.name).join('、') }) : '';
 }
+// 編輯進貨單:勾選框隱藏時(進貨單目前是入會計的)一律算入;顯示時(之前被移除)看勾選
+function paEditIncluded(){
+  const w = document.getElementById('editPurchaseAccToggleWrap'), c = document.getElementById('editPurchaseAccToggle');
+  if(!w || w.style.display === 'none' || !c) return true;
+  return !!c.checked;
+}
 function paEditApply(p){
   if(!paOn()) return;
   const c = document.getElementById('editPurchaseAccToggle'), g = document.getElementById('editPurchaseGstMode');
-  p.inAccounting = !c || c.checked;
+  p.inAccounting = paEditIncluded();
   const ck = document.getElementById('editPurchaseChkToggle');
   if(ck && canEditPrice()){
     const was = paChkState(p);
