@@ -179,6 +179,27 @@ function paItemGstCalcHtml(it, mode){
   return `<div style="font-size:10.5px;color:var(--ink-soft);white-space:nowrap;margin-top:2px;">${paEsc(t('paCalcEx'))} ${paR2(ex).toFixed(2)} · GST ${paR2(g).toFixed(2)}</div>`;
 }
 // 登記進貨清單:每一列的「不含稅」「GST 金額」兩個欄位(跟表頭對齊);沒選 GST / 未設定 / 不入帳 / 海外進口 → 顯示 –
+function paGstSplitStr(obj, mode, skip){
+  let ex = null, g = null;
+  const a = obj ? Number(obj.amount) : NaN;
+  if(!skip && obj && a > 0){
+    const sign = obj.docType === 'credit_note' ? -1 : 1;
+    if(obj.gst === true){ const gg = mode === 'inc' ? a * PA_GST_RATE / (1 + PA_GST_RATE) : a * PA_GST_RATE; g = sign * paR2(gg); ex = sign * paR2(mode === 'inc' ? a - gg : a); }
+    else if(obj.gst === false){ ex = sign * paR2(a); g = 0; }
+  }
+  const f = v => v === null ? '–' : v.toFixed(2);
+  return [f(ex), f(g)];
+}
+// 編輯進貨單:該行不含稅 / GST 金額兩格(金額改了只更新這兩格,不重畫整個清單)
+function paEditSkipRow(it){ return !!(it && it.noAcct) || !!(typeof pcEd !== 'undefined' && pcEd && pcEd.import); }
+function paEditRefreshCells(i){
+  const it = (typeof editPurchaseWorkingItems !== 'undefined') ? editPurchaseWorkingItems[i] : null; if(!it) return;
+  const g = document.getElementById('editPurchaseGstMode');
+  const [ex, gs] = paGstSplitStr(it, g && g.value === 'inc' ? 'inc' : 'ex', paEditSkipRow(it));
+  const a = document.getElementById('epEx_' + i), b = document.getElementById('epGs_' + i);
+  if(a) a.textContent = ex; if(b) b.textContent = gs;
+  if(typeof paReceiptGstHintUpdate === 'function') paReceiptGstHintUpdate();
+}
 function paGstSplitCellsHtml(obj, mode, skip){
   const dash = '<span style="color:var(--ink-soft);">–</span>';
   let ex = null, g = null;

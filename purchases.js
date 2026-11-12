@@ -700,8 +700,10 @@ function renderEditPurchaseItemsList(){
   const priceVis = (typeof canViewPrice !== 'function') || canViewPrice();   // 沒有「查看價錢」權限(倉管)整個價格區都不顯示
   const cols = ['minmax(220px,1fr)', '84px', '54px'];
   if(priceVis) cols.push('110px');
-  if(paOnNow && priceVis) cols.push('96px');
-  if(batchOn) cols.push('138px', '120px', '46px');
+  if(paOnNow && priceVis) cols.push('84px', '78px', '96px');   // 不含稅 / GST 金額 / GST 選項
+  // 看得到價錢的人:有效期、供應商批號收進 📝 詳細資料視窗,空間留給金額與 GST;倉管維持直接在清單上輸入
+  const expInDetail = batchOn && priceVis;
+  if(batchOn) cols.push(...(expInDetail ? ['46px'] : ['138px', '120px', '46px']));
   cols.push('44px');
   const grid = `display:grid;grid-template-columns:${cols.join(' ')};gap:8px;align-items:center;min-width:${cols.reduce((s, c) => s + (parseInt((c.match(/\d+/) || [0])[0], 10) || 0), 0) + 8 * cols.length}px;`;
   const flags = editPurchasePriceFlags();
@@ -710,8 +712,8 @@ function renderEditPurchaseItemsList(){
   const cur = escapeHtmlForPrint(typeof getSystemCurrency === 'function' ? getSystemCurrency() : 'AUD');
   const hdr = `<div style="${grid}${hdrCss}position:sticky;top:0;background:var(--bg,#fff);z-index:1;padding:2px 0;">
           <span></span><span>${t('colQty')}</span><span></span>${priceVis ? `<span>${t('colAmount')} (${cur})</span>` : ''}
-          ${(paOnNow && priceVis) ? '<span>GST</span>' : ''}
-          ${batchOn ? `<span>${t('batchColExpiry')}</span><span>${t('batchLotLabel')}</span><span></span>` : ''}
+          ${(paOnNow && priceVis) ? `<span style="text-align:right;">${t('paColEx')}</span><span style="text-align:right;">${t('paColGstAmt')}</span><span>GST</span>` : ''}
+          ${batchOn ? (expInDetail ? '<span></span>' : `<span>${t('batchColExpiry')}</span><span>${t('batchLotLabel')}</span><span></span>`) : ''}
           <span></span>
         </div>`;
   wrap.innerHTML = `
@@ -730,11 +732,12 @@ function renderEditPurchaseItemsList(){
           <input type="number" value="${it.qty}" min="0" step="any" style="width:100%;" oninput="updateEditPurchaseItemQty(${i}, this.value)" />
           <span style="font-size:11.5px;color:var(--ink-soft);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtmlForPrint(it.unit || '')}</span>
           ${priceVis ? `          <input type="number" value="${it.amount !== undefined && it.amount !== null ? it.amount : ''}" min="0" step="any" placeholder="$" style="width:100%;${flags[i] ? 'background:#fff4dc;border-color:#d97706;' : ''}" ${canEditPrice() ? (flags[i] ? 'title="' + escapeHtmlForPrint(flags[i].msg) + '"' : '') : 'readonly title="' + t('priceReadOnlyTitle') + '"'} oninput="updateEditPurchaseItemAmount(${i}, this.value, this)" />
-          ${paOnNow ? (it.noAcct ? '<span style="font-size:11.5px;color:var(--ink-soft);">' + t('paOffBooksShort') + '</span>' : ((typeof pcEd !== 'undefined' && pcEd && pcEd.import) ? paImportNoteHtml() : paGstSelectHtml(it.gst, 'paEditSetGst(' + i + ', this.value)') + paItemGstCalcHtml(it, (document.getElementById('editPurchaseGstMode') || {}).value === 'inc' ? 'inc' : 'ex'))) : ''}` : ''}
+          ${(paOnNow && priceVis) ? (() => { const sp = paGstSplitStr(it, (document.getElementById('editPurchaseGstMode') || {}).value === 'inc' ? 'inc' : 'ex', paEditSkipRow(it)); return `<span id="epEx_${i}" style="text-align:right;font-size:12.5px;">${sp[0]}</span><span id="epGs_${i}" style="text-align:right;font-size:12.5px;">${sp[1]}</span>`; })() : ''}
+          ${paOnNow ? (it.noAcct ? '<span style="font-size:11.5px;color:var(--ink-soft);">' + t('paOffBooksShort') + '</span>' : ((typeof pcEd !== 'undefined' && pcEd && pcEd.import) ? paImportNoteHtml() : paGstSelectHtml(it.gst, 'paEditSetGst(' + i + ', this.value)'))) : ''}` : ''}
           ${batchOn ? ((!it.noBatch) ? `
-          <input type="date" value="${it.expiry || ''}" title="${t('batchColExpiry')}" style="width:100%;" onchange="updateEditPurchaseItemExpiry(${i}, this.value)" />
-          <input type="text" value="${escapeHtmlForPrint(it.supplierLot || '')}" title="${t('batchFieldLot')}" style="width:100%;" oninput="updateEditPurchaseItemLot(${i}, this.value)" />
-          ${(it.docType === 'credit_note') ? '<span></span>' : `<button type="button" class="btn ghost" style="padding:2px 8px;" title="${t('batchFieldNote')}" onclick="editPurchaseOpenLineNote(${i})">📝${(it.batchNote !== undefined ? it.batchNote : batchLineNote(editPurchaseTargetId, it.productId, it.expiry || '')) ? ' ✓' : ''}</button>`}` : '<span></span><span></span><span></span>') : ''}
+          ${expInDetail ? '' : `<input type="date" value="${it.expiry || ''}" title="${t('batchColExpiry')}" style="width:100%;" onchange="updateEditPurchaseItemExpiry(${i}, this.value)" />
+          <input type="text" value="${escapeHtmlForPrint(it.supplierLot || '')}" title="${t('batchFieldLot')}" style="width:100%;" oninput="updateEditPurchaseItemLot(${i}, this.value)" />`}
+          ${(it.docType === 'credit_note') ? '<span></span>' : `<button type="button" class="btn ghost" style="padding:2px 8px;" title="${t('batchFieldNote')}" onclick="editPurchaseOpenLineNote(${i})">📝${(it.batchNote !== undefined ? it.batchNote : batchLineNote(editPurchaseTargetId, it.productId, it.expiry || '')) ? ' ✓' : ''}</button>`}` : (expInDetail ? '<span></span>' : '<span></span><span></span><span></span>')) : ''}
           <span class="del-link" onclick="removeEditPurchaseItem(${i})">${t('btnRemoveItem')}</span>
         </div>
       `).join('')}
@@ -781,6 +784,9 @@ function editPurchaseOpenLineNote(index){
   ov.id = 'editPurchaseLineNoteOverlay'; ov.className = 'modal-overlay'; ov.style.display = 'flex'; ov.style.zIndex = '1250';
   ov.innerHTML = `<div class="modal-box" style="max-width:min(420px,94vw);">
     <div class="section-title" style="margin-top:0;">${t('batchFieldNote')} · ${escapeHtmlForPrint(it.name || '')}</div>
+    ${((typeof canViewPrice !== 'function') || canViewPrice()) ? `<div class="field"><label>${t('batchColExpiry')}</label><input id="editPurchaseLineExpiryInput" type="date" value="${escapeHtmlForPrint(it.expiry || '')}" style="width:100%;" /></div>
+    <div class="field" style="margin-top:8px;"><label>${t('batchFieldLot')}</label><input id="editPurchaseLineLotInput" type="text" value="${escapeHtmlForPrint(it.supplierLot || '')}" style="width:100%;" /></div>
+    <div style="font-size:12px;color:var(--ink-soft);margin:8px 0 2px;">${t('batchFieldNote')}</div>` : ''}
     <textarea id="editPurchaseLineNoteInput" rows="4" style="width:100%;box-sizing:border-box;">${escapeHtmlForPrint(cur)}</textarea>
     <div class="modal-actions"><button class="btn ghost" onclick="document.getElementById('editPurchaseLineNoteOverlay').remove()">${t('btnCancel')}</button><button class="btn" onclick="editPurchaseSaveLineNote(${index})">${t('btnSave')}</button></div>
   </div>`;
@@ -790,8 +796,19 @@ function editPurchaseSaveLineNote(index){
   const it = editPurchaseWorkingItems[index];
   const el = document.getElementById('editPurchaseLineNoteInput');
   if(it && el) it.batchNote = el.value.trim();
+  const exEl = document.getElementById('editPurchaseLineExpiryInput'), lotEl = document.getElementById('editPurchaseLineLotInput');
+  let merged = false;
+  if(it && lotEl) updateEditPurchaseItemLotValue(it, lotEl.value);
+  if(it && exEl){
+    const nv = exEl.value || '';
+    if(nv !== (it.expiry || '')){ if(nv) it.expiry = nv; else delete it.expiry; merged = editPurchaseMergeDuplicateAt(index); }
+  }
   const ov = document.getElementById('editPurchaseLineNoteOverlay'); if(ov) ov.remove();
   renderEditPurchaseItemsList();
+}
+function updateEditPurchaseItemLotValue(it, value){
+  const v = (value || '').trim();
+  if(v) it.supplierLot = v; else delete it.supplierLot;
 }
 function updateEditPurchaseItemLot(index, value){
   const it = editPurchaseWorkingItems[index];
@@ -851,10 +868,11 @@ function updateEditPurchaseItemAmount(index, value, el){
   if(!canEditPrice()) return; // 沒有「編輯價錢」權限只能看不能改
   const it = editPurchaseWorkingItems[index];
   if(!it) return;
-  if(value === ''){ delete it.amount; editPurchaseRefreshFlagUI(index, el); return; }
+  if(value === ''){ delete it.amount; editPurchaseRefreshFlagUI(index, el); if(typeof paEditRefreshCells === 'function') paEditRefreshCells(index); return; }
   const n = parseFloat(value);
   it.amount = Number.isFinite(n) ? n : undefined;
   editPurchaseRefreshFlagUI(index, el);
+  if(typeof paEditRefreshCells === 'function') paEditRefreshCells(index);
 }
 function removeEditPurchaseItem(index){
   editPurchaseWorkingItems.splice(index, 1);
