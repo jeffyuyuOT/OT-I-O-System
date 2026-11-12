@@ -1539,14 +1539,10 @@ body.no-cost-view .cost-col{display:none !important;}
               <option value="partial" data-i18n="optDeliveryPartial">從 Partially Shipped 訂單新增</option>
             </select>
           </div>
-          <div class="field" id="txDnPartialWrap" style="display:none;width:320px;max-width:100%;">
+          <div class="field" id="txDnPartialWrap" style="display:none;position:relative;width:340px;max-width:100%;">
             <label data-i18n="fieldPartialOrder">選擇 Partially Shipped 訂單</label>
-            <div style="display:flex;flex-direction:column;gap:6px;">
-              <input id="txDnPartialSearch" type="text" autocomplete="off" placeholder="搜尋出貨方或訂單號" data-i18n-placeholder="phPartialSearch" oninput="dnPartialRender()" style="width:100%;box-sizing:border-box;" />
-              <select id="txDnPartialSelect" onchange="dnPartialPick(this.value)" style="width:100%;box-sizing:border-box;text-overflow:ellipsis;">
-                <option value="" data-i18n="optSelectDeliveryNote">— 請選擇 —</option>
-              </select>
-            </div>
+            <input id="txDnPartialSearch" type="text" autocomplete="off" placeholder="搜尋出貨方或訂單號" data-i18n-placeholder="phPartialSearch" oninput="dnPartialRender()" onfocus="dnPartialRender()" style="width:100%;box-sizing:border-box;" />
+            <div id="txDnPartialList" style="display:none;position:absolute;left:0;right:0;top:100%;z-index:30;background:var(--bg,#fff);border:1px solid var(--line);max-height:260px;overflow:auto;box-shadow:0 4px 12px rgba(0,0,0,.12);"></div>
           </div>
           <div class="field" id="txDeliveryNoteSelectWrap" style="display:none;">
             <label data-i18n="fieldSelectDeliveryNote">選擇 Delivery Note</label>

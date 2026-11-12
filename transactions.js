@@ -469,7 +469,7 @@ function setTxDeliveryFlowType(flowType, skipLoad){
     if(noteSelectWrap) noteSelectWrap.style.display = 'none';
     showTxMainFormArea(false);
     const _ps = document.getElementById('txDnPartialSearch'); if(_ps) _ps.value = '';
-    dnPartialRender();
+    const _pl = document.getElementById('txDnPartialList'); if(_pl) _pl.style.display = 'none';
   } else {
     if(viewSection) viewSection.style.display = 'none';
     if(noteSelectWrap) noteSelectWrap.style.display = 'none';

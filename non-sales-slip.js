@@ -335,30 +335,33 @@ function dnRefTypeLabel(type){ return type === 'nonsales' ? t('dnRefTypeNs') : t
 // 可用出貨方名稱/訂單號搜尋;挑了訂單就帶入出貨方 + 關聯單據,並直接開啟選商品視窗(剩餘數量)。
 // ============================================================
 let dnPartialSeq = 0;
+let dnPartialShown = [];
 async function dnPartialRender(){
-  const sel = document.getElementById('txDnPartialSelect');
-  if(!sel) return;
+  const inp = document.getElementById('txDnPartialSearch');
+  const box = document.getElementById('txDnPartialList');
+  if(!inp || !box) return;
   const seq = ++dnPartialSeq;
-  const cur = sel.value;
-  if(!deliveryNotesLoaded) sel.innerHTML = `<option value="">${t('dnFilterLoading')}</option>`;
+  box.style.display = '';
+  if(!deliveryNotesLoaded) box.innerHTML = `<div style="padding:8px 10px;font-size:12.5px;color:var(--ink-soft);">${t('dnFilterLoading')}</div>`;
   try{ await Promise.all([ensureOrdersLoadedFrom(''), ensureDeliveryNotesLoaded()]); }catch(e){}
   if(seq !== dnPartialSeq) return;
-  const q = ((document.getElementById('txDnPartialSearch') || {}).value || '').trim().toLowerCase();
-  const esc = v => String(v === undefined || v === null ? '' : v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
-  const list = orders.filter(o => !o.deleted && o.orderNo && (o.status || 'pending') === 'confirmed' && !o.signedAt && dnOrderShipState(o.id) === 'partial')
+  const q = inp.value.trim().toLowerCase();
+  const esc = escapeHtmlForPrint;
+  dnPartialShown = orders.filter(o => !o.deleted && o.orderNo && (o.status || 'pending') === 'confirmed' && !o.signedAt && dnOrderShipState(o.id) === 'partial')
     .filter(o => !q || (String(o.orderNo) + ' ' + (o.partyName || '') + ' ' + (o.customerName || '')).toLowerCase().includes(q))
-    .sort((a, b) => String(b.orderNo).localeCompare(String(a.orderNo)));
-  sel.innerHTML = `<option value="">${list.length ? t('optSelectDeliveryNote') : t('dnPartialNone')}</option>` + list.map(o => {
+    .sort((a, b) => String(b.orderNo).localeCompare(String(a.orderNo))).slice(0, 30);
+  box.innerHTML = dnPartialShown.length ? dnPartialShown.map((o, i) => {
     const left = (dnRemainingList(o.id) || []).join(', ');
-    const lbl = `${o.orderNo} · ${o.partyName || o.customerName || ''}${o.date ? ' · ' + o.date : ''}${left ? ' · ' + (left.length > 50 ? left.slice(0, 50) + '…' : left) : ''}`;
-    return `<option value="${esc(o.id)}">${esc(lbl)}</option>`;
-  }).join('');
-  if(cur && list.some(o => o.id === cur)) sel.value = cur;
+    return `<div onmousedown="dnPartialPick(${i})" style="padding:7px 10px;cursor:pointer;font-size:13px;border-bottom:1px solid var(--line);">
+      <b>${esc(o.orderNo)}</b> <span style="font-size:11.5px;color:var(--ink-soft);">· ${esc(o.partyName || o.customerName || '')}${o.date ? ' · ' + esc(o.date) : ''}</span>
+      ${left ? `<div style="font-size:11.5px;color:var(--warn,#b45309);">${esc(left.length > 70 ? left.slice(0, 70) + '…' : left)}</div>` : ''}</div>`;
+  }).join('') : `<div style="padding:8px 10px;font-size:12.5px;color:var(--ink-soft);">${t('dnPartialNone')}</div>`;
 }
-function dnPartialPick(orderId){
-  if(!orderId) return;
-  const o = orders.find(x => x.id === orderId);
+function dnPartialPick(i){
+  const o = dnPartialShown[i];
   if(!o) return;
+  const box = document.getElementById('txDnPartialList'); if(box) box.style.display = 'none';
+  const inp = document.getElementById('txDnPartialSearch'); if(inp) inp.value = String(o.orderNo);
   registerDeliveryFlowType = 'new';   // 之後的行為跟「新增」完全一樣
   registerLoadedDeliveryNoteId = null;
   txBatchItems = []; txNsItems = [];
@@ -375,6 +378,10 @@ function dnPartialPick(orderId){
   renderTxSubmitArea(); renderTxBatchList(); renderProductSelect();
   if(typeof dnOpenSelectModal === 'function') dnOpenSelectModal();
 }
+document.addEventListener('click', e => {
+  const box = document.getElementById('txDnPartialList'); const inp = document.getElementById('txDnPartialSearch');
+  if(box && e.target !== inp && !box.contains(e.target)) box.style.display = 'none';
+});
 
 // 已簽收、或 Delivery Note 已經把全部商品送完(待簽收)的訂單,不再出現在「載入關聯單據」清單
 function dnRefBlocked(o){ return !!o.signedAt || dnOrderShipState(o.id) === 'done'; }
