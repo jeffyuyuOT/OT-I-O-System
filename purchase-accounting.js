@@ -66,6 +66,12 @@ function paTotals(p){
   let gst, total, ex;
   if(mode === 'ex'){ gst = gstBase * PA_GST_RATE; ex = base; total = base + gst; }
   else { gst = gstBase * PA_GST_RATE / (1 + PA_GST_RATE); total = base; ex = base - gst; }
+  // 有填「收據 GST 總額」→ 會計的 GST 以收據為準(不含稅 = 總額 − GST);單品批次成本不受影響
+  if(p && p.receiptGst !== undefined && p.receiptGst !== null && isFinite(Number(p.receiptGst)) && !(p.costs && p.costs.import)){
+    gst = Number(p.receiptGst);
+    if(mode === 'ex'){ ex = base; total = base + gst; } else { total = base; ex = base - gst; }
+    unset = 0;
+  }
   return { mode, ex: paR2(ex), gst: paR2(gst), total: paR2(total), unset };
 }
 function paPaidOf(purchaseId){ return paR2(paRows.filter(r => r.purchase_id === purchaseId).reduce((s, r) => s + Number(r.amount), 0)); }
