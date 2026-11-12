@@ -771,7 +771,7 @@ function pcRender(){
   // 匯率輸入:1 單位外幣 = ? 換算幣種
   const rateInline = (cur) => `
       <span style="font-size:12.5px;">1 ${cur} =</span>
-      <input type="number" step="0.000001" min="0" value="${pcState.rates[cur] || ''}" style="width:120px;" onchange="pcSetRate('${cur}',this.value)" />
+      <input type="number" step="0.000001" min="0" value="${pcState.rates[cur] || ''}" style="width:85px;" onchange="pcSetRate('${cur}',this.value)" />
       <span style="font-size:12.5px;">${base}</span>
       <button class="btn ghost" onclick="pcRefetchRate('${cur}')">${t('pcFetchRate')}</button>
       ${pcState.manual[cur] ? `<span style="color:var(--ink-soft);font-size:11.5px;">${t('pcRateManual')}</span>` : ''}`;
@@ -814,6 +814,7 @@ function pcRender(){
         <label style="display:flex;align-items:center;gap:8px;font-size:12.5px;font-weight:600;cursor:pointer;white-space:nowrap;">
           <input type="checkbox" ${pcState.overseas ? 'checked' : ''} onchange="pcSetOverseas(this.checked)" style="width:16px;height:16px;" />
           ${t('pcOverseas')}
+          ${pcState.overseas ? `<span role="button" tabindex="0" title="${t('pcInfoIconTitle')}" aria-label="${t('pcInfoIconTitle')}" style="cursor:pointer;color:var(--ink-soft);font-size:14px;font-weight:400;user-select:none;" onclick="event.preventDefault();event.stopPropagation();pcShowCurrencyHint()" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();pcShowCurrencyHint();}">ⓘ</span>` : ''}
         </label>
         ${pcState.overseas ? `
         <span style="font-size:12.5px;">${t('pcInvoiceCurrency')}</span>
@@ -821,7 +822,6 @@ function pcRender(){
         <span style="font-size:12.5px;color:var(--ink-soft);">${tf('pcConvertToFixed', { base })}</span>
         ${invoiceForeign ? rateInline(invoiceForeign) : ''}` : ''}
       </div>
-      ${pcState.overseas ? `<div style="font-size:11.5px;color:var(--ink-soft);margin:2px 0 0 24px;">${tf('pcInvoiceCurrencyHint', { base })}</div>` : ''}
 
       <div style="font-size:12.5px;font-weight:700;margin-top:10px;">${t('pcExpenses')} <span role="button" tabindex="0" title="${t('pcInfoIconTitle')}" aria-label="${t('pcInfoIconTitle')}" style="cursor:pointer;color:var(--ink-soft);font-size:14px;font-weight:400;margin-left:4px;user-select:none;" onclick="showInfoModal(t('pcAutoFillHint'))" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();showInfoModal(t('pcAutoFillHint'));}">ⓘ</span></div>
       ${dl}${expRows}
@@ -1237,3 +1237,5 @@ function pcShowItemPrice(purchaseId, kind, idx){
   ov.innerHTML = `<div class="modal-box"><div class="section-title" style="margin-top:0;">${t('pcPdTitle')}</div>${html}<div class="modal-actions"><button class="btn ghost" onclick="document.getElementById('pcPriceDetailOverlay').remove()">${t('btnClose') !== 'btnClose' ? t('btnClose') : 'Close'}</button></div></div>`;
   document.body.appendChild(ov);
 }
+
+function pcShowCurrencyHint(){ showInfoModal(tf('pcInvoiceCurrencyHint', { base: pcBase() })); }
