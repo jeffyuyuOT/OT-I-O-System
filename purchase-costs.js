@@ -211,8 +211,11 @@ function pcFillMeta(e, supplier, excludePurchaseId){
   return ch;
 }
 function pcExpMetaHtml(e, fn){
-  const gstHtml = (typeof paOn === 'function' && paOn() && typeof paGstSelectHtml === 'function') ? paGstSelectHtml(e.gst, `${fn}('${e.id}','gst',this.value==='y'?true:(this.value==='n'?false:''))`) : '';
-  return `<input type="text" list="pcPayeeList" value="${pcEsc(e.payee || '')}" placeholder="${pcEsc(t('pcPayeePh'))}" style="width:130px;" onchange="${fn}('${e.id}','payee',this.value)" />${gstHtml}`;
+  // 海外進口的進貨單:支出可標成「進口 GST」(報關行收據上的貨物 GST 總額):全額是進項 GST、可退稅,不分攤進商品成本
+  const impOn = (fn === 'pcUpdateExpense') ? !!pcState.overseas : !!(typeof pcEd !== 'undefined' && pcEd && pcEd.import);
+  const impHtml = impOn ? `<label style="display:inline-flex;align-items:center;gap:4px;font-size:12px;white-space:nowrap;cursor:pointer;"><input type="checkbox" ${e.importGst ? 'checked' : ''} onchange="${fn}('${e.id}','importGst',this.checked)" />${pcEsc(t('pcImportGst'))}</label>` : '';
+  const gstHtml = (!e.importGst && typeof paOn === 'function' && paOn() && typeof paGstSelectHtml === 'function') ? paGstSelectHtml(e.gst, `${fn}('${e.id}','gst',this.value==='y'?true:(this.value==='n'?false:''))`) : '';
+  return `<input type="text" list="pcPayeeList" value="${pcEsc(e.payee || '')}" placeholder="${pcEsc(t('pcPayeePh'))}" style="width:130px;" onchange="${fn}('${e.id}','payee',this.value)" />${gstHtml}${impHtml}`;
 }
 function pcNameDatalist(id, supplier, excludePurchaseId){
   return `<datalist id="pcPayeeList">${pcPayeeNames().map(n => `<option value="${pcEsc(n)}"></option>`).join('')}</datalist><datalist id="${id}">${pcExpenseSuggestions(supplier, excludePurchaseId).map(s => `<option value="${pcEsc(s.name)}" label="${pcEsc(s.label ? s.name + ' (' + s.label + ')' : s.name)}"></option>`).join('')}</datalist>`;
@@ -272,8 +275,14 @@ async function pcPrepare(){
 }
 
 // ---------- 表單狀態 ----------
+// 進貨單歷史 / Purchase List 的「Overseas」標籤(海外進口,含舊的海外採購)
+function pcOverseasTagHtml(p){
+  if(!p || !p.costs || !(p.costs.import || p.costs.overseas)) return '';
+  return ` <span title="${pcEsc(t('pcOverseasTagTitle'))}" style="display:inline-block;padding:1px 7px;border-radius:10px;font-size:10.5px;font-weight:700;white-space:nowrap;background:#e8f0fb;color:#1f5aa6;vertical-align:middle;">${pcEsc(t('pcOverseasTag'))}</span>`;
+}
 function pcSetOverseas(on){
   pcState.overseas = !!on;
+  if(typeof renderTxBatchList === 'function') setTimeout(renderTxBatchList, 0);   // 海外進口:品項的 GST 欄改成「無 GST」
   if(!on) pcState.currency = pcBase();
   else if(!pcState.currency || pcState.currency === pcBase()) pcState.currency = pcCurrencyList().find(c => c !== pcBase()) || 'USD';
   pcRender();
@@ -292,6 +301,7 @@ function pcUpdateExpense(id, field, value){
     const n = parseFloat(value); e.amount = (isFinite(n) && n >= 0) ? n : '';
     delete e.estimated; delete e.estimatedFrom; // 手動輸入 = 正式金額
   } else if(field === 'gst'){ if(value === true || value === false) e.gst = value; else delete e.gst; }
+  else if(field === 'importGst'){ e.importGst = !!value; if(e.importGst) e.gst = false; else delete e.gst; }
   else e[field] = value;
   if(field === 'name') pcFillMeta(e, pcSupplierName());
   pcRender();
@@ -572,7 +582,7 @@ function pcExpenseRows(){
   return pcState.expenses.map(e => {
     const rate = pcRateOf(e.currency);
     const amt = (e.amount === '' || e.amount === undefined) ? null : Number(e.amount);
-    return { id: e.id, name: (e.name || '').trim(), currency: e.currency || pcBase(), amount: amt, rate, payee: (e.payee || '').trim(), gst: (e.gst === true || e.gst === false) ? e.gst : undefined, aud: (amt !== null && rate) ? pcRound2(amt * rate) : null, estimated: !!e.estimated, estimatedFrom: e.estimatedFrom || '' };
+    return { id: e.id, name: (e.name || '').trim(), currency: e.currency || pcBase(), amount: amt, rate, payee: (e.payee || '').trim(), gst: (e.gst === true || e.gst === false) ? e.gst : undefined, aud: (amt !== null && rate) ? pcRound2(amt * rate) : null, estimated: !!e.estimated, estimatedFrom: e.estimatedFrom || '', importGst: !!e.importGst };
   });
 }
 function pcExpensesAudTotal(){
@@ -592,7 +602,7 @@ function pcValidate(){
     if(e.name && e.amount === null && pcState.overseas) return tf('pcErrNoHistory', { name: e.name });
     if(!e.name || e.amount === null || !(e.amount >= 0)) return t('pcErrExpenseInvalid');
     if(!e.rate) return tf('pcErrNoRate', { cur: e.currency });
-    if(typeof paOn === 'function' && paOn() && e.amount > 0 && e.gst !== true && e.gst !== false) return tf('pcErrExpNeedGst', { name: e.name });
+    if(typeof paOn === 'function' && paOn() && e.amount > 0 && !e.importGst && e.gst !== true && e.gst !== false) return tf('pcErrExpNeedGst', { name: e.name });
   }
   // 商品列的其他支出:名稱和金額要一起填;完全空白的列略過
   const lineRows = pcLineExpRows().filter(l => l.name || l.amount !== null);
@@ -605,7 +615,7 @@ function pcValidate(){
   }
   const nsMissing = nsRows.filter(n => n.alloc && n.name && pcNsFixed(pcState.basis, n.qty, n.basisVal, n.aud || 0, n.dims) === null).map(n => n.name);
   if(nsMissing.length){ pcErrPopup = true; return tf('pcErrNsNeedBasis', { basis: pcNsBasisLabel(pcState.basis), names: nsMissing.join('、') }); }
-  const total = rows.reduce((s, e) => s + (e.aud || 0), 0) + lineRows.reduce((s, l) => s + (l.aud || 0), 0);
+  const total = rows.reduce((s, e) => s + (e.importGst ? 0 : (e.aud || 0)), 0) + lineRows.reduce((s, l) => s + (l.aud || 0), 0);
   if(total > 0){
     const items = pcMapTxItems();
     if(!items.some(r => !r.skip)) return t('pcErrNoInvoiceRows');
@@ -630,14 +640,15 @@ function pcApplyToPurchase(purchase){
     }
   });
   const exps = pcExpenseRows().filter(e => e.name && e.aud !== null);
-  const expensesAud = pcRound2(exps.reduce((s, e) => s + e.aud, 0));
+  const expensesAud = pcRound2(exps.reduce((s, e) => s + (e.importGst ? 0 : e.aud), 0));   // 分攤池不含「進口 GST」
+  const importGstAud = pcRound2(exps.reduce((s, e) => s + (e.importGst ? e.aud : 0), 0));
   const rates = {};
   pcUsedForeignCurrencies().forEach(c => { const r = pcRateOf(c); if(r) rates[c] = r; });
   const ns = pcNonStockRows().filter(n => n.name && n.aud !== null);
   if(ns.length){
     purchase.nonStockItems = ns.map(n => {
       const o = { id: n.id, name: n.name, qty: n.qty, unit: n.unit, amount: n.aud };
-      if(n.gst === true || n.gst === false) o.gst = n.gst;
+      if(pcState.overseas) o.gst = false; else if(n.gst === true || n.gst === false) o.gst = n.gst;
       if(n.alloc){ o.alloc = true; if(pcState.basis === 'volume') o.dims = { l: Number(n.dims.l), w: Number(n.dims.w), h: Number(n.dims.h) }; else if(pcState.basis !== 'amount') o.basisVal = Number(n.basisVal); }
       if(overseas){ o.origAmount = n.amount; o.origCurrency = pcState.currency; o.fxRate = rate; }
       return o;
@@ -647,15 +658,15 @@ function pcApplyToPurchase(purchase){
   if(lines.length){
     purchase.lineExpenses = lines.map(l => {
       const o = { id: l.id, name: l.name, amount: l.aud };
-      if(l.gst === true || l.gst === false) o.gst = l.gst;
+      if(pcState.overseas) o.gst = false; else if(l.gst === true || l.gst === false) o.gst = l.gst;
       if(overseas){ o.origAmount = l.amount; o.origCurrency = pcState.currency; o.fxRate = rate; }
       return o;
     });
   } else delete purchase.lineExpenses;
   purchase.costs = {
     overseas, currency: overseas ? pcState.currency : base, baseCurrency: base, basis: pcState.basis, rates,
-    expenses: exps.map(e => { const o = { id: e.id, name: e.name, currency: e.currency, amount: e.amount, rate: e.rate, aud: e.aud }; if(e.payee) o.payee = e.payee; if(e.gst === true || e.gst === false) o.gst = e.gst; if(e.estimated){ o.estimated = true; o.estimatedFrom = e.estimatedFrom; } return o; }),
-    expensesAud
+    expenses: exps.map(e => { const o = { id: e.id, name: e.name, currency: e.currency, amount: e.amount, rate: e.rate, aud: e.aud }; if(e.payee) o.payee = e.payee; if(e.gst === true || e.gst === false) o.gst = e.gst; if(e.importGst){ o.importGst = true; o.gst = false; } if(e.estimated){ o.estimated = true; o.estimatedFrom = e.estimatedFrom; } return o; }),
+    expensesAud, importGstAud, import: !!pcState.overseas
   };
   pcRecompute(purchase);
 }
@@ -771,7 +782,7 @@ function pcRender(){
 
   // 成本預覽
   let preview = '';
-  const relTotal = exps.reduce((s, e) => s + (e.aud || 0), 0);
+  const relTotal = exps.reduce((s, e) => s + (e.importGst ? 0 : (e.aud || 0)), 0);
   const lineTotal = pcLineExpAudTotal();
   const expTotal = pcRound2(relTotal + lineTotal);   // 分攤池 = 商品列其他支出 + 相關其他支出
   if(txBatchItems.length > 0 && (expTotal > 0 || (pcState.overseas && pcState.currency !== pcBase()))){
@@ -847,12 +858,13 @@ function pcEditInit(p){
   pcEd = {
     purchaseId: p.id,
     base: c.baseCurrency || pcBase(),
-    expenses: (c.expenses || []).map(e => ({ id: e.id || genId(), name: e.name, currency: e.currency || c.baseCurrency || 'AUD', amount: e.amount, estimated: !!e.estimated, estimatedFrom: e.estimatedFrom || '', payee: e.payee || '', gst: e.gst })),
+    expenses: (c.expenses || []).map(e => ({ id: e.id || genId(), name: e.name, currency: e.currency || c.baseCurrency || 'AUD', amount: e.amount, estimated: !!e.estimated, estimatedFrom: e.estimatedFrom || '', importGst: !!e.importGst, payee: e.payee || '', gst: e.gst })),
     lineExpenses: (p.lineExpenses || []).map(l => ({ id: l.id || genId(), name: l.name, amount: l.amount, gst: l.gst, origAmount: l.origAmount, origCurrency: l.origCurrency, fxRate: l.fxRate })),
     nonStock: (p.nonStockItems || []).map(n => ({ id: n.id || genId(), name: n.name, qty: n.qty, unit: n.unit || '', amount: n.amount, gst: n.gst, alloc: !!n.alloc, basisVal: n.basisVal === undefined ? '' : n.basisVal, dims: n.dims ? Object.assign({}, n.dims) : undefined, origAmount: n.origAmount, origCurrency: n.origCurrency, fxRate: n.fxRate })),
     basis: c.basis || 'volume',
     rates: Object.assign({}, c.rates || {}),
     overseas: !!c.overseas,
+    import: !!c.import,
     fetchFailed: [],
     // 舊進貨單原本用外幣(例如台幣)輸入、當成澳幣存下來:可以在編輯時轉成海外採購(金額 × 匯率 = 澳幣)
     convert: { available: !c.overseas && !(p.items || []).some(it => it.origCurrency), on: false, currency: '' }
@@ -876,6 +888,7 @@ function pcEdUpdate(id, field, value){
     const n = parseFloat(value); e.amount = (isFinite(n) && n >= 0) ? n : '';
     e.estimated = false; e.estimatedFrom = ''; // 重新輸入 = 正式金額
   } else if(field === 'gst'){ if(value === true || value === false) e.gst = value; else delete e.gst; }
+  else if(field === 'importGst'){ e.importGst = !!value; if(e.importGst) e.gst = false; else delete e.gst; }
   else e[field] = value;
   if(field === 'name'){ const pp = (typeof purchases !== 'undefined') ? purchases.find(x => x.id === pcEd.purchaseId) : null; pcFillMeta(e, pp ? (pp.partyName || pp.partyId || '') : '', pcEd.purchaseId); }
   pcEditRender();
@@ -1040,10 +1053,11 @@ function pcEditApply(p, cleanItems){
     if(!e.name || !e.name.trim() || amt === null || !(amt >= 0)) return { error: t('pcErrExpenseInvalid') };
     const rate = pcEdRateOf(e.currency);
     if(!rate) return { error: tf('pcErrNoRate', { cur: e.currency }) };
-    if(typeof paOn === 'function' && paOn() && amt > 0 && e.gst !== true && e.gst !== false) return { error: tf('pcErrExpNeedGst', { name: e.name.trim() }) };
+    if(typeof paOn === 'function' && paOn() && amt > 0 && !e.importGst && e.gst !== true && e.gst !== false) return { error: tf('pcErrExpNeedGst', { name: e.name.trim() }) };
     const o = { id: e.id, name: e.name.trim(), currency: e.currency || pcEd.base, amount: amt, rate, aud: pcRound2(amt * rate) };
     if((e.payee || '').trim()) o.payee = e.payee.trim();
     if(e.gst === true || e.gst === false) o.gst = e.gst;
+    if(e.importGst){ o.importGst = true; o.gst = false; }
     if(e.estimated){ o.estimated = true; o.estimatedFrom = e.estimatedFrom || ''; }
     exps.push(o);
   }
@@ -1096,7 +1110,8 @@ function pcEditApply(p, cleanItems){
     basis: pcEd.basis,
     rates: Object.assign({}, base.rates || {}, rates),
     expenses: exps,
-    expensesAud: pcRound2(exps.reduce((s, e) => s + e.aud, 0))
+    expensesAud: pcRound2(exps.reduce((s, e) => s + (e.importGst ? 0 : e.aud), 0)),
+    importGstAud: pcRound2(exps.reduce((s, e) => s + (e.importGst ? e.aud : 0), 0))
   });
   const r = pcRecompute({ items: cleanItems, costs: newCosts, lineExpenses: lines, nonStockItems: nsItems });
   if(r.error) return r;

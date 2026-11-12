@@ -1018,7 +1018,7 @@ function renderTxBatchList(){
         
         ${(typeof batchLocCellHtml === 'function') ? batchLocCellHtml(it) : '<td></td>'}`) : ''}
         ${showAmountCol ? `<td class="row-num tx-amt" data-label="${t('colAmount')}"><input type="number" class="order-qty-input" step="0.01" min="0" value="${(it.amount !== undefined && it.amount !== null) ? it.amount : ''}" placeholder="–" ${canEditPrice() ? '' : 'readonly'} onchange="updateTxBatchItemAmount('${it.batchItemId}', this.value)" /></td>` : ''}
-        ${showGstCol ? `<td class="row-num tx-gst" data-label="GST">${paProductOffBooks(it.productId) ? `<span style="font-size:11.5px;color:var(--ink-soft);">${t('paOffBooksShort')}</span>` : paGstSelectHtml(it.gst, "paSetTxItemGst('" + it.batchItemId + "', this.value)")}</td>` : ''}
+        ${showGstCol ? `<td class="row-num tx-gst" data-label="GST">${paProductOffBooks(it.productId) ? `<span style="font-size:11.5px;color:var(--ink-soft);">${t('paOffBooksShort')}</span>` : (paImportOn() ? paImportNoteHtml() : paGstSelectHtml(it.gst, "paSetTxItemGst('" + it.batchItemId + "', this.value)"))}</td>` : ''}
         <td class="row-action">
           ${(typeof batchTxRowButtonHtml === 'function') ? batchTxRowButtonHtml(it) : ''}
           ${(showBatchCols && typeof batchTxDetailButtonHtml === 'function') ? batchTxDetailButtonHtml(it) : `<button onclick="openConversionFromTxBatch('${it.productId}')" title="${t('btnConvertBatchItem')}">🔄</button>`}
