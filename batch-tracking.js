@@ -1915,32 +1915,64 @@ function batchLocCodesFor(productId){
   if(d && !codes.includes(d)) codes.push(d);
   return codes;
 }
+const batchLocParts = {};   // 新建位置代碼 → { zone, aisle, bay, level, bin }(標準模式),進貨後建立庫存分布位置時使用
+function batchLocStdOn(){ return (typeof stockLocationMode === 'undefined') ? false : stockLocationMode !== 'custom'; }
+function batchLocFields(){
+  const all = [['zone','Zone'],['aisle','Aisle'],['bay','Bay'],['level','Level'],['bin','Bin']];
+  return all.filter(f => (typeof stockLocationEnabledFields === 'undefined') || stockLocationEnabledFields[f[0]] !== false);
+}
 function batchLocOpenEditor(itemId){
   const it = txBatchItems.find(x => x.batchItemId === itemId);
   if(!it) return;
-  batchLocEd = { itemId, rows: (it.locs && it.locs.length ? it.locs : [{ code: '', qty: it.qty }]).map(l => ({ code: l.code, qty: l.qty })) };
+  const hasCodes = batchLocCodesFor(it.productId).length > 0;
+  batchLocEd = { itemId, err: '', rows: (it.locs && it.locs.length ? it.locs : [{ code: '', qty: it.qty }]).map(l => ({ code: l.code, qty: l.qty, isNew: !l.code && !hasCodes, parts: Object.assign({}, batchLocParts[l.code] || {}) })) };
   batchLocRenderEditor();
+}
+function batchLocSetPick(k, val){
+  const r = batchLocEd.rows[k];
+  if(val === '__new__'){ r.isNew = true; r.code = ''; } else { r.isNew = false; r.code = val; }
+  batchLocRenderEditor();
+}
+function batchLocSetPart(k, f, val){ batchLocEd.rows[k].parts[f] = val.trim(); }
+function batchLocRowHtml(r, k, codes){
+  const opts = codes.slice();
+  if(r.code && !r.isNew && !opts.includes(r.code)) opts.push(r.code);
+  const sel = `<select style="flex:1;min-width:0;" onchange="batchLocSetPick(${k}, this.value)">
+      <option value="" ${(!r.isNew && !r.code) ? 'selected' : ''}>${batchEsc(t('batchLocPickPh'))}</option>
+      ${opts.map(c => `<option value="${batchEsc(c)}" ${(!r.isNew && r.code === c) ? 'selected' : ''}>${batchEsc(c)}</option>`).join('')}
+      <option value="__new__" ${r.isNew ? 'selected' : ''}>${batchEsc(t('batchLocNew'))}</option>
+    </select>`;
+  let newHtml = '';
+  if(r.isNew){
+    if(batchLocStdOn()){
+      const fs = batchLocFields();
+      newHtml = `<div style="display:grid;grid-template-columns:repeat(${fs.length},1fr);gap:6px;margin:0 0 8px;">${fs.map(f => `<div><div style="font-size:11px;color:var(--ink-soft);">${f[1]}</div><input type="text" style="width:100%;box-sizing:border-box;" value="${batchEsc(r.parts[f[0]] || '')}" onchange="batchLocSetPart(${k}, '${f[0]}', this.value)" /></div>`).join('')}</div>`;
+    } else {
+      newHtml = `<div style="margin:0 0 8px;"><input type="text" style="width:100%;box-sizing:border-box;" placeholder="${batchEsc(t('batchLocCodePh'))}" value="${batchEsc(r.code)}" onchange="batchLocEd.rows[${k}].code=this.value.trim()" /></div>`;
+    }
+  }
+  return `<div style="display:flex;gap:6px;align-items:center;margin-bottom:6px;">
+      ${sel}
+      <input type="number" min="0" step="1" value="${r.qty}" style="width:90px;" onchange="batchLocEd.rows[${k}].qty=Math.max(0,parseFloat(this.value)||0);batchLocRenderEditor()" />
+      <button class="btn ghost" onclick="batchLocEd.rows.splice(${k},1);batchLocRenderEditor()" title="${t('btnDelete')}">✕</button>
+    </div>${newHtml}`;
 }
 function batchLocRenderEditor(){
   const it = txBatchItems.find(x => x.batchItemId === batchLocEd.itemId);
   if(!it){ batchLocCloseEditor(); return; }
   const old = document.getElementById('batchLocOverlay'); if(old) old.remove();
-  const listId = 'batchLocCodes';
+  const codes = batchLocCodesFor(it.productId);
   const assigned = batchLocEd.rows.reduce((s, r) => s + (Number(r.qty) || 0), 0);
   const un = it.qty - assigned;
   const ov = document.createElement('div');
   ov.id = 'batchLocOverlay'; ov.className = 'modal-overlay'; ov.style.display = 'flex'; ov.style.zIndex = '1100';
-  ov.innerHTML = `<div class="modal-box" style="max-width:min(520px,94vw);">
+  ov.innerHTML = `<div class="modal-box" style="max-width:min(560px,94vw);">
     <div class="section-title" style="margin-top:0;">${t('batchLocEditTitle')} · ${batchEsc(it.name)} (${batchFmtQty(it.qty)} ${batchEsc(it.unit)})</div>
-    <datalist id="${listId}">${batchLocCodesFor(it.productId).map(c => `<option value="${batchEsc(c)}"></option>`).join('')}</datalist>
     <div style="font-size:12px;color:var(--ink-soft);margin-bottom:8px;">${t('batchLocEditHint')}</div>
-    ${batchLocEd.rows.map((r, k) => `<div style="display:flex;gap:6px;align-items:center;margin-bottom:6px;">
-      <input type="text" list="${listId}" value="${batchEsc(r.code)}" placeholder="${batchEsc(t('batchLocCodePh'))}" style="flex:1;min-width:0;" onchange="batchLocEd.rows[${k}].code=this.value.trim()" />
-      <input type="number" min="0" step="1" value="${r.qty}" style="width:90px;" onchange="batchLocEd.rows[${k}].qty=Math.max(0,parseFloat(this.value)||0);batchLocRenderEditor()" />
-      <button class="btn ghost" onclick="batchLocEd.rows.splice(${k},1);batchLocRenderEditor()" title="${t('btnDelete')}">✕</button>
-    </div>`).join('')}
-    <div style="margin:8px 0;"><button class="btn ghost" onclick="batchLocEd.rows.push({code:'',qty:Math.max(0,${un})});batchLocRenderEditor()">+ ${t('batchLocAddRow')}</button></div>
+    ${batchLocEd.rows.map((r, k) => batchLocRowHtml(r, k, codes)).join('')}
+    <div style="margin:8px 0;"><button class="btn ghost" onclick="batchLocEd.rows.push({code:'',qty:Math.max(0,${un}),isNew:${codes.length === 0},parts:{}});batchLocRenderEditor()">+ ${t('batchLocAddRow')}</button></div>
     <div style="font-size:12.5px;font-weight:600;${un < -1e-9 ? 'color:var(--crit);' : ''}">${un < -1e-9 ? tf('batchLocOver', { n: batchFmtQty(-un) }) : `${t('unassignedLocationLabel')}: ${batchFmtQty(Math.max(0, un))}`}</div>
+    <div style="font-size:12px;color:var(--crit);margin-top:4px;">${batchEsc(batchLocEd.err || '')}</div>
     <div class="modal-actions"><button class="btn ghost" onclick="batchLocCloseEditor()">${t('btnCancel')}</button><button class="btn" onclick="batchLocSaveEditor()">${t('btnSave')}</button></div>
   </div>`;
   document.body.appendChild(ov);
@@ -1950,6 +1982,17 @@ function batchLocSaveEditor(){
   if(!batchLocEd) return;
   const it = txBatchItems.find(x => x.batchItemId === batchLocEd.itemId);
   if(!it){ batchLocCloseEditor(); return; }
+  // 新增位置(標準模式):啟用的欄位都要填,代碼 = 各欄用 - 接起來;自訂模式直接用輸入的代碼
+  for(const r of batchLocEd.rows){
+    if(!r.isNew || !(r.qty > 0)) continue;
+    if(batchLocStdOn()){
+      const fs = batchLocFields();
+      const miss = fs.filter(f => !(r.parts[f[0]] || '').trim()).map(f => f[1]);
+      if(miss.length){ batchLocEd.err = tf('batchLocMissing', { f: miss.join(', ') }); batchLocRenderEditor(); return; }
+      r.code = fs.map(f => r.parts[f[0]].trim()).join('-');
+      batchLocParts[r.code] = Object.assign({ zone:'', aisle:'', bay:'', level:'', bin:'' }, r.parts);
+    }
+  }
   const rows = batchLocEd.rows.filter(r => r.code && r.qty > 0);
   const total = rows.reduce((s, r) => s + r.qty, 0);
   if(total > it.qty + 1e-9){ batchLocRenderEditor(); return; }
@@ -1995,7 +2038,8 @@ async function batchApplyPurchaseLocations(purchase, items){
         if(loc){ loc.qty += l.qty; await upsertProductLocation(loc); }
         else {
           const tpl = productLocations.find(x => x.locationCode === l.code);
-          loc = { id: genId(), productId: ln.product_id, zone: tpl ? tpl.zone : '', aisle: tpl ? tpl.aisle : '', bay: tpl ? tpl.bay : '', level: tpl ? tpl.level : '', bin: tpl ? tpl.bin : '', locationCode: l.code, qty: l.qty, photoUrl: null };
+          const bp = batchLocParts[l.code] || {};
+          loc = { id: genId(), productId: ln.product_id, zone: tpl ? tpl.zone : (bp.zone || ''), aisle: tpl ? tpl.aisle : (bp.aisle || ''), bay: tpl ? tpl.bay : (bp.bay || ''), level: tpl ? tpl.level : (bp.level || ''), bin: tpl ? tpl.bin : (bp.bin || ''), locationCode: l.code, qty: l.qty, photoUrl: null };
           productLocations.push(loc);
           await upsertProductLocation(loc);
         }
