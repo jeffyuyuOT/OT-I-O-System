@@ -2,12 +2,12 @@
 // 匯出成可重建空專案的 SQL(gzip),一起上傳到 Dropbox(App folder),並刪除超過保留天數的舊檔。
 // 檔案:daily/YYYY-MM-DD.json.gz(資料)、daily/YYYY-MM-DD.schema.sql.gz(結構)。結構匯出失敗不影響資料備份,只記在 backup_log.error。
 // 由 pg_cron 每天呼叫一次(見 sql/daily_backup_cron.sql)。
-// 需要的 secrets:DROPBOX_APP_KEY, DROPBOX_APP_SECRET, DROPBOX_REFRESH_TOKEN, BACKUP_SECRET;選用 RETENTION_DAYS(預設 90)。
+// 需要的 secrets:DROPBOX_APP_KEY, DROPBOX_APP_SECRET, DROPBOX_REFRESH_TOKEN, BACKUP_SECRET;選用 RETENTION_DAYS(預設 90)、BACKUP_FOLDER(預設 /daily;測試專案要設成 /daily-test)。
 // (SUPABASE_DB_URL 是 Supabase 自動提供的)。部署時要關掉 JWT 驗證(--no-verify-jwt),改用 x-backup-secret 驗證。
 import postgres from "https://deno.land/x/postgresjs@v3.4.4/mod.js";
 
 const BATCH = 1000;
-const FOLDER = "/daily";
+const FOLDER = Deno.env.get("BACKUP_FOLDER") || "/daily"; // 測試專案請設 BACKUP_FOLDER=/daily-test,避免覆蓋正式版備份
 const MAX_SIMPLE_UPLOAD = 140 * 1024 * 1024; // Dropbox 單次上傳上限 150MB
 
 function brisbaneDate(offsetDays = 0): string {
