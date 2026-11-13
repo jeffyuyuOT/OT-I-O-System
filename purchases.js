@@ -728,7 +728,6 @@ function renderEditPurchaseItemsList(){
         <div style="${grid}padding:5px 0;border-bottom:1px solid var(--line);${it._scanUpdated ? 'background:var(--warn-bg);' : ''}">
           <div style="min-width:0;font-size:12.5px;line-height:1.3;">
             ${escapeHtmlForPrint(it.name || '')}${it.sku ? ` <span style="color:var(--ink-soft);">(${escapeHtmlForPrint(it.sku)})</span>` : ''}
-            ${(editPurchaseIsBatchTracked() && !it.noBatch && typeof batchLineNoHtml === 'function') ? batchLineNoHtml(editPurchaseTargetId, it.productId, it.expiry || '') : ''}
             ${it.docType === 'credit_note' ? ` <span style="color:var(--crit);font-weight:600;font-size:11px;">(${t('docTypeCreditNoteBadge')})</span>` : ''}
             ${it._scanUpdated ? `<span style="color:var(--warn-dark);font-size:11px;margin-left:4px;">🔍</span>` : ''}
             <span id="epFlagMk_${i}" style="display:${flags[i] ? 'inline' : 'none'};color:#d97706;cursor:help;" title="${flags[i] ? escapeHtmlForPrint(flags[i].msg) : ''}">⚠</span>
@@ -787,7 +786,7 @@ function editPurchaseOpenLineNote(index){
   const ov = document.createElement('div');
   ov.id = 'editPurchaseLineNoteOverlay'; ov.className = 'modal-overlay'; ov.style.display = 'flex'; ov.style.zIndex = '1250';
   ov.innerHTML = `<div class="modal-box" style="max-width:min(420px,94vw);">
-    <div class="section-title" style="margin-top:0;">${t('batchFieldNote')} · ${escapeHtmlForPrint(it.name || '')}</div>
+    <div class="section-title" style="margin-top:0;">${t('batchFieldNote')} · ${escapeHtmlForPrint(it.name || '')}${(editPurchaseIsBatchTracked() && !it.noBatch && typeof batchLineNoHtml === 'function') ? batchLineNoHtml(editPurchaseTargetId, it.productId, it.expiry || '') : ''}</div>
     ${((typeof canViewPrice !== 'function') || canViewPrice()) ? `<div class="field"><label>${t('batchColExpiry')}</label><input id="editPurchaseLineExpiryInput" type="date" value="${escapeHtmlForPrint(it.expiry || '')}" style="width:100%;" /></div>
     <div class="field" style="margin-top:8px;"><label>${t('batchFieldLot')}</label><input id="editPurchaseLineLotInput" type="text" value="${escapeHtmlForPrint(it.supplierLot || '')}" style="width:100%;" /></div>
     <div style="font-size:12px;color:var(--ink-soft);margin:8px 0 2px;">${t('batchFieldNote')}</div>` : ''}
