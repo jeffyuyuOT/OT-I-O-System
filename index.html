@@ -1627,26 +1627,26 @@ body.no-cost-view .cost-col{display:none !important;}
         <div id="txCnHint" style="font-size:11.5px;color:var(--ink-soft);margin-top:4px;"></div>
       </div>
       <div id="purchaseReceiptWrap" style="display:none;margin-top:10px;">
-        <label style="display:block;font-size:12.5px;font-weight:600;color:var(--ink);margin-bottom:4px;" data-i18n="fieldPurchaseReceipt">收據/發票附件(選填,圖片或 PDF,可選取多個檔案)</label>
+        <label style="display:block;font-size:12.5px;font-weight:600;color:var(--ink);margin-bottom:4px;"><span data-i18n="fieldPurchaseReceipt">收據/發票附件</span><span role="button" tabindex="0" class="info-icon" style="cursor:pointer;color:var(--ink-soft);font-size:14px;margin-left:4px;" onclick="event.preventDefault();showInfoModal(t('fieldPurchaseReceiptHelp'))">ⓘ</span></label>
         <div style="display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px 16px;">
           <div style="display:flex;flex-wrap:wrap;align-items:center;gap:8px 14px;">
-        <input type="file" id="purchaseReceiptInput" accept="image/*,application/pdf,.xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel" multiple onchange="handlePurchaseReceiptUpload(this)" style="border:1px solid var(--line);background:#fff;border-radius:2px;padding:8px;font-family:'IBM Plex Mono',monospace;font-size:12px;" />
+        <input type="file" id="purchaseReceiptInput" accept="image/*,application/pdf,.xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel" multiple onchange="handlePurchaseReceiptUpload(this)" style="width:210px;max-width:100%;border:1px solid var(--line);background:#fff;border-radius:2px;padding:8px;font-family:'IBM Plex Mono',monospace;font-size:12px;" />
             <div id="txBatchTrackWrap" style="display:none;"></div>
             <span id="purchaseAccWrap" style="display:none;align-items:center;gap:8px;flex-wrap:wrap;">
               <span class="cost-col" style="font-size:12px;color:var(--ink-soft);" data-i18n="paFormGstMode">金額</span>
-              <select id="purchaseGstMode" class="cost-col" style="font-size:12.5px;"><option value="ex" data-i18n="paGstModeEx">不含 GST</option><option value="inc" data-i18n="paGstModeInc">含 GST</option></select>
+              <select id="purchaseGstMode" class="cost-col" style="font-size:12.5px;" onchange="if(typeof renderTxBatchList==='function') renderTxBatchList()"><option value="ex" data-i18n="paGstModeEx">不含 GST</option><option value="inc" data-i18n="paGstModeInc">含 GST</option></select>
               <span style="font-size:12px;color:var(--ink-soft);" data-i18n="paInvDateLbl">發票日期</span>
               <input type="date" id="purchaseInvDate" style="font-size:12.5px;" />
               <span class="cost-col" style="font-size:12px;color:var(--ink-soft);" data-i18n="paDueDateLbl">付款到期日</span>
               <input type="date" id="purchaseDueDate" class="cost-col" style="font-size:12.5px;" />
+              <span class="cost-col" style="font-size:12px;color:var(--ink-soft);" data-i18n="paReceiptGstLbl">收據 GST 總額</span>
+              <input type="number" id="purchaseReceiptGst" class="cost-col" step="0.01" min="0" style="width:90px;font-size:12.5px;" data-i18n-placeholder="paReceiptGstPh" placeholder="選填" oninput="paReceiptGstHintUpdate()" />
+              <span id="purchaseReceiptGstHint" class="cost-col" style="font-size:11.5px;"></span>
             </span>
             <span id="purchaseEmailWrap" style="display:inline-flex;align-items:center;gap:8px;">
               <input type="checkbox" id="purchaseEmailToggle" onchange="togglePurchaseEmailFieldVisibility(this)" style="width:16px;height:16px;cursor:pointer;" />
               <label for="purchaseEmailToggle" style="font-size:12.5px;color:var(--ink);font-weight:600;cursor:pointer;white-space:nowrap;" data-i18n="chkEmailToAccounting">寄送給會計</label>
             </span>
-          </div>
-          <div id="txCopyLastRow" style="display:none;align-items:center;margin-left:auto;">
-            <button type="button" class="btn ghost" onclick="txCopyLastPurchase()" data-i18n="btnCopyLastPurchase">📋 複製上次進貨商品</button>
           </div>
         </div>
         <div id="purchaseReceiptUploadMsg" style="font-size:11.5px;margin-top:4px;"></div>
@@ -1673,7 +1673,12 @@ body.no-cost-view .cost-col{display:none !important;}
         <div class="section-title" style="font-size:13px;color:var(--warn-dark);" data-i18n="secPostVerifyChanges">核對後變更</div>
         <div id="txPostVerifyChangesList"></div>
       </div>
-      <div class="section-title" style="font-size:13px;margin-top:14px;" data-i18n="secAddProduct">新增商品</div>
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:14px;">
+        <div class="section-title" style="font-size:13px;margin:0;" data-i18n="secAddProduct">新增商品</div>
+        <div id="txCopyLastRow" style="display:none;align-items:center;">
+          <button type="button" class="btn ghost" onclick="txCopyLastPurchase()" data-i18n="btnCopyLastPurchase">📋 複製上次進貨商品</button>
+        </div>
+      </div>
       <div id="txBrowseAllProductsRow" style="display:none;margin:6px 0;">
         <label style="display:flex;align-items:center;gap:6px;font-size:12.5px;color:var(--ink);cursor:pointer;">
           <input type="checkbox" id="txBrowseAllProducts" onchange="renderProductSelect()" style="width:16px;height:16px;cursor:pointer;" />
@@ -3053,7 +3058,7 @@ body.no-cost-view .cost-col{display:none !important;}
       <input type="text" id="editPurchaseNoteInput" style="width:100%;" placeholder="例如:客戶訂單 #123" data-i18n-placeholder="txNotePlaceholderExample" />
     </div>
     <div class="field-block">
-      <label data-i18n="fieldPurchaseReceipt">收據/發票附件(選填,圖片或 PDF,可選取多個檔案)</label>
+      <label><span data-i18n="fieldPurchaseReceipt">收據/發票附件</span><span role="button" tabindex="0" class="info-icon" style="cursor:pointer;color:var(--ink-soft);font-size:14px;margin-left:4px;" onclick="event.preventDefault();showInfoModal(t('fieldPurchaseReceiptHelp'))">ⓘ</span></label>
       <div id="editPurchaseReceiptExistingWrap" style="display:flex;flex-direction:column;gap:4px;margin-bottom:8px;"></div>
       <div id="editPurchaseReceiptPreview" style="display:none;margin-bottom:8px;"></div>
       <input type="file" id="editPurchaseReceiptInput" accept="image/*,application/pdf,.xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel" multiple onchange="handleEditPurchaseReceiptUpload(this)" style="border:1px solid var(--line);background:#fff;border-radius:2px;padding:8px;font-family:'IBM Plex Mono',monospace;font-size:12px;width:100%;box-sizing:border-box;" />
@@ -3068,14 +3073,19 @@ body.no-cost-view .cost-col{display:none !important;}
         <label for="editPurchaseChkToggle" style="font-size:12.5px;font-weight:600;cursor:pointer;margin:0;" data-i18n="paChkEditLabel">已對照收據核對價格</label>
       </div>
       <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
-        <input type="checkbox" id="editPurchaseAccToggle" style="width:16px;height:16px;cursor:pointer;" />
-        <label for="editPurchaseAccToggle" style="font-size:12.5px;font-weight:600;cursor:pointer;margin:0;" data-i18n="chkInAccounting">入會計紀錄</label>
+        <span id="editPurchaseAccToggleWrap" style="display:none;align-items:center;gap:8px;">
+          <input type="checkbox" id="editPurchaseAccToggle" style="width:16px;height:16px;cursor:pointer;" />
+          <label for="editPurchaseAccToggle" style="font-size:12.5px;font-weight:600;cursor:pointer;margin:0;" data-i18n="chkInAccounting">入會計紀錄</label>
+        </span>
         <span style="font-size:12px;color:var(--ink-soft);" data-i18n="paFormGstMode">金額</span>
-        <select id="editPurchaseGstMode" style="font-size:12.5px;"><option value="ex" data-i18n="paGstModeEx">不含 GST</option><option value="inc" data-i18n="paGstModeInc">含 GST</option></select>
+        <select id="editPurchaseGstMode" style="font-size:12.5px;" onchange="if(typeof renderEditPurchaseItemsList==='function') renderEditPurchaseItemsList()"><option value="ex" data-i18n="paGstModeEx">不含 GST</option><option value="inc" data-i18n="paGstModeInc">含 GST</option></select>
         <span style="font-size:12px;color:var(--ink-soft);" data-i18n="paInvDateLbl">發票日期</span>
         <input type="date" id="editPurchaseInvDate" style="font-size:12.5px;" />
         <span style="font-size:12px;color:var(--ink-soft);" data-i18n="paDueDateLbl">付款到期日</span>
         <input type="date" id="editPurchaseDueDate" style="font-size:12.5px;" />
+        <span style="font-size:12px;color:var(--ink-soft);" data-i18n="paReceiptGstLbl">收據 GST 總額</span>
+        <input type="number" id="editPurchaseReceiptGst" step="0.01" min="0" style="width:90px;font-size:12.5px;" data-i18n-placeholder="paReceiptGstPh" placeholder="選填" oninput="paReceiptGstHintUpdate()" />
+        <span id="editPurchaseReceiptGstHint" style="font-size:11.5px;"></span>
       </div>
     </div>
     <div class="field-block">
@@ -4398,7 +4408,6 @@ function updateImportCountDisplay(){
 async function startApp(){
   document.getElementById('txDate').value = todayISO();
   document.getElementById('txImportDate').value = todayISO();
-  document.getElementById('orderDate').value = todayISO();
   setTxType('in');
   await loadData();
   // setTxType('in') 在這個函式一開始、loadData() 還沒跑完之前就先執行過了(為了讓表單欄位

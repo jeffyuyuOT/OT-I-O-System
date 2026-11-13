@@ -119,7 +119,7 @@ function renderPurchaseLog(){
         ${pageRows.map(p => `
           <tr>
             <td class="pl-date" style="cursor:pointer;white-space:nowrap;" onclick="togglePurchaseDetail('${p.id}')"><span class="td-mobile-label">${t('colPurchaseDate')}</span><span style="display:inline-block;width:14px;">${expandedPurchaseId === p.id ? '▾' : '▸'}</span>${escapeHtmlForPrint(p.date || '')}</td>
-            <td class="pl-party" style="cursor:pointer;" onclick="togglePurchaseDetail('${p.id}')"><span class="td-mobile-label">${t('colPurchaseParty')}</span>${escapeHtmlForPrint(purchasePartyLabel(p))}${(priceOn && typeof pcEstimateBadge === 'function') ? pcEstimateBadge(p) : ''}</td>
+            <td class="pl-party" style="cursor:pointer;" onclick="togglePurchaseDetail('${p.id}')"><span class="td-mobile-label">${t('colPurchaseParty')}</span>${escapeHtmlForPrint(purchasePartyLabel(p))}${(typeof pcOverseasTagHtml === 'function') ? pcOverseasTagHtml(p) : ''}${(priceOn && typeof pcEstimateBadge === 'function') ? pcEstimateBadge(p) : ''}</td>
             <td class="pl-invoice" style="cursor:pointer;" onclick="togglePurchaseDetail('${p.id}')"><span class="td-mobile-label">${t('colPurchaseInvoiceNo')}</span>${escapeHtmlForPrint(p.invoiceNo || '')}${getPurchaseReceiptFileList(p).length > 0 ? ` <span title="${t('hasReceiptAttachedTitle')}">📎</span>` : ''}</td>
             ${showBatchCol ? (() => { const bt = (typeof batchPurchaseTagHtml === 'function') ? batchPurchaseTagHtml(p).trim() : ''; return `<td class="pl-batch" style="cursor:pointer;" onclick="togglePurchaseDetail('${p.id}')">${bt ? `<span class="td-mobile-label">${t('batchColBatch')}</span>${bt}` : ''}</td>`; })() : ''}
             <td class="pl-actions" style="white-space:nowrap;">
@@ -572,6 +572,9 @@ function populateEditPurchasePartySelect(currentName, currentSupplierId){
   renderEditPurchaseReceiptList();
   populateEditPurchaseAddItemSelect();
   renderEditPurchaseItemsList();
+  if(typeof ensureBatchDataLoaded === 'function' && typeof batchData !== 'undefined' && !(batchData.loaded && !batchData.stale)){
+    Promise.resolve(ensureBatchDataLoaded()).catch(() => {}).then(() => { if(batchData.loaded && editPurchaseTargetId === purchaseId) renderEditPurchaseItemsList(); });
+  }
   if(typeof pcEditInit === 'function') pcEditInit(p);
   {
     const pv = (typeof canViewPrice !== 'function') || canViewPrice();   // 倉管看不到價錢:金額、GST、入會計、成本/其他支出整區隱藏(儲存時原本的金額資料原樣保留)
@@ -700,8 +703,10 @@ function renderEditPurchaseItemsList(){
   const priceVis = (typeof canViewPrice !== 'function') || canViewPrice();   // 沒有「查看價錢」權限(倉管)整個價格區都不顯示
   const cols = ['minmax(220px,1fr)', '84px', '54px'];
   if(priceVis) cols.push('110px');
-  if(paOnNow && priceVis) cols.push('96px');
-  if(batchOn) cols.push('138px', '120px', '46px');
+  if(paOnNow && priceVis) cols.push('84px', '78px', '96px');   // 不含稅 / GST 金額 / GST 選項
+  // 看得到價錢的人:有效期、供應商批號收進 📝 詳細資料視窗,空間留給金額與 GST;倉管維持直接在清單上輸入
+  const expInDetail = batchOn && priceVis;
+  if(batchOn) cols.push(...(expInDetail ? ['46px'] : ['138px', '120px', '46px']));
   cols.push('44px');
   const grid = `display:grid;grid-template-columns:${cols.join(' ')};gap:8px;align-items:center;min-width:${cols.reduce((s, c) => s + (parseInt((c.match(/\d+/) || [0])[0], 10) || 0), 0) + 8 * cols.length}px;`;
   const flags = editPurchasePriceFlags();
@@ -710,8 +715,8 @@ function renderEditPurchaseItemsList(){
   const cur = escapeHtmlForPrint(typeof getSystemCurrency === 'function' ? getSystemCurrency() : 'AUD');
   const hdr = `<div style="${grid}${hdrCss}position:sticky;top:0;background:var(--bg,#fff);z-index:1;padding:2px 0;">
           <span></span><span>${t('colQty')}</span><span></span>${priceVis ? `<span>${t('colAmount')} (${cur})</span>` : ''}
-          ${(paOnNow && priceVis) ? '<span>GST</span>' : ''}
-          ${batchOn ? `<span>${t('batchColExpiry')}</span><span>${t('batchLotLabel')}</span><span></span>` : ''}
+          ${(paOnNow && priceVis) ? `<span style="text-align:right;">${t('paColEx')}</span><span style="text-align:right;">${t('paColGstAmt')}</span><span>GST</span>` : ''}
+          ${batchOn ? (expInDetail ? '<span></span>' : `<span>${t('batchColExpiry')}</span><span>${t('batchLotLabel')}</span><span></span>`) : ''}
           <span></span>
         </div>`;
   wrap.innerHTML = `
@@ -730,17 +735,19 @@ function renderEditPurchaseItemsList(){
           <input type="number" value="${it.qty}" min="0" step="any" style="width:100%;" oninput="updateEditPurchaseItemQty(${i}, this.value)" />
           <span style="font-size:11.5px;color:var(--ink-soft);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtmlForPrint(it.unit || '')}</span>
           ${priceVis ? `          <input type="number" value="${it.amount !== undefined && it.amount !== null ? it.amount : ''}" min="0" step="any" placeholder="$" style="width:100%;${flags[i] ? 'background:#fff4dc;border-color:#d97706;' : ''}" ${canEditPrice() ? (flags[i] ? 'title="' + escapeHtmlForPrint(flags[i].msg) + '"' : '') : 'readonly title="' + t('priceReadOnlyTitle') + '"'} oninput="updateEditPurchaseItemAmount(${i}, this.value, this)" />
-          ${paOnNow ? (it.noAcct ? '<span style="font-size:11.5px;color:var(--ink-soft);">' + t('paOffBooksShort') + '</span>' : paGstSelectHtml(it.gst, 'paEditSetGst(' + i + ', this.value)')) : ''}` : ''}
+          ${(paOnNow && priceVis) ? (() => { const sp = paGstSplitStr(it, (document.getElementById('editPurchaseGstMode') || {}).value === 'inc' ? 'inc' : 'ex', paEditSkipRow(it)); return `<span id="epEx_${i}" style="text-align:right;font-size:12.5px;">${sp[0]}</span><span id="epGs_${i}" style="text-align:right;font-size:12.5px;">${sp[1]}</span>`; })() : ''}
+          ${paOnNow ? (it.noAcct ? '<span style="font-size:11.5px;color:var(--ink-soft);">' + t('paOffBooksShort') + '</span>' : ((typeof pcEd !== 'undefined' && pcEd && pcEd.import) ? paImportNoteHtml() : paGstSelectHtml(it.gst, 'paEditSetGst(' + i + ', this.value)'))) : ''}` : ''}
           ${batchOn ? ((!it.noBatch) ? `
-          <input type="date" value="${it.expiry || ''}" title="${t('batchColExpiry')}" style="width:100%;" onchange="updateEditPurchaseItemExpiry(${i}, this.value)" />
-          <input type="text" value="${escapeHtmlForPrint(it.supplierLot || '')}" title="${t('batchFieldLot')}" style="width:100%;" oninput="updateEditPurchaseItemLot(${i}, this.value)" />
-          ${(it.docType === 'credit_note') ? '<span></span>' : `<button type="button" class="btn ghost" style="padding:2px 8px;" title="${t('batchFieldNote')}" onclick="editPurchaseOpenLineNote(${i})">📝${(it.batchNote !== undefined ? it.batchNote : batchLineNote(editPurchaseTargetId, it.productId, it.expiry || '')) ? ' ✓' : ''}</button>`}` : '<span></span><span></span><span></span>') : ''}
+          ${expInDetail ? '' : `<input type="date" value="${it.expiry || ''}" title="${t('batchColExpiry')}" style="width:100%;" onchange="updateEditPurchaseItemExpiry(${i}, this.value)" />
+          <input type="text" value="${escapeHtmlForPrint(it.supplierLot || '')}" title="${t('batchFieldLot')}" style="width:100%;" oninput="updateEditPurchaseItemLot(${i}, this.value)" />`}
+          ${(it.docType === 'credit_note') ? '<span></span>' : `<button type="button" class="btn ghost" style="padding:2px 8px;" title="${t('batchFieldNote')}" onclick="editPurchaseOpenLineNote(${i})">📝${(it.batchNote !== undefined ? it.batchNote : batchLineNote(editPurchaseTargetId, it.productId, it.expiry || '')) ? ' ✓' : ''}</button>`}` : (expInDetail ? '<span></span>' : '<span></span><span></span><span></span>')) : ''}
           <span class="del-link" onclick="removeEditPurchaseItem(${i})">${t('btnRemoveItem')}</span>
         </div>
       `).join('')}
      </div>
     </div>
   `;
+  if(typeof paReceiptGstHintUpdate === 'function') paReceiptGstHintUpdate();
 }
 function editPurchaseIsBatchTracked(){
   if(typeof batchActive !== 'function' || !batchActive()) return false;
@@ -779,7 +786,10 @@ function editPurchaseOpenLineNote(index){
   const ov = document.createElement('div');
   ov.id = 'editPurchaseLineNoteOverlay'; ov.className = 'modal-overlay'; ov.style.display = 'flex'; ov.style.zIndex = '1250';
   ov.innerHTML = `<div class="modal-box" style="max-width:min(420px,94vw);">
-    <div class="section-title" style="margin-top:0;">${t('batchFieldNote')} · ${escapeHtmlForPrint(it.name || '')}</div>
+    <div class="section-title" style="margin-top:0;">${t('batchFieldNote')} · ${escapeHtmlForPrint(it.name || '')}${(editPurchaseIsBatchTracked() && !it.noBatch && typeof batchLineNoHtml === 'function') ? batchLineNoHtml(editPurchaseTargetId, it.productId, it.expiry || '') : ''}</div>
+    ${((typeof canViewPrice !== 'function') || canViewPrice()) ? `<div class="field"><label>${t('batchColExpiry')}</label><input id="editPurchaseLineExpiryInput" type="date" value="${escapeHtmlForPrint(it.expiry || '')}" style="width:100%;" /></div>
+    <div class="field" style="margin-top:8px;"><label>${t('batchFieldLot')}</label><input id="editPurchaseLineLotInput" type="text" value="${escapeHtmlForPrint(it.supplierLot || '')}" style="width:100%;" /></div>
+    <div style="font-size:12px;color:var(--ink-soft);margin:8px 0 2px;">${t('batchFieldNote')}</div>` : ''}
     <textarea id="editPurchaseLineNoteInput" rows="4" style="width:100%;box-sizing:border-box;">${escapeHtmlForPrint(cur)}</textarea>
     <div class="modal-actions"><button class="btn ghost" onclick="document.getElementById('editPurchaseLineNoteOverlay').remove()">${t('btnCancel')}</button><button class="btn" onclick="editPurchaseSaveLineNote(${index})">${t('btnSave')}</button></div>
   </div>`;
@@ -789,8 +799,19 @@ function editPurchaseSaveLineNote(index){
   const it = editPurchaseWorkingItems[index];
   const el = document.getElementById('editPurchaseLineNoteInput');
   if(it && el) it.batchNote = el.value.trim();
+  const exEl = document.getElementById('editPurchaseLineExpiryInput'), lotEl = document.getElementById('editPurchaseLineLotInput');
+  let merged = false;
+  if(it && lotEl) updateEditPurchaseItemLotValue(it, lotEl.value);
+  if(it && exEl){
+    const nv = exEl.value || '';
+    if(nv !== (it.expiry || '')){ if(nv) it.expiry = nv; else delete it.expiry; merged = editPurchaseMergeDuplicateAt(index); }
+  }
   const ov = document.getElementById('editPurchaseLineNoteOverlay'); if(ov) ov.remove();
   renderEditPurchaseItemsList();
+}
+function updateEditPurchaseItemLotValue(it, value){
+  const v = (value || '').trim();
+  if(v) it.supplierLot = v; else delete it.supplierLot;
 }
 function updateEditPurchaseItemLot(index, value){
   const it = editPurchaseWorkingItems[index];
@@ -850,10 +871,11 @@ function updateEditPurchaseItemAmount(index, value, el){
   if(!canEditPrice()) return; // 沒有「編輯價錢」權限只能看不能改
   const it = editPurchaseWorkingItems[index];
   if(!it) return;
-  if(value === ''){ delete it.amount; editPurchaseRefreshFlagUI(index, el); return; }
+  if(value === ''){ delete it.amount; editPurchaseRefreshFlagUI(index, el); if(typeof paEditRefreshCells === 'function') paEditRefreshCells(index); return; }
   const n = parseFloat(value);
   it.amount = Number.isFinite(n) ? n : undefined;
   editPurchaseRefreshFlagUI(index, el);
+  if(typeof paEditRefreshCells === 'function') paEditRefreshCells(index);
 }
 function removeEditPurchaseItem(index){
   editPurchaseWorkingItems.splice(index, 1);
@@ -868,6 +890,12 @@ function populateEditPurchaseAddItemSelect(){
   sel.innerHTML = `<option value="">${t('optSelectProduct')}</option>` +
     sorted.map(p => `<option value="${p.id}">${escapeHtmlForPrint(p.name)}${p.sku ? ` (${escapeHtmlForPrint(p.sku)})` : ''}</option>`).join('');
   sel.value = '';
+  // 商品很多:改成可搜尋(打字會跳出相似的商品名),跟登記進貨的商品欄一樣
+  if(typeof makeSelectSearchable === 'function'){
+    makeSelectSearchable('editPurchaseAddItemSelect');
+    const w = sel.closest('.searchable-select-wrap');
+    if(w){ w.style.flex = '1 1 200px'; w.style.minWidth = '160px'; w.style.width = 'auto'; }
+  }
 }
 function addEditPurchaseItem(){
   const sel = document.getElementById('editPurchaseAddItemSelect');
@@ -1140,6 +1168,7 @@ async function confirmEditPurchase(){
 
   msgEl.className = 'msg'; msgEl.textContent = t('savingMsg');
   const oldDate = p.date, oldParty = p.partyName, oldInvoice = p.invoiceNo, oldNote = p.note;
+  const oldGstSig = JSON.stringify([p.gstMode === 'inc' ? 'inc' : 'ex', (p.items || []).map(i => i.gst === true)]);   // 含 GST 時批次成本要扣掉 GST:模式或品項 GST 變了要重存批次
   p.date = dateVal;
   p.partyName = partyVal;
   p.partyId = partyVal;
@@ -1148,6 +1177,7 @@ async function confirmEditPurchase(){
   p.note = noteVal;
   p.items = cleanItems;
   if(typeof paEditApply === 'function') paEditApply(p);   // 入會計紀錄 / GST 模式
+  const gstCostChanged = (JSON.stringify([p.gstMode === 'inc' ? 'inc' : 'ex', (p.items || []).map(i => i.gst === true)]) !== oldGstSig) && (p.gstMode === 'inc' || oldGstSig.indexOf('"inc"') >= 0);
   p.receiptFiles = editPurchaseWorkingReceiptFiles.slice();
   delete p.receiptUrl; // 舊格式欄位一旦編輯過就統一改用新的 receiptFiles 陣列,不留舊欄位造成混淆
   delete p.receiptFilename;
@@ -1185,7 +1215,7 @@ async function confirmEditPurchase(){
       }
     }
     // 批次追蹤:同步批次(數量/有效期/批號/日期/Invoice/供應商有改才呼叫)
-    if(p.batchTracked && typeof batchSavePurchase === 'function' && (itemsChanged || costsChanged || dateVal !== oldDate || partyVal !== oldParty || invoiceVal !== oldInvoice)){
+    if(p.batchTracked && typeof batchSavePurchase === 'function' && (itemsChanged || costsChanged || gstCostChanged || dateVal !== oldDate || partyVal !== oldParty || invoiceVal !== oldInvoice)){
       const locBefore = (typeof batchSnapshotPurchaseLocs === 'function') ? batchSnapshotPurchaseLocs(p.id) : null;
       try{
         await batchSavePurchase(p);

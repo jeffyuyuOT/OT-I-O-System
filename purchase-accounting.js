@@ -62,9 +62,16 @@ function paTotals(p){
     if(l.gst === true) gstBase += a;
     else if(l.gst !== false && a > 0) unset++;
   });
+  if(p && p.costs && p.costs.import){ gstBase = 0; unset = 0; }   // 海外進口:收據上的商品沒有 GST(進口 GST 另在相關支出裡登記)
   let gst, total, ex;
   if(mode === 'ex'){ gst = gstBase * PA_GST_RATE; ex = base; total = base + gst; }
   else { gst = gstBase * PA_GST_RATE / (1 + PA_GST_RATE); total = base; ex = base - gst; }
+  // 有填「收據 GST 總額」→ 會計的 GST 以收據為準(不含稅 = 總額 − GST);單品批次成本不受影響
+  if(p && p.receiptGst !== undefined && p.receiptGst !== null && isFinite(Number(p.receiptGst)) && !(p.costs && p.costs.import)){
+    gst = Number(p.receiptGst);
+    if(mode === 'ex'){ ex = base; total = base + gst; } else { total = base; ex = base - gst; }
+    unset = 0;
+  }
   return { mode, ex: paR2(ex), gst: paR2(gst), total: paR2(total), unset };
 }
 function paPaidOf(purchaseId){ return paR2(paRows.filter(r => r.purchase_id === purchaseId).reduce((s, r) => s + Number(r.amount), 0)); }
@@ -98,11 +105,12 @@ function paExpInfo(p, x){
   const e = x.e, mode = p.gstMode === 'inc' ? 'inc' : 'ex', a = Number(e.aud) || 0;
   const gstBase = e.gst === true ? a : 0;
   let gst, total, ex;
-  if(mode === 'ex'){ gst = gstBase * PA_GST_RATE; ex = a; total = a + gst; }
+  if(e.importGst){ gst = a; ex = 0; total = a; }   // 進口 GST:整筆就是 GST(全額進項、可退稅)
+  else if(mode === 'ex'){ gst = gstBase * PA_GST_RATE; ex = a; total = a + gst; }
   else { gst = gstBase * PA_GST_RATE / (1 + PA_GST_RATE); total = a; ex = a - gst; }
   const paid = paPaidOf(x.key), balance = paR2(total - paid);
   const status = paid <= 0.004 ? 'unpaid' : (balance > 0.004 ? 'partial' : (balance < -0.004 ? 'overpaid' : 'paid'));
-  return { paid, balance, status, ex: paR2(ex), gst: paR2(gst), total: paR2(total), unset: (e.gst !== true && e.gst !== false) ? 1 : 0 };
+  return { paid, balance, status, ex: paR2(ex), gst: paR2(gst), total: paR2(total), unset: (!e.importGst && e.gst !== true && e.gst !== false) ? 1 : 0 };
 }
 // 外幣支出一律用澳幣(系統幣種)顯示;旁邊的 ⓘ 點開可看原幣金額與當時的匯率
 function paExpFxIcon(p, e){
@@ -153,10 +161,94 @@ function paFormReset(){
   const g = document.getElementById('purchaseGstMode'); if(g) g.value = 'ex';
   const d = document.getElementById('purchaseDueDate'); if(d) d.value = '';
   const iv = document.getElementById('purchaseInvDate'); if(iv) iv.value = '';
+  const rg = document.getElementById('purchaseReceiptGst'); if(rg) rg.value = '';
+  paReceiptGstHintUpdate();
 }
 // 是否入會計由商品設定決定(商品主檔「不入公司帳」),進貨單不再手動勾選;全部是不入帳商品的單會自動不出現在 Purchase List
 function paFormInAccounting(){ return true; }
 function paFormGstMode(){ const g = document.getElementById('purchaseGstMode'); return g && g.value === 'inc' ? 'inc' : 'ex'; }
+// 登記進貨表單目前是「海外進口」→ 收據上的商品、其他支出一律沒有 GST(不用選)
+function paImportOn(){ return typeof pcState !== 'undefined' && typeof pcActive === 'function' && pcActive() && !!pcState.overseas; }
+function paImportNoteHtml(){ return `<span style="font-size:11.5px;color:var(--ink-soft);">${paEsc(t('paImportNoGst'))}</span>`; }
+// 品項金額旁邊的唯讀提示:這一行系統算出的「不含稅 / GST」(只有選了「GST」的品項才有)。mode = 'ex' 金額不含 GST;'inc' 金額已含 GST
+function paItemGstCalcHtml(it, mode){
+  if(!it || it.gst !== true) return '';
+  const a = Number(it.amount); if(!(a > 0)) return '';
+  const g = mode === 'inc' ? a * PA_GST_RATE / (1 + PA_GST_RATE) : a * PA_GST_RATE;
+  const ex = mode === 'inc' ? a - g : a;
+  return `<div style="font-size:10.5px;color:var(--ink-soft);white-space:nowrap;margin-top:2px;">${paEsc(t('paCalcEx'))} ${paR2(ex).toFixed(2)} · GST ${paR2(g).toFixed(2)}</div>`;
+}
+// 登記進貨清單:每一列的「不含稅」「GST 金額」兩個欄位(跟表頭對齊);沒選 GST / 未設定 / 不入帳 / 海外進口 → 顯示 –
+function paGstSplitStr(obj, mode, skip){
+  let ex = null, g = null;
+  const a = obj ? Number(obj.amount) : NaN;
+  if(!skip && obj && a > 0){
+    const sign = obj.docType === 'credit_note' ? -1 : 1;
+    if(obj.gst === true){ const gg = mode === 'inc' ? a * PA_GST_RATE / (1 + PA_GST_RATE) : a * PA_GST_RATE; g = sign * paR2(gg); ex = sign * paR2(mode === 'inc' ? a - gg : a); }
+    else if(obj.gst === false){ ex = sign * paR2(a); g = 0; }
+  }
+  const f = v => v === null ? '–' : v.toFixed(2);
+  return [f(ex), f(g)];
+}
+// 編輯進貨單:該行不含稅 / GST 金額兩格(金額改了只更新這兩格,不重畫整個清單)
+function paEditSkipRow(it){ return !!(it && it.noAcct) || !!(typeof pcEd !== 'undefined' && pcEd && pcEd.import); }
+function paEditRefreshCells(i){
+  const it = (typeof editPurchaseWorkingItems !== 'undefined') ? editPurchaseWorkingItems[i] : null; if(!it) return;
+  const g = document.getElementById('editPurchaseGstMode');
+  const [ex, gs] = paGstSplitStr(it, g && g.value === 'inc' ? 'inc' : 'ex', paEditSkipRow(it));
+  const a = document.getElementById('epEx_' + i), b = document.getElementById('epGs_' + i);
+  if(a) a.textContent = ex; if(b) b.textContent = gs;
+  if(typeof paReceiptGstHintUpdate === 'function') paReceiptGstHintUpdate();
+}
+function paGstSplitCellsHtml(obj, mode, skip){
+  const dash = '<span style="color:var(--ink-soft);">–</span>';
+  let ex = null, g = null;
+  const a = obj ? Number(obj.amount) : NaN;
+  if(!skip && obj && a > 0){
+    const sign = obj.docType === 'credit_note' ? -1 : 1;
+    if(obj.gst === true){ const gg = mode === 'inc' ? a * PA_GST_RATE / (1 + PA_GST_RATE) : a * PA_GST_RATE; g = sign * paR2(gg); ex = sign * paR2(mode === 'inc' ? a - gg : a); }
+    else if(obj.gst === false){ ex = sign * paR2(a); g = 0; }
+  }
+  const f = v => v === null ? dash : v.toFixed(2);
+  return `<td class="row-num tx-excl" data-label="${paEsc(t('paColEx'))}">${f(ex)}</td><td class="row-num tx-gstamt" data-label="${paEsc(t('paColGstAmt'))}">${f(g)}</td>`;
+}
+// ---- 收據 GST 總額(選填核對欄):跟系統算出的 GST 比對,只提醒、不影響成本與會計數字 ----
+function paReceiptGstSystem(edit){
+  let items, lineExps, ns, mode;
+  if(edit){
+    if(typeof pcEd !== 'undefined' && pcEd && pcEd.import) return null;
+    const g = document.getElementById('editPurchaseGstMode');
+    mode = g && g.value === 'inc' ? 'inc' : 'ex';
+    items = (typeof editPurchaseWorkingItems !== 'undefined' ? editPurchaseWorkingItems : []).map(it => ({ amount: it.amount, gst: (it.gst === true || it.gst === false) ? it.gst : paProductGst(it.productId), docType: it.docType, noAcct: !!it.noAcct }));
+    lineExps = (typeof pcEd !== 'undefined' && pcEd && pcEd.lineExpenses) ? pcEd.lineExpenses : [];
+    ns = (typeof pcEd !== 'undefined' && pcEd && pcEd.nonStock) ? pcEd.nonStock : [];
+  } else {
+    if(paImportOn()) return null;
+    mode = paFormGstMode();
+    items = (typeof txBatchItems !== 'undefined' ? txBatchItems : []).map(it => ({ amount: it.amount, gst: (it.gst === true || it.gst === false) ? it.gst : paProductGst(it.productId), docType: it.docType, noAcct: paProductOffBooks(it.productId) }));
+    lineExps = (typeof pcState !== 'undefined' && pcState.lineExpenses) ? pcState.lineExpenses : [];
+    ns = (typeof pcState !== 'undefined' && pcState.nonStock) ? pcState.nonStock : [];
+  }
+  return paTotals({ gstMode: mode, items, lineExpenses: lineExps, nonStockItems: ns }).gst;
+}
+function paReceiptGstValue(edit){
+  const el = document.getElementById(edit ? 'editPurchaseReceiptGst' : 'purchaseReceiptGst');
+  if(!el || el.value === '') return null;
+  const n = parseFloat(el.value); return (isFinite(n) && n >= 0) ? paR2(n) : null;
+}
+function paReceiptGstHintUpdate(){
+  [false, true].forEach(edit => {
+    const hint = document.getElementById(edit ? 'editPurchaseReceiptGstHint' : 'purchaseReceiptGstHint');
+    const inp = document.getElementById(edit ? 'editPurchaseReceiptGst' : 'purchaseReceiptGst');
+    if(!hint || !inp) return;
+    const sys = paReceiptGstSystem(edit), recv = paReceiptGstValue(edit);
+    inp.style.display = hint.style.display = (sys === null) ? 'none' : '';
+    if(sys === null || recv === null){ hint.textContent = ''; return; }
+    const diff = paR2(recv - sys);
+    if(Math.abs(diff) <= 0.05){ hint.style.color = 'var(--safe)'; hint.textContent = tf('paReceiptGstOk', { sys: sys.toFixed(2) }); }
+    else { hint.style.color = '#b26a00'; hint.textContent = tf('paReceiptGstDiff', { sys: sys.toFixed(2), diff: (diff > 0 ? '+' : '') + diff.toFixed(2) }); }
+  });
+}
 function paGstSelectHtml(val, onchange){
   const v = val === true ? 'y' : (val === false ? 'n' : '');
   return `<select onchange="${onchange}" style="font-size:12px;max-width:92px;${v === '' ? 'border-color:#d9a400;background:#fff9e6;' : ''}">
@@ -181,6 +273,7 @@ async function paPreSubmit(msg){
   const nsExps = (typeof pcState !== 'undefined' && pcState.nonStock ? pcState.nonStock : []).filter(n => Number(n.amount) > 0).map(n => Object.assign({}, n, { name: n.name || '(非入庫商品)' }));
   const priced = txBatchItems.filter(it => Number(it.amount) > 0 && !paProductOffBooks(it.productId)).concat(lineExps, nsExps);
   if(paFormInAccounting()){
+    if(paImportOn()) return true;   // 海外進口:不用選 GST
     paAutoFillGst(txBatchItems);
     const miss = priced.filter(it => it.gst !== true && it.gst !== false);
     if(miss.length){
@@ -188,6 +281,11 @@ async function paPreSubmit(msg){
       msg.textContent = '⚠ ' + tf('paErrNeedGst', { names: miss.map(x => x.name).join('、') });
       return false;
     }
+    { const sys = paReceiptGstSystem(false), recv = paReceiptGstValue(false);
+      if(sys !== null && recv !== null && Math.abs(recv - sys) > 0.05){
+        const ok = await new Promise(res => showConfirmModal(tf('paReceiptGstConfirm', { recv: recv.toFixed(2), sys: sys.toFixed(2) }), () => res(true), () => res(false)));
+        if(!ok) return false;
+      } }
     return true;
   }
   if(priced.length === 0) return true;
@@ -200,9 +298,11 @@ function paApplyToPurchase(purchase, srcItems){
   purchase.gstMode = paFormGstMode();
   { const d = document.getElementById('purchaseDueDate'); if(d && d.value) purchase.dueDate = d.value; else delete purchase.dueDate; }
   { const iv = document.getElementById('purchaseInvDate'); if(iv && iv.value) purchase.invoiceDate = iv.value; else delete purchase.invoiceDate; }
+  { const rg = paImportOn() ? null : paReceiptGstValue(false); if(rg !== null) purchase.receiptGst = rg; else delete purchase.receiptGst; }
   (purchase.items || []).forEach((it, i) => {
     const s = srcItems[i];
     if(paProductOffBooks(it.productId) || (s && paProductOffBooks(s.productId))){ it.noAcct = true; delete it.gst; return; }
+    if(paImportOn()){ it.gst = false; return; }
     if(s && (s.gst === true || s.gst === false)) it.gst = s.gst;
     else { const g = paProductGst(it.productId); if(g !== null) it.gst = g; }
   });
@@ -215,11 +315,14 @@ function paEditLoad(p){
   const w = document.getElementById('editPurchaseAccWrap'); if(!w) return;
   w.style.display = paOn() ? 'block' : 'none';
   const c = document.getElementById('editPurchaseAccToggle'); if(c) c.checked = paCounted(p);
+  // 是否入會計預設由商品判斷(有任何入帳商品就算);只有已被「從會計移除」的進貨單才顯示這個勾選框,讓它可以重新加入
+  const accW = document.getElementById('editPurchaseAccToggleWrap'); if(accW) accW.style.display = (p.inAccounting === false) ? 'inline-flex' : 'none';
   const ckw = document.getElementById('editPurchaseChkWrap'); if(ckw) ckw.style.display = canEditPrice() ? 'flex' : 'none';
   const ck = document.getElementById('editPurchaseChkToggle'); if(ck) ck.checked = paChkState(p) === 'checked';
   const g = document.getElementById('editPurchaseGstMode'); if(g) g.value = p.gstMode === 'inc' ? 'inc' : 'ex';
   const dd = document.getElementById('editPurchaseDueDate'); if(dd) dd.value = p.dueDate || '';
   const iv = document.getElementById('editPurchaseInvDate'); if(iv) iv.value = p.invoiceDate || '';
+  const rg = document.getElementById('editPurchaseReceiptGst'); if(rg) rg.value = (p.receiptGst !== undefined && p.receiptGst !== null) ? p.receiptGst : '';
   // 舊進貨單的品項沒有 GST 資料:商品資料有設定的自動帶入
   paAutoFillGst(editPurchaseWorkingItems);
 }
@@ -232,17 +335,23 @@ function paEditSetGst(i, v){
 function paEditCheck(items){
   if(!paOn()) return '';
   if(typeof canViewPrice === 'function' && !canViewPrice()) return '';   // 沒有價錢權限的人不碰 GST,不擋他存檔
-  const c = document.getElementById('editPurchaseAccToggle');
-  if(!c || !c.checked) return '';
+  if(!paEditIncluded()) return '';
+  if(typeof pcEd !== 'undefined' && pcEd && pcEd.import) return '';   // 海外進口的進貨單不需要選 GST
   const lineMiss = (typeof pcEd !== 'undefined' && pcEd && pcEd.lineExpenses ? pcEd.lineExpenses : []).filter(l => Number(l.amount) > 0 && l.gst !== true && l.gst !== false);
   const nsMiss = (typeof pcEd !== 'undefined' && pcEd && pcEd.nonStock ? pcEd.nonStock : []).filter(n => Number(n.amount) > 0 && n.gst !== true && n.gst !== false);
   const miss = items.filter(it => it.docType !== 'others' && !it.noAcct && Number(it.amount) > 0 && it.gst !== true && it.gst !== false).concat(lineMiss.map(l => ({ name: l.name || '(其他支出)' })), nsMiss.map(n => ({ name: n.name || '(非入庫商品)' })));
   return miss.length ? tf('paErrNeedGst', { names: miss.map(x => x.name).join('、') }) : '';
 }
+// 編輯進貨單:勾選框隱藏時(進貨單目前是入會計的)一律算入;顯示時(之前被移除)看勾選
+function paEditIncluded(){
+  const w = document.getElementById('editPurchaseAccToggleWrap'), c = document.getElementById('editPurchaseAccToggle');
+  if(!w || w.style.display === 'none' || !c) return true;
+  return !!c.checked;
+}
 function paEditApply(p){
   if(!paOn()) return;
   const c = document.getElementById('editPurchaseAccToggle'), g = document.getElementById('editPurchaseGstMode');
-  p.inAccounting = !c || c.checked;
+  p.inAccounting = paEditIncluded();
   const ck = document.getElementById('editPurchaseChkToggle');
   if(ck && canEditPrice()){
     const was = paChkState(p);
@@ -254,6 +363,7 @@ function paEditApply(p){
   if(dd){ if(dd.value) p.dueDate = dd.value; else delete p.dueDate; }
   const iv = document.getElementById('editPurchaseInvDate');
   if(iv){ if(iv.value) p.invoiceDate = iv.value; else delete p.invoiceDate; }
+  { const rg = (typeof pcEd !== 'undefined' && pcEd && pcEd.import) ? null : paReceiptGstValue(true); if(rg !== null) p.receiptGst = rg; else delete p.receiptGst; }
 }
 
 // ------------------------------------------------------------
@@ -319,7 +429,7 @@ function paRenderList(){
       sum.t += i.total; sum.p += i.paid; sum.b += i.balance;
       html += `<tr>
       <td style="white-space:nowrap;">${paEsc(paDmy(p.date))}</td>
-      <td>${paEsc(p.partyName || '')}${paChkBadge(p)}</td>
+      <td>${paEsc(p.partyName || '')}${(typeof pcOverseasTagHtml === 'function') ? pcOverseasTagHtml(p) : ''}${paChkBadge(p)}</td>
       <td>${paEsc(p.invoiceNo || '')}</td>
       <td class="num"><b>${paM2(i.total)}</b></td>
       <td class="num">${paM2(i.paid)}</td><td class="num"><b>${paM2(i.balance)}</b></td>
@@ -426,7 +536,7 @@ function paOpenDetails(id){
   ov.onclick = e => { if(e.target === ov) paCloseOverlay('paDetailsOverlay'); };
   ov.innerHTML = `<div class="modal-box" style="max-width:min(600px,96vw);max-height:92vh;overflow:auto;">
     <div class="section-title" style="margin-top:0;">${t('paDetailTitle')}</div>
-    <div style="font-size:12.5px;margin:0 0 8px;">${paEsc(p.partyName || '')} · ${paStatusBadge(i.status)}${paChkBadge(p)}</div>
+    <div style="font-size:12.5px;margin:0 0 8px;">${paEsc(p.partyName || '')}${(typeof pcOverseasTagHtml === 'function') ? pcOverseasTagHtml(p) : ''} · ${paStatusBadge(i.status)}${paChkBadge(p)}</div>
     <table style="width:100%;font-size:13px;border-collapse:collapse;"><tbody>
       ${row(t('colDate'), paEsc(paDmy(p.date)))}
       ${row('Invoice No', paEsc(p.invoiceNo || ''))}
@@ -455,7 +565,8 @@ function paOpenDetails(id){
 function paRemoveFromAccounting(id){
   const p = purchases.find(x => x.id === id); if(!p) return;
   const hasPay = paRows.some(r => r.purchase_id === id || String(r.purchase_id).startsWith(id + '#'));
-  showConfirmModal(t(hasPay ? 'paConfirmRemoveHasPay' : 'paConfirmRemove'), async () => {
+  if(hasPay){ showInfoModal(t('paRemoveBlockedHasPay')); return; }   // 已有付款記錄的進貨單不能移出會計(避免付款記錄變成看不見)
+  showConfirmModal(t('paConfirmRemove'), async () => {
     try{
       p.inAccounting = false;
       await upsertPurchase(p);
