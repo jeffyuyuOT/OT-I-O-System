@@ -565,7 +565,8 @@ function paOpenDetails(id){
 function paRemoveFromAccounting(id){
   const p = purchases.find(x => x.id === id); if(!p) return;
   const hasPay = paRows.some(r => r.purchase_id === id || String(r.purchase_id).startsWith(id + '#'));
-  showConfirmModal(t(hasPay ? 'paConfirmRemoveHasPay' : 'paConfirmRemove'), async () => {
+  if(hasPay){ showInfoModal(t('paRemoveBlockedHasPay')); return; }   // 已有付款記錄的進貨單不能移出會計(避免付款記錄變成看不見)
+  showConfirmModal(t('paConfirmRemove'), async () => {
     try{
       p.inAccounting = false;
       await upsertPurchase(p);
