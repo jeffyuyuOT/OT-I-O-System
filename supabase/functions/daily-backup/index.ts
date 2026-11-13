@@ -270,9 +270,10 @@ Deno.serve(async (req) => {
       await w((firstTable ? "" : ",") + JSON.stringify(table_name) + ":[");
       firstTable = false;
       let firstRow = true;
-      await sql`select to_jsonb(t) as r from public.${sql(table_name)} t`.cursor(BATCH, async (rows: { r: unknown }[]) => {
-        for (const { r } of rows) { await w((firstRow ? "" : ",") + JSON.stringify(r)); firstRow = false; rowCount++; }
-      });
+      // 用 for await 逐批讀取:postgres.js 的 cursor(n, 回呼) 寫法不會等最後一批回呼跑完,會讓資料寫在串流關閉之後(JSON 損壞、Edge Runtime 當掉)
+      for await (const rows of sql`select to_jsonb(t) as r from public.${sql(table_name)} t`.cursor(BATCH)) {
+        for (const { r } of rows as { r: unknown }[]) { await w((firstRow ? "" : ",") + JSON.stringify(r)); firstRow = false; rowCount++; }
+      }
       await w("]");
       tableCount++;
     }
