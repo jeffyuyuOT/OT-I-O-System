@@ -1210,8 +1210,12 @@ function pcOpenOriginalModal(purchaseId){
 
 
 // ---------- 歷史紀錄:品項價格明細(底價 / 總價,每收據單位與每主商品單位) ----------
-function pcShowItemPrice(purchaseId, kind, idx){
+function pcShowItemPrice(purchaseId, kind, idx, _re){
   const p = (purchases || []).find(x => x.id === purchaseId); if(!p) return;
+  // 名稱旁邊顯示批次號:批次資料還沒載入就先載入,載好後重開一次
+  if(!_re && kind !== 'ns' && typeof ensureBatchDataLoaded === 'function' && typeof batchData !== 'undefined' && !(batchData.loaded && !batchData.stale)){
+    Promise.resolve(ensureBatchDataLoaded()).catch(() => {}).then(() => { if(batchData.loaded && document.getElementById('pcPriceDetailOverlay')) pcShowItemPrice(purchaseId, kind, idx, true); });
+  }
   const it = kind === 'ns' ? (p.nonStockItems || [])[idx] : (p.items || [])[idx]; if(!it) return;
   const base = (p.costs && p.costs.baseCurrency) || 'AUD';
   const fm = n => (Math.round((Number(n) + Number.EPSILON) * 100) / 100).toLocaleString('en-AU', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -1226,7 +1230,7 @@ function pcShowItemPrice(purchaseId, kind, idx){
   const head = `<th></th><th class="num">${t('pcPdTotal')}</th><th class="num">${pcEsc(tf('pcPdPer', { unit: unitName }))}</th>${converted ? `<th class="num">${pcEsc(tf('pcPdPer', { unit: mainUnit }))}</th>` : ''}`;
   const row = (label, amt, bold) => `<tr${bold ? ' style="font-weight:700;"' : ''}><td>${label}</td><td class="num">${fm(amt)}</td><td class="num">${per(amt, unitQty)}</td>${converted ? `<td class="num">${per(amt, mainQty)}</td>` : ''}</tr>`;
   const html = `
-    <div style="font-size:13px;font-weight:700;margin-bottom:4px;">${rcv && rcv.name && rcv.name !== it.name ? `${pcEsc(rcv.name)} → ` : ''}${pcEsc(it.name || '')}</div>
+    <div style="font-size:13px;font-weight:700;margin-bottom:4px;">${rcv && rcv.name && rcv.name !== it.name ? `${pcEsc(rcv.name)} → ` : ''}${pcEsc(it.name || '')}${(kind !== 'ns' && typeof batchLineNoHtml === 'function') ? batchLineNoHtml(purchaseId, it.productId, it.expiry || '') : ''}</div>
     <div style="font-size:12.5px;margin-bottom:8px;">${t('pcPdReceived')}: <strong>${unitQty} ${pcEsc(unitName)}</strong>${converted ? ` → ${t('pcPdMain')}: <strong>${mainQty} ${pcEsc(mainUnit)}</strong>` : ''}</div>
     <table class="stock-table"><thead><tr>${head}</tr></thead><tbody>
       ${row(t('pcColBase'), baseAmt)}${row(t('pcColAlloc'), alloc)}${row(t('pcColTotal'), totalAmt, true)}
