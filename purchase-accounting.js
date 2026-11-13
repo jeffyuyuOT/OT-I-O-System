@@ -504,8 +504,12 @@ function paClearFilter(){ paFilter = { from: '', to: '', status: '', sup: '', q:
 function paCloseOverlay(id){ const o = document.getElementById(id); if(o) o.remove(); }
 
 // ---- 詳細資料 ----
-function paOpenDetails(id){
+function paOpenDetails(id, _re){
   const p = purchases.find(x => x.id === id); if(!p) return;
+  // 批次號要用批次資料:還沒載入就先載入,載好後重畫一次
+  if(!_re && typeof ensureBatchDataLoaded === 'function' && typeof batchData !== 'undefined' && !(batchData.loaded && !batchData.stale)){
+    Promise.resolve(ensureBatchDataLoaded()).catch(() => {}).then(() => { if(batchData.loaded && document.getElementById('paDetailsOverlay')) paOpenDetails(id, true); });
+  }
   const i = paInfo(p);
   const row = (k, v) => `<tr><td style="color:var(--ink-soft);white-space:nowrap;vertical-align:top;">${k}</td><td>${v === '' || v === null || v === undefined ? '–' : v}</td></tr>`;
   const pdIcon = (kind, idx) => (typeof pcShowItemPrice === 'function') ? ` <span class="batch-info-icon" style="cursor:pointer;" title="${paEsc(t('pcPdTitle'))}" onclick="pcShowItemPrice('${paEsc(p.id)}','${kind}',${idx})">ⓘ</span>` : '';

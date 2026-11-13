@@ -69,6 +69,11 @@ function renderPurchaseLog(){
   const container = document.getElementById('purchaseLogTable');
   if(!container) return;
   if(!purchasesLoaded){ ensurePurchasesLoaded().then(renderPurchaseLog); return; }
+  // 明細裡的批次號要用批次資料:還沒載入就先載入、載好再畫一次(只重畫一次,避免迴圈)
+  if(typeof ensureBatchDataLoaded === 'function' && typeof batchData !== 'undefined' && !(batchData.loaded && !batchData.stale) && !renderPurchaseLog._bq){
+    renderPurchaseLog._bq = true;
+    Promise.resolve(ensureBatchDataLoaded()).catch(() => {}).then(() => { renderPurchaseLog._bq = false; if(batchData.loaded) renderPurchaseLog(); });
+  }
 
   const dateFrom = document.getElementById('purchaseLogDateFrom').value;
   const dateTo = document.getElementById('purchaseLogDateTo').value;
@@ -572,6 +577,9 @@ function populateEditPurchasePartySelect(currentName, currentSupplierId){
   renderEditPurchaseReceiptList();
   populateEditPurchaseAddItemSelect();
   renderEditPurchaseItemsList();
+  if(typeof ensureBatchDataLoaded === 'function' && typeof batchData !== 'undefined' && !(batchData.loaded && !batchData.stale)){
+    Promise.resolve(ensureBatchDataLoaded()).catch(() => {}).then(() => { if(batchData.loaded && editPurchaseTargetId === purchaseId) renderEditPurchaseItemsList(); });
+  }
   if(typeof pcEditInit === 'function') pcEditInit(p);
   {
     const pv = (typeof canViewPrice !== 'function') || canViewPrice();   // 倉管看不到價錢:金額、GST、入會計、成本/其他支出整區隱藏(儲存時原本的金額資料原樣保留)
@@ -725,6 +733,7 @@ function renderEditPurchaseItemsList(){
         <div style="${grid}padding:5px 0;border-bottom:1px solid var(--line);${it._scanUpdated ? 'background:var(--warn-bg);' : ''}">
           <div style="min-width:0;font-size:12.5px;line-height:1.3;">
             ${escapeHtmlForPrint(it.name || '')}${it.sku ? ` <span style="color:var(--ink-soft);">(${escapeHtmlForPrint(it.sku)})</span>` : ''}
+            ${(editPurchaseIsBatchTracked() && !it.noBatch && typeof batchLineNoHtml === 'function') ? batchLineNoHtml(editPurchaseTargetId, it.productId, it.expiry || '') : ''}
             ${it.docType === 'credit_note' ? ` <span style="color:var(--crit);font-weight:600;font-size:11px;">(${t('docTypeCreditNoteBadge')})</span>` : ''}
             ${it._scanUpdated ? `<span style="color:var(--warn-dark);font-size:11px;margin-left:4px;">🔍</span>` : ''}
             <span id="epFlagMk_${i}" style="display:${flags[i] ? 'inline' : 'none'};color:#d97706;cursor:help;" title="${flags[i] ? escapeHtmlForPrint(flags[i].msg) : ''}">⚠</span>
