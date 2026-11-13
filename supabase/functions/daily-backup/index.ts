@@ -41,11 +41,9 @@ async function dropboxRpc(token: string, endpoint: string, arg: unknown) {
 }
 
 async function gzipText(text: string): Promise<Uint8Array> {
-  const cs = new CompressionStream("gzip");
-  const w = cs.writable.getWriter();
-  w.write(new TextEncoder().encode(text));
-  w.close();
-  return new Uint8Array(await new Response(cs.readable).arrayBuffer());
+  // 標準寫法:Blob → pipeThrough → Response 讀取,不手動操作 writer(手動 write/close 沒等待完成會讓 Edge Runtime 出現 "stream is closing or is closed")
+  const stream = new Blob([text]).stream().pipeThrough(new CompressionStream("gzip"));
+  return new Uint8Array(await new Response(stream).arrayBuffer());
 }
 
 async function dropboxUpload(token: string, path: string, body: Uint8Array) {
@@ -281,6 +279,7 @@ Deno.serve(async (req) => {
     await w("}}");
     await writer.close();
     await pump;
+    console.log(`[backup] data dumped: ${tableCount} tables, ${rowCount} rows`);
 
     bytes = chunks.reduce((s, c) => s + c.length, 0);
     if (bytes > MAX_SIMPLE_UPLOAD) throw new Error(`備份檔 ${bytes} bytes 超過單次上傳上限,需要改用分段上傳`);
@@ -289,12 +288,14 @@ Deno.serve(async (req) => {
 
     const token = await dropboxToken();
     await dropboxUpload(token, `${FOLDER}/${file}`, body);
+    console.log(`[backup] data uploaded to ${FOLDER}/${file} (${bytes} bytes)`);
 
     // 結構匯出:失敗不影響資料備份(資料已上傳),只在 note 留記錄
     try {
       const schemaGz = await gzipText(await exportSchemaSql(sql));
       await dropboxUpload(token, `${FOLDER}/${schemaFile}`, schemaGz);
       schemaBytes = schemaGz.length;
+      console.log(`[backup] schema uploaded (${schemaBytes} bytes)`);
     } catch (e) { note = "schema: " + String((e as Error)?.message || e); }
 
     // 上傳成功後才清舊檔;清理失敗不算備份失敗,只記在 error 欄(ok 仍為 true)
@@ -302,6 +303,7 @@ Deno.serve(async (req) => {
     catch (e) { note = (note ? note + "; " : "") + "cleanup: " + String((e as Error)?.message || e); }
   } catch (e) {
     error = String((e as Error)?.message || e);
+    console.error(`[backup] failed: ${error}`);
   }
   try {
     await sql`insert into public.backup_log (ok, file, bytes, tables, rows, error)
