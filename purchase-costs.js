@@ -213,12 +213,15 @@ function pcFillMeta(e, supplier, excludePurchaseId){
 function pcExpMetaHtml(e, fn){
   // 海外進口的進貨單:支出可標成「進口 GST」(報關行收據上的貨物 GST 總額):全額是進項 GST、可退稅,不分攤進商品成本
   const impOn = (fn === 'pcUpdateExpense') ? !!pcState.overseas : !!(typeof pcEd !== 'undefined' && pcEd && pcEd.import);
-  const impHtml = impOn ? `<label style="display:inline-flex;align-items:center;gap:4px;font-size:12px;white-space:nowrap;cursor:pointer;"><input type="checkbox" ${e.importGst ? 'checked' : ''} onchange="${fn}('${e.id}','importGst',this.checked)" />${pcEsc(t('pcImportGst'))}</label>` : '';
+  const impHtml = (impOn || e.importGst) && e.importGst ? `<span style="font-size:11.5px;color:var(--ink-soft);white-space:nowrap;">(${pcEsc(t('pcImportGstNote'))})</span>` : '';
   const gstHtml = (!e.importGst && typeof paOn === 'function' && paOn() && typeof paGstSelectHtml === 'function') ? paGstSelectHtml(e.gst, `${fn}('${e.id}','gst',this.value==='y'?true:(this.value==='n'?false:''))`) : '';
   return `<input type="text" list="pcPayeeList" value="${pcEsc(e.payee || '')}" placeholder="${pcEsc(t('pcPayeePh'))}" style="width:130px;" onchange="${fn}('${e.id}','payee',this.value)" />${gstHtml}${impHtml}`;
 }
-function pcNameDatalist(id, supplier, excludePurchaseId){
-  return `<datalist id="pcPayeeList">${pcPayeeNames().map(n => `<option value="${pcEsc(n)}"></option>`).join('')}</datalist><datalist id="${id}">${pcExpenseSuggestions(supplier, excludePurchaseId).map(s => `<option value="${pcEsc(s.name)}" label="${pcEsc(s.label ? s.name + ' (' + s.label + ')' : s.name)}"></option>`).join('')}</datalist>`;
+// 「進口 GST」預設項目:海外進口時,支出名稱選這個 = 報關行收據上的貨物 GST 總額(可退稅,不分攤成本)
+function pcImportNameOf(){ return t('pcImportGstName'); }
+function pcIsImportName(name){ const n = String(name || '').trim().toLowerCase(); return n === '進口 gst' || n === '進口gst' || n === 'import gst'; }
+function pcNameDatalist(id, supplier, excludePurchaseId, withImport){
+  return `<datalist id="pcPayeeList">${pcPayeeNames().map(n => `<option value="${pcEsc(n)}"></option>`).join('')}</datalist><datalist id="${id}">${withImport ? `<option value="${pcEsc(pcImportNameOf())}" label="${pcEsc(pcImportNameOf() + ' (' + t('pcImportGstNote') + ')')}"></option>` : ''}${pcExpenseSuggestions(supplier, excludePurchaseId).map(s => `<option value="${pcEsc(s.name)}" label="${pcEsc(s.label ? s.name + ' (' + s.label + ')' : s.name)}"></option>`).join('')}</datalist>`;
 }
 // 填入成功回傳 true。已有金額、找不到歷史都不動。
 // opts.strict:只接受同一供應商的紀錄(送出時沿用用);opts.overseas:海外採購且同供應商 → 標記為「預估」。
@@ -303,10 +306,11 @@ function pcUpdateExpense(id, field, value){
   } else if(field === 'gst'){ if(value === true || value === false) e.gst = value; else delete e.gst; }
   else if(field === 'importGst'){ e.importGst = !!value; if(e.importGst) e.gst = false; else delete e.gst; }
   else e[field] = value;
+  if(field === 'name'){ if(pcState.overseas && pcIsImportName(value)){ e.importGst = true; e.gst = false; e.name = pcImportNameOf(); } else if(e.importGst){ e.importGst = false; delete e.gst; } }
   if(field === 'name') pcFillMeta(e, pcSupplierName());
   pcRender();
   if(field === 'currency') pcFetchRates(false);
-  if(field === 'name' && (e.amount === '' || e.amount === undefined)){
+  if(field === 'name' && !e.importGst && (e.amount === '' || e.amount === undefined)){
     // 選了(或輸入了)之前用過的項目 → 帶入上次的幣種與金額(可以再改);海外採購且同供應商 = 標記為預估
     ensurePurchasesLoaded().then(() => {
       if(pcFillFromLast(e, pcSupplierName(), undefined, { overseas: pcState.overseas })){ pcRender(); pcFetchRates(false); }
@@ -756,7 +760,7 @@ function pcRender(){
   const foreign = pcUsedForeignCurrencies();
   const exps = pcExpenseRows();
   const supplierNow = pcSupplierName();
-  const dl = pcNameDatalist('pcExpenseNameList', supplierNow);
+  const dl = pcNameDatalist('pcExpenseNameList', supplierNow, undefined, !!pcState.overseas);
   const lastSet = pcLastExpenseSetFor(supplierNow);
 
   const expRows = pcState.expenses.map(e => `
@@ -892,10 +896,11 @@ function pcEdUpdate(id, field, value){
   } else if(field === 'gst'){ if(value === true || value === false) e.gst = value; else delete e.gst; }
   else if(field === 'importGst'){ e.importGst = !!value; if(e.importGst) e.gst = false; else delete e.gst; }
   else e[field] = value;
+  if(field === 'name'){ if(pcEd.import && pcIsImportName(value)){ e.importGst = true; e.gst = false; e.name = pcImportNameOf(); } else if(e.importGst){ e.importGst = false; delete e.gst; } }
   if(field === 'name'){ const pp = (typeof purchases !== 'undefined') ? purchases.find(x => x.id === pcEd.purchaseId) : null; pcFillMeta(e, pp ? (pp.partyName || pp.partyId || '') : '', pcEd.purchaseId); }
   pcEditRender();
   if(field === 'currency') pcEdFetchRates(false);
-  if(field === 'name' && (e.amount === '' || e.amount === undefined)){
+  if(field === 'name' && !e.importGst && (e.amount === '' || e.amount === undefined)){
     // 選了之前用過的項目 → 帶入上次的幣種與金額(可以再改)
     const p = (typeof purchases !== 'undefined') ? purchases.find(x => x.id === pcEd.purchaseId) : null;
     if(pcFillFromLast(e, p ? (p.partyName || p.partyId || '') : '', pcEd.purchaseId, { overseas: !!pcEd.overseas })){ pcEditRender(); pcEdFetchRates(false); }
@@ -963,7 +968,7 @@ function pcEditRender(){
   if(!pcEd){ wrap.innerHTML = ''; return; }
   const curOpts = (sel) => pcCurrencyList().map(c => `<option value="${c}" ${c === sel ? 'selected' : ''}>${c}</option>`).join('');
   const edPurchase = (typeof purchases !== 'undefined') ? purchases.find(x => x.id === pcEd.purchaseId) : null;
-  const dl = pcNameDatalist('pcEdExpenseNameList', edPurchase ? (edPurchase.partyName || edPurchase.partyId || '') : '', pcEd.purchaseId);
+  const dl = pcNameDatalist('pcEdExpenseNameList', edPurchase ? (edPurchase.partyName || edPurchase.partyId || '') : '', pcEd.purchaseId, !!pcEd.import);
   const rows = pcEd.expenses.map(e => `
     <div style="display:flex;gap:6px;align-items:center;margin:4px 0;flex-wrap:wrap;${e.estimated ? 'background:var(--warn-bg);padding:4px;border-radius:6px;' : ''}">
       <input type="text" list="pcEdExpenseNameList" value="${pcEsc(e.name)}" placeholder="${t('pcExpenseName')}" style="width:170px;" onchange="pcEdUpdate('${e.id}','name',this.value)" />
