@@ -1,6 +1,6 @@
 // 每日 Storage 檔案備份:把所有 bucket 的檔案「增量」複製到 Dropbox(App folder)/storage/<bucket>/<路徑>。
 // 只上傳 Dropbox 上還沒有(或大小不同)的檔案;不會刪除 Dropbox 上的舊檔(即使 Storage 裡已被刪除,仍保留備份)。
-// 每次最多處理 MAX_FILES 個檔案或約 TIME_BUDGET_MS 毫秒,沒做完的下次續做(首次 157 檔通常一次完成)。
+// 同時處理 5 個檔案;下載用 service role(public / private bucket 都可)。每次最多處理 MAX_FILES 個檔案或約 TIME_BUDGET_MS 毫秒,沒做完的下次續做(首次 157 檔通常一次完成)。
 // 由 pg_cron 每天呼叫(見 sql/storage_backup_cron.sql)。部署時關掉 JWT 驗證(--no-verify-jwt),改用 x-backup-secret 驗證。
 // secrets:DROPBOX_APP_KEY, DROPBOX_APP_SECRET, DROPBOX_REFRESH_TOKEN, BACKUP_SECRET(與 daily-backup 共用);
 // 選用 STORAGE_BACKUP_FOLDER(預設 /storage;測試專案請設 /storage-test)。SUPABASE_DB_URL、SUPABASE_URL 由 Supabase 自動提供。
@@ -8,6 +8,7 @@ import postgres from "https://deno.land/x/postgresjs@v3.4.4/mod.js";
 
 const FOLDER = Deno.env.get("STORAGE_BACKUP_FOLDER") || "/storage";
 const MAX_FILES = 200;
+const CONCURRENCY = 5;
 const TIME_BUDGET_MS = 100_000;
 const MAX_FILE = 140 * 1024 * 1024; // Dropbox 單次上傳上限 150MB
 
@@ -88,24 +89,36 @@ Deno.serve(async (req: Request) => {
       order by created_at` as unknown as { bucket_id: string; name: string; size: number }[];
     total = objs.length;
     const base = Deno.env.get("SUPABASE_URL")!.replace(/\/$/, "");
+    const svcKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!; // Supabase 自動提供;用它下載,public / private bucket 都可以
+    const todo: typeof objs = [];
     for (const o of objs) {
       const dbxPath = `${FOLDER}/${o.bucket_id}/${o.name}`;
-      if (have.get(dbxPath.toLowerCase()) === o.size && o.size > 0) { skipped++; continue; }
-      if (uploaded + failed >= MAX_FILES || Date.now() - started > TIME_BUDGET_MS) { pending++; continue; }
-      try {
-        if (o.size > MAX_FILE) throw new Error("file too large");
-        // bucket 都是 public,可直接用公開網址下載;若日後改成 private 需改用 service role 簽名網址
-        const url = `${base}/storage/v1/object/public/${encodeURIComponent(o.bucket_id)}/${o.name.split("/").map(encodeURIComponent).join("/")}`;
-        const r = await fetch(url);
-        if (!r.ok) throw new Error(`download ${r.status}`);
-        const buf = new Uint8Array(await r.arrayBuffer());
-        await dropboxUpload(token, dbxPath, buf);
-        uploaded++; bytes += buf.length;
-      } catch (e) {
-        failed++; console.error("[storage-backup] failed", dbxPath, String(e));
-        note = note || `first failure: ${dbxPath}: ${String(e).slice(0, 120)}`;
-      }
+      if (have.get(dbxPath.toLowerCase()) === o.size && o.size > 0) skipped++; else todo.push(o);
     }
+    // 同時處理 CONCURRENCY 個檔案;超過檔數或時間上限的留給下次
+    let next = 0;
+    const worker = async () => {
+      for (;;) {
+        if (next >= todo.length) return;
+        if (uploaded + failed >= MAX_FILES || Date.now() - started > TIME_BUDGET_MS) return;
+        const o = todo[next++];
+        const dbxPath = `${FOLDER}/${o.bucket_id}/${o.name}`;
+        try {
+          if (o.size > MAX_FILE) throw new Error("file too large");
+          const url = `${base}/storage/v1/object/${encodeURIComponent(o.bucket_id)}/${o.name.split("/").map(encodeURIComponent).join("/")}`;
+          const r = await fetch(url, { headers: { Authorization: `Bearer ${svcKey}`, apikey: svcKey } });
+          if (!r.ok) throw new Error(`download ${r.status}`);
+          const buf = new Uint8Array(await r.arrayBuffer());
+          await dropboxUpload(token, dbxPath, buf);
+          uploaded++; bytes += buf.length;
+        } catch (e) {
+          failed++; console.error("[storage-backup] failed", dbxPath, String(e));
+          note = note || `first failure: ${dbxPath}: ${String(e).slice(0, 120)}`;
+        }
+      }
+    };
+    await Promise.all(Array.from({ length: CONCURRENCY }, worker));
+    pending = todo.length - Math.min(next, todo.length);
     if (failed > 0) error = `${failed} file(s) failed; ${note}`;
     else if (pending > 0) note = `${pending} file(s) left for next run`;
     console.log(`[storage-backup] total=${total} uploaded=${uploaded} skipped=${skipped} failed=${failed} pending=${pending}`);
