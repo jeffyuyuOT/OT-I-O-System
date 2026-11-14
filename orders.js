@@ -2020,6 +2020,11 @@ function populateVerifyPageOrderSelect(){
   else sel.value = '';
 }
 
+// 清掉訂單核對頁面上的錯誤 / 結果訊息(換訂單、離開分頁、改了點貨清單時都該消掉,不然舊訊息會一直卡著)
+function verifyPageClearMsg(){
+  const m = document.getElementById('verifyPageMsg');
+  if(m){ m.className = 'msg'; m.textContent = ''; }
+}
 // 下拉選單自己選一張待處理訂單(跟從「待處理訂單」清單點「載入訂單核對頁面」進來是同一個效果)。
 function loadOrderIntoVerifyPage(orderId){
   verifyPageOrderId = orderId || null;
@@ -2037,6 +2042,7 @@ function loadOrderIntoVerifyPage(orderId){
 function openOrderInVerifyPage(orderId){
   verifyPageOrderId = orderId;
   verifyPageRightItems = [];
+  verifyPageClearMsg();
   const browseAllEl = document.getElementById('verifyPageBrowseAllProducts');
   if(browseAllEl) browseAllEl.checked = false;
   switchTab('tab-warehouse-ops');
@@ -2144,6 +2150,7 @@ function addVerifyPageItem(){
 
 function removeVerifyPageItem(idx){
   verifyPageRightItems.splice(idx, 1);
+  verifyPageClearMsg();
   renderVerifyPageRightItems();
 }
 
