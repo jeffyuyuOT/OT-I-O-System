@@ -1,0 +1,342 @@
+-- ============================================================
+-- Credit Note(貸項通知單)
+-- 在「測試」Supabase 專案的 SQL Editor 執行一次;正式版等你明說再執行。可重複執行。
+-- 前提:已經執行過 invoices_table / invoice_payments / invoice_changes / invoice_orders 四個 SQL。
+--
+-- * credit_notes:每張 Credit Note 一列(可以連到原 Invoice,也可以單獨記在客戶名下)。
+--   total 存「正數」(代表扣減的金額),畫面與文件上用括號顯示成負數。
+-- * invoices.credited:連到這張 Invoice 的 Credit Note 總額,Invoice 的未收金額 = 總額 - credited - 已收。
+-- * return_status:none(不需退貨入庫)/ pending(待入庫)/ partial(部分入庫)/ done(已入庫)。
+-- * Credit Note 只是帳務文件,不動庫存;退貨入庫在「登記進出貨」處理,入庫時可以選對應的 Credit Note。
+-- ============================================================
+create table if not exists public.credit_note_counter (id int primary key default 1, next_no bigint not null default 1);
+insert into public.credit_note_counter (id, next_no) values (1, 1) on conflict (id) do nothing;
+alter table public.credit_note_counter enable row level security;
+
+create table if not exists public.credit_notes (
+  id            text primary key,
+  cn_no         text not null unique,
+  invoice_id    text references public.invoices(id) on delete set null,
+  invoice_no    text,
+  party_id      text,
+  customer      text,
+  cn_date       date not null,
+  before_tax    numeric,
+  tax           numeric,
+  total         numeric not null,
+  currency      text,
+  return_status text default 'none',
+  snapshot      jsonb not null,
+  created_by    text,
+  created_at    timestamptz default now()
+);
+create index if not exists credit_notes_invoice_idx on public.credit_notes (invoice_id);
+create index if not exists credit_notes_party_idx on public.credit_notes (party_id);
+alter table public.credit_notes enable row level security;
+drop policy if exists credit_notes_select on public.credit_notes;
+create policy credit_notes_select on public.credit_notes for select to authenticated using (public.is_accounting_user());
+
+alter table public.invoices add column if not exists credited numeric default 0;
+
+create or replace function public.credit_note_recalc(p_invoice_id text) returns void
+language plpgsql security definer set search_path = public as $$
+begin
+  if p_invoice_id is null then return; end if;
+  update public.invoices set credited = coalesce((select sum(total) from public.credit_notes where invoice_id = p_invoice_id), 0) where id = p_invoice_id;
+end $$;
+
+create or replace function public.credit_note_create(p_snapshot jsonb, p_invoice_id text, p_party_id text)
+returns jsonb language plpgsql security definer set search_path = public as $$
+declare v_n bigint; v_no text; v_id text := gen_random_uuid()::text; v_snap jsonb; v_who text; v_inv public.invoices%rowtype; v_status text := 'none';
+begin
+  if not public.is_accounting_user() then raise exception 'invoice_forbidden'; end if;
+  if p_invoice_id is not null then
+    select * into v_inv from public.invoices where id = p_invoice_id;
+    if not found then raise exception 'invoice_not_found'; end if;
+    -- 這張 Invoice 的 Credit Note 合計不能超過 Invoice 總額
+    if coalesce(v_inv.credited, 0) + coalesce((p_snapshot->>'total')::numeric, 0) > v_inv.total + 0.004 then raise exception 'credit_exceeds'; end if;
+  end if;
+  select next_no into v_n from public.credit_note_counter where id = 1 for update;
+  -- 計數器落後(例如還原備份後)時,往現有最大編號之後接,避免編號重複
+  v_n := greatest(coalesce(v_n, 1), coalesce((select max(regexp_replace(cn_no, '\D', '', 'g')::bigint) from public.credit_notes), 0) + 1);
+  v_no := 'CN' || lpad(v_n::text, 8, '0');
+  update public.credit_note_counter set next_no = v_n + 1 where id = 1;
+  v_snap := p_snapshot || jsonb_build_object('no', v_no, 'id', v_id, 'docType', 'credit_note');
+  if exists (select 1 from jsonb_array_elements(coalesce(v_snap->'lines', '[]'::jsonb)) l where coalesce((l->>'ret')::boolean, false)) then v_status := 'pending'; end if;
+  select username into v_who from public.profiles where id = auth.uid();
+  insert into public.credit_notes (id, cn_no, invoice_id, invoice_no, party_id, customer, cn_date, before_tax, tax, total, currency, return_status, snapshot, created_by)
+  values (v_id, v_no, p_invoice_id, v_inv.invoice_no, nullif(p_party_id, ''), v_snap #>> '{customer,name}', (v_snap->>'date')::date,
+          (v_snap->>'beforeTax')::numeric, (v_snap->>'tax')::numeric, (v_snap->>'total')::numeric, v_snap->>'currency', v_status, v_snap, v_who);
+  perform public.credit_note_recalc(p_invoice_id);
+  return jsonb_build_object('id', v_id, 'cn_no', v_no);
+end $$;
+
+-- 登記進出貨做退貨入庫時,下拉選單用:這個出貨方「待入庫 / 部分入庫」的 Credit Note(倉庫管理員也能用,只回傳退貨品項)
+create or replace function public.credit_notes_pending(p_party_id text)
+returns table (id text, cn_no text, cn_date date, customer text, items jsonb)
+language sql stable security definer set search_path = public as $$
+  select c.id, c.cn_no, c.cn_date, c.customer,
+         coalesce((select jsonb_agg(jsonb_build_object('productId', l->>'productId', 'name', l->>'desc', 'unit', l->>'unit', 'qty', (l->>'qty')::numeric,
+                    'returned', coalesce((c.snapshot->'returned'->>(l->>'productId'))::numeric, 0)))
+                   from jsonb_array_elements(c.snapshot->'lines') l where coalesce((l->>'ret')::boolean, false)), '[]'::jsonb)
+    from public.credit_notes c
+   where c.return_status in ('pending', 'partial') and (p_party_id is null or c.party_id = p_party_id)
+   order by c.cn_date desc, c.cn_no desc;
+$$;
+
+-- 退貨入庫登記後,記下這張 Credit Note 各商品已入庫的數量;全部入庫就變 done
+create or replace function public.credit_note_mark_returned(p_id text, p_items jsonb)
+returns text language plpgsql security definer set search_path = public as $$
+declare v_snap jsonb; v_ret jsonb; v_it jsonb; v_done boolean; v_status text;
+begin
+  if auth.uid() is null then raise exception 'invoice_forbidden'; end if;
+  select snapshot into v_snap from public.credit_notes where id = p_id for update;
+  if not found then raise exception 'credit_note_not_found'; end if;
+  v_ret := coalesce(v_snap->'returned', '{}'::jsonb);
+  for v_it in select * from jsonb_array_elements(coalesce(p_items, '[]'::jsonb)) loop
+    v_ret := v_ret || jsonb_build_object(v_it->>'productId', coalesce((v_ret->>(v_it->>'productId'))::numeric, 0) + coalesce((v_it->>'qty')::numeric, 0));
+  end loop;
+  v_snap := v_snap || jsonb_build_object('returned', v_ret);
+  select bool_and(coalesce((v_ret->>(l->>'productId'))::numeric, 0) >= (l->>'qty')::numeric) into v_done
+    from jsonb_array_elements(v_snap->'lines') l where coalesce((l->>'ret')::boolean, false);
+  v_status := case when coalesce(v_done, true) then 'done' else 'partial' end;
+  update public.credit_notes set snapshot = v_snap, return_status = v_status where id = p_id;
+  return v_status;
+end $$;
+
+-- 會計 / 管理員手動改入庫狀態(例如入庫時忘了選 Credit Note,事後確認已入庫;或選錯想退回待入庫)
+create or replace function public.credit_note_set_return_status(p_id text, p_status text)
+returns void language plpgsql security definer set search_path = public as $$
+declare v_snap jsonb; v_any boolean; v_all boolean;
+begin
+  if not public.is_accounting_user() then raise exception 'invoice_forbidden'; end if;
+  if p_status not in ('pending', 'partial', 'done', 'none') then raise exception 'bad_status'; end if;
+  select snapshot into v_snap from public.credit_notes where id = p_id for update;
+  if not found then raise exception 'credit_note_not_found'; end if;
+  -- 已經透過登記進出貨記錄過入庫數量的,不能手動改回比實際入庫更少的狀態(庫存那筆入庫還在,要先到登記進出貨處理)
+  select coalesce(bool_or(coalesce((v_snap->'returned'->>(l->>'productId'))::numeric, 0) > 0), false),
+         coalesce(bool_and(coalesce((v_snap->'returned'->>(l->>'productId'))::numeric, 0) >= (l->>'qty')::numeric), false)
+    into v_any, v_all
+    from jsonb_array_elements(coalesce(v_snap->'lines', '[]'::jsonb)) l where coalesce((l->>'ret')::boolean, false);
+  if v_all and p_status <> 'done' then raise exception 'return_recorded'; end if;
+  if v_any and p_status in ('pending', 'none') then raise exception 'return_recorded'; end if;
+  update public.credit_notes set return_status = p_status where id = p_id;
+end $$;
+
+-- 訂單編輯前的檢查:要把已開的 Credit Note 扣掉(新總額 - credited 不能低於已收款)
+create or replace function public.invoice_edit_guard(p_invoice_id text, p_delta numeric)
+returns boolean language plpgsql stable security definer set search_path = public as $$
+declare v_total numeric; v_paid numeric; v_cr numeric;
+begin
+  select total, coalesce(paid, 0), coalesce(credited, 0) into v_total, v_paid, v_cr from public.invoices where id = p_invoice_id;
+  if not found then return true; end if;
+  return (v_total - v_cr + coalesce(p_delta, 0)) >= v_paid - 0.004;
+end $$;
+revoke all on function public.invoice_edit_guard(text, numeric) from public, anon;
+grant execute on function public.invoice_edit_guard(text, numeric) to authenticated;
+
+-- 備份 / 還原 / 清除
+create or replace function public.credit_notes_restore_all(p_rows jsonb, p_next bigint)
+returns void language plpgsql security definer set search_path = public as $$
+begin
+  if not public.is_admin_user() then raise exception 'invoice_forbidden'; end if;
+  delete from public.credit_notes where true;
+  insert into public.credit_notes select * from jsonb_populate_recordset(null::public.credit_notes, coalesce(p_rows, '[]'::jsonb));
+  update public.credit_note_counter set next_no = greatest(coalesce(p_next, 1), 1, coalesce((select max(regexp_replace(cn_no, '\D', '', 'g')::bigint) from public.credit_notes), 0) + 1) where id = 1;
+  update public.invoices i set credited = coalesce((select sum(total) from public.credit_notes c where c.invoice_id = i.id), 0) where true;
+end $$;
+create or replace function public.credit_notes_clear_all() returns void
+language plpgsql security definer set search_path = public as $$
+begin
+  if not public.is_admin_user() then raise exception 'invoice_forbidden'; end if;
+  delete from public.credit_notes where true;
+  update public.credit_note_counter set next_no = 1 where id = 1;
+end $$;
+
+revoke all on function public.credit_note_recalc(text) from public, anon, authenticated;
+revoke all on function public.credit_note_create(jsonb, text, text) from public, anon;
+revoke all on function public.credit_notes_pending(text) from public, anon;
+revoke all on function public.credit_note_mark_returned(text, jsonb) from public, anon;
+revoke all on function public.credit_note_set_return_status(text, text) from public, anon;
+revoke all on function public.credit_notes_restore_all(jsonb, bigint) from public, anon;
+revoke all on function public.credit_notes_clear_all() from public, anon;
+grant execute on function public.credit_note_create(jsonb, text, text) to authenticated;
+grant execute on function public.credit_notes_pending(text) to authenticated;
+grant execute on function public.credit_note_mark_returned(text, jsonb) to authenticated;
+grant execute on function public.credit_note_set_return_status(text, text) to authenticated;
+grant execute on function public.credit_notes_restore_all(jsonb, bigint) to authenticated;
+grant execute on function public.credit_notes_clear_all() to authenticated;
+
+-- 收款金額原本限制必須大於 0,退款 / 轉出需要負數,改成「不能是 0」
+alter table public.invoice_payments drop constraint if exists invoice_payments_amount_check;
+alter table public.invoice_payments drop constraint if exists invoice_payments_amount_nonzero;
+alter table public.invoice_payments add constraint invoice_payments_amount_nonzero check (amount <> 0);
+
+-- ============================================================
+-- 多收(已收款 > 扣完 Credit Note 後的應收)的處理:退款
+-- * 收款上限改成「Invoice 總額 - Credit Note」(不再是原總額);已經多收的 Invoice 修改舊收款不受限制(只要不讓多收變更多)。
+-- * invoice_refund():記一筆負數的收款(方式 = 你選的付款方式),退款金額不能超過目前多收的金額。
+-- ============================================================
+create or replace function public.invoice_payment_save(p_invoice_id text, p_payment_id text, p_date date, p_amount numeric, p_method text, p_note text)
+returns jsonb language plpgsql security definer set search_path = public as $$
+declare v_total numeric; v_cr numeric; v_other numeric; v_all numeric; v_who text; v_id text; v_paid numeric;
+begin
+  if not public.is_accounting_user() then raise exception 'invoice_forbidden'; end if;
+  select total, coalesce(credited, 0) into v_total, v_cr from public.invoices where id = p_invoice_id for update;
+  if not found then raise exception 'invoice_not_found'; end if;
+  if p_amount is null or p_amount <= 0 then raise exception 'invoice_bad_paid'; end if;
+  if p_date is null then raise exception 'invoice_bad_date'; end if;
+  select coalesce(sum(amount), 0) into v_all from public.invoice_payments where invoice_id = p_invoice_id;
+  select coalesce(sum(amount), 0) into v_other from public.invoice_payments
+   where invoice_id = p_invoice_id and (p_payment_id is null or id <> p_payment_id);
+  if v_other + p_amount > greatest(v_total - v_cr, v_all) + 0.004 then raise exception 'invoice_bad_paid'; end if;
+  select username into v_who from public.profiles where id = auth.uid();
+  if p_payment_id is null then
+    v_id := gen_random_uuid()::text;
+    insert into public.invoice_payments (id, invoice_id, pay_date, amount, method, note, created_by)
+    values (v_id, p_invoice_id, p_date, p_amount, nullif(p_method, ''), nullif(p_note, ''), v_who);
+  else
+    v_id := p_payment_id;
+    update public.invoice_payments
+       set pay_date = p_date, amount = p_amount, method = nullif(p_method, ''), note = nullif(p_note, '')
+     where id = p_payment_id and invoice_id = p_invoice_id;
+    if not found then raise exception 'invoice_payment_not_found'; end if;
+  end if;
+  v_paid := public.invoice_recalc_paid(p_invoice_id);
+  return jsonb_build_object('id', v_id, 'paid', v_paid);
+end $$;
+
+create or replace function public.invoice_refund(p_invoice_id text, p_date date, p_amount numeric, p_method text, p_note text)
+returns jsonb language plpgsql security definer set search_path = public as $$
+declare v_total numeric; v_cr numeric; v_paid numeric; v_who text; v_id text := gen_random_uuid()::text;
+begin
+  if not public.is_accounting_user() then raise exception 'invoice_forbidden'; end if;
+  select total, coalesce(credited, 0) into v_total, v_cr from public.invoices where id = p_invoice_id for update;
+  if not found then raise exception 'invoice_not_found'; end if;
+  select coalesce(sum(amount), 0) into v_paid from public.invoice_payments where invoice_id = p_invoice_id;
+  if p_amount is null or p_amount <= 0 then raise exception 'invoice_bad_paid'; end if;
+  if p_date is null then raise exception 'invoice_bad_date'; end if;
+  if p_amount > (v_paid - (v_total - v_cr)) + 0.004 then raise exception 'refund_exceeds'; end if;
+  select username into v_who from public.profiles where id = auth.uid();
+  insert into public.invoice_payments (id, invoice_id, pay_date, amount, method, note, created_by)
+  values (v_id, p_invoice_id, p_date, -p_amount, 'Refund' || coalesce(' - ' || nullif(p_method, ''), ''), nullif(p_note, ''), v_who);
+  perform public.invoice_recalc_paid(p_invoice_id);
+  return jsonb_build_object('id', v_id);
+end $$;
+revoke all on function public.invoice_payment_save(text, text, date, numeric, text, text) from public, anon;
+revoke all on function public.invoice_refund(text, date, numeric, text, text) from public, anon;
+grant execute on function public.invoice_payment_save(text, text, date, numeric, text, text) to authenticated;
+grant execute on function public.invoice_refund(text, date, numeric, text, text) to authenticated;
+
+-- ============================================================
+-- 客戶額度:用「單獨的 Credit Note」或「其他 Invoice 的多收金額」抵扣另一張 Invoice 的未收
+-- * credit_notes.applied:這張(單獨的)Credit Note 已經抵扣掉多少。
+-- * 抵扣是在目標 Invoice 的收款記錄裡記一筆收款(方式 Credit / Transfer in),來源那邊同步記錄:
+--   Credit Note → applied 增加;其他 Invoice → 記一筆負數的 Transfer out。
+-- * 這些收款不能編輯;刪除時會自動還原來源(Credit Note 的 applied 減回去、Transfer 的另一半一起刪除)。
+-- ============================================================
+alter table public.credit_notes add column if not exists applied numeric default 0;
+alter table public.invoice_payments add column if not exists credit_cn_id text;
+alter table public.invoice_payments add column if not exists pair_payment_id text;
+
+create or replace function public.invoice_apply_credit(p_invoice_id text, p_source_type text, p_source_id text, p_amount numeric, p_date date)
+returns jsonb language plpgsql security definer set search_path = public as $$
+declare v_t public.invoices%rowtype; v_tpaid numeric; v_who text; v_pid text := gen_random_uuid()::text; v_cn public.credit_notes%rowtype; v_s public.invoices%rowtype; v_spaid numeric; v_pid2 text := gen_random_uuid()::text;
+begin
+  if not public.is_accounting_user() then raise exception 'invoice_forbidden'; end if;
+  if p_amount is null or p_amount <= 0 then raise exception 'invoice_bad_paid'; end if;
+  if p_date is null then raise exception 'invoice_bad_date'; end if;
+  select * into v_t from public.invoices where id = p_invoice_id for update;
+  if not found then raise exception 'invoice_not_found'; end if;
+  select coalesce(sum(amount), 0) into v_tpaid from public.invoice_payments where invoice_id = p_invoice_id;
+  if p_amount > (v_t.total - coalesce(v_t.credited, 0) - v_tpaid) + 0.004 then raise exception 'credit_exceeds_balance'; end if;
+  select username into v_who from public.profiles where id = auth.uid();
+
+  if p_source_type = 'cn' then
+    select * into v_cn from public.credit_notes where id = p_source_id for update;
+    if not found or v_cn.invoice_id is not null then raise exception 'credit_source_invalid'; end if;
+    if not ((v_cn.party_id is not null and v_cn.party_id = v_t.party_id) or (coalesce(v_cn.customer, '') <> '' and v_cn.customer = v_t.customer)) then raise exception 'credit_source_invalid'; end if;
+    if p_amount > (v_cn.total - coalesce(v_cn.applied, 0)) + 0.004 then raise exception 'credit_exceeds_available'; end if;
+    insert into public.invoice_payments (id, invoice_id, pay_date, amount, method, note, created_by, credit_cn_id)
+    values (v_pid, p_invoice_id, p_date, p_amount, 'Credit', v_cn.cn_no, v_who, v_cn.id);
+    update public.credit_notes set applied = coalesce(applied, 0) + p_amount where id = v_cn.id;
+  elsif p_source_type = 'invoice' then
+    select * into v_s from public.invoices where id = p_source_id for update;
+    if not found or v_s.id = v_t.id then raise exception 'credit_source_invalid'; end if;
+    if not ((v_s.party_id is not null and v_s.party_id = v_t.party_id) or (coalesce(v_s.customer, '') <> '' and v_s.customer = v_t.customer)) then raise exception 'credit_source_invalid'; end if;
+    select coalesce(sum(amount), 0) into v_spaid from public.invoice_payments where invoice_id = v_s.id;
+    if p_amount > (v_spaid - (v_s.total - coalesce(v_s.credited, 0))) + 0.004 then raise exception 'credit_exceeds_available'; end if;
+    insert into public.invoice_payments (id, invoice_id, pay_date, amount, method, note, created_by, pair_payment_id)
+    values (v_pid, p_invoice_id, p_date, p_amount, 'Transfer in', 'from INV' || v_s.invoice_no, v_who, v_pid2);
+    insert into public.invoice_payments (id, invoice_id, pay_date, amount, method, note, created_by, pair_payment_id)
+    values (v_pid2, v_s.id, p_date, -p_amount, 'Transfer out', 'to INV' || v_t.invoice_no, v_who, v_pid);
+    perform public.invoice_recalc_paid(v_s.id);
+  else
+    raise exception 'credit_source_invalid';
+  end if;
+  perform public.invoice_recalc_paid(p_invoice_id);
+  return jsonb_build_object('id', v_pid);
+end $$;
+
+-- 收款不能編輯:額度抵扣 / 轉入轉出的收款要刪除再重做
+create or replace function public.invoice_payment_save(p_invoice_id text, p_payment_id text, p_date date, p_amount numeric, p_method text, p_note text)
+returns jsonb language plpgsql security definer set search_path = public as $$
+declare v_total numeric; v_cr numeric; v_other numeric; v_all numeric; v_who text; v_id text; v_paid numeric; v_lock record;
+begin
+  if not public.is_accounting_user() then raise exception 'invoice_forbidden'; end if;
+  select total, coalesce(credited, 0) into v_total, v_cr from public.invoices where id = p_invoice_id for update;
+  if not found then raise exception 'invoice_not_found'; end if;
+  if p_amount is null or p_amount <= 0 then raise exception 'invoice_bad_paid'; end if;
+  if p_date is null then raise exception 'invoice_bad_date'; end if;
+  if p_payment_id is not null then
+    select credit_cn_id, pair_payment_id into v_lock from public.invoice_payments where id = p_payment_id;
+    if v_lock.credit_cn_id is not null or v_lock.pair_payment_id is not null then raise exception 'payment_locked'; end if;
+  end if;
+  select coalesce(sum(amount), 0) into v_all from public.invoice_payments where invoice_id = p_invoice_id;
+  select coalesce(sum(amount), 0) into v_other from public.invoice_payments
+   where invoice_id = p_invoice_id and (p_payment_id is null or id <> p_payment_id);
+  if v_other + p_amount > greatest(v_total - v_cr, v_all) + 0.004 then raise exception 'invoice_bad_paid'; end if;
+  select username into v_who from public.profiles where id = auth.uid();
+  if p_payment_id is null then
+    v_id := gen_random_uuid()::text;
+    insert into public.invoice_payments (id, invoice_id, pay_date, amount, method, note, created_by)
+    values (v_id, p_invoice_id, p_date, p_amount, nullif(p_method, ''), nullif(p_note, ''), v_who);
+  else
+    v_id := p_payment_id;
+    update public.invoice_payments
+       set pay_date = p_date, amount = p_amount, method = nullif(p_method, ''), note = nullif(p_note, '')
+     where id = p_payment_id and invoice_id = p_invoice_id;
+    if not found then raise exception 'invoice_payment_not_found'; end if;
+  end if;
+  v_paid := public.invoice_recalc_paid(p_invoice_id);
+  return jsonb_build_object('id', v_id, 'paid', v_paid);
+end $$;
+
+create or replace function public.invoice_payment_delete(p_payment_id text)
+returns numeric language plpgsql security definer set search_path = public as $$
+declare v_p public.invoice_payments%rowtype; v_pair public.invoice_payments%rowtype; v_res numeric;
+begin
+  if not public.is_accounting_user() then raise exception 'invoice_forbidden'; end if;
+  select * into v_p from public.invoice_payments where id = p_payment_id for update;
+  if not found then raise exception 'invoice_payment_not_found'; end if;
+  if v_p.credit_cn_id is not null then
+    update public.credit_notes set applied = greatest(coalesce(applied, 0) - v_p.amount, 0) where id = v_p.credit_cn_id;
+  end if;
+  if v_p.pair_payment_id is not null then
+    select * into v_pair from public.invoice_payments where id = v_p.pair_payment_id;
+    if found then
+      delete from public.invoice_payments where id = v_pair.id;
+      perform public.invoice_recalc_paid(v_pair.invoice_id);
+    end if;
+  end if;
+  delete from public.invoice_payments where id = p_payment_id;
+  v_res := public.invoice_recalc_paid(v_p.invoice_id);
+  return v_res;
+end $$;
+
+revoke all on function public.invoice_apply_credit(text, text, text, numeric, date) from public, anon;
+revoke all on function public.invoice_payment_save(text, text, date, numeric, text, text) from public, anon;
+revoke all on function public.invoice_payment_delete(text) from public, anon;
+grant execute on function public.invoice_apply_credit(text, text, text, numeric, date) to authenticated;
+grant execute on function public.invoice_payment_save(text, text, date, numeric, text, text) to authenticated;
+grant execute on function public.invoice_payment_delete(text) to authenticated;
