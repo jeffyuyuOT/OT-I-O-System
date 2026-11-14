@@ -1,6 +1,6 @@
 // 每日 Storage 檔案備份:把所有 bucket 的檔案「增量」複製到 Dropbox(App folder)/storage/<bucket>/<路徑>。
 // 只上傳 Dropbox 上還沒有(或大小不同)的檔案;不會刪除 Dropbox 上的舊檔(即使 Storage 裡已被刪除,仍保留備份)。
-// 同時處理 5 個檔案;下載用 service role(public / private bucket 都可)。每次最多處理 MAX_FILES 個檔案或約 TIME_BUDGET_MS 毫秒,沒做完的下次續做(首次 157 檔通常一次完成)。
+// 同時處理 3 個檔案;下載用 service role(public / private bucket 都可)。每次最多處理 MAX_FILES 個檔案或約 TIME_BUDGET_MS 毫秒,沒做完的下次續做(首次 157 檔通常一次完成)。
 // 由 pg_cron 每天呼叫(見 sql/storage_backup_cron.sql)。部署時關掉 JWT 驗證(--no-verify-jwt),改用 x-backup-secret 驗證。
 // secrets:DROPBOX_APP_KEY, DROPBOX_APP_SECRET, DROPBOX_REFRESH_TOKEN, BACKUP_SECRET(與 daily-backup 共用);
 // 選用 STORAGE_BACKUP_FOLDER(預設 /storage;測試專案請設 /storage-test)。SUPABASE_DB_URL、SUPABASE_URL 由 Supabase 自動提供。
@@ -8,7 +8,7 @@ import postgres from "https://deno.land/x/postgresjs@v3.4.4/mod.js";
 
 const FOLDER = Deno.env.get("STORAGE_BACKUP_FOLDER") || "/storage";
 const MAX_FILES = 200;
-const CONCURRENCY = 5;
+const CONCURRENCY = 3;
 const TIME_BUDGET_MS = 100_000;
 const MAX_FILE = 140 * 1024 * 1024; // Dropbox 單次上傳上限 150MB
 
@@ -57,16 +57,27 @@ function asciiJson(v: unknown): string {
 }
 
 async function dropboxUpload(token: string, path: string, body: Uint8Array) {
-  const up = await fetch("https://content.dropboxapi.com/2/files/upload", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${token}`,
-      "Content-Type": "application/octet-stream",
-      "Dropbox-API-Arg": asciiJson({ path, mode: "overwrite", mute: true }),
-    },
-    body,
-  });
-  if (!up.ok) throw new Error(`Dropbox upload failed: ${up.status} ${await up.text()}`);
+  // Dropbox 同時寫入太多會回 429(too_many_write_operations):依 retry_after 等待後重試,最多 5 次
+  for (let attempt = 1; ; attempt++) {
+    const up = await fetch("https://content.dropboxapi.com/2/files/upload", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/octet-stream",
+        "Dropbox-API-Arg": asciiJson({ path, mode: "overwrite", mute: true }),
+      },
+      body,
+    });
+    if (up.ok) return;
+    const text = await up.text();
+    if ((up.status === 429 || up.status === 503) && attempt < 5) {
+      let wait = 1;
+      try { wait = Number(JSON.parse(text)?.error?.retry_after) || Number(up.headers.get("retry-after")) || 1; } catch (_e) { /* 用預設 */ }
+      await new Promise((r) => setTimeout(r, Math.min(wait, 10) * 1000 + attempt * 300));
+      continue;
+    }
+    throw new Error(`Dropbox upload failed: ${up.status} ${text.slice(0, 200)}`);
+  }
 }
 
 Deno.serve(async (req: Request) => {
