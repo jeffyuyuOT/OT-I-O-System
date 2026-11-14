@@ -375,6 +375,7 @@ function showOnlyAllowedTabImmediately(){
 }
 
 function switchTab(tabId){
+  if(tabId !== 'tab-warehouse-ops' && typeof verifyPageClearMsg === 'function') verifyPageClearMsg();   // 換到別的主分頁:訂單核對的舊訊息消掉
   if(typeof applyCostVisibility === 'function') applyCostVisibility();
   const allowed = getCurrentUserTabPermissions();
   if(!allowed.includes(tabId)) return; // 防呆:使用者沒有這個分頁的權限
@@ -535,6 +536,7 @@ function subTabGuard(tabId, subtabId){ return resolveAllowedSubTab(tabId, subtab
 function switchWarehouseOpsSubTab(subtabId){
   subtabId = subTabGuard('tab-warehouse-ops', subtabId);
   if(!subtabId) return;
+  if(subtabId !== 'subtab-tx-verify' && typeof verifyPageClearMsg === 'function') verifyPageClearMsg();   // 離開訂單核對:舊的錯誤訊息消掉
   const container = document.getElementById('tab-warehouse-ops');
   if(!container) return;
   if(subtabId !== 'subtab-tx-register' && (registerOutFlowType || txBatchItems.length > 0)){
