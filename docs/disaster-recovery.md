@@ -88,5 +88,5 @@ Dropbox refresh token 找不到時,依 `supabase/functions/daily-backup/README.m
 ## 7. 已知缺口
 
 - `auth.users` 與 Storage 檔案本身沒有備份。
-- Edge Function 的 repo 版本與線上版本:`invite-user`、`send-document-email`、`send-purchase-email`、`daily-backup` 已於 2026-11-14 與線上比對一致(`send-document-email` 只差檔尾換行)。`approve-account`、`request-account` 尚未比對。改過線上函式後要重新確認。
+- Edge Function 的 repo 版本與線上版本:6 個函式已於 2026-11-14 全部與線上比對,內容一致(`send-document-email`、`approve-account`、`request-account` 只差檔尾換行)。改過線上函式後要重新確認。
 - 還原演練的驗證是「語句全部成功 + 物件數量一致」,尚未逐項比對函式內容與實際資料列內容。
