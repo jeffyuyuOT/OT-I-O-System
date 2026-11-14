@@ -67,7 +67,7 @@ const MASTER_COLUMN_ALIASES = {
   sku: ['sku','item code','itemcode','編號','貨號'],
   name: ['name','品名','商品名稱','item','商品'],
   unit: ['unit','單位'],
-  qty: ['stock','庫存量','庫存','qty','quantity','currentstock'],
+  qty: ['stock','stocks','庫存量','庫存','qty','quantity','currentstock'],
   avg: ['avgmonthlysales','avg','平均使用量','平均出貨量','月均使用量','avgmonthlyusage'],
   category: ['categories','category','分類','類別'],
   safetyStock: ['safetystock','安全庫存','安全庫存(月數)','safetystockmonths','安全庫存月數'],
@@ -256,8 +256,9 @@ function parseMasterExcelFile(){
         const boolCell = (c, row) => (c !== -1 && row[c] !== null && row[c] !== undefined && row[c] !== '') ? parseBoolLikeCell(row[c]) : null;
         const modeCell = (c, row) => { if(c === -1 || row[c] === null || row[c] === undefined) return null; const v = String(row[c]).trim().toLowerCase(); if(!v) return null; return (v.includes('whole') || v.includes('整個')) ? 'wholeFamily' : ((v.includes('switch') || v.includes('僅')) ? 'switchOnly' : null); };
 
-        if(colName === -1 || colQty === -1){
-          fileErrors.push(`${file.name}:找不到「Name/品名」或「Stock/庫存量」欄位`);
+        // 庫存量欄位是選填(沒有這一欄就整批都不動庫存),只有品名欄是必須的
+        if(colName === -1){
+          fileErrors.push(`${file.name}:找不到「Name/品名」欄位`);
           return;
         }
         if(colSku === -1){
@@ -287,7 +288,7 @@ function parseMasterExcelFile(){
           // 不再被整個跳過——只是「不動庫存」,其他欄位(分類、平均值、安全庫存、備註、訂貨頁面
           // 附註、箱子尺寸…)照常比對更新。這是為了支援「只更新商品資料、不重新盤點庫存」這種
           // 匯入情境,之前的邏輯只要庫存量空白就整列略過,會連帶讓其他欄位的更新也一起不見。
-          const qtyVal = row[colQty];
+          const qtyVal = colQty === -1 ? null : row[colQty];
           const parsedQty = parseNumericCell(qtyVal);
 
           allItems.push({
