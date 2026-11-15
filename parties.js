@@ -1103,28 +1103,28 @@ function onForecastQtyCommit(productId){
 }
 
 // ----- 依貨櫃自動填量 -----
-// 目標貨櫃容積(CBM);沒勾選或沒填回傳 0。
+// 目標貨櫃容積(CBM);沒勾選或沒填回傳 0。數字取自 CBM 輸入框(選貨櫃會帶入預設值,可再手動修改)。
 function getForecastContainerTargetCbm(){
   const chk = document.getElementById('forecastAutoFillChk');
   if(!chk || !chk.checked) return 0;
-  const sel = document.getElementById('forecastContainerSel');
-  if(!sel) return 0;
-  const v = sel.value === 'custom' ? parseFloat((document.getElementById('forecastContainerCustom') || {}).value) : parseFloat(sel.value);
+  const v = parseFloat((document.getElementById('forecastContainerCbm') || {}).value);
   return (v > 0) ? v : 0;
 }
 function onForecastAutoFillToggle(){
   const on = document.getElementById('forecastAutoFillChk').checked;
-  const sel = document.getElementById('forecastContainerSel');
-  sel.style.display = on ? '' : 'none';
-  onForecastContainerChange();
+  document.getElementById('forecastContainerSel').style.display = on ? '' : 'none';
+  document.getElementById('forecastContainerCbmWrap').style.display = on ? 'inline-flex' : 'none';
+  document.getElementById('forecastAutoFillBtn').style.display = on ? '' : 'none';
+  if(on && !document.getElementById('forecastContainerCbm').value) onForecastContainerChange();
+  else updateForecastSummary();
 }
+// 選貨櫃只帶入預設 CBM,不會自動計算;按「自動載入」才依目前清單填量。
 function onForecastContainerChange(){
-  const on = document.getElementById('forecastAutoFillChk').checked;
   const sel = document.getElementById('forecastContainerSel');
-  const cus = document.getElementById('forecastContainerCustom');
-  cus.style.display = (on && sel.value === 'custom') ? '' : 'none';
-  if(!on){ updateForecastSummary(); return; }
-  autoFillForecastByContainer();
+  const inp = document.getElementById('forecastContainerCbm');
+  if(sel.value === 'custom'){ inp.value = ''; inp.focus(); }
+  else inp.value = sel.value;
+  updateForecastSummary();
 }
 // 找一個共同的「進貨後可撐天數」D,讓所有可計算的商品填的量 × 箱體積 加起來最接近(但不超過)貨櫃容積。
 // 每個商品的量 = (D 天用量 − 現有庫存 − 在途) ÷ 進貨單位換算,四捨五入成整數單位;D 用二分法找。
@@ -1132,7 +1132,7 @@ function onForecastContainerChange(){
 function autoFillForecastByContainer(){
   const msg = document.getElementById('forecastMsg');
   const target = getForecastContainerTargetCbm();
-  if(!(target > 0)){ updateForecastSummary(); return; }
+  if(!(target > 0)){ if(msg){ msg.className = 'msg error'; msg.textContent = t('errForecastAutoFillNoTarget'); } return; }
   const targetCm3 = target * 1000000;
   const now = new Date();
   const rows = [], skipped = [];
