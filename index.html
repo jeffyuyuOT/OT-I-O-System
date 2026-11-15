@@ -2157,6 +2157,15 @@ body.no-cost-view .cost-col{display:none !important;}
         <label style="display:flex;align-items:center;gap:6px;font-size:13px;margin:0;"><span data-i18n="fieldForecastEta">預計到貨日</span><input type="date" id="forecastEtaInput" onchange="forecastEta=this.value;renderForecastTable()" style="width:auto;" /></label>
         <div id="forecastSummaryBar" style="margin-left:auto;font-size:15px;color:var(--ink-soft);text-align:right;"></div>
       </div>
+      <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin:0 0 6px;font-size:13px;">
+        <label style="display:flex;align-items:center;gap:6px;margin:0;"><span data-i18n="lblLowCoverPre">進貨後低於</span><input type="number" id="forecastLowDays" value="30" min="0" step="1" oninput="updateForecastSummary()" style="width:64px;" /><span data-i18n="lblLowCoverPost">天警示</span></label>
+        <label style="display:flex;align-items:center;gap:6px;margin:0;"><span data-i18n="lblForecastSort">排序</span>
+          <select id="forecastSortSel" onchange="renderForecastTable()" style="width:auto;">
+            <option value="default" data-i18n="optForecastSortDefault">預設</option>
+            <option value="cover" data-i18n="optForecastSortCover">進貨後可撐天數(少→多)</option>
+          </select></label>
+      </div>
+      <div id="forecastLowCoverBar" style="font-size:12.5px;color:var(--crit);margin:0 0 10px;"></div>
       <div class="field-block" style="margin-bottom:10px;">
         <label data-i18n="fieldForecastNote">附註</label>
         <textarea id="forecastNoteInput" rows="2" style="width:100%;" oninput="forecastNote=this.value" data-i18n-placeholder="phForecastNote" placeholder="預估表附註(會一起存進預估表記錄、匯出)"></textarea>
