@@ -441,6 +441,11 @@
   .fc-unit-menu .fc-menu-item.selected{ font-weight:700; }
   .fc-unit-menu .fc-menu-sep{ border-top:1px solid var(--line); margin:6px 0; }
   .fc-add-panel{ margin-bottom:14px; }
+  #forecastRecordsContainer{ overflow-x:auto; }
+  @media (max-width:700px){
+    .fc-rec-acts{ white-space:normal !important; min-width:84px; }
+    .fc-rec-acts .del-link{ display:block; margin:0 0 8px 0 !important; }
+  }
   .file-chip-list{ display:flex; flex-wrap:wrap; gap:8px; margin:10px 0; }
   .file-chip{
     display:flex; align-items:center; gap:6px; background:#fff; border:1px solid var(--line);
@@ -720,13 +725,18 @@
     .header{ padding:14px 16px 16px; }
     .header h1, .app-title-main{ font-size:24px; }
     .app-title-brand{ font-size:12px; }
-    .fc-qty-input{ width:56px; }
-    .forecast-table .fc-col-name{ width:36%; }
-    .forecast-table .fc-col-current{ width:17%; }
-    .forecast-table .fc-col-qty{ width:26%; }
-    .forecast-table .fc-col-after{ width:17%; }
-    .forecast-table .fc-col-del{ width:30px; }
-    .fc-unit-label{ width:40px; }
+    .fc-qty-input{ width:46px; padding-left:4px; padding-right:4px; }
+    .forecast-table{ table-layout:fixed; width:100%; font-size:11.5px; }
+    .forecast-table th, .forecast-table td{ padding-left:3px; padding-right:3px; word-break:break-word; }
+    .forecast-table .fc-col-name{ width:26%; }
+    .forecast-table .fc-col-current{ width:16%; }
+    .forecast-table .fc-col-qty{ width:35%; }
+    .forecast-table .fc-col-after{ width:16%; }
+    .forecast-table .fc-col-del{ width:7%; }
+    .fc-unit-label{ width:30px; margin-left:3px; font-size:11px; }
+    .fc-unit-switch{ margin-left:2px; padding:0 2px; font-size:12px; }
+    .fc-row-del{ padding:2px 2px; }
+    .forecast-table .sku-badge{ display:block; margin-bottom:2px; font-size:10px; white-space:normal; word-break:break-all; }
     .pp-row{ flex-wrap:wrap; }
     .pp-cat{ display:none; }
     .header-actions{ position:static; display:flex; justify-content:space-between; margin-bottom:10px; gap:8px; }
@@ -2124,14 +2134,29 @@ body.no-cost-view .cost-col{display:none !important;}
           <button class="btn ghost" style="padding:6px 10px;" onclick="toggleForecastRecordsPanel()" id="forecastRecordsToggleBtn" data-i18n-title="optForecastRecords" title="預估表記錄">📂</button>
           <button class="btn ghost" style="padding:6px 10px;" onclick="exportForecastSheet()" data-i18n-title="optForecastExport" title="匯出預估表">📄</button>
         </div>
-        <div id="forecastSummaryBar" style="margin-left:auto;font-size:15px;color:var(--ink-soft);padding-bottom:9px;"></div>
+        <div id="forecastAutoFillBar" style="margin-left:auto;font-size:13px;padding-bottom:7px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+          <label style="display:flex;align-items:center;gap:6px;cursor:pointer;margin:0;"><input type="checkbox" id="forecastAutoFillChk" onchange="onForecastAutoFillToggle()" style="width:15px;height:15px;" /><span data-i18n="chkForecastAutoFill">依貨櫃自動填量</span></label>
+          <select id="forecastContainerSel" onchange="onForecastContainerChange()" style="display:none;width:auto;">
+            <option value="28" data-i18n="optContainer20">20呎貨櫃(28 CBM)</option>
+            <option value="21" data-i18n="optContainer20R">20呎冷凍櫃(21 CBM)</option>
+            <option value="58" data-i18n="optContainer40">40呎貨櫃(58 CBM)</option>
+            <option value="68" data-i18n="optContainer40HC">40呎高櫃(68 CBM)</option>
+            <option value="custom" data-i18n="optContainerCustom">自訂目標 CBM</option>
+          </select>
+          <span id="forecastContainerCbmWrap" style="display:none;align-items:center;gap:4px;"><input type="number" id="forecastContainerCbm" min="0" step="any" placeholder="CBM" oninput="updateForecastSummary()" style="width:80px;" /><span>CBM</span><input type="number" id="forecastContainerKg" min="0" step="any" placeholder="kg" oninput="updateForecastSummary()" style="width:80px;margin-left:6px;" /><span>kg</span></span>
+          <button class="btn ghost" id="forecastAutoFillBtn" onclick="autoFillForecastByContainer()" style="display:none;padding:6px 10px;" data-i18n="btnForecastAutoLoad">自動載入</button>
+        </div>
       </div>
       <div id="forecastRecordsPanel" class="fc-add-panel" style="display:none;margin-bottom:12px;">
         <div class="section-title" style="font-size:13px;margin:0 0 6px;" data-i18n="secForecastRecords">預估表記錄</div>
         <p style="font-size:12px;color:var(--ink-soft);margin:0 0 10px;" data-i18n="forecastRecordsDesc">按「載入」會把這份紀錄帶回目前的預估表。</p>
         <div id="forecastRecordsContainer"></div>
       </div>
-      <label style="display:flex;align-items:center;gap:6px;margin:0 0 10px;font-size:13px;cursor:pointer;"><input type="checkbox" id="forecastOrderPlacedChk" onchange="forecastOrderPlaced=this.checked" style="width:15px;height:15px;" /><span data-i18n="chkForecastOrderPlaced">已訂貨</span></label>
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap;margin:0 0 10px;">
+        <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;"><input type="checkbox" id="forecastOrderPlacedChk" onchange="forecastOrderPlaced=this.checked" style="width:15px;height:15px;" /><span data-i18n="chkForecastOrderPlaced">已訂貨</span></label>
+        <label style="display:flex;align-items:center;gap:6px;font-size:13px;margin:0;"><span data-i18n="fieldForecastEta">預計到貨日</span><input type="date" id="forecastEtaInput" onchange="forecastEta=this.value;renderForecastTable()" style="width:auto;" /></label>
+        <div id="forecastSummaryBar" style="margin-left:auto;font-size:15px;color:var(--ink-soft);text-align:right;"></div>
+      </div>
       <div class="field-block" style="margin-bottom:10px;">
         <label data-i18n="fieldForecastNote">附註</label>
         <textarea id="forecastNoteInput" rows="2" style="width:100%;" oninput="forecastNote=this.value" data-i18n-placeholder="phForecastNote" placeholder="預估表附註(會一起存進預估表記錄、匯出)"></textarea>
