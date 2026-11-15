@@ -491,10 +491,11 @@ async function toggleStockIncludePending(on){
   stockIncludePending = !!on;
   renderStockCards();
 }
-// 這個商品家族(主商品)在所有已儲存預估表記錄裡的預計進貨量(換算成主商品的單位),跟各記錄的明細。
-function getPendingForecastFor(anchor){
+// 只算有勾「已訂貨」(Order Placed)的預估表,草稿不算;excludeRecordId 是目前正在編輯的那筆(避免重複計算)。
+// 這個商品家族(主商品)在已訂貨預估表記錄裡的預計進貨量(換算成主商品的單位),跟各記錄的明細。
+function getPendingForecastFor(anchor, excludeRecordId){
   let total = 0; const recs = [];
-  (typeof forecastRecords !== 'undefined' ? forecastRecords : []).filter(r => !r.converted).forEach(r => {
+  (typeof forecastRecords !== 'undefined' ? forecastRecords : []).filter(r => !r.converted && r.orderPlaced && r.id !== excludeRecordId).forEach(r => {
     (r.items || []).forEach(it => {
       if(it.anchorId !== anchor.id) return;
       const qty = Number(it.qty);

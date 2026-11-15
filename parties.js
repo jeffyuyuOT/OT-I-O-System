@@ -705,7 +705,7 @@ function deleteSupplier(supplierId){
 // 選擇會存起來,下次打開還是同一個,直到使用者再改。(以前是「庫存總覽顯示哪個代表商品,這裡就跟著用
 // 哪個單位」,現在這個對應關係取消了,完全以這裡選的為主。)
 let forecastQtyDraft = {}; // anchorId -> 使用者輸入的預計進貨數量(字串,留著畫面切換/重畫時不會歸零)
-let forecastVolumeUnit = 'cm3'; // 'cm3'(材積,預設) 或 'm3'(cubic meter)
+let forecastVolumeUnit = 'cbm'; // 'cbm'(cubic meter,預設) 或 'cft'(cubic feet,cm³ ÷ 28,317)
 let forecastUnitChoice = {};    // anchorId -> 進貨單位對應的商品 id(會存進資料庫)
 let forecastBoxBasis = {};      // anchorId -> 換算「總箱數」要用哪一個商品當一箱(會存進資料庫)
 let forecastRemovedIds = new Set(); // 使用者在目前篩選結果裡手動刪掉的商品(只管目前這次篩選)
@@ -745,8 +745,8 @@ function computeBoxVolumeCm3(basis){
 
 function formatForecastVolume(cm3){
   if(cm3 === null) return '-';
-  if(forecastVolumeUnit === 'm3') return `${(cm3 / 1000000).toLocaleString(undefined, {minimumFractionDigits:3, maximumFractionDigits:3})} m³`;
-  return `${cm3.toLocaleString(undefined, {maximumFractionDigits:0})} cm³`;
+  if(forecastVolumeUnit === 'cft') return `${(cm3 / 28317).toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2})} CFT`;
+  return `${(cm3 / 1000000).toLocaleString(undefined, {minimumFractionDigits:3, maximumFractionDigits:3})} CBM`;
 }
 
 // ----- 進貨單位 / 換算箱數 -----
@@ -967,6 +967,11 @@ function renderForecastTable(){
   populateForecastCategoryFilter();
   populateQuickListSelect('forecastQuickListFilter', 'quickListFilterAll');
   const now = new Date();
+  // 「在途」要用已存的預估表記錄:第一次畫面出現時先載入,載完再重畫一次。
+  if(!forecastRecordsLoadStarted){
+    forecastRecordsLoadStarted = true;
+    loadForecastRecords().then(() => renderForecastTable()).catch(() => {});
+  }
 
   const items = getForecastDisplayItems();
 
@@ -1000,11 +1005,18 @@ function renderForecastTable(){
 }
 
 // 「庫存可撐」小視窗的內容:目前(或進貨後)總數、月平均銷量,單位跟著這一列選的進貨單位走。
-function forecastTipText(unitProd, weight, rawStockForTip, rawAvg, totalLabelKey){
+// 「在途」= 其他已勾「已訂貨」、還沒轉成進貨單的預估表數量(換算成主商品單位);目前正在編輯的那筆不算。
+function forecastPendingBase(anchor){
+  try{ return (typeof getPendingForecastFor === 'function') ? getPendingForecastFor(anchor, forecastLoadedRecordId).total : 0; }
+  catch(e){ return 0; }
+}
+
+function forecastTipText(unitProd, weight, rawStockForTip, rawAvg, totalLabelKey, rawPending){
   const unit = unitProd.unit || '';
   const totalText = `${formatMultipackQty(rawStockForTip / weight)} ${unit}`;
   const avgText = rawAvg > 0 ? `${formatMultipackQty(rawAvg / weight)} ${unit}${t('avgSuffixMonth')}` : '—';
-  return `${t(totalLabelKey)}${totalText}\n${t('tipAvgMonthlySales')}${avgText}`;
+  const pendText = rawPending > 0 ? `\n${t('tipIncludesInTransit')}${formatMultipackQty(rawPending / weight)} ${unit}` : '';
+  return `${t(totalLabelKey)}${totalText}${pendText}\n${t('tipAvgMonthlySales')}${avgText}`;
 }
 
 // p 一律是「主商品」(family 的錨點,用來算加總庫存/平均出貨);這一列顯示的名稱/SKU/單位是使用者
@@ -1021,7 +1033,8 @@ function forecastRowHtml(p, now){
   // 使用者填的「預計進貨數量」是用這一列選的進貨單位填的(例如選了 x20 的箱子就是填箱數),
   // 要先乘上加權數換算回主商品自己的單位,才能跟原始庫存量、平均出貨量放在一起算天數。
   const rawAddition = isNaN(enteredQty) ? 0 : enteredQty * weight;
-  const afterGauge = gaugeInfo(daysRemaining(rawStock + rawAddition, rawAvg));
+  const rawPending = forecastPendingBase(p);
+  const afterGauge = gaugeInfo(daysRemaining(rawStock + rawPending + rawAddition, rawAvg));
   const hasFamily = getChildProducts(p.id).length > 0;
   return `
     <tr id="forecastRow_${p.id}">
@@ -1033,7 +1046,7 @@ function forecastRowHtml(p, now){
             oninput="updateForecastRow('${p.id}')" onchange="onForecastQtyCommit('${p.id}')" /><span class="fc-unit-label" title="${escapeAttr(unitProd.unit || '')}">${escapeHtmlText(unitProd.unit || '')}</span>${hasFamily ? `<span class="fc-unit-switch" onclick="openForecastUnitMenu(event,'${p.id}')" title="${escapeAttr(t('titleSwitchForecastUnit'))}">⇄</span>` : ''}
         </div>
       </td>
-      <td class="num fc-remain-tip" id="forecastAfterCell_${p.id}" data-tip="${escapeAttr(forecastTipText(unitProd, weight, rawStock + rawAddition, rawAvg, 'tipTotalAfter'))}"><span class="dot dot-${afterGauge.cls}" style="margin-right:5px;"></span>${afterGauge.label}</td>
+      <td class="num fc-remain-tip" id="forecastAfterCell_${p.id}" data-tip="${escapeAttr(forecastTipText(unitProd, weight, rawStock + rawPending + rawAddition, rawAvg, 'tipTotalAfter', rawPending))}"><span class="dot dot-${afterGauge.cls}" style="margin-right:5px;"></span>${afterGauge.label}</td>
       <td><span class="fc-row-del" onclick="removeForecastRow('${p.id}')" title="${escapeAttr(t('titleRemoveForecastRow'))}">✕</span></td>
     </tr>
   `;
@@ -1055,11 +1068,12 @@ function updateForecastRow(productId){
   const { avg: rawAvg } = getEffectiveAvg(p, new Date());
   const qty = parseFloat(input.value);
   const rawAddition = isNaN(qty) ? 0 : qty * weight;
-  const afterGauge = gaugeInfo(daysRemaining(rawStock + rawAddition, rawAvg));
+  const rawPending = forecastPendingBase(p);
+  const afterGauge = gaugeInfo(daysRemaining(rawStock + rawPending + rawAddition, rawAvg));
   const cell = document.getElementById(`forecastAfterCell_${productId}`);
   if(cell){
     cell.innerHTML = `<span class="dot dot-${afterGauge.cls}" style="margin-right:5px;"></span>${afterGauge.label}`;
-    cell.setAttribute('data-tip', forecastTipText(unitProd, weight, rawStock + rawAddition, rawAvg, 'tipTotalAfter'));
+    cell.setAttribute('data-tip', forecastTipText(unitProd, weight, rawStock + rawPending + rawAddition, rawAvg, 'tipTotalAfter', rawPending));
   }
 
   updateForecastSummary();
@@ -1074,6 +1088,67 @@ function onForecastQtyCommit(productId){
   if(isNaN(qty) || qty <= 0) return;
   if(isCartonUnit(getForecastUnitProduct(p).unit)) return; // 單位本身就是 CTN,不用換算
   if(forecastNeedsBoxChoice(p)) openForecastBoxBasisModal(productId);
+}
+
+// ----- 依貨櫃自動填量 -----
+// 目標貨櫃容積(CBM);沒勾選或沒填回傳 0。
+function getForecastContainerTargetCbm(){
+  const chk = document.getElementById('forecastAutoFillChk');
+  if(!chk || !chk.checked) return 0;
+  const sel = document.getElementById('forecastContainerSel');
+  if(!sel) return 0;
+  const v = sel.value === 'custom' ? parseFloat((document.getElementById('forecastContainerCustom') || {}).value) : parseFloat(sel.value);
+  return (v > 0) ? v : 0;
+}
+function onForecastAutoFillToggle(){
+  const on = document.getElementById('forecastAutoFillChk').checked;
+  const sel = document.getElementById('forecastContainerSel');
+  sel.style.display = on ? '' : 'none';
+  onForecastContainerChange();
+}
+function onForecastContainerChange(){
+  const on = document.getElementById('forecastAutoFillChk').checked;
+  const sel = document.getElementById('forecastContainerSel');
+  const cus = document.getElementById('forecastContainerCustom');
+  cus.style.display = (on && sel.value === 'custom') ? '' : 'none';
+  if(!on){ updateForecastSummary(); return; }
+  autoFillForecastByContainer();
+}
+// 找一個共同的「進貨後可撐天數」D,讓所有可計算的商品填的量 × 箱體積 加起來最接近(但不超過)貨櫃容積。
+// 每個商品的量 = (D 天用量 − 現有庫存 − 在途) ÷ 進貨單位換算,四捨五入成整數單位;D 用二分法找。
+// 缺少箱子尺寸或沒有出貨紀錄(月均為 0)的商品無法計算,維持原來填的數量。
+function autoFillForecastByContainer(){
+  const msg = document.getElementById('forecastMsg');
+  const target = getForecastContainerTargetCbm();
+  if(!(target > 0)){ updateForecastSummary(); return; }
+  const targetCm3 = target * 1000000;
+  const now = new Date();
+  const rows = [], skipped = [];
+  getForecastDisplayItems().forEach(p => {
+    const unitProd = getForecastUnitProduct(p);
+    const weight = getBasisWeight(unitProd, p);
+    const vol = computeBoxVolumeCm3(unitProd);
+    const { avg } = getEffectiveAvg(p, now);
+    if(!(vol > 0) || !(avg > 0) || !(weight > 0)){ skipped.push(unitProd.name); return; }
+    rows.push({ id: p.id, weight, vol, daily: avg / 30.44, have: computeTotalStock(p.id) + forecastPendingBase(p) });
+  });
+  if(rows.length === 0){
+    if(msg){ msg.className = 'msg error'; msg.textContent = t('errForecastAutoFillNone'); }
+    return;
+  }
+  const qtyAt = (r, D) => Math.max(0, Math.round((D * r.daily - r.have) / r.weight));
+  const totalAt = D => rows.reduce((s, r) => s + qtyAt(r, D) * r.vol, 0);
+  let lo = 0, hi = 3650;
+  for(let i = 0; i < 60; i++){ const mid = (lo + hi) / 2; if(totalAt(mid) <= targetCm3) lo = mid; else hi = mid; }
+  rows.forEach(r => {
+    const q = qtyAt(r, lo);
+    forecastQtyDraft[r.id] = q > 0 ? String(q) : '';
+  });
+  renderForecastTable();
+  if(msg){
+    msg.className = 'msg ok';
+    msg.textContent = tf('msgForecastAutoFilled', { cbm: target, days: Math.round(lo) }) + (skipped.length ? ' ' + tf('noteForecastAutoFillSkipped', { n: skipped.length, names: skipped.join('、') }) : '');
+  }
 }
 
 // 只重算、重畫上面那條「總箱數 / 總體積」的加總小字,不動整個表格(避免打字時整表重畫打斷輸入)。
@@ -1097,7 +1172,7 @@ function updateForecastSummary(){
 
   summaryBar.innerHTML = `
     <span style="white-space:nowrap;">${t('lblTotalBoxes')}<strong>${totalBoxes ? (Math.round(totalBoxes * 100) / 100).toLocaleString() : '0'}</strong></span>
-    <span style="margin-left:14px;white-space:nowrap;">${t('lblTotalVolume')}<strong>${formatForecastVolume(totalVolumeCm3 || 0)}</strong></span>
+    <span style="margin-left:14px;white-space:nowrap;">${t('lblTotalVolume')}<strong>${formatForecastVolume(totalVolumeCm3 || 0)}</strong>${(() => { const tg = getForecastContainerTargetCbm(); return tg > 0 ? ` / ${formatForecastVolume(tg * 1000000)} (${Math.round((totalVolumeCm3 || 0) / (tg * 1000000) * 100)}%)` : ''; })()}</span>
     <span style="margin-left:2px;white-space:nowrap;"><span class="del-link" style="margin-left:5px;color:var(--ink);cursor:pointer;" title="${t('titleSwitchVolumeUnit')}" onclick="openForecastVolumeUnitMenu(event)">⇄</span></span>
     ${notConvertible > 0 ? `<div style="font-size:11.5px;color:var(--warn);margin-top:4px;">${tn('noteBoxesNotConvertible', notConvertible)}<br>${notConvertibleNames.map(escapeHtmlText).join('、')}</div>` : ''}
   `;
@@ -1111,8 +1186,8 @@ function openForecastVolumeUnitMenu(ev){
   menu.className = 'fc-unit-menu';
   menu.innerHTML = `
     <div class="fc-menu-title">${t('titleSwitchVolumeUnit')}</div>
-    <div class="fc-menu-item ${forecastVolumeUnit === 'cm3' ? 'selected' : ''}" onclick="selectForecastVolumeUnit('cm3')"><span>${forecastVolumeUnit === 'cm3' ? '✓' : '&nbsp;&nbsp;'}</span><span>cm³ (${t('lblVolumeDefaultUnit')})</span></div>
-    <div class="fc-menu-item ${forecastVolumeUnit === 'm3' ? 'selected' : ''}" onclick="selectForecastVolumeUnit('m3')"><span>${forecastVolumeUnit === 'm3' ? '✓' : '&nbsp;&nbsp;'}</span><span>m³ (cubic meter)</span></div>`;
+    <div class="fc-menu-item ${forecastVolumeUnit === 'cbm' ? 'selected' : ''}" onclick="selectForecastVolumeUnit('cbm')"><span>${forecastVolumeUnit === 'cbm' ? '✓' : '&nbsp;&nbsp;'}</span><span>CBM (cubic meter)</span></div>
+    <div class="fc-menu-item ${forecastVolumeUnit === 'cft' ? 'selected' : ''}" onclick="selectForecastVolumeUnit('cft')"><span>${forecastVolumeUnit === 'cft' ? '✓' : '&nbsp;&nbsp;'}</span><span>CFT (cubic feet)</span></div>`;
   document.body.appendChild(menu);
   const rect = ev.currentTarget.getBoundingClientRect();
   const mw = menu.offsetWidth;
@@ -1301,6 +1376,7 @@ async function chooseForecastBoxBasisFromModal(anchorId, memberId){
 // 一筆紀錄 = { id, name, savedAt, items: [{ anchorId, qty, unitId, boxBasisId }] }
 // 存的是「當下畫面上列出的商品清單」跟每個商品的預計進貨數量(以及當時選的進貨單位)。
 let forecastRecords = [];
+let forecastRecordsLoadStarted = false;
 
 async function loadForecastRecords(){
   try{
