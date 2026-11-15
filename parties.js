@@ -908,17 +908,29 @@ function exportForecastSheet(){
   const msg = document.getElementById('forecastMsg');
   if(typeof XLSX === 'undefined'){ msg.className = 'msg error'; msg.textContent = 'Excel 套件載入失敗,請重新整理頁面再試一次'; return; }
   const rows = [];
+  let totalCm3 = 0, totalKg = 0;
   getForecastDisplayItems().forEach(p => {
     const qty = parseFloat(forecastQtyDraft[p.id]);
     if(isNaN(qty) || qty <= 0) return;
     const unitProd = getForecastUnitProduct(p);
-    rows.push([unitProd.name, qty, unitProd.unit || '']);
+    const vol = computeBoxVolumeCm3(unitProd);
+    const cm3 = vol !== null ? vol * qty : null;
+    const kg = unitProd.weightKg > 0 ? unitProd.weightKg * qty : null;
+    if(cm3 !== null) totalCm3 += cm3;
+    if(kg !== null) totalKg += kg;
+    const days = forecastAfterDays(p, forecastQtyDraft[p.id]);
+    rows.push([unitProd.name, qty, unitProd.unit || '', cm3 !== null ? Math.round(cm3 / 1000) / 1000 : '', kg !== null ? Math.round(kg * 100) / 100 : '', isFinite(days) ? Math.round(days) : '']);
   });
   if(rows.length === 0){ msg.className = 'msg error'; msg.textContent = t('errForecastNothingToExport'); return; }
-  const aoa = [[t('colProductName'), t('colForecastQtyExport'), t('colUnit')], ...rows];
+  const aoa = [[t('colProductName'), t('colForecastQtyExport'), t('colUnit'), t('colExportCbm'), t('colExportKg'), t('colExportAfterDays')], ...rows];
+  aoa.push(['', '', t('lblExportTotal'), Math.round(totalCm3 / 1000) / 1000, Math.round(totalKg * 100) / 100, '']);
+  const tgt = getForecastContainerTargetCbm();
+  if(tgt > 0) aoa.push(['', '', t('lblExportContainerUsage'), `${Math.round(totalCm3 / (tgt * 1000000) * 100)}% (${tgt} CBM)`, '', '']);
+  const mk = getForecastContainerMaxKg();
+  if(mk > 0) aoa.push(['', '', t('lblExportWeightUsage'), `${Math.round(totalKg / mk * 100)}% (${mk} kg)`, '', '']);
   if((forecastNote || '').trim()){ aoa.push([]); aoa.push([t('fieldForecastNote'), forecastNote.trim()]); }
   const ws = XLSX.utils.aoa_to_sheet(aoa);
-  ws['!cols'] = [{ wch: 40 }, { wch: 12 }, { wch: 12 }];
+  ws['!cols'] = [{ wch: 40 }, { wch: 12 }, { wch: 16 }, { wch: 16 }, { wch: 12 }, { wch: 16 }];
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Stock In Forecast');
   const filename = `stock_in_forecast_${todayISO()}.xlsx`;
@@ -975,7 +987,12 @@ function renderForecastTable(){
     loadForecastRecords().then(() => renderForecastTable()).catch(() => {});
   }
 
-  const items = getForecastDisplayItems();
+  let items = getForecastDisplayItems();
+  const sortSel = document.getElementById('forecastSortSel');
+  if(sortSel && sortSel.value === 'cover'){
+    const d = {}; items.forEach(p => { d[p.id] = forecastAfterDays(p, forecastQtyDraft[p.id]); });
+    items = items.slice().sort((a, b) => d[a.id] - d[b.id]); // Infinity(沒出貨紀錄)排最後
+  }
 
   // 篩選列右邊的「總箱數」「總體積」:交給共用的 updateForecastSummary() 算,避免這裡重複一份邏輯。
   updateForecastSummary();
@@ -1047,6 +1064,28 @@ function forecastShortage(p, qtyStr){
     return { gapDays: Math.round(gap), eta: earliest.str, daysOut: Math.round(daysOut) };
   }catch(e){ return null; }
 }
+// 進貨後(含在途、扣掉待出貨訂單、加上這列填的數量)還能撐幾天;沒有出貨紀錄回傳 Infinity。
+function forecastAfterDays(p, qtyStr){
+  const unitProd = getForecastUnitProduct(p);
+  const weight = getBasisWeight(unitProd, p);
+  const qty = parseFloat(qtyStr);
+  const add = isNaN(qty) ? 0 : qty * weight;
+  const { avg } = getEffectiveAvg(p, new Date());
+  if(!(avg > 0)) return Infinity;
+  return daysRemaining(computeTotalStock(p.id) - forecastReservedBase(p) + forecastPendingBase(p) + add, avg);
+}
+// 缺貨警示 / 排序面板:預設收起、警示天數 0(關閉),點 ⚠ 圖示才展開。
+function toggleForecastCheckPanel(){
+  const el = document.getElementById('forecastCheckPanel');
+  if(!el) return;
+  el.style.display = (el.style.display === 'none') ? 'block' : 'none';
+  updateForecastSummary();
+}
+function forecastLowCoverThreshold(){
+  const v = parseFloat((document.getElementById('forecastLowDays') || {}).value);
+  return v > 0 ? v : 0;
+}
+
 function forecastLockHtml(id){
   return `<span class="fc-lock" id="forecastLock_${id}" title="${escapeAttr(t('titleForecastLocked'))}" onclick="unlockForecastRow('${id}')" style="cursor:pointer;font-size:11px;margin-right:2px;">🔒</span>`;
 }
@@ -1278,6 +1317,14 @@ function updateForecastSummary(){
     else totalBoxes += res.boxes;
   });
 
+  const lowBar = document.getElementById('forecastLowCoverBar');
+  if(lowBar){
+    const th = forecastLowCoverThreshold();
+    const low = th > 0 ? items.map(p => ({ name: getForecastUnitProduct(p).name, d: forecastAfterDays(p, forecastQtyDraft[p.id]) })).filter(x => isFinite(x.d) && x.d < th).sort((a, b) => a.d - b.d) : [];
+    lowBar.innerHTML = low.length
+      ? tf('lblLowCoverBar', { n: th }) + low.slice(0, 15).map(x => `${escapeHtmlText(x.name)}(${Math.round(x.d)})`).join('、') + (low.length > 15 ? ` …(${low.length})` : '')
+      : '';
+  }
   const maxKgForBar = getForecastContainerMaxKg();
   const weightHtml = (totalKg > 0 || maxKgForBar > 0)
     ? `<span style="margin-left:14px;white-space:nowrap;">${t('lblTotalWeight')}<strong>${Math.round(totalKg).toLocaleString()} kg</strong>${maxKgForBar > 0 ? ` / ${maxKgForBar.toLocaleString()} kg (${Math.round(totalKg / maxKgForBar * 100)}%)` : ''}</span>`

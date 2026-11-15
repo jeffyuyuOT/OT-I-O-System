@@ -2132,6 +2132,7 @@ body.no-cost-view .cost-col{display:none !important;}
           <button class="btn ghost" onclick="toggleForecastAddPanel()" id="forecastAddToggleBtn" data-i18n="btnAddProductToForecast">＋ 新增商品</button>
           <button class="btn ghost" style="padding:6px 10px;" onclick="openSaveForecastModal()" data-i18n-title="optForecastSave" title="儲存預估表">💾</button>
           <button class="btn ghost" style="padding:6px 10px;" onclick="toggleForecastRecordsPanel()" id="forecastRecordsToggleBtn" data-i18n-title="optForecastRecords" title="預估表記錄">📂</button>
+          <button class="btn ghost" style="padding:6px 10px;" onclick="toggleForecastCheckPanel()" id="forecastCheckToggleBtn" data-i18n-title="titleForecastCheck" title="缺貨警示 / 排序">⚠</button>
           <button class="btn ghost" style="padding:6px 10px;" onclick="exportForecastSheet()" data-i18n-title="optForecastExport" title="匯出預估表">📄</button>
         </div>
         <div id="forecastAutoFillBar" style="margin-left:auto;font-size:13px;padding-bottom:7px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
@@ -2156,6 +2157,17 @@ body.no-cost-view .cost-col{display:none !important;}
         <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;"><input type="checkbox" id="forecastOrderPlacedChk" onchange="forecastOrderPlaced=this.checked" style="width:15px;height:15px;" /><span data-i18n="chkForecastOrderPlaced">已訂貨</span></label>
         <label style="display:flex;align-items:center;gap:6px;font-size:13px;margin:0;"><span data-i18n="fieldForecastEta">預計到貨日</span><input type="date" id="forecastEtaInput" onchange="forecastEta=this.value;renderForecastTable()" style="width:auto;" /></label>
         <div id="forecastSummaryBar" style="margin-left:auto;font-size:15px;color:var(--ink-soft);text-align:right;"></div>
+      </div>
+      <div id="forecastCheckPanel" style="display:none;">
+      <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin:0 0 6px;font-size:13px;">
+        <label style="display:flex;align-items:center;gap:6px;margin:0;"><span data-i18n="lblLowCoverPre">進貨後低於</span><input type="number" id="forecastLowDays" value="0" placeholder="0" min="0" step="1" oninput="updateForecastSummary()" style="width:64px;" /><span data-i18n="lblLowCoverPost">天警示</span></label>
+        <label style="display:flex;align-items:center;gap:6px;margin:0;"><span data-i18n="lblForecastSort">排序</span>
+          <select id="forecastSortSel" onchange="renderForecastTable()" style="width:auto;">
+            <option value="default" data-i18n="optForecastSortDefault">預設</option>
+            <option value="cover" data-i18n="optForecastSortCover">進貨後可撐天數(少→多)</option>
+          </select></label>
+      </div>
+      <div id="forecastLowCoverBar" style="font-size:12.5px;color:var(--crit);margin:0 0 10px;"></div>
       </div>
       <div class="field-block" style="margin-bottom:10px;">
         <label data-i18n="fieldForecastNote">附註</label>
