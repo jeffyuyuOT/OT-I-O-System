@@ -1011,12 +1011,22 @@ function forecastPendingBase(anchor){
   catch(e){ return 0; }
 }
 
-function forecastTipText(unitProd, weight, rawStockForTip, rawAvg, totalLabelKey, rawPending){
+// 「待出貨」= 客人已訂、還沒核對出貨的訂單量(換算成主商品單位,含底下批量商品的訂單);庫存可撐會先扣掉。
+function forecastReservedBase(anchor){
+  try{
+    let total = computePendingReserved(anchor.id);
+    getChildProducts(anchor.id).forEach(c => { total += computePendingReserved(c.id) * getBasisWeight(c, anchor); });
+    return total;
+  }catch(e){ return 0; }
+}
+
+function forecastTipText(unitProd, weight, rawStockForTip, rawAvg, totalLabelKey, rawPending, rawReserved){
   const unit = unitProd.unit || '';
   const totalText = `${formatMultipackQty(rawStockForTip / weight)} ${unit}`;
   const avgText = rawAvg > 0 ? `${formatMultipackQty(rawAvg / weight)} ${unit}${t('avgSuffixMonth')}` : '—';
   const pendText = rawPending > 0 ? `\n${t('tipIncludesInTransit')}${formatMultipackQty(rawPending / weight)} ${unit}` : '';
-  return `${t(totalLabelKey)}${totalText}${pendText}\n${t('tipAvgMonthlySales')}${avgText}`;
+  const resText = rawReserved > 0 ? `\n${t('tipDeductsReserved')}${formatMultipackQty(rawReserved / weight)} ${unit}` : '';
+  return `${t(totalLabelKey)}${totalText}${pendText}${resText}\n${t('tipAvgMonthlySales')}${avgText}`;
 }
 
 // p 一律是「主商品」(family 的錨點,用來算加總庫存/平均出貨);這一列顯示的名稱/SKU/單位是使用者
@@ -1025,7 +1035,8 @@ function forecastTipText(unitProd, weight, rawStockForTip, rawAvg, totalLabelKey
 function forecastRowHtml(p, now){
   const unitProd = getForecastUnitProduct(p);
   const weight = getBasisWeight(unitProd, p);
-  const rawStock = computeTotalStock(p.id);
+  const rawReserved = forecastReservedBase(p);
+  const rawStock = computeTotalStock(p.id) - rawReserved; // 已扣掉客人已訂未出貨的量
   const { avg: rawAvg } = getEffectiveAvg(p, now);
   const currentGauge = gaugeInfo(daysRemaining(rawStock, rawAvg));
   const draftVal = forecastQtyDraft[p.id] != null ? forecastQtyDraft[p.id] : '';
@@ -1039,14 +1050,14 @@ function forecastRowHtml(p, now){
   return `
     <tr id="forecastRow_${p.id}">
       <td class="row-name">${unitProd.sku ? `<span class="sku-badge">${escapeHtmlText(unitProd.sku)}</span>` : ''}${escapeHtmlText(unitProd.name)}</td>
-      <td class="num fc-remain-tip" data-tip="${escapeAttr(forecastTipText(unitProd, weight, rawStock, rawAvg, 'tipTotalNow'))}"><span class="dot dot-${currentGauge.cls}" style="margin-right:5px;"></span>${currentGauge.label}</td>
+      <td class="num fc-remain-tip" data-tip="${escapeAttr(forecastTipText(unitProd, weight, rawStock, rawAvg, 'tipTotalNow', 0, rawReserved))}"><span class="dot dot-${currentGauge.cls}" style="margin-right:5px;"></span>${currentGauge.label}</td>
       <td class="qty-col-data">
         <div class="fc-qty-cell-inner">
           <input type="number" min="0" step="any" value="${draftVal}" class="fc-qty-input" id="forecastQtyInput_${p.id}"
             oninput="updateForecastRow('${p.id}')" onchange="onForecastQtyCommit('${p.id}')" /><span class="fc-unit-label" title="${escapeAttr(unitProd.unit || '')}">${escapeHtmlText(unitProd.unit || '')}</span>${hasFamily ? `<span class="fc-unit-switch" onclick="openForecastUnitMenu(event,'${p.id}')" title="${escapeAttr(t('titleSwitchForecastUnit'))}">⇄</span>` : ''}
         </div>
       </td>
-      <td class="num fc-remain-tip" id="forecastAfterCell_${p.id}" data-tip="${escapeAttr(forecastTipText(unitProd, weight, rawStock + rawPending + rawAddition, rawAvg, 'tipTotalAfter', rawPending))}"><span class="dot dot-${afterGauge.cls}" style="margin-right:5px;"></span>${afterGauge.label}</td>
+      <td class="num fc-remain-tip" id="forecastAfterCell_${p.id}" data-tip="${escapeAttr(forecastTipText(unitProd, weight, rawStock + rawPending + rawAddition, rawAvg, 'tipTotalAfter', rawPending, rawReserved))}"><span class="dot dot-${afterGauge.cls}" style="margin-right:5px;"></span>${afterGauge.label}</td>
       <td><span class="fc-row-del" onclick="removeForecastRow('${p.id}')" title="${escapeAttr(t('titleRemoveForecastRow'))}">✕</span></td>
     </tr>
   `;
@@ -1064,7 +1075,8 @@ function updateForecastRow(productId){
   if(!p) return;
   const unitProd = getForecastUnitProduct(p);
   const weight = getBasisWeight(unitProd, p);
-  const rawStock = computeTotalStock(p.id);
+  const rawReserved = forecastReservedBase(p);
+  const rawStock = computeTotalStock(p.id) - rawReserved;
   const { avg: rawAvg } = getEffectiveAvg(p, new Date());
   const qty = parseFloat(input.value);
   const rawAddition = isNaN(qty) ? 0 : qty * weight;
@@ -1073,7 +1085,7 @@ function updateForecastRow(productId){
   const cell = document.getElementById(`forecastAfterCell_${productId}`);
   if(cell){
     cell.innerHTML = `<span class="dot dot-${afterGauge.cls}" style="margin-right:5px;"></span>${afterGauge.label}`;
-    cell.setAttribute('data-tip', forecastTipText(unitProd, weight, rawStock + rawPending + rawAddition, rawAvg, 'tipTotalAfter', rawPending));
+    cell.setAttribute('data-tip', forecastTipText(unitProd, weight, rawStock + rawPending + rawAddition, rawAvg, 'tipTotalAfter', rawPending, rawReserved));
   }
 
   updateForecastSummary();
@@ -1130,7 +1142,7 @@ function autoFillForecastByContainer(){
     const vol = computeBoxVolumeCm3(unitProd);
     const { avg } = getEffectiveAvg(p, now);
     if(!(vol > 0) || !(avg > 0) || !(weight > 0)){ skipped.push(unitProd.name); return; }
-    rows.push({ id: p.id, weight, vol, daily: avg / 30.44, have: computeTotalStock(p.id) + forecastPendingBase(p) });
+    rows.push({ id: p.id, weight, vol, daily: avg / 30.44, have: computeTotalStock(p.id) - forecastReservedBase(p) + forecastPendingBase(p) });
   });
   if(rows.length === 0){
     if(msg){ msg.className = 'msg error'; msg.textContent = t('errForecastAutoFillNone'); }
