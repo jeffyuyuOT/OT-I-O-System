@@ -711,6 +711,7 @@ let forecastBoxBasis = {};      // anchorId -> 換算「總箱數」要用哪一
 let forecastRemovedIds = new Set(); // 使用者在目前篩選結果裡手動刪掉的商品(只管目前這次篩選)
 let forecastAddedIds = new Set();   // 使用者在目前篩選結果之外額外手動加進來的商品
 let forecastOrderPlaced = false;     // 「已訂貨」勾選:存進記錄後狀態會是 Order Placed,沒勾就是 Draft
+let forecastManualIds = new Set();   // 使用者手動改過數量的列(加鎖,「自動載入」不會覆蓋)
 let forecastEta = '';                // 預計到貨日(YYYY-MM-DD,選填;存進預估表記錄,用來判斷到貨前會不會缺貨)
 let forecastNote = '';              // 預估表附註(會存進預估表記錄、匯出 Excel)
 let forecastLoadedRecordId = null;  // 目前畫面是從哪一筆預估表記錄載入的(儲存時會取代那一筆)
@@ -1046,6 +1047,13 @@ function forecastShortage(p, qtyStr){
     return { gapDays: Math.round(gap), eta: earliest.str, daysOut: Math.round(daysOut) };
   }catch(e){ return null; }
 }
+function forecastLockHtml(id){
+  return `<span class="fc-lock" id="forecastLock_${id}" title="${escapeAttr(t('titleForecastLocked'))}" onclick="unlockForecastRow('${id}')" style="cursor:pointer;font-size:11px;margin-right:2px;">🔒</span>`;
+}
+function unlockForecastRow(id){
+  forecastManualIds.delete(id);
+  const el = document.getElementById('forecastLock_' + id); if(el) el.remove();
+}
 function forecastShortageTipLine(sh){
   return sh ? `\n${tf('tipForecastShortage', { eta: forecastFmtDate(sh.eta), d: sh.daysOut, gap: sh.gapDays })}` : '';
 }
@@ -1093,7 +1101,7 @@ function forecastRowHtml(p, now){
       <td class="num fc-remain-tip" data-tip="${escapeAttr(forecastTipText(unitProd, weight, rawStock, rawAvg, 'tipTotalNow', 0, rawReserved))}"><span class="dot dot-${currentGauge.cls}" style="margin-right:5px;"></span>${currentGauge.label}</td>
       <td class="qty-col-data">
         <div class="fc-qty-cell-inner">
-          <input type="number" min="0" step="any" value="${draftVal}" class="fc-qty-input" id="forecastQtyInput_${p.id}"
+          ${forecastManualIds.has(p.id) ? forecastLockHtml(p.id) : ''}<input type="number" min="0" step="any" value="${draftVal}" class="fc-qty-input" id="forecastQtyInput_${p.id}"
             oninput="updateForecastRow('${p.id}')" onchange="onForecastQtyCommit('${p.id}')" /><span class="fc-unit-label" title="${escapeAttr(unitProd.unit || '')}">${escapeHtmlText(unitProd.unit || '')}</span>${hasFamily ? `<span class="fc-unit-switch" onclick="openForecastUnitMenu(event,'${p.id}')" title="${escapeAttr(t('titleSwitchForecastUnit'))}">⇄</span>` : ''}
         </div>
       </td>
@@ -1111,6 +1119,11 @@ function updateForecastRow(productId){
   const input = document.getElementById(`forecastQtyInput_${productId}`);
   if(!input) return;
   forecastQtyDraft[productId] = input.value;
+  if(!forecastManualIds.has(productId)){
+    forecastManualIds.add(productId);
+    const inner = input.parentElement;
+    if(inner) inner.insertAdjacentHTML('afterbegin', forecastLockHtml(productId));
+  }
   const p = products.find(x => x.id === productId);
   if(!p) return;
   const unitProd = getForecastUnitProduct(p);
@@ -1187,11 +1200,19 @@ function autoFillForecastByContainer(){
   const now = new Date();
   const maxKg = getForecastContainerMaxKg();
   const rows = [], skipped = [], noWeight = [];
+  let lockedCount = 0, fixedCm3 = 0, fixedKg = 0;
   getForecastDisplayItems().forEach(p => {
     const unitProd = getForecastUnitProduct(p);
     const weight = getBasisWeight(unitProd, p);
     const vol = computeBoxVolumeCm3(unitProd);
     const { avg } = getEffectiveAvg(p, now);
+    if(forecastManualIds.has(p.id)){
+      // 手動改過的列:數量不動,但它佔的體積/重量要先從貨櫃扣掉
+      lockedCount++;
+      const q = parseFloat(forecastQtyDraft[p.id]);
+      if(q > 0){ if(vol > 0) fixedCm3 += vol * q; if(unitProd.weightKg > 0) fixedKg += unitProd.weightKg * q; }
+      return;
+    }
     if(!(vol > 0) || !(avg > 0) || !(weight > 0)){ skipped.push(unitProd.name); return; }
     const kg = unitProd.weightKg > 0 ? unitProd.weightKg : 0;
     if(maxKg > 0 && !(kg > 0)) noWeight.push(unitProd.name);
@@ -1202,20 +1223,36 @@ function autoFillForecastByContainer(){
     return;
   }
   const qtyAt = (r, D) => Math.max(0, Math.round((D * r.daily - r.have) / r.weight));
+  const capCm3 = Math.max(0, targetCm3 - fixedCm3);
+  const capKg = maxKg > 0 ? Math.max(0, maxKg - fixedKg) : 0;
   const totalAt = D => rows.reduce((s, r) => s + qtyAt(r, D) * r.vol, 0);
   const kgAt = D => rows.reduce((s, r) => s + qtyAt(r, D) * r.kg, 0);
-  const fits = D => totalAt(D) <= targetCm3 && (!(maxKg > 0) || kgAt(D) <= maxKg);
+  const fits = D => totalAt(D) <= capCm3 && (!(maxKg > 0) || kgAt(D) <= capKg);
   let lo = 0, hi = 3650;
   for(let i = 0; i < 60; i++){ const mid = (lo + hi) / 2; if(fits(mid)) lo = mid; else hi = mid; }
-  const boundByWeight = maxKg > 0 && (kgAt(lo) / maxKg) > (totalAt(lo) / targetCm3);
-  rows.forEach(r => {
-    const q = qtyAt(r, lo);
-    forecastQtyDraft[r.id] = q > 0 ? String(q) : '';
-  });
+  const qtys = {};
+  rows.forEach(r => { qtys[r.id] = qtyAt(r, lo); });
+  // 補剩餘空間:每次給「進貨後可撐天數最短」且放得下一個單位的商品加 1 單位,直到沒有商品放得下。
+  let remCm3 = capCm3 - totalAt(lo), remKg = capKg - kgAt(lo);
+  const coverDays = r => (r.have + qtys[r.id] * r.weight) / r.daily;
+  for(let guard = 0; guard < 5000; guard++){
+    let best = null;
+    rows.forEach(r => {
+      if(r.vol > remCm3) return;
+      if(maxKg > 0 && r.kg > remKg) return;
+      if(!best || coverDays(r) < coverDays(best)) best = r;
+    });
+    if(!best) break;
+    qtys[best.id]++; remCm3 -= best.vol; remKg -= best.kg;
+  }
+  const usedCm3 = rows.reduce((s, r) => s + qtys[r.id] * r.vol, 0);
+  const usedKg = rows.reduce((s, r) => s + qtys[r.id] * r.kg, 0);
+  const boundByWeight = maxKg > 0 && (usedKg / Math.max(capKg, 1)) > (usedCm3 / Math.max(capCm3, 1));
+  rows.forEach(r => { forecastQtyDraft[r.id] = qtys[r.id] > 0 ? String(qtys[r.id]) : ''; });
   renderForecastTable();
   if(msg){
     msg.className = 'msg ok';
-    msg.textContent = tf('msgForecastAutoFilled', { cbm: target, days: Math.round(lo) }) + (boundByWeight ? ' ' + tf('noteForecastAutoFillByWeight', { kg: maxKg }) : '') + (skipped.length ? ' ' + tf('noteForecastAutoFillSkipped', { n: skipped.length, names: skipped.join('、') }) : '') + (noWeight.length ? ' ' + tf('noteForecastAutoFillNoWeight', { n: noWeight.length, names: noWeight.join('、') }) : '');
+    msg.textContent = tf('msgForecastAutoFilled', { cbm: target, days: Math.round(lo) }) + (lockedCount ? ' ' + tf('noteForecastAutoFillLocked', { n: lockedCount }) : '') + (boundByWeight ? ' ' + tf('noteForecastAutoFillByWeight', { kg: maxKg }) : '') + (skipped.length ? ' ' + tf('noteForecastAutoFillSkipped', { n: skipped.length, names: skipped.join('、') }) : '') + (noWeight.length ? ' ' + tf('noteForecastAutoFillNoWeight', { n: noWeight.length, names: noWeight.join('、') }) : '');
   }
 }
 
@@ -1550,6 +1587,7 @@ async function confirmSaveForecast(){
     forecastQtyDraft = {};
     forecastNote = '';
     forecastOrderPlaced = false;
+    forecastManualIds = new Set();
     forecastEta = '';
     const etaEl1 = document.getElementById('forecastEtaInput'); if(etaEl1) etaEl1.value = '';
     const opChk1 = document.getElementById('forecastOrderPlacedChk'); if(opChk1) opChk1.checked = false;
@@ -1722,6 +1760,7 @@ async function loadForecastRecord(id){
   forecastLoadedRecordId = rec.id;
   forecastNote = rec.note || '';
   forecastOrderPlaced = !!rec.orderPlaced;
+  forecastManualIds = new Set();
   forecastEta = rec.eta || '';
   const etaEl0 = document.getElementById('forecastEtaInput'); if(etaEl0) etaEl0.value = forecastEta;
   const opChk0 = document.getElementById('forecastOrderPlacedChk'); if(opChk0) opChk0.checked = forecastOrderPlaced;
