@@ -1110,6 +1110,14 @@ function getForecastContainerTargetCbm(){
   const v = parseFloat((document.getElementById('forecastContainerCbm') || {}).value);
   return (v > 0) ? v : 0;
 }
+// 載重上限(kg)預設值:各貨櫃的大約最大載重,輸入框可再手動修改(實際以船公司/道路限重為準);空白或 0 = 不限重量。
+const FORECAST_CONTAINER_KG = { '28': 28000, '21': 27000, '58': 26500, '68': 26500 };
+function getForecastContainerMaxKg(){
+  const chk = document.getElementById('forecastAutoFillChk');
+  if(!chk || !chk.checked) return 0;
+  const v = parseFloat((document.getElementById('forecastContainerKg') || {}).value);
+  return (v > 0) ? v : 0;
+}
 function onForecastAutoFillToggle(){
   const on = document.getElementById('forecastAutoFillChk').checked;
   document.getElementById('forecastContainerSel').style.display = on ? '' : 'none';
@@ -1122,8 +1130,9 @@ function onForecastAutoFillToggle(){
 function onForecastContainerChange(){
   const sel = document.getElementById('forecastContainerSel');
   const inp = document.getElementById('forecastContainerCbm');
-  if(sel.value === 'custom'){ inp.value = ''; inp.focus(); }
-  else inp.value = sel.value;
+  const kgInp = document.getElementById('forecastContainerKg');
+  if(sel.value === 'custom'){ inp.value = ''; kgInp.value = ''; inp.focus(); }
+  else { inp.value = sel.value; kgInp.value = FORECAST_CONTAINER_KG[sel.value] || ''; }
   updateForecastSummary();
 }
 // 找一個共同的「進貨後可撐天數」D,讓所有可計算的商品填的量 × 箱體積 加起來最接近(但不超過)貨櫃容積。
@@ -1135,14 +1144,17 @@ function autoFillForecastByContainer(){
   if(!(target > 0)){ if(msg){ msg.className = 'msg error'; msg.textContent = t('errForecastAutoFillNoTarget'); } return; }
   const targetCm3 = target * 1000000;
   const now = new Date();
-  const rows = [], skipped = [];
+  const maxKg = getForecastContainerMaxKg();
+  const rows = [], skipped = [], noWeight = [];
   getForecastDisplayItems().forEach(p => {
     const unitProd = getForecastUnitProduct(p);
     const weight = getBasisWeight(unitProd, p);
     const vol = computeBoxVolumeCm3(unitProd);
     const { avg } = getEffectiveAvg(p, now);
     if(!(vol > 0) || !(avg > 0) || !(weight > 0)){ skipped.push(unitProd.name); return; }
-    rows.push({ id: p.id, weight, vol, daily: avg / 30.44, have: computeTotalStock(p.id) - forecastReservedBase(p) + forecastPendingBase(p) });
+    const kg = unitProd.weightKg > 0 ? unitProd.weightKg : 0;
+    if(maxKg > 0 && !(kg > 0)) noWeight.push(unitProd.name);
+    rows.push({ id: p.id, weight, vol, kg, daily: avg / 30.44, have: computeTotalStock(p.id) - forecastReservedBase(p) + forecastPendingBase(p) });
   });
   if(rows.length === 0){
     if(msg){ msg.className = 'msg error'; msg.textContent = t('errForecastAutoFillNone'); }
@@ -1150,8 +1162,11 @@ function autoFillForecastByContainer(){
   }
   const qtyAt = (r, D) => Math.max(0, Math.round((D * r.daily - r.have) / r.weight));
   const totalAt = D => rows.reduce((s, r) => s + qtyAt(r, D) * r.vol, 0);
+  const kgAt = D => rows.reduce((s, r) => s + qtyAt(r, D) * r.kg, 0);
+  const fits = D => totalAt(D) <= targetCm3 && (!(maxKg > 0) || kgAt(D) <= maxKg);
   let lo = 0, hi = 3650;
-  for(let i = 0; i < 60; i++){ const mid = (lo + hi) / 2; if(totalAt(mid) <= targetCm3) lo = mid; else hi = mid; }
+  for(let i = 0; i < 60; i++){ const mid = (lo + hi) / 2; if(fits(mid)) lo = mid; else hi = mid; }
+  const boundByWeight = maxKg > 0 && (kgAt(lo) / maxKg) > (totalAt(lo) / targetCm3);
   rows.forEach(r => {
     const q = qtyAt(r, lo);
     forecastQtyDraft[r.id] = q > 0 ? String(q) : '';
@@ -1159,7 +1174,7 @@ function autoFillForecastByContainer(){
   renderForecastTable();
   if(msg){
     msg.className = 'msg ok';
-    msg.textContent = tf('msgForecastAutoFilled', { cbm: target, days: Math.round(lo) }) + (skipped.length ? ' ' + tf('noteForecastAutoFillSkipped', { n: skipped.length, names: skipped.join('、') }) : '');
+    msg.textContent = tf('msgForecastAutoFilled', { cbm: target, days: Math.round(lo) }) + (boundByWeight ? ' ' + tf('noteForecastAutoFillByWeight', { kg: maxKg }) : '') + (skipped.length ? ' ' + tf('noteForecastAutoFillSkipped', { n: skipped.length, names: skipped.join('、') }) : '') + (noWeight.length ? ' ' + tf('noteForecastAutoFillNoWeight', { n: noWeight.length, names: noWeight.join('、') }) : '');
   }
 }
 
@@ -1169,7 +1184,7 @@ function updateForecastSummary(){
   if(!summaryBar) return;
   const items = getForecastDisplayItems();
 
-  let totalBoxes = 0, totalVolumeCm3 = 0, notConvertible = 0;
+  let totalBoxes = 0, totalVolumeCm3 = 0, totalKg = 0, notConvertible = 0;
   const notConvertibleNames = [];
   items.forEach(p => {
     const qty = parseFloat(forecastQtyDraft[p.id]);
@@ -1177,14 +1192,20 @@ function updateForecastSummary(){
     const unitProd = getForecastUnitProduct(p);
     const boxVol = computeBoxVolumeCm3(unitProd);
     if(boxVol !== null) totalVolumeCm3 += boxVol * qty;
+    if(unitProd.weightKg > 0) totalKg += unitProd.weightKg * qty;
     const res = computeForecastBoxes(p, qty);
     if(res.boxes === null){ notConvertible++; notConvertibleNames.push(unitProd.name); }
     else totalBoxes += res.boxes;
   });
 
+  const maxKgForBar = getForecastContainerMaxKg();
+  const weightHtml = (totalKg > 0 || maxKgForBar > 0)
+    ? `<span style="margin-left:14px;white-space:nowrap;">${t('lblTotalWeight')}<strong>${Math.round(totalKg).toLocaleString()} kg</strong>${maxKgForBar > 0 ? ` / ${maxKgForBar.toLocaleString()} kg (${Math.round(totalKg / maxKgForBar * 100)}%)` : ''}</span>`
+    : '';
   summaryBar.innerHTML = `
     <span style="white-space:nowrap;">${t('lblTotalBoxes')}<strong>${totalBoxes ? (Math.round(totalBoxes * 100) / 100).toLocaleString() : '0'}</strong></span>
     <span style="margin-left:14px;white-space:nowrap;">${t('lblTotalVolume')}<strong>${formatForecastVolume(totalVolumeCm3 || 0)}</strong>${(() => { const tg = getForecastContainerTargetCbm(); return tg > 0 ? ` / ${formatForecastVolume(tg * 1000000)} (${Math.round((totalVolumeCm3 || 0) / (tg * 1000000) * 100)}%)` : ''; })()}</span>
+    ${weightHtml}
     <span style="margin-left:2px;white-space:nowrap;"><span class="del-link" style="margin-left:5px;color:var(--ink);cursor:pointer;" title="${t('titleSwitchVolumeUnit')}" onclick="openForecastVolumeUnitMenu(event)">⇄</span></span>
     ${notConvertible > 0 ? `<div style="font-size:11.5px;color:var(--warn);margin-top:4px;">${tn('noteBoxesNotConvertible', notConvertible)}<br>${notConvertibleNames.map(escapeHtmlText).join('、')}</div>` : ''}
   `;

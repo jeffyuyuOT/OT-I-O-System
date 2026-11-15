@@ -2143,7 +2143,7 @@ body.no-cost-view .cost-col{display:none !important;}
             <option value="68" data-i18n="optContainer40HC">40呎高櫃(68 CBM)</option>
             <option value="custom" data-i18n="optContainerCustom">自訂目標 CBM</option>
           </select>
-          <span id="forecastContainerCbmWrap" style="display:none;align-items:center;gap:4px;"><input type="number" id="forecastContainerCbm" min="0" step="any" placeholder="CBM" oninput="updateForecastSummary()" style="width:80px;" /><span>CBM</span></span>
+          <span id="forecastContainerCbmWrap" style="display:none;align-items:center;gap:4px;"><input type="number" id="forecastContainerCbm" min="0" step="any" placeholder="CBM" oninput="updateForecastSummary()" style="width:80px;" /><span>CBM</span><input type="number" id="forecastContainerKg" min="0" step="any" placeholder="kg" oninput="updateForecastSummary()" style="width:80px;margin-left:6px;" /><span>kg</span></span>
           <button class="btn ghost" id="forecastAutoFillBtn" onclick="autoFillForecastByContainer()" style="display:none;padding:6px 10px;" data-i18n="btnForecastAutoLoad">自動載入</button>
         </div>
       </div>
