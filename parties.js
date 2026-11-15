@@ -1074,6 +1074,13 @@ function forecastAfterDays(p, qtyStr){
   if(!(avg > 0)) return Infinity;
   return daysRemaining(computeTotalStock(p.id) - forecastReservedBase(p) + forecastPendingBase(p) + add, avg);
 }
+// 缺貨警示 / 排序面板:預設收起、警示天數 0(關閉),點 ⚠ 圖示才展開。
+function toggleForecastCheckPanel(){
+  const el = document.getElementById('forecastCheckPanel');
+  if(!el) return;
+  el.style.display = (el.style.display === 'none') ? 'block' : 'none';
+  updateForecastSummary();
+}
 function forecastLowCoverThreshold(){
   const v = parseFloat((document.getElementById('forecastLowDays') || {}).value);
   return v > 0 ? v : 0;
