@@ -1620,7 +1620,7 @@ function forecastRecordsTableHtml(includeConverted){
             <td>${escapeHtmlText(formatOrderDateTime(r.savedAt))}</td>
             <td>${tf('forecastRecordItemsCount', { q: withQty })}</td>
             <td style="color:${stColor};font-weight:600;white-space:nowrap;">${forecastStatusLabel(st)}${(typeof ppOn === 'function' && ppOn() && ppForRecord(r.id).length) ? `<div style="font-size:11px;color:var(--ink-soft);font-weight:400;">${tf('ppPaidTag', { a: ppM(ppPaidForRecord(r.id)) })}</div>` : ''}</td>
-            <td style="white-space:nowrap;text-align:right;" onclick="event.stopPropagation()">${acts}</td>
+            <td class="fc-rec-acts" style="white-space:nowrap;text-align:right;" onclick="event.stopPropagation()">${acts}</td>
           </tr>${open ? `<tr><td colspan="5" style="background:var(--bg,#faf7f0);">${forecastRecordDetailHtml(r)}</td></tr>` : ''}`;
         }).join('')}
       </tbody>
