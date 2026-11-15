@@ -711,6 +711,7 @@ let forecastBoxBasis = {};      // anchorId -> 換算「總箱數」要用哪一
 let forecastRemovedIds = new Set(); // 使用者在目前篩選結果裡手動刪掉的商品(只管目前這次篩選)
 let forecastAddedIds = new Set();   // 使用者在目前篩選結果之外額外手動加進來的商品
 let forecastOrderPlaced = false;     // 「已訂貨」勾選:存進記錄後狀態會是 Order Placed,沒勾就是 Draft
+let forecastEta = '';                // 預計到貨日(YYYY-MM-DD,選填;存進預估表記錄,用來判斷到貨前會不會缺貨)
 let forecastNote = '';              // 預估表附註(會存進預估表記錄、匯出 Excel)
 let forecastLoadedRecordId = null;  // 目前畫面是從哪一筆預估表記錄載入的(儲存時會取代那一筆)
 
@@ -1011,6 +1012,44 @@ function forecastPendingBase(anchor){
   catch(e){ return 0; }
 }
 
+// ----- 預計到貨日 / 到貨前缺貨判斷 -----
+function forecastParseDate(str){
+  if(!str || !/^\d{4}-\d{2}-\d{2}$/.test(str)) return null;
+  const d = new Date(str + 'T00:00:00');
+  return isNaN(d.getTime()) ? null : d;
+}
+function forecastFmtDate(str){
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(str || '');
+  return m ? `${m[3]}/${m[2]}/${m[1]}` : '';
+}
+// 這個商品「第一批」要到的貨:其他已訂貨預估單(有填到貨日、數量 > 0)加上目前這份預估表(有填到貨日、數量 > 0),取最早的到貨日。
+// 沒填到貨日的預估單照樣算在途庫存,但不參與缺貨判斷(不知道什麼時候到)。
+// 回傳 { gapDays, eta, daysOut } 表示「到貨前約缺貨 gapDays 天」;沒有缺貨或資料不足回傳 null。
+function forecastShortage(p, qtyStr){
+  try{
+    const now = new Date();
+    const { avg } = getEffectiveAvg(p, now);
+    if(!(avg > 0)) return null;
+    const net = computeTotalStock(p.id) - forecastReservedBase(p);
+    const daysOut = Math.max(0, net / (avg / 30.44));
+    let earliest = null;
+    const consider = str => { const d = forecastParseDate(str); if(d && (!earliest || d < earliest.d)) earliest = { d, str }; };
+    (forecastRecords || []).filter(r => !r.converted && r.orderPlaced && r.id !== forecastLoadedRecordId && r.eta).forEach(r => {
+      if((r.items || []).some(it => it.anchorId === p.id && Number(it.qty) > 0)) consider(r.eta);
+    });
+    if(forecastEta && parseFloat(qtyStr) > 0) consider(forecastEta);
+    if(!earliest) return null;
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const daysUntil = Math.max(0, Math.round((earliest.d - today) / 86400000));
+    const gap = daysUntil - daysOut;
+    if(gap < 1) return null;
+    return { gapDays: Math.round(gap), eta: earliest.str, daysOut: Math.round(daysOut) };
+  }catch(e){ return null; }
+}
+function forecastShortageTipLine(sh){
+  return sh ? `\n${tf('tipForecastShortage', { eta: forecastFmtDate(sh.eta), d: sh.daysOut, gap: sh.gapDays })}` : '';
+}
+
 // 「待出貨」= 客人已訂、還沒核對出貨的訂單量(換算成主商品單位,含底下批量商品的訂單);庫存可撐會先扣掉。
 function forecastReservedBase(anchor){
   try{
@@ -1046,6 +1085,7 @@ function forecastRowHtml(p, now){
   const rawAddition = isNaN(enteredQty) ? 0 : enteredQty * weight;
   const rawPending = forecastPendingBase(p);
   const afterGauge = gaugeInfo(daysRemaining(rawStock + rawPending + rawAddition, rawAvg));
+  const shortage = forecastShortage(p, draftVal);
   const hasFamily = getChildProducts(p.id).length > 0;
   return `
     <tr id="forecastRow_${p.id}">
@@ -1057,7 +1097,7 @@ function forecastRowHtml(p, now){
             oninput="updateForecastRow('${p.id}')" onchange="onForecastQtyCommit('${p.id}')" /><span class="fc-unit-label" title="${escapeAttr(unitProd.unit || '')}">${escapeHtmlText(unitProd.unit || '')}</span>${hasFamily ? `<span class="fc-unit-switch" onclick="openForecastUnitMenu(event,'${p.id}')" title="${escapeAttr(t('titleSwitchForecastUnit'))}">⇄</span>` : ''}
         </div>
       </td>
-      <td class="num fc-remain-tip" id="forecastAfterCell_${p.id}" data-tip="${escapeAttr(forecastTipText(unitProd, weight, rawStock + rawPending + rawAddition, rawAvg, 'tipTotalAfter', rawPending, rawReserved))}"><span class="dot dot-${afterGauge.cls}" style="margin-right:5px;"></span>${afterGauge.label}</td>
+      <td class="num fc-remain-tip" id="forecastAfterCell_${p.id}" data-tip="${escapeAttr(forecastTipText(unitProd, weight, rawStock + rawPending + rawAddition, rawAvg, 'tipTotalAfter', rawPending, rawReserved) + forecastShortageTipLine(shortage))}"><span class="dot dot-${afterGauge.cls}" style="margin-right:5px;"></span>${afterGauge.label}${shortage ? ' <span style="color:var(--crit);">⚠</span>' : ''}</td>
       <td><span class="fc-row-del" onclick="removeForecastRow('${p.id}')" title="${escapeAttr(t('titleRemoveForecastRow'))}">✕</span></td>
     </tr>
   `;
@@ -1082,10 +1122,11 @@ function updateForecastRow(productId){
   const rawAddition = isNaN(qty) ? 0 : qty * weight;
   const rawPending = forecastPendingBase(p);
   const afterGauge = gaugeInfo(daysRemaining(rawStock + rawPending + rawAddition, rawAvg));
+  const shortage = forecastShortage(p, input.value);
   const cell = document.getElementById(`forecastAfterCell_${productId}`);
   if(cell){
-    cell.innerHTML = `<span class="dot dot-${afterGauge.cls}" style="margin-right:5px;"></span>${afterGauge.label}`;
-    cell.setAttribute('data-tip', forecastTipText(unitProd, weight, rawStock + rawPending + rawAddition, rawAvg, 'tipTotalAfter', rawPending, rawReserved));
+    cell.innerHTML = `<span class="dot dot-${afterGauge.cls}" style="margin-right:5px;"></span>${afterGauge.label}${shortage ? ' <span style="color:var(--crit);">⚠</span>' : ''}`;
+    cell.setAttribute('data-tip', forecastTipText(unitProd, weight, rawStock + rawPending + rawAddition, rawAvg, 'tipTotalAfter', rawPending, rawReserved) + forecastShortageTipLine(shortage));
   }
 
   updateForecastSummary();
@@ -1185,6 +1226,8 @@ function updateForecastSummary(){
   const items = getForecastDisplayItems();
 
   let totalBoxes = 0, totalVolumeCm3 = 0, totalKg = 0, notConvertible = 0;
+  const shortageNames = [];
+  items.forEach(p => { if(forecastShortage(p, forecastQtyDraft[p.id])) shortageNames.push(getForecastUnitProduct(p).name); });
   const notConvertibleNames = [];
   items.forEach(p => {
     const qty = parseFloat(forecastQtyDraft[p.id]);
@@ -1202,11 +1245,13 @@ function updateForecastSummary(){
   const weightHtml = (totalKg > 0 || maxKgForBar > 0)
     ? `<span style="margin-left:14px;white-space:nowrap;">${t('lblTotalWeight')}<strong>${Math.round(totalKg).toLocaleString()} kg</strong>${maxKgForBar > 0 ? ` / ${maxKgForBar.toLocaleString()} kg (${Math.round(totalKg / maxKgForBar * 100)}%)` : ''}</span>`
     : '';
+  const shortageHtml = shortageNames.length ? `<div style="font-size:11.5px;color:var(--crit);margin-top:4px;">${t('lblForecastShortageSummary')}${shortageNames.map(escapeHtmlText).join('、')}</div>` : '';
   summaryBar.innerHTML = `
     <span style="white-space:nowrap;">${t('lblTotalBoxes')}<strong>${totalBoxes ? (Math.round(totalBoxes * 100) / 100).toLocaleString() : '0'}</strong></span>
     <span style="margin-left:14px;white-space:nowrap;">${t('lblTotalVolume')}<strong>${formatForecastVolume(totalVolumeCm3 || 0)}</strong>${(() => { const tg = getForecastContainerTargetCbm(); return tg > 0 ? ` / ${formatForecastVolume(tg * 1000000)} (${Math.round((totalVolumeCm3 || 0) / (tg * 1000000) * 100)}%)` : ''; })()}</span>
     ${weightHtml}
     <span style="margin-left:2px;white-space:nowrap;"><span class="del-link" style="margin-left:5px;color:var(--ink);cursor:pointer;" title="${t('titleSwitchVolumeUnit')}" onclick="openForecastVolumeUnitMenu(event)">⇄</span></span>
+    ${shortageHtml}
     ${notConvertible > 0 ? `<div style="font-size:11.5px;color:var(--warn);margin-top:4px;">${tn('noteBoxesNotConvertible', notConvertible)}<br>${notConvertibleNames.map(escapeHtmlText).join('、')}</div>` : ''}
   `;
 }
@@ -1489,7 +1534,7 @@ async function confirmSaveForecast(){
   // 載入的預估表預設帶原本的名稱(見 openSaveForecastModal),所以不改名直接儲存就是取代原本那筆。
   const sameNameCount = forecastRecords.filter(r => !r.converted && (r.name || '').trim() === name).length;
   forecastRecords = forecastRecords.filter(r => r.converted || (r.name || '').trim() !== name);
-  forecastRecords.push({ id: 'fr_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), name, savedAt: new Date().toISOString(), items, note: (forecastNote || '').trim(), orderPlaced: !!forecastOrderPlaced, supplierId: forecastSupplierSel.id || undefined, supplierName: forecastSupplierSel.name || undefined });
+  forecastRecords.push({ id: 'fr_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), name, savedAt: new Date().toISOString(), items, note: (forecastNote || '').trim(), orderPlaced: !!forecastOrderPlaced, eta: forecastEta || undefined, supplierId: forecastSupplierSel.id || undefined, supplierName: forecastSupplierSel.name || undefined });
   try{ await saveForecastRecords(); }
   catch(e){
     console.error('儲存進貨預估紀錄失敗', e);
@@ -1505,6 +1550,8 @@ async function confirmSaveForecast(){
     forecastQtyDraft = {};
     forecastNote = '';
     forecastOrderPlaced = false;
+    forecastEta = '';
+    const etaEl1 = document.getElementById('forecastEtaInput'); if(etaEl1) etaEl1.value = '';
     const opChk1 = document.getElementById('forecastOrderPlacedChk'); if(opChk1) opChk1.checked = false;
     const noteEl = document.getElementById('forecastNoteInput'); if(noteEl) noteEl.value = '';
     renderForecastTable();
@@ -1640,7 +1687,7 @@ function forecastRecordsTableHtml(includeConverted){
             <td class="row-name"><span style="display:inline-block;width:14px;">${open ? '▾' : '▸'}</span>${escapeHtmlText(r.name)}${r.note ? ` <span class="del-link" style="margin-left:4px;" title="${t('fieldForecastNote')}" onclick="event.stopPropagation();showForecastRecordNote('${r.id}')">📝</span>` : ''}</td>
             <td>${escapeHtmlText(formatOrderDateTime(r.savedAt))}</td>
             <td>${tf('forecastRecordItemsCount', { q: withQty })}</td>
-            <td style="color:${stColor};font-weight:600;white-space:nowrap;">${forecastStatusLabel(st)}${(typeof ppOn === 'function' && ppOn() && ppForRecord(r.id).length) ? `<div style="font-size:11px;color:var(--ink-soft);font-weight:400;">${tf('ppPaidTag', { a: ppM(ppPaidForRecord(r.id)) })}</div>` : ''}</td>
+            <td style="color:${stColor};font-weight:600;white-space:nowrap;">${forecastStatusLabel(st)}${st === 'ordered' ? `<div style="font-size:11px;font-weight:400;color:${r.eta ? 'var(--ink-soft)' : 'var(--warn)'};">${r.eta ? tf('forecastEtaTag', { d: forecastFmtDate(r.eta) }) : t('forecastEtaNone')}</div>` : ''}${(typeof ppOn === 'function' && ppOn() && ppForRecord(r.id).length) ? `<div style="font-size:11px;color:var(--ink-soft);font-weight:400;">${tf('ppPaidTag', { a: ppM(ppPaidForRecord(r.id)) })}</div>` : ''}</td>
             <td class="fc-rec-acts" style="white-space:nowrap;text-align:right;" onclick="event.stopPropagation()">${acts}</td>
           </tr>${open ? `<tr><td colspan="5" style="background:var(--bg,#faf7f0);">${forecastRecordDetailHtml(r)}</td></tr>` : ''}`;
         }).join('')}
@@ -1675,6 +1722,8 @@ async function loadForecastRecord(id){
   forecastLoadedRecordId = rec.id;
   forecastNote = rec.note || '';
   forecastOrderPlaced = !!rec.orderPlaced;
+  forecastEta = rec.eta || '';
+  const etaEl0 = document.getElementById('forecastEtaInput'); if(etaEl0) etaEl0.value = forecastEta;
   const opChk0 = document.getElementById('forecastOrderPlacedChk'); if(opChk0) opChk0.checked = forecastOrderPlaced;
   const noteEl0 = document.getElementById('forecastNoteInput'); if(noteEl0) noteEl0.value = forecastNote;
   const valid = rec.items.filter(it => products.some(p => p.id === it.anchorId && !p.parentId));

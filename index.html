@@ -2154,6 +2154,7 @@ body.no-cost-view .cost-col{display:none !important;}
       </div>
       <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap;margin:0 0 10px;">
         <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;"><input type="checkbox" id="forecastOrderPlacedChk" onchange="forecastOrderPlaced=this.checked" style="width:15px;height:15px;" /><span data-i18n="chkForecastOrderPlaced">已訂貨</span></label>
+        <label style="display:flex;align-items:center;gap:6px;font-size:13px;margin:0;"><span data-i18n="fieldForecastEta">預計到貨日</span><input type="date" id="forecastEtaInput" onchange="forecastEta=this.value;renderForecastTable()" style="width:auto;" /></label>
         <div id="forecastSummaryBar" style="margin-left:auto;font-size:15px;color:var(--ink-soft);text-align:right;"></div>
       </div>
       <div class="field-block" style="margin-bottom:10px;">
