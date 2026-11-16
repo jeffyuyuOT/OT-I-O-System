@@ -143,7 +143,49 @@ function qtBlank(){
     salesRep: qtMyName(), lines: [qtBlankLine()], note: qtData.defaultNote || '', void: false
   };
 }
-function qtBlankLine(){ return { minQty: '', desc: '', price: '', perCtn: '' }; }
+function qtBlankLine(){ return { minQty: '', desc: '', price: '', perCtn: '', productId: '', priceEdited: false }; }
+// 單價自動帶入:定價管理的售價 × 出貨方折扣(跟開 Invoice 同一套計算);手動改過的價錢不會被蓋掉
+function qtFindProductByName(name){
+  const n = String(name || '').trim().toLowerCase(); if(!n) return null;
+  try{ return (products || []).find(p => !p.hidden && String(p.name || '').trim().toLowerCase() === n) || null; }catch(e){ return null; }
+}
+function qtAutoPrice(l){
+  if(!l.productId || typeof spPriceOrderItem !== 'function') return null;
+  try{
+    const qty = parseFloat(String(l.minQty || '').replace(/,/g, '')) || 1;
+    const pr = spPriceOrderItem({ partyId: (qtEditing && qtEditing.partyId) || '', status: 'pending', items: [] }, { productId: l.productId, qty });
+    if(pr && pr.unit !== null && pr.unit !== undefined && Number.isFinite(Number(pr.unit))) return Math.round(Number(pr.unit) * 100) / 100;
+  }catch(e){}
+  return null;
+}
+// 重新帶入某一行(沒手動改過價錢才會),並把畫面上的單價欄位更新
+function qtRepriceLine(i){
+  const l = qtEditing && qtEditing.lines[i]; if(!l || l.priceEdited) return;
+  const p = qtAutoPrice(l);
+  l.price = p === null ? '' : p;
+  const el = document.getElementById('qtPrice' + i); if(el) el.value = l.price;
+  qtUpdateTotals();
+}
+function qtOnDescChange(i, val){
+  const l = qtEditing.lines[i]; if(!l) return;
+  l.desc = val;
+  const p = qtFindProductByName(val);
+  l.productId = p ? p.id : '';
+  if(p){ l.priceEdited = false; qtRepriceLine(i); }
+}
+function qtOnQtyChange(i, val){
+  const l = qtEditing.lines[i]; if(!l) return;
+  l.minQty = val;
+  qtRepriceLine(i);   // 售價有數量階梯時,數量改了價錢可能跟著變
+  qtUpdateTotals();
+}
+function qtOnPriceInput(i, val){
+  const l = qtEditing.lines[i]; if(!l) return;
+  l.price = val;
+  l.priceEdited = String(val).trim() !== '';   // 清空 = 回到自動帶入
+  if(!l.priceEdited) qtRepriceLine(i);
+  qtUpdateTotals();
+}
 function qtNew(){ qtEditing = qtBlank(); qtRender(); }
 function qtOpen(id){
   const q = qtData.items.find(x => x.id === id); if(!q) return;
@@ -211,6 +253,7 @@ function qtRenderEditor(root){
       <tbody id="qtLinesBody">${q.lines.map((l, i) => qtLineRowHtml(l, i)).join('')}</tbody>
     </table></div>
     <button class="btn ghost" style="margin-top:8px;" onclick="qtAddLine()">＋ ${t('qtAddLine')}</button>
+ <div style="margin-top:6px;font-size:12px;color:var(--ink-soft);">${t('qtPriceAutoHint')}</div>
     <div id="qtTotalsLive" style="margin-top:10px;font-size:13px;">${qtTotalsEditorHtml(q.lines)}</div>
     <div class="field-block" style="margin-top:12px;max-width:900px;">
       <label>${t('qtNote')}</label>
@@ -226,9 +269,9 @@ function qtRenderEditor(root){
 }
 function qtLineRowHtml(l, i){
   return `<tr>
-    <td><input type="text" value="${qtEsc(l.minQty)}" oninput="qtEditing.lines[${i}].minQty=this.value;qtUpdateTotals()" style="width:100%;" /></td>
-    <td><input type="text" list="qtProductList" value="${qtEsc(l.desc)}" oninput="qtEditing.lines[${i}].desc=this.value" style="width:100%;" /></td>
-    <td><input type="number" step="any" min="0" value="${qtEsc(l.price)}" oninput="qtEditing.lines[${i}].price=this.value;qtUpdateTotals()" style="width:100%;" placeholder="0.00" /></td>
+    <td><input type="text" value="${qtEsc(l.minQty)}" oninput="qtOnQtyChange(${i}, this.value)" style="width:100%;" /></td>
+    <td><input type="text" list="qtProductList" value="${qtEsc(l.desc)}" onchange="qtOnDescChange(${i}, this.value)" oninput="qtEditing.lines[${i}].desc=this.value" style="width:100%;" /></td>
+    <td><input type="number" id="qtPrice${i}" step="any" min="0" value="${qtEsc(l.price)}" oninput="qtOnPriceInput(${i}, this.value)" style="width:100%;" placeholder="0.00" /></td>
     <td><input type="text" value="${qtEsc(l.perCtn)}" oninput="qtEditing.lines[${i}].perCtn=this.value" style="width:100%;" /></td>
     <td><span class="fc-row-del" onclick="qtRemoveLine(${i})" title="${qtEsc(t('qtRemoveLine'))}">✕</span></td>
   </tr>`;
@@ -278,6 +321,7 @@ function qtOnToChange(val){
     if(!qtEditing.email) qtEditing.email = sp.email || '';
     if(!qtEditing.address) qtEditing.address = sp.shipTo !== undefined ? sp.shipTo : (sp.billTo || '');
   } else qtEditing.partyId = '';
+  qtEditing.lines.forEach((l, i) => qtRepriceLine(i));   // 出貨方折扣不同 → 沒手動改過的單價重新帶入
   qtRender();
 }
 function qtBack(){ qtEditing = null; qtRender(); }
