@@ -136,6 +136,26 @@ function partyDiscountBadgeHtml(sp){
   return ` <span title="${t('orderDiscountTip')}" style="margin-left:6px;padding:1px 7px;border-radius:10px;${style}font-size:11.5px;font-weight:600;white-space:nowrap;">${label}</span>`;
 }
 
+// Discount 已過期時,出貨方列表的名稱旁多「延長 / 清除」:延長 = 開編輯視窗並定位到到期日;清除 = 移除這筆已過期的 Discount。
+function partyDiscountExpiredActionsHtml(sp){
+  if(!partyDiscountExpired(sp) || !(typeof canViewPrice === 'function' && canViewPrice())) return '';
+  return ` <span class="del-link" style="margin-left:6px;font-size:11.5px;" onclick="partyExtendDiscount('${sp.id}')">${t('partyDiscExtend')}</span>`
+    + `<span class="del-link" style="margin-left:6px;font-size:11.5px;" onclick="partyClearDiscount('${sp.id}')">${t('partyDiscClear')}</span>`;
+}
+function partyExtendDiscount(id){
+  openPartyEditModal(id);
+  setTimeout(() => { const el = document.getElementById('partyDiscountUntilInput'); if(el){ el.focus(); try{ el.showPicker && el.showPicker(); }catch(e){} } }, 50);
+}
+async function partyClearDiscount(id){
+  const sp = shippingParties.find(x => x.id === id); if(!sp) return;
+  if(!confirm(tf('partyDiscClearConfirm', { name: sp.name }))) return;
+  sp.discount = 0; sp.discountUntil = '';   // 已過期的 Discount 本來就不生效,清除不影響任何訂單價錢
+  await saveShippingParties();
+  renderPartiesTable();
+  try{ populatePartySelect(); }catch(e){}
+  try{ if(typeof txPartyPickerOnSaved === 'function') txPartyPickerOnSaved(null); }catch(e){}
+}
+
 // 出貨方名稱預設跟著公司名稱走;使用者手動輸入過名稱就以手動輸入為準(名稱清空後又會恢復跟著公司名稱)
 let partyNameManual = false;
 function onPartyNameInput(){ partyNameManual = document.getElementById('partyNameInput').value.trim() !== ''; }
@@ -381,7 +401,7 @@ function renderPartiesTable(){
     return `
       <tr>
         <td class="row-code" style="white-space:nowrap;color:var(--ink-soft);font-family:'IBM Plex Mono',monospace;font-size:12px;">${esc(sp.code || '')}</td>
-        <td class="row-name"><span class="del-link" style="font-weight:600;" onclick="openPartyEditModal('${sp.id}')">${esc(sp.name)}</span>${partyDiscountBadgeHtml(sp)}</td>
+        <td class="row-name"><span class="del-link" style="font-weight:600;" onclick="openPartyEditModal('${sp.id}')">${esc(sp.name)}</span>${partyDiscountBadgeHtml(sp)}${partyDiscountExpiredActionsHtml(sp)}</td>
         <td><span class="mini-label">${t('fieldPartyPhone')}</span>${esc(sp.phone !== undefined ? sp.phone : (sp.contact || '')) || '—'}</td>
         <td class="row-note"><span class="mini-label">${t('colNote')}</span>${esc(sp.note || '') || '—'}</td>
         <td class="row-action" style="white-space:nowrap;text-align:right;">
