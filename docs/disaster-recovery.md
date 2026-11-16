@@ -9,6 +9,7 @@
 | 資料庫資料 | Dropbox `Apps/<App 資料夾>/daily/YYYY-MM-DD.json.gz` | 每天 23:00(布里斯本) | 保留 90 天。**2026-11-14 之前的檔案 JSON 已損壞,不要用來還原。** |
 | 資料庫結構(表、RPC 函式、觸發器、RLS、權限、序列、儲存桶、Realtime、排程) | Dropbox `daily/YYYY-MM-DD.schema.sql.gz` | 每天 | 與資料檔配對使用。含 `x-backup-secret` 的排程會被遮蔽,要手動重建。 |
 | Storage 檔案(收據、商品照片、簽名、匯出檔) | Dropbox `Apps/<App 資料夾>/storage/<bucket>/<原路徑>` | 每天 23:30(布里斯本) | 增量:只傳新檔,不刪除 Dropbox 上已有的檔案。`storage-backup` 函式。 |
+| 備份監看(寄信通知) | `backup-watchdog` 函式 + 排程 `backup-watchdog` | 每天 23:50(布里斯本) | 最近 26 小時內資料備份或 Storage 備份沒有成功紀錄,或結構檔匯出失敗,就寄信到 `ALERT_EMAIL`。涵蓋排程沒觸發的情況。 |
 | App 內備份 | 瀏覽器每日備份(settings.js) | 每天 | 第二重保險。 |
 | 程式碼 | GitHub `jeffyuyuOT/ot-i-o-system`(`main` 正式、`test` 測試) | 每次推送 | 帳號要開 2FA。 |
 | Edge Function 原始碼 | 同上(見第 3 節) | 每次推送 | **改過線上函式後,要把新版放回 repo。** |
@@ -33,7 +34,8 @@
 7. **重建排程**(pg_cron):執行 `sql/daily_backup_cron.sql`,把 `<PROJECT_REF>` 換成新專案 ref,`<BACKUP_SECRET>` 換成新的亂數(與 Edge Function secret 一致)。排程名稱 `daily-backup-dropbox`。
 8. **改 App 設定**:`config.js` 的 `SUPABASE_URL`、`SUPABASE_ANON_KEY` 改成新專案的值(Project Settings → API);正式環境 `IS_TEST_ENV = false`。其他設定與收據掃描服務是獨立專案,不用動。重新部署網站。
 9. **Storage**:儲存桶會由結構檔建立,但檔案是空的。把 Dropbox `storage/<bucket>/` 底下的檔案依原路徑上傳回同名儲存桶(Dashboard → Storage 上傳,或用 Storage API / CLI)。資料庫裡存的是檔案網址,網址的專案 ref 若不同(新專案),舊網址會失效,需要另外處理。
-10. **重建 Storage 備份排程**:部署 `storage-backup`(Verify JWT 關),執行 `sql/storage_backup_cron.sql`(排程名稱 `storage-backup-dropbox`)。
+10. **重建備份監看**:部署 `backup-watchdog`(Verify JWT 關),設定 `ALERT_EMAIL`,執行 `sql/backup_watchdog_cron.sql`(排程名稱 `backup-watchdog`)。
+11. **重建 Storage 備份排程**:部署 `storage-backup`(Verify JWT 關),執行 `sql/storage_backup_cron.sql`(排程名稱 `storage-backup-dropbox`)。
 
 ## 3. Edge Functions
 
@@ -46,6 +48,7 @@
 | `send-purchase-email` | `supabase/functions/send-purchase-email/index.ts` | 開 | 寄採購單/已簽收訂單郵件 |
 | `daily-backup` | `supabase/functions/daily-backup/index.ts` | **關** | 每日備份(排程以 `x-backup-secret` 呼叫) |
 | `storage-backup` | `supabase/functions/storage-backup/index.ts` | **關** | 每日 Storage 檔案增量備份(同樣以 `x-backup-secret` 呼叫) |
+| `backup-watchdog` | `supabase/functions/backup-watchdog/index.ts` | **關** | 檢查備份紀錄,異常寄信(同樣以 `x-backup-secret` 呼叫) |
 
 部署:Dashboard(Edge Functions → Via Editor,貼上原始碼,依表設定 Verify JWT),或 CLI:
 ```
@@ -62,7 +65,9 @@ supabase functions deploy <函式名> --no-verify-jwt --project-ref <ref> # Veri
 | `APP_URL`、`TURNSTILE_SECRET` | request-account |
 | `DOC_EMAIL_DOMAINS` | send-document-email |
 | `DROPBOX_APP_KEY`、`DROPBOX_APP_SECRET`、`DROPBOX_REFRESH_TOKEN` | daily-backup、storage-backup |
-| `BACKUP_SECRET` | daily-backup、storage-backup(與兩個 pg_cron 排程裡的值一致) |
+| `BACKUP_SECRET` | daily-backup、storage-backup、backup-watchdog(與三個 pg_cron 排程裡的值一致) |
+| `ALERT_EMAIL` | backup-watchdog(收異常通知的信箱,多個用逗號分隔) |
+| `RESEND_API_KEY` | 也用於 backup-watchdog 寄通知 |
 | `BACKUP_FOLDER` | 只有測試專案設為 `/daily-test`;**正式專案不要設** |
 | `STORAGE_BACKUP_FOLDER` | 只有測試專案設為 `/storage-test`;**正式專案不要設** |
 | `RETENTION_DAYS` | 選用,預設 90 |
@@ -75,6 +80,8 @@ Dropbox refresh token 找不到時,依 `supabase/functions/daily-backup/README.m
 - [ ] `select count(*) from information_schema.tables where table_schema='public'` 等數量與備份當時一致。
 - [ ] 手動呼叫 `daily-backup`,回 `ok:true`,Dropbox 出現兩個新檔案,`backup_log` 有新一列。
 - [ ] 手動呼叫 `storage-backup`,回 `ok:true`、`pending:0`(檔案多時要多呼叫幾次),Dropbox `storage/` 出現各 bucket 資料夾。
+- [ ] 呼叫 `backup-watchdog`(body `{"test":true}`),`ALERT_EMAIL` 收到測試信。
+- [ ] `select jobname, schedule, active from cron.job;` 有三個排程:`daily-backup-dropbox`、`storage-backup-dropbox`、`backup-watchdog`,且都是 active。
 - [ ] 寄一封測試採購單郵件、邀請一位測試使用者。
 - [ ] 客戶申請帳號頁面可送出(`request-account` Verify JWT 為關)。
 - [ ] 隔天早上確認排程的備份成功:`select * from backup_log order by id desc limit 3;`
