@@ -142,6 +142,26 @@ function partyDiscountExpiredActionsHtml(sp){
   return ` <span class="del-link" style="margin-left:6px;font-size:11.5px;" onclick="partyExtendDiscount('${sp.id}')">${t('partyDiscExtend')}</span>`
     + `<span class="del-link" style="margin-left:6px;font-size:11.5px;" onclick="partyClearDiscount('${sp.id}')">${t('partyDiscClear')}</span>`;
 }
+// 記一筆 Discount 設定變更:{ pct, until, at(設定時間), by(誰設定) };pct 0 = 清除。
+function partyDiscountLog(sp, oldPct, oldUntil, newPct, newUntil){
+  if(!Array.isArray(sp.discountHistory)) sp.discountHistory = [];
+  if(sp.discountHistory.length === 0 && oldPct > 0) sp.discountHistory.push({ pct: oldPct, until: oldUntil || '', at: '', by: '' });
+  let by = ''; try{ by = (typeof currentUser !== 'undefined' && currentUser) ? userDisplayName(currentUser) : ''; }catch(e){}
+  sp.discountHistory.push({ pct: newPct, until: newUntil || '', at: new Date().toISOString(), by });
+}
+// 看這個出貨方的 Discount 歷史(新的在上面)
+function partyShowDiscountHistory(){
+  const sp = editingPartyId && editingPartyId !== '__new__' ? shippingParties.find(x => x.id === editingPartyId) : null;
+  const list = sp && Array.isArray(sp.discountHistory) ? sp.discountHistory.slice().reverse() : [];
+  if(!list.length){ showInfoModal(t('partyDiscHistoryNone')); return; }
+  const lines = list.map(h => {
+    const when = h.at ? formatOrderDateTime(h.at) : t('partyDiscHistoryUnknownTime');
+    const what = h.pct > 0 ? `${h.pct}%` + (h.until ? ' → ' + partyDiscountDmy(h.until) : ' (' + t('partyDiscHistoryNoExpiry') + ')') : t('partyDiscHistoryCleared');
+    return `${when}  ${what}${h.by ? '  · ' + h.by : ''}`;
+  });
+  showInfoModal(t('partyDiscHistoryTitle') + '\n\n' + lines.join('\n'));
+  const el = document.getElementById('confirmModalText'); if(el) el.style.whiteSpace = 'pre-line';
+}
 function partyExtendDiscount(id){
   openPartyEditModal(id);
   setTimeout(() => { const el = document.getElementById('partyDiscountUntilInput'); if(el){ el.focus(); try{ el.showPicker && el.showPicker(); }catch(e){} } }, 50);
@@ -149,6 +169,7 @@ function partyExtendDiscount(id){
 async function partyClearDiscount(id){
   const sp = shippingParties.find(x => x.id === id); if(!sp) return;
   if(!confirm(tf('partyDiscClearConfirm', { name: sp.name }))) return;
+  partyDiscountLog(sp, partyDiscountRaw(sp), sp.discountUntil || '', 0, '');
   sp.discount = 0; sp.discountUntil = '';   // 已過期的 Discount 本來就不生效,清除不影響任何訂單價錢
   await saveShippingParties();
   renderPartiesTable();
@@ -238,6 +259,12 @@ async function savePartyEdit(){
   delete sp.address;   // 舊的聯繫地址取消,改用 Bill To / Ship To
   sp.note = document.getElementById('partyNoteInput').value.trim();
   sp.orderFrequency = document.getElementById('partyFrequencySelect').value || 'weekly';   // 僅作登記用,不影響訂貨頁平均用量
+  // Discount 歷史:設定值(% 或到期日)有變就記一筆(含清除);第一次有歷史前,先把舊的設定補成一筆(時間不明)
+  {
+    const newUntil = (discount > 0 && document.getElementById('partyDiscountUntilInput').value) ? document.getElementById('partyDiscountUntilInput').value : '';
+    const oldPct = isNew ? 0 : partyDiscountRaw(sp), oldUntil = isNew ? '' : (sp.discountUntil || '');
+    if(oldPct !== discount || oldUntil !== newUntil) partyDiscountLog(sp, oldPct, oldUntil, discount, newUntil);
+  }
   sp.discount = discount;
   sp.discountUntil = (discount > 0 && document.getElementById('partyDiscountUntilInput').value) ? document.getElementById('partyDiscountUntilInput').value : '';
   const newEffDiscount = partyDiscountOf(sp);
