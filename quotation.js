@@ -143,7 +143,7 @@ function qtBlank(){
     salesRep: qtMyName(), lines: [qtBlankLine()], note: qtData.defaultNote || '', void: false
   };
 }
-function qtBlankLine(){ return { minQty: '', desc: '', price: '', perCtn: '', productId: '', priceEdited: false }; }
+function qtBlankLine(){ return { minQty: '', desc: '', price: '', perCtn: '', productId: '', priceEdited: false, disc: 0 }; }
 // 單價自動帶入:定價管理的售價 × 出貨方折扣(跟開 Invoice 同一套計算);手動改過的價錢不會被蓋掉
 function qtFindProductByName(name){
   const n = String(name || '').trim().toLowerCase(); if(!n) return null;
@@ -154,7 +154,7 @@ function qtAutoPrice(l){
   try{
     const qty = parseFloat(String(l.minQty || '').replace(/,/g, '')) || 1;
     const pr = spPriceOrderItem({ partyId: (qtEditing && qtEditing.partyId) || '', status: 'pending', items: [] }, { productId: l.productId, qty });
-    if(pr && pr.unit !== null && pr.unit !== undefined && Number.isFinite(Number(pr.unit))) return Math.round(Number(pr.unit) * 100) / 100;
+    if(pr && pr.unit !== null && pr.unit !== undefined && Number.isFinite(Number(pr.unit))) return { unit: Math.round(Number(pr.unit) * 100) / 100, disc: Number(pr.discountPct) || 0 };
   }catch(e){}
   return null;
 }
@@ -162,9 +162,15 @@ function qtAutoPrice(l){
 function qtRepriceLine(i){
   const l = qtEditing && qtEditing.lines[i]; if(!l || l.priceEdited) return;
   const p = qtAutoPrice(l);
-  l.price = p === null ? '' : p;
+  l.price = p === null ? '' : p.unit;
+  l.disc = p === null ? 0 : p.disc;
   const el = document.getElementById('qtPrice' + i); if(el) el.value = l.price;
+  qtShowDisc(i);
   qtUpdateTotals();
+}
+function qtShowDisc(i){
+  const l = qtEditing && qtEditing.lines[i]; const el = document.getElementById('qtDisc' + i);
+  if(el) el.textContent = (l && !l.priceEdited && l.disc > 0) ? tf('qtDiscApplied', { pct: l.disc }) : '';
 }
 function qtOnDescChange(i, val){
   const l = qtEditing.lines[i]; if(!l) return;
@@ -183,7 +189,8 @@ function qtOnPriceInput(i, val){
   const l = qtEditing.lines[i]; if(!l) return;
   l.price = val;
   l.priceEdited = String(val).trim() !== '';   // 清空 = 回到自動帶入
-  if(!l.priceEdited) qtRepriceLine(i);
+  if(l.priceEdited) l.disc = 0;
+  if(!l.priceEdited) qtRepriceLine(i); else qtShowDisc(i);
   qtUpdateTotals();
 }
 function qtNew(){ qtEditing = qtBlank(); qtRender(); }
@@ -271,7 +278,7 @@ function qtLineRowHtml(l, i){
   return `<tr>
     <td><input type="text" value="${qtEsc(l.minQty)}" oninput="qtOnQtyChange(${i}, this.value)" style="width:100%;" /></td>
     <td><input type="text" list="qtProductList" value="${qtEsc(l.desc)}" onchange="qtOnDescChange(${i}, this.value)" oninput="qtEditing.lines[${i}].desc=this.value" style="width:100%;" /></td>
-    <td><input type="number" id="qtPrice${i}" step="any" min="0" value="${qtEsc(l.price)}" oninput="qtOnPriceInput(${i}, this.value)" style="width:100%;" placeholder="0.00" /></td>
+    <td><input type="number" id="qtPrice${i}" step="any" min="0" value="${qtEsc(l.price)}" oninput="qtOnPriceInput(${i}, this.value)" style="width:100%;" placeholder="0.00" /><div id="qtDisc${i}" style="font-size:11px;color:var(--ink-soft);">${(!l.priceEdited && l.disc > 0) ? qtEsc(tf('qtDiscApplied', { pct: l.disc })) : ''}</div></td>
     <td><input type="text" value="${qtEsc(l.perCtn)}" oninput="qtEditing.lines[${i}].perCtn=this.value" style="width:100%;" /></td>
     <td><span class="fc-row-del" onclick="qtRemoveLine(${i})" title="${qtEsc(t('qtRemoveLine'))}">✕</span></td>
   </tr>`;
@@ -385,6 +392,8 @@ function qtDocHtml(q){
       ${showCtn ? `<td style="${td}text-align:center;">${qtEsc(l.perCtn)}</td>` : ''}</tr>`;
   }).join('');
   const sum = qtTotals(lines);
+  const discPcts = Array.from(new Set(lines.filter(l => !l.priceEdited && Number(l.disc) > 0).map(l => Number(l.disc)))).sort((a, b) => a - b);
+  const discNote = discPcts.length ? `<div style="margin-top:8px;font-size:11.5px;color:#333;">Customer discount of ${discPcts.map(p => p + '%').join(' / ')} has been applied to the prices above.</div>` : '';
   const tl = 'padding:5px 8px;text-align:right;';
   const lab = 'color:#444;white-space:nowrap;padding:3px 10px 3px 0;vertical-align:top;';
   return `<div class="qt-doc" style="width:794px;box-sizing:border-box;padding:40px 44px 32px;background:#fff;color:#000;font-family:Arial,Helvetica,sans-serif;font-size:12px;line-height:1.45;">
@@ -418,6 +427,7 @@ function qtDocHtml(q){
       </tr></thead>
       <tbody>${rows}</tbody>
     </table>
+    ${discNote}
     <table style="margin:10px 0 0 auto;border-collapse:collapse;min-width:260px;">
       <tr><td style="${tl}">Subtotal</td><td style="${tl}">${qtMoney(sum.ex)}</td></tr>
       <tr><td style="${tl}">GST (10%)</td><td style="${tl}">${qtMoney(sum.gst)}</td></tr>
