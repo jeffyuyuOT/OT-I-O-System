@@ -470,7 +470,7 @@ const I18N = {
     txNoteRequiredDeliveryLabel: '備註(必填,請填相關已完成訂單號)',
     errDeliveryNoteRequired: '請填寫備註(相關已完成訂單號)', btnPrint: '🖨️ 列印',
     lblOutKind: '出貨種類', optOutKindOrder: '一般訂單', optOutKindNonSales: '非銷售出庫單', nsRecipientLabel: '領貨人(必填)', nsRecipientPh: '例如:Amy',
-    subtabAccQuotation: 'Quotation(報價單)', qtNew: '新增報價單', qtNewTitle: '新報價單', qtSearchPh: '搜尋 Quote#、客戶、聯絡人、Sales Rep', qtStatusAll: '全部狀態', qtStatusValid: '有效', qtStatusExpired: '已過期', qtStatusVoid: '已作廢',
+    subtabAccQuotation: '報價單', qtNew: '新增報價單', qtNewTitle: '新報價單', qtSearchPh: '搜尋 Quote#、客戶、聯絡人、Sales Rep', qtStatusAll: '全部狀態', qtStatusValid: '有效', qtStatusExpired: '已過期', qtStatusVoid: '已作廢',
     qtEmpty: '還沒有報價單。', qtColIssue: '開立日期', qtColTo: '客戶', qtColRep: 'Sales Rep', qtColExpiry: '到期日', qtColStatus: '狀態', qtBtnOpen: '開啟', qtBtnCopy: '複製', qtBtnVoid: '作廢', qtBtnRestore: '恢復',
     qtVoidConfirm: '作廢報價單 {no}?(作廢後仍保留紀錄,可以恢復)', qtBackToList: '返回列表', qtIssueDate: '開立日期', qtSalesRep: 'Sales Rep', qtTo: 'To(客戶)', qtToPh: '選現有出貨方,或直接輸入名稱', qtContact: '聯絡人', qtPhone: '聯絡電話', qtAddress: '地址',
     qtExpiry: '報價有效期限', qtPresetWeek: '一週', qtPresetFortnight: '兩週', qtPresetMonth: '一個月', qtPresetCustom: '(自訂日期)', qtLines: '報價商品', qtMinQty: '數量 Qty', qtSubtotal: '小計(不含 GST)', qtTotalInc: '合計(含 GST)', qtDesc: '商品描述', qtPrice: '單價(不含 GST)', qtAddLine: '新增一行', qtRemoveLine: '移除這一行',
