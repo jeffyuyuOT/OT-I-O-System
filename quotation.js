@@ -353,7 +353,7 @@ function qtDocHtml(q){
         ${c.abn ? `<div>ABN: ${qtEsc(c.abn)}</div>` : ''}
       </div>
     </div>
-    <div style="text-align:center;font-size:20px;font-weight:800;text-decoration:underline;margin:18px 0 14px;letter-spacing:1px;">QUOTATION</div>
+    <div style="text-align:center;margin:18px 0 14px;"><span style="display:inline-block;font-size:20px;font-weight:800;letter-spacing:1px;line-height:1.3;padding-bottom:2px;border-bottom:2px solid #000;">QUOTATION</span></div>
     <table style="width:100%;border-collapse:collapse;margin-bottom:14px;"><tr>
       <td style="vertical-align:top;width:58%;"><table style="border-collapse:collapse;">
         <tr><td style="${lab}">To:</td><td style="font-weight:700;">${qtEsc(q.toName)}</td></tr>
