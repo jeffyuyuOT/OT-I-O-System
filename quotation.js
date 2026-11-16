@@ -343,7 +343,7 @@ function qtDocHtml(q){
     </table>
     ${(q.note || '').trim() ? `<div style="margin-top:16px;white-space:pre-wrap;">${qtEsc(q.note)}</div>` : ''}
     <div style="margin-top:30px;">BEST REGARDS</div>
-    <div style="margin-top:34px;border-top:1px solid #000;width:260px;padding-top:4px;">${qtEsc(q.salesRep || c.name)}</div>
+    <div style="margin-top:34px;border-top:1px solid #000;width:260px;"></div>
   </div>`;
 }
 function qtFileName(q){ return `Quotation_${q.no || 'draft'}_${String(q.toName || '').replace(/[^\w]+/g, '_')}.pdf`; }

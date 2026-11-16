@@ -147,7 +147,7 @@ const ROLE_DEFAULT_TABS = {
 // 新帳號 / 切換身分時的預設細部限制(清單裡的 = 取消勾選)。倉庫管理員:歷史紀錄的「匯出紀錄」預設不開。
 // 價錢相關(編輯價錢、訂單顯示價錢)倉庫管理員本來就預設不允許,不用列在這裡。
 const ROLE_DEFAULT_RESTRICTED = {
-  inventory: ['sub:subtab-log-exports'],
+  inventory: ['sub:subtab-log-exports', 'sub:subtab-quotation'],   // 報價單(倉庫作業台)預設只給管理者、會計、業務
   // 業務(Sales Rep):倉庫作業台全開但沒有「訂單核對」(cap-order-verify 預設不允許);倉庫後台管理只留「供應與清單管理」;
   // 歷史紀錄只留「已完成訂單」「進出貨紀錄」「非銷售出庫單」;全域的編輯價錢、訂單顯示價錢預設允許(見 canEditPriceFor / canViewPriceFor)。
   sales: [

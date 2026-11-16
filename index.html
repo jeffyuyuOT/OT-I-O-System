@@ -1521,6 +1521,7 @@ body.no-cost-view .cost-col{display:none !important;}
       </span>
       <button class="subtab-btn" onclick="switchWarehouseOpsSubTab('subtab-order-completed')" id="btn-subtab-order-completed" data-i18n="subtabCompletedOrders">已完成訂單</button>
       <button class="subtab-btn" onclick="switchWarehouseOpsSubTab('subtab-tx-verify')" id="btn-subtab-tx-verify" data-i18n="subtabTxVerify">訂單核對</button>
+      <button class="subtab-btn" onclick="switchWarehouseOpsSubTab('subtab-quotation')" id="btn-subtab-quotation" data-i18n="subtabAccQuotation">Quotation</button>
     </div>
 
     <div id="subtab-tx-register" class="subtab-content active-subtab">
@@ -1720,6 +1721,19 @@ body.no-cost-view .cost-col{display:none !important;}
       <div id="txMsg" class="msg"></div>
       </div>
     </div>
+    </div>
+
+    <div id="subtab-quotation" class="subtab-content">
+      <div class="section">
+        <div class="toolbar"><div class="section-title" style="margin:0;" data-i18n="subtabAccQuotation">Quotation</div></div>
+        <div id="quotationRoot"></div>
+      </div>
+    </div>
+    <div id="qtPreviewOverlay" class="modal-overlay" style="display:none;align-items:flex-start;overflow:auto;padding:20px;" onclick="if(event.target===this)qtClosePreview()">
+      <div style="background:#eee;padding:12px;border-radius:8px;max-width:100%;">
+        <div style="display:flex;justify-content:flex-end;gap:8px;margin-bottom:8px;"><button class="btn ghost" onclick="qtClosePreview()">×</button></div>
+        <div style="overflow:auto;"><div id="qtPreviewHost" style="zoom:0.85;"></div></div>
+      </div>
     </div>
 
     <div id="subtab-tx-verify" class="subtab-content">
@@ -2280,7 +2294,6 @@ body.no-cost-view .cost-col{display:none !important;}
           <option value="subtab-acc-invoices" data-i18n="subtabAccInvoices">Invoice List</option>
           <option value="subtab-acc-credit-notes" data-i18n="subtabAccCreditNotes">Credit Note List</option>
           <option value="subtab-acc-statement" data-i18n="subtabAccStatement">Statement</option>
-          <option value="subtab-acc-quotation" data-i18n="subtabAccQuotation">Quotation</option>
         </optgroup>
         <optgroup label="採購與支出" data-i18n-label="accGrpPurchase">
           <option value="subtab-acc-purchases" data-i18n="subtabAccPurchases">Purchase List</option>
@@ -2361,19 +2374,6 @@ body.no-cost-view .cost-col{display:none !important;}
       <div class="section">
         <div class="toolbar"><div class="section-title" style="margin:0;" data-i18n="subtabAccStatement">Statement</div></div>
         <div id="statementRoot"></div>
-      </div>
-    </div>
-
-    <div id="subtab-acc-quotation" class="subtab-content">
-      <div class="section">
-        <div class="toolbar"><div class="section-title" style="margin:0;" data-i18n="subtabAccQuotation">Quotation</div></div>
-        <div id="quotationRoot"></div>
-      </div>
-    </div>
-    <div id="qtPreviewOverlay" class="modal-overlay" style="display:none;align-items:flex-start;overflow:auto;padding:20px;" onclick="if(event.target===this)qtClosePreview()">
-      <div style="background:#eee;padding:12px;border-radius:8px;max-width:100%;">
-        <div style="display:flex;justify-content:flex-end;gap:8px;margin-bottom:8px;"><button class="btn ghost" onclick="qtClosePreview()">×</button></div>
-        <div style="overflow:auto;"><div id="qtPreviewHost" style="zoom:0.85;"></div></div>
       </div>
     </div>
 
