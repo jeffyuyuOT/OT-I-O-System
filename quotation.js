@@ -381,19 +381,22 @@ function qtDocHtml(q){
   const td = 'padding:6px 8px;border:1px solid #000;';
   const lines = (q.lines || []).filter(l => (l.desc || '').trim() || (l.price !== '' && l.price != null));
   const showCtn = lines.some(l => String(l.perCtn || '').trim());
+  // 有任何一行套用了客戶 Discount:多出 Price(折前)/ Disc% 兩欄,Each 是折後單價(跟 Invoice 一樣,只有真的有折扣的商品才顯示 %)
+  const effDisc = l => (!l.priceEdited && Number(l.disc) > 0 && Number(l.disc) < 100) ? Number(l.disc) : 0;
+  const showDisc = lines.some(l => effDisc(l) > 0);
   const rows = lines.map(l => {
     const c = qtLineCalc(l);
     return `<tr>
       <td style="${td}text-align:center;">${qtEsc(l.minQty)}</td>
       <td style="${td}">${qtEsc(l.desc)}</td>
+      ${showDisc ? `<td style="${td}text-align:right;">${effDisc(l) > 0 ? qtMoney(Math.round(Number(l.price) / (1 - effDisc(l) / 100) * 100) / 100) : ''}</td>
+      <td style="${td}text-align:right;">${effDisc(l) > 0 ? qtEsc(String(effDisc(l))) + '%' : ''}</td>` : ''}
       <td style="${td}text-align:right;">${l.price !== '' && l.price != null ? qtMoney(l.price) : ''}</td>
       <td style="${td}text-align:right;">${c ? qtMoney(c.gst) : ''}</td>
       <td style="${td}text-align:right;font-weight:700;">${c ? qtMoney(c.total) : ''}</td>
       ${showCtn ? `<td style="${td}text-align:center;">${qtEsc(l.perCtn)}</td>` : ''}</tr>`;
   }).join('');
   const sum = qtTotals(lines);
-  const discPcts = Array.from(new Set(lines.filter(l => !l.priceEdited && Number(l.disc) > 0).map(l => Number(l.disc)))).sort((a, b) => a - b);
-  const discNote = discPcts.length ? `<div style="margin-top:8px;font-size:11.5px;color:#333;">Customer discount of ${discPcts.map(p => p + '%').join(' / ')} has been applied to the prices above.</div>` : '';
   const tl = 'padding:5px 8px;text-align:right;';
   const lab = 'color:#444;white-space:nowrap;padding:3px 10px 3px 0;vertical-align:top;';
   return `<div class="qt-doc" style="width:794px;box-sizing:border-box;padding:40px 44px 32px;background:#fff;color:#000;font-family:Arial,Helvetica,sans-serif;font-size:12px;line-height:1.45;">
@@ -423,11 +426,10 @@ function qtDocHtml(q){
       </table></td></tr></table>
     <table style="width:100%;border-collapse:collapse;">
       <thead><tr style="background:#f0f0f0;">
-        <th style="${td}width:50px;">Qty</th><th style="${td}">Product Description</th><th style="${td}width:80px;">Each</th><th style="${td}width:75px;">GST</th><th style="${td}width:90px;">Total</th>${showCtn ? `<th style="${td}width:65px;">Qty/CTN</th>` : ''}
+        <th style="${td}width:50px;">Qty</th><th style="${td}">Product Description</th>${showDisc ? `<th style="${td}width:70px;">Price</th><th style="${td}width:50px;">Disc%</th>` : ''}<th style="${td}width:75px;">Each</th><th style="${td}width:75px;">GST</th><th style="${td}width:90px;">Total</th>${showCtn ? `<th style="${td}width:65px;">Qty/CTN</th>` : ''}
       </tr></thead>
       <tbody>${rows}</tbody>
     </table>
-    ${discNote}
     <table style="margin:10px 0 0 auto;border-collapse:collapse;min-width:260px;">
       <tr><td style="${tl}">Subtotal</td><td style="${tl}">${qtMoney(sum.ex)}</td></tr>
       <tr><td style="${tl}">GST (10%)</td><td style="${tl}">${qtMoney(sum.gst)}</td></tr>
