@@ -630,6 +630,7 @@ function switchAccountingSubTab(subtabId){
   if(subtabId === 'subtab-acc-create-invoice' && typeof icOpenPage === 'function') icOpenPage();
   if(subtabId === 'subtab-acc-credit-notes' && typeof icCnOpenList === 'function') icCnOpenList(true);
   if(subtabId === 'subtab-acc-statement' && typeof stmtOpenPage === 'function') stmtOpenPage();
+  if(subtabId === 'subtab-acc-quotation' && typeof qtOpenPage === 'function') qtOpenPage();
   if(subtabId === 'subtab-acc-purchases' && typeof paOpenPage === 'function') paOpenPage();
   if(subtabId === 'subtab-acc-prepay' && typeof ppOpenPage === 'function') ppOpenPage();
   if(subtabId === 'subtab-acc-expenses' && typeof oeOpenPage === 'function') oeOpenPage();
