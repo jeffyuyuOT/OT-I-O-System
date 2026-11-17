@@ -91,7 +91,7 @@ function openAddNewProductModal(){
 let copyItemSelectedId = null;
 
 function copyItemPanelHtml(){
-  const cats = categoryOrder.map(c => `<option value="${c}">${catLabel(c)}</option>`).join('');
+  const cats = categoryVisibleOrder().map(c => `<option value="${c}">${catLabel(c)}</option>`).join('');
   return `
     <div class="field-block" style="border-bottom:1px solid var(--line);padding-bottom:10px;margin-bottom:12px;">
       <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-weight:600;">
@@ -188,7 +188,7 @@ function renderProductEditModalBody(p, opts){
   opts = opts || {};
   const isChild = !!(opts.isChild || p.parentId);
   const parent = opts.parent || (p.parentId ? products.find(x => x.id === p.parentId) : null);
-  const catOptions = categoryOrder.map(c => `<option value="${c}" ${c === (p.category||'未分類') ? 'selected' : ''}>${catLabel(c)}</option>`).join('');
+  const catOptions = categoryOrder.filter(c => !isCategoryHidden(c) || c === (p.category||'未分類')).map(c => `<option value="${c}" ${c === (p.category||'未分類') ? 'selected' : ''}>${catLabel(c)}</option>`).join('');
   // 「顯示於總庫存量」勾選框:只有在這個商品家族(主商品+底下的 multipack 子商品)確實有兩個以上
   // 成員可以選的情況下才顯示(自己是子商品,或自己是有 multipack 子商品的主商品),而且要儲存過的
   // 商品才有得選(新增中的商品還沒有 id,沒東西可以指定)。

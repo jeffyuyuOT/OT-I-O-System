@@ -4408,7 +4408,9 @@ function populateCategoryDropdowns(){
 
   const filterSel = document.getElementById('categoryFilter');
   const prevVal = filterSel.value;
-  const usedCats = categoryOrder.filter(c => products.some(p => (p.category || '未分類') === c));
+  const showHiddenCats = !!(document.getElementById('showHiddenProducts') && document.getElementById('showHiddenProducts').checked);
+  // 隱藏的分類不出現在庫存總覽的分類篩選(勾「顯示隱藏商品」時才列出)
+  const usedCats = categoryOrder.filter(c => (showHiddenCats || !isCategoryHidden(c)) && products.some(p => (p.category || '未分類') === c));
   filterSel.innerHTML = `<option value="">${t('catFilterAll')}</option>` +
     usedCats.map(c => `<option value="${c}">${catLabel(c)}</option>`).join('');
   if(usedCats.includes(prevVal)) filterSel.value = prevVal;

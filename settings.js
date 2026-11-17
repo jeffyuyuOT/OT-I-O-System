@@ -731,6 +731,7 @@ async function buildFullBackupObject(){
     orders,
     shippingParties,
     categoryOrder,
+    categoryHidden,
     quickLists,
     forecastRecords,
     forecastPrefs: { unitChoice: forecastUnitChoice, boxBasis: forecastBoxBasis },
@@ -803,6 +804,7 @@ async function applyBackupData(backup){
         if(Array.isArray(backup.categoryOrder) && backup.categoryOrder.length > 0){
           categoryOrder = backup.categoryOrder;
         }
+        if(Array.isArray(backup.categoryHidden)){ categoryHidden = backup.categoryHidden.filter(x => typeof x === 'string'); try{ await saveCategoryHidden(); }catch(e){ console.error(e); } }
         await saveProducts();
         await replaceAllTransactions(transactions);
         await replaceAllOrders(orders);
@@ -957,6 +959,13 @@ async function saveCategoryOrder(){
 
 // 在介面上新增的分類(沒有商品也要保留);其他分類沒有商品就自動消失
 let categoryManual = [];
+// 隱藏的分類:不再出現在庫存總覽的分類篩選、商品分類下拉等日常選單,但分類和商品都還在,
+// 歷史紀錄等查舊資料的地方照常看得到;可以在「商品分類排序」勾選「顯示已隱藏的分類」把它取消隱藏。
+let categoryHidden = [];
+let categoryPanelShowHidden = false;
+async function saveCategoryHidden(){ await dbSet('categoryHidden', JSON.stringify(categoryHidden)); }
+function isCategoryHidden(c){ return categoryHidden.includes(c); }
+function categoryVisibleOrder(){ return categoryOrder.filter(c => !isCategoryHidden(c)); }
 async function saveCategoryManual(){ await dbSet('categoryManual', JSON.stringify(categoryManual)); }
 // 新增分類:名稱忽略大小寫/前後空白已存在就回傳原本的正式名稱,不重複新增
 async function addCategoryByName(raw){
@@ -984,24 +993,33 @@ async function addCategoryFromPanel(){
 async function deleteEmptyCategoryAt(index){
   const movable = (categoryOrderDraft || categoryOrder.filter(c => c !== '未分類'));
   const name = movable[index]; if(!name) return;
-  // 還有商品(含隱藏商品)在這個分類:不能刪除,跳提示讓使用者先處理商品
-  const used = products.filter(p => (p.category || '未分類') === name);
-  const active = used.filter(p => !p.hidden);
-  // 還有沒隱藏的商品:不能刪除,請先改分類或隱藏;只剩已隱藏的舊商品:確認後移到「未分類」再刪除分類(商品和進出貨紀錄都保留)
-  if(active.length){ showInfoModal(tf('catDeleteBlocked', { name, n: active.length })); return; }
-  if(used.length){ showConfirmModal(tf('catDeleteMoveHidden', { name, n: used.length }), () => doDeleteCategory(name)); return; }
+  if(products.some(p => (p.category || '未分類') === name)){ showInfoModal(tf('catDeleteBlocked', { name, n: products.filter(p => (p.category || '未分類') === name).length })); return; }
   showConfirmModal(tf('catDeleteConfirm', { name }), () => doDeleteCategory(name));
 }
 async function doDeleteCategory(name){
-  const left = products.filter(p => (p.category || '未分類') === name);
-  if(left.some(p => !p.hidden)) return;
-  if(left.length){ left.forEach(p => { p.category = '未分類'; }); try{ await saveProducts(); }catch(e){ console.error('移動已隱藏商品到未分類失敗', e); } }
+  if(products.some(p => (p.category || '未分類') === name)) return;
   categoryOrder = categoryOrder.filter(c => c !== name);
   categoryManual = categoryManual.filter(c => c !== name);
+  categoryHidden = categoryHidden.filter(c => c !== name);
   if(categoryOrderDraft) categoryOrderDraft = categoryOrderDraft.filter(c => c !== name);
-  try{ await saveCategoryOrder(); await saveCategoryManual(); }catch(e){ console.error(e); }
+  try{ await saveCategoryOrder(); await saveCategoryManual(); await saveCategoryHidden(); }catch(e){ console.error(e); }
   renderCategoryOrderPanel(); populateCategoryDropdowns(); renderStockCards();
 }
+// 隱藏 / 取消隱藏分類:還有沒隱藏的商品在這個分類就不能隱藏
+async function toggleCategoryHiddenAt(index){
+  const movable = (categoryOrderDraft || categoryOrder.filter(c => c !== '未分類'));
+  const name = movable[index]; if(!name) return;
+  if(isCategoryHidden(name)){
+    categoryHidden = categoryHidden.filter(c => c !== name);
+  } else {
+    const active = products.filter(p => (p.category || '未分類') === name && !p.hidden);
+    if(active.length){ showInfoModal(tf('catHideBlocked', { name, n: active.length })); return; }
+    categoryHidden = categoryHidden.concat(name);
+  }
+  try{ await saveCategoryHidden(); }catch(e){ console.error('儲存隱藏分類失敗', e); }
+  renderCategoryOrderPanel(); populateCategoryDropdowns(); renderStockCards();
+}
+function toggleCategoryPanelShowHidden(v){ categoryPanelShowHidden = !!v; renderCategoryOrderPanel(); }
 // 商品視窗:在分類下拉旁新增分類並直接選取
 async function addCategoryInProductModal(){
   const input = window.prompt(t('promptNewCategory'), ''); if(input === null) return;
@@ -1012,6 +1030,10 @@ async function addCategoryInProductModal(){
   populateCategoryDropdowns();
 }
 async function loadCategoryOrder(){
+  try{
+    const h = await dbGet('categoryHidden');
+    if(h && h.value){ const a = JSON.parse(h.value); if(Array.isArray(a)) categoryHidden = a.filter(x => typeof x === 'string'); }
+  } catch(e){}
   try{
     const m = await dbGet('categoryManual');
     if(m && m.value){ const a = JSON.parse(m.value); if(Array.isArray(a)) categoryManual = a.filter(x => typeof x === 'string'); }
@@ -1121,15 +1143,26 @@ function renderCategoryOrderPanel(){
   panel.innerHTML = `
     <div class="cat-order-panel">
       <p style="font-size:12px;color:var(--ink-soft);margin:0 0 10px;">${t('catOrderPanelDesc')}</p>
-      ${movable.map((cat, i) => `
-        <div class="cat-order-row">
-          <span class="cat-order-name">${catLabel(cat)}</span>
-          <button onclick="moveCategoryOrder(${i}, -1)" ${i === 0 ? 'disabled' : ''} title="${t('titleMoveUp')}">↑</button>
-          <button onclick="moveCategoryOrder(${i}, 1)" ${i === movable.length - 1 ? 'disabled' : ''} title="${t('titleMoveDown')}">↓</button>
+      <label style="display:flex;align-items:center;gap:6px;font-size:12.5px;margin-bottom:8px;cursor:pointer;">
+        <input type="checkbox" ${categoryPanelShowHidden ? 'checked' : ''} onchange="toggleCategoryPanelShowHidden(this.checked)" style="width:auto;" />
+        <span>${t('catShowHiddenLabel')}</span>
+      </label>
+      ${movable.map((cat, i) => {
+        const hid = isCategoryHidden(cat);
+        if(hid && !categoryPanelShowHidden) return '';
+        const shown = movable.map((c, k) => k).filter(k => categoryPanelShowHidden || !isCategoryHidden(movable[k]));
+        const pos = shown.indexOf(i);
+        const hasProducts = products.some(p => (p.category || '未分類') === cat);
+        return `
+        <div class="cat-order-row" ${hid ? 'style="opacity:.6;"' : ''}>
+          <span class="cat-order-name">${catLabel(cat)}${hid ? ` <span style="font-size:11.5px;color:var(--ink-soft);">(${t('catHiddenTag')})</span>` : ''}</span>
+          <button onclick="moveCategoryOrder(${i}, -1)" ${pos === 0 ? 'disabled' : ''} title="${t('titleMoveUp')}">↑</button>
+          <button onclick="moveCategoryOrder(${i}, 1)" ${pos === shown.length - 1 ? 'disabled' : ''} title="${t('titleMoveDown')}">↓</button>
           <button class="cat-order-rename-btn" onclick="renameCategoryAt(${i})" title="${t('titleRenameCategory')}">${t('btnRenameCategory')}</button>
-          <button class="cat-order-rename-btn" style="color:var(--crit);" onclick="deleteEmptyCategoryAt(${i})">${t('btnDeleteEmptyCategory')}</button>
-        </div>
-      `).join('')}
+          <button class="cat-order-rename-btn" onclick="toggleCategoryHiddenAt(${i})">${hid ? t('btnUnhideCategory') : t('btnHideCategory')}</button>
+          ${hasProducts ? '' : `<button class="cat-order-rename-btn" style="color:var(--crit);" onclick="deleteEmptyCategoryAt(${i})">${t('btnDeleteEmptyCategory')}</button>`}
+        </div>`;
+      }).join('')}
       <div style="display:flex;gap:8px;align-items:center;margin-top:12px;flex-wrap:wrap;">
         <input id="newCategoryInput" type="text" placeholder="${t('phNewCategory')}" onkeydown="if(event.key==='Enter')addCategoryFromPanel()" />
         <button class="btn ghost" onclick="addCategoryFromPanel()">${t('btnAddCategory')}</button>
@@ -1180,16 +1213,19 @@ async function renameCategoryAt(index){
   products.forEach(p => { if((p.category || '未分類') === oldName) p.category = finalName; });
 
   if(existing){
+    categoryHidden = categoryHidden.filter(c => c !== oldName);
     categoryOrder = categoryOrder.filter(c => c !== oldName);
     if(categoryOrderDraft) categoryOrderDraft = categoryOrderDraft.filter(c => c !== oldName);
   } else {
     categoryOrder = categoryOrder.map(c => c === oldName ? finalName : c);
     categoryManual = categoryManual.map(c => c === oldName ? finalName : c);
+    categoryHidden = categoryHidden.map(c => c === oldName ? finalName : c);
     if(categoryOrderDraft) categoryOrderDraft = categoryOrderDraft.map(c => c === oldName ? finalName : c);
   }
 
   await saveProducts();
   await saveCategoryOrder();
+  try{ await saveCategoryHidden(); }catch(e){ console.error(e); }
   renderCategoryOrderPanel();
   renderAll();
 }
@@ -1197,7 +1233,9 @@ async function renameCategoryAt(index){
 // 只改暫存順序(不存檔),要按面板下面的「Save Order」才會真的儲存。
 function moveCategoryOrder(index, direction){
   if(!categoryOrderDraft) categoryOrderDraft = categoryOrder.filter(c => c !== '未分類');
-  const target = index + direction;
+  let target = index + direction;
+  // 跳過目前沒顯示的隱藏分類,一次移到下一個看得到的位置
+  while(target >= 0 && target < categoryOrderDraft.length && !categoryPanelShowHidden && isCategoryHidden(categoryOrderDraft[target])) target += direction;
   if(target < 0 || target >= categoryOrderDraft.length) return;
   [categoryOrderDraft[index], categoryOrderDraft[target]] = [categoryOrderDraft[target], categoryOrderDraft[index]];
   renderCategoryOrderPanel();
