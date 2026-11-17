@@ -147,7 +147,7 @@ const ROLE_DEFAULT_TABS = {
 // 新帳號 / 切換身分時的預設細部限制(清單裡的 = 取消勾選)。倉庫管理員:歷史紀錄的「匯出紀錄」預設不開。
 // 價錢相關(編輯價錢、訂單顯示價錢)倉庫管理員本來就預設不允許,不用列在這裡。
 const ROLE_DEFAULT_RESTRICTED = {
-  inventory: ['sub:subtab-log-exports'],
+  inventory: ['sub:subtab-log-exports', 'sub:subtab-quotation'],   // 報價單(倉庫作業台)預設只給管理者、會計、業務
   // 業務(Sales Rep):倉庫作業台全開但沒有「訂單核對」(cap-order-verify 預設不允許);倉庫後台管理只留「供應與清單管理」;
   // 歷史紀錄只留「已完成訂單」「進出貨紀錄」「非銷售出庫單」;全域的編輯價錢、訂單顯示價錢預設允許(見 canEditPriceFor / canViewPriceFor)。
   sales: [
@@ -514,19 +514,62 @@ function renderUserEditModalBody(u){
       <div class="field-hint">${t('permTreeHint')}</div>
       <div id="modalCapabilitiesWrap" style="border:1px solid var(--line);border-radius:6px;padding:12px;background:var(--panel);">${permTreeHtml(u.id, tabPermissions, restrictedCapabilities, u.role)}</div>
     </div>
-    <div class="field-block">
+    <div class="field-block" id="modalPartyField" style="${u.role === 'order' ? '' : 'display:none;'}">
       <label>${t('fieldRestrictedParties')}</label>
       <div class="field-hint">${t('restrictedPartiesHint')}</div>
-      <div class="user-perm-checks" id="modalPartyChecks">
-        ${shippingParties.length === 0 ? `<span style="color:var(--ink-soft);font-size:11px;">${t('noPartiesForUser')}</span>` : shippingParties.map(sp => `
-          <label style="display:inline-flex;align-items:center;gap:5px;font-size:11.5px;">
-            <input type="checkbox" data-party-id="${sp.id}" ${partyIds.includes(sp.id) ? 'checked' : ''} />
-            ${sp.name.replace(/"/g,'&quot;')}
-          </label>
-        `).join('')}
-      </div>
+      ${partyMultiHtml('modal', partyIds)}
     </div>
   `;
+}
+
+// ===== 限定廠商:搜尋式多選(輸入名稱搜尋,選到的廠商以標籤顯示,可複選、可移除) =====
+const partyMultiState = { modal: [], invite: [] };
+function partyMultiGet(key){ return (partyMultiState[key] || []).slice(); }
+function partyMultiName(id){
+  const sp = (typeof shippingParties !== 'undefined' ? shippingParties : []).find(x => x.id === id);
+  if(!sp) return id;
+  return typeof icPartyLabel === 'function' ? icPartyLabel(sp) : sp.name;
+}
+function partyMultiHtml(key, ids){
+  partyMultiState[key] = Array.isArray(ids) ? ids.slice() : [];
+  return `<div id="pm-${key}" style="position:relative;">
+    <div id="pm-${key}-chips" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:6px;">${partyMultiChipsHtml(key)}</div>
+    <input type="text" id="pm-${key}-in" autocomplete="off" placeholder="${(t('icPartySearchPh') || '').replace(/"/g, '&quot;')}" oninput="partyMultiSearch('${key}', this.value)" onfocus="partyMultiSearch('${key}', this.value)" onblur="setTimeout(function(){ var l = document.getElementById('pm-${key}-list'); if(l) l.style.display = 'none'; }, 150)" style="width:100%;" />
+    <div id="pm-${key}-list" style="display:none;position:absolute;left:0;right:0;z-index:30;background:var(--bg,#fff);border:1px solid var(--line);max-height:220px;overflow:auto;box-shadow:0 4px 12px rgba(0,0,0,.12);"></div>
+  </div>`;
+}
+function partyMultiChipsHtml(key){
+  const ids = partyMultiState[key] || [];
+  if(!ids.length) return `<span style="color:var(--ink-soft);font-size:12px;">${t('partyUnrestricted')}</span>`;
+  const esc = s => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
+  return ids.map(id => `<span style="display:inline-flex;align-items:center;gap:6px;padding:3px 8px;border:1px solid var(--line);border-radius:12px;font-size:12.5px;background:var(--panel);">${esc(partyMultiName(id))}<span style="cursor:pointer;color:var(--ink-soft);" onclick="partyMultiRemove('${key}','${esc(id)}')">✕</span></span>`).join('');
+}
+function partyMultiRefresh(key){ const c = document.getElementById('pm-' + key + '-chips'); if(c) c.innerHTML = partyMultiChipsHtml(key); }
+function partyMultiSearch(key, v){
+  const list = document.getElementById('pm-' + key + '-list'); if(!list) return;
+  const chosen = partyMultiState[key] || [];
+  const esc = s => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
+  const m = (typeof icPartyMatches === 'function' ? icPartyMatches(v) : []).filter(p => !chosen.includes(p.id));
+  list.innerHTML = m.length
+    ? m.map(p => `<div onmousedown="partyMultiAdd('${key}','${esc(p.id)}')" style="padding:7px 10px;cursor:pointer;font-size:13px;border-bottom:1px solid var(--line);">${esc(icPartyLabel(p))}</div>`).join('')
+    : `<div style="padding:8px 10px;font-size:12.5px;color:var(--ink-soft);">${t('icNoParty')}</div>`;
+  list.style.display = '';
+}
+function partyMultiAdd(key, id){
+  const arr = partyMultiState[key] || (partyMultiState[key] = []);
+  if(!arr.includes(id)) arr.push(id);
+  partyMultiRefresh(key);
+  const inp = document.getElementById('pm-' + key + '-in'); if(inp){ inp.value = ''; }
+  const list = document.getElementById('pm-' + key + '-list'); if(list) list.style.display = 'none';
+}
+function partyMultiRemove(key, id){
+  partyMultiState[key] = (partyMultiState[key] || []).filter(x => x !== id);
+  partyMultiRefresh(key);
+}
+// 只有「訂貨用戶」顯示限定廠商欄位;換成其他身分就藏起來(儲存時也不會寫入)
+function partyFieldToggle(key, role){
+  const f = document.getElementById(key === 'modal' ? 'modalPartyField' : 'invitePartyField');
+  if(f) f.style.display = role === 'order' ? '' : 'none';
 }
 
 function openUserEditModal(userId){
@@ -553,6 +596,7 @@ function onModalRoleChange(userId){
   const wrap = document.getElementById('modalCapabilitiesWrap');
   if(wrap) wrap.innerHTML = permTreeHtml(userId, perms, roleDefaultRestricted(role).concat('perm-v2'), role); // 換身分 → 分頁與細部權限(含編輯價錢)回到該身分的預設值
   attachModalTabPermListeners(userId);
+  partyFieldToggle('modal', role);
 }
 
 // 分頁勾選一改變,細部功能權限清單也要跟著增減(因為某個功能是掛在某個分頁底下的)。
@@ -609,10 +653,7 @@ async function saveUserEditModal(){
     showInfoModal('至少要留一個帳號能進到「系統管理 → 使用者管理」,不然之後沒有人可以再管理帳號了。');
     return;
   }
-  const partyBox = document.getElementById('modalPartyChecks');
-  const assignedPartyIds = partyBox
-    ? Array.from(partyBox.querySelectorAll('input[type="checkbox"]:checked')).map(el => el.dataset.partyId)
-    : [];
+  const assignedPartyIds = role === 'order' ? partyMultiGet('modal') : [];   // 只有訂貨用戶有限定廠商
 
   const firstName = (document.getElementById('modalUserFirstName').value || '').trim();
   const lastName = (document.getElementById('modalUserLastName').value || '').trim();
@@ -780,16 +821,13 @@ function openUserInviteModal(){
     </div>
     <div class="field-block" style="margin-top:12px;">
       <label>${t('userRole')}</label>
-      <select id="inviteRole"></select>
+      <select id="inviteRole" onchange="partyFieldToggle('invite', this.value)"></select>
       <div class="field-hint">${t('inviteRoleHint')}</div>
     </div>
-    <div class="field-block">
+    <div class="field-block" id="invitePartyField">
       <label>${t('fieldRestrictedParties')}</label>
       <div class="field-hint">${t('restrictedPartiesHint')}</div>
-      <div class="user-perm-checks" id="invitePartyChecks">
-        ${shippingParties.length === 0 ? `<span style="color:var(--ink-soft);font-size:11px;">${t('noPartiesForUser')}</span>` : shippingParties.map(sp => `
-          <label style="display:inline-flex;align-items:center;gap:5px;font-size:11.5px;"><input type="checkbox" data-party-id="${sp.id}" /> ${sp.name.replace(/</g,'&lt;')}</label>`).join('')}
-      </div>
+      ${partyMultiHtml('invite', [])}
     </div>
     <div class="field-block">
       <label>${t('fieldMergeWithExisting')}</label>
@@ -797,6 +835,7 @@ function openUserInviteModal(){
       <div class="field-hint">${t('mergeWithExistingHint')}</div>
     </div>`;
   populateRoleSelect(document.getElementById('inviteRole'), 'order');
+  partyFieldToggle('invite', 'order');
   document.getElementById('userInviteModalMsg').textContent = '';
   document.getElementById('userInviteModalOverlay').style.display = 'flex';
 }
@@ -815,7 +854,7 @@ async function confirmUserInvite(){
     lastName: (document.getElementById('inviteLastName').value || '').trim(),
     tabPermissions: (ROLE_DEFAULT_TABS[role] || []).slice(),
     restrictedCapabilities: roleDefaultRestricted(role).concat('perm-v2'), // 帶 perm-v2 才不會在第一次登入被當成舊帳號重新遷移;價錢權限:管理者預設允許、其他身分預設不允許(見 canEditPriceFor)
-    assignedPartyIds: Array.from(document.querySelectorAll('#invitePartyChecks input:checked')).map(el => el.dataset.partyId)
+    assignedPartyIds: role === 'order' ? partyMultiGet('invite') : []
   };
   const btn = document.getElementById('btnConfirmUserInvite');
   const run = async () => {
