@@ -226,7 +226,7 @@ function renderProductEditModalBody(p, opts){
   const acctPane = showAcctTab ? `<div id="prodPaneAcct" style="display:none;">
     <div class="field-block">
       <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-weight:400;">
-        <input type="checkbox" id="editProdGst" ${p.gst ? 'checked' : ''} />
+        <input type="checkbox" id="editProdGst" ${(p.gst && p.noAccounting !== true) ? 'checked' : ''} ${p.noAccounting === true ? 'disabled' : ''} data-prev="${p.gst ? '1' : ''}" />
         <span>${t('fieldProductGst')}<span style="color:var(--ink-soft);font-weight:400;"> ${t('fieldProductGstHint')}</span></span>
       </label>
     </div>
@@ -1372,6 +1372,12 @@ function handleShowInTotalToggle(checkboxEl, productId){
 
 // 商品視窗勾「不入公司帳」→ 「會計匯出不顯示」跟著勾選並鎖住,模式固定「整個家族都不顯示」;取消勾選則解鎖(不自動取消會計不匯出)
 function onProdNoAcctToggle(el){
+  // 不入公司帳的商品不會有 GST:勾起來時 GST 欄位鎖定(取消勾選),取消不入公司帳再恢復原本的設定
+  const gst = document.getElementById('editProdGst');
+  if(gst){
+    if(el.checked){ gst.dataset.prev = gst.checked ? '1' : ''; gst.checked = false; gst.disabled = true; }
+    else { gst.disabled = false; gst.checked = gst.dataset.prev === '1'; }
+  }
   const hide = document.getElementById('editProdHideFromExport');
   const mode = document.getElementById('editProdHideFromExportMode');
   const wrap = document.getElementById('hideFromExportModeWrap');
