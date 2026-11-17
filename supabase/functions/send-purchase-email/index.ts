@@ -132,7 +132,7 @@ Deno.serve(async (req: Request) => {
       s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
     const noteText = typeof note === "string" ? note.trim() : "";
 
-    const html = `
+    const html = `<div style="font-family:Calibri,'Segoe UI',Arial,sans-serif;font-size:14px;">
       ${noteText ? `<p style="margin:0 0 16px;"><strong>Note:</strong> ${escapeHtml(noteText).replace(/\n/g, "<br>")}</p>` : ""}
       <p>A document has been sent from the Orange Tea AU inventory system.</p>
       <table cellpadding="4" style="border-collapse:collapse;">
@@ -141,7 +141,7 @@ Deno.serve(async (req: Request) => {
         <tr><td><strong>Reference No.</strong></td><td>${invoiceNo || ""}</td></tr>
       </table>
       <p>The item list is attached as an Excel file${receiptList.length > 0 ? `, along with ${receiptList.length > 1 ? "the receipts" : "the receipt"}.` : "."}</p>
-    `;
+    </div>`;
 
     const resendBody: Record<string, unknown> = {
       from: FROM_ADDRESS,
