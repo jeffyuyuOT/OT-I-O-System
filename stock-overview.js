@@ -177,7 +177,7 @@ function renderStockCards(){
     `;
   }
 
-  const categoriesToShow = catFilter ? [catFilter] : categoryOrder;
+  const categoriesToShow = catFilter ? [catFilter] : ((document.getElementById('showHiddenProducts') && document.getElementById('showHiddenProducts').checked) ? categoryOrder : categoryVisibleOrder());
   const statusFilter = document.getElementById('statusFilter').value;
   const showHidden = document.getElementById('showHiddenProducts') && document.getElementById('showHiddenProducts').checked;
   const searchQ = stockSearchQuery();
@@ -250,7 +250,7 @@ function renderStockCards(){
     ${selectedProductIds.size > 0 ? `
       <div class="selection-bar">
         <span>${tn('selectedProducts', selectedProductIds.size)}</span>
-        <select id="bulkCategorySelect">${categoryOrder.map(c => `<option value="${c}">${catLabel(c)}</option>`).join('')}</select>
+        <select id="bulkCategorySelect">${categoryVisibleOrder().map(c => `<option value="${c}">${catLabel(c)}</option>`).join('')}</select>
         <button class="btn ghost" onclick="bulkChangeCategory()">${t('btnApplyCatToSelected')}</button>
         <button class="btn ghost" onclick="bulkSetHidden(true)">${t('btnHideSelected')}</button>
         <button class="btn ghost" onclick="bulkSetHidden(false)">${t('btnUnhideSelected')}</button>
@@ -376,7 +376,7 @@ function toggleSelectProduct(id, checked){
 function toggleSelectAllProducts(checked){
   const catFilter = document.getElementById('categoryFilter').value;
   const statusFilter = document.getElementById('statusFilter').value;
-  const categoriesToShow = catFilter ? [catFilter] : categoryOrder;
+  const categoriesToShow = catFilter ? [catFilter] : ((document.getElementById('showHiddenProducts') && document.getElementById('showHiddenProducts').checked) ? categoryOrder : categoryVisibleOrder());
   const now = new Date();
   const showHidden = document.getElementById('showHiddenProducts') && document.getElementById('showHiddenProducts').checked;
   let visible = products.filter(p => categoriesToShow.includes(p.category || '未分類'));

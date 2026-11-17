@@ -4,6 +4,29 @@
 // 各自的篩選/渲染/清除篩選,以及交易紀錄補充備註的功能。
 // ============================================================
 // 歷史紀錄/已完成訂單預設只顯示最近 N 個月(N = 系統設置的 historyRangeMonths,預設 3);使用者把「從」改到更早的日期(或清空)才去補載入更早的資料。
+// 庫存調整 / 非銷售出庫單的備註是「當時語言」的文字存起來的(例如 中文介面建立的「庫存調整 - 耗損 - 過期」)。
+// 顯示時把已知的固定字樣換成目前語言,英文版就不會看到中文(使用者自己打的附註不動)。
+function txNoteDisplay(tx){
+  let n = (tx && tx.note) || '';
+  if(!n || typeof I18N === 'undefined') return n;
+  const cur = I18N[lang] ? lang : 'zh';
+  const others = Object.keys(I18N).filter(k => k !== cur);
+  const swap = (key, onlyAtStart) => {
+    const to = (I18N[cur] && I18N[cur][key]) || (I18N.zh && I18N.zh[key]);
+    if(!to) return;
+    others.forEach(k => {
+      const from = I18N[k] && I18N[k][key];
+      if(!from || from === to) return;
+      if(onlyAtStart){ if(n.startsWith(from)) n = to + n.slice(from.length); }
+      else if(n.includes(from)) n = n.replace(from, to);
+    });
+  };
+  swap('adjustmentNotePrefix', true);
+  Object.keys(I18N.zh || {}).filter(k => /^adjReason_/.test(k)).forEach(k => swap(k, false));
+  swap('nsNotePrefix', false);
+  return n;
+}
+
 function defaultHistoryFromDate(){ return monthsAgoDateStr(historyRangeMonths); }
 function initHistoryDateDefaults(){
   const a = document.getElementById('logDateFrom');
@@ -137,7 +160,7 @@ function renderLog(){
               <td class="col-party">${tx.party || '—'}</td>
               <td colspan="2">
                 ${tx.invoiceNo ? `<div style="color:var(--ink-soft);font-size:11.5px;">${tf('invoiceNoInline', {no: tx.invoiceNo.replace(/</g,'&lt;')})}</div>` : ''}
-                ${tx.note ? `<div style="color:var(--ink-soft);font-size:11.5px;white-space:pre-wrap;margin-bottom:4px;">${tx.note.replace(/</g,'&lt;')}</div>` : ''}
+                ${tx.note ? `<div style="color:var(--ink-soft);font-size:11.5px;white-space:pre-wrap;margin-bottom:4px;">${txNoteDisplay(tx).replace(/</g,'&lt;')}</div>` : ''}
                 <input type="text" id="appendNoteInput" placeholder="${t('appendNotePlaceholder')}" style="width:100%;" />
                 <span class="del-link" onclick="saveAppendNoteToTx('${tx.id}')" style="color:var(--safe);margin-right:8px;">${t('btnSave')}</span>
                 <span class="del-link" onclick="cancelAppendNoteToTx()">${t('btnCancel')}</span>
@@ -153,7 +176,7 @@ function renderLog(){
             <td class="col-qty">${tx.qty}${p ? ' ' + p.unit : ''}</td>
             <td class="col-party">${tx.party || '—'}</td>
             <td class="col-note">${tx.invoiceNo ? `<span style="color:var(--ink-soft);">${tf('invoiceNoInline', {no: tx.invoiceNo.replace(/</g,'&lt;')})}</span>${tx.note ? ' ' : ''}` : ''}${tx.note
-              ? `<span class="tx-note-text" onclick="toggleTxNoteDisplay(this)" title="${t('btnViewNoteTitle')}">${tx.note.replace(/</g,'&lt;')}</span>`
+              ? `<span class="tx-note-text" onclick="toggleTxNoteDisplay(this)" title="${t('btnViewNoteTitle')}">${txNoteDisplay(tx).replace(/</g,'&lt;')}</span>`
               : (tx.invoiceNo ? '' : '—')}${(typeof batchTxTagPlaceholder === 'function') ? (() => { const ph = batchTxTagPlaceholder(tx); return ph ? '<div>' + ph + '</div>' : ''; })() : ''}</td>
             <td class="col-actions" style="white-space:nowrap;">
               <span class="del-link action-text-edit" onclick="startAppendNoteToTx('${tx.id}')">${t('btnAddNote')}</span>
