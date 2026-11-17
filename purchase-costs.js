@@ -541,7 +541,8 @@ function pcAllocate(rows, basis, expensesAud){
   const act = rows.filter(r => !r.skip);
   const shares = {};
   if(!(expensesAud > 0) || act.length === 0) return { shares, missing: [] };
-  const vals = act.map(r => ({ r, v: (r.fixed !== undefined) ? r.fixed : pcBasisValue(basis, r.product, r.qty, r.amountAud) }));
+  // 箱數依據:批量商品(自動切換成主商品的)直接用進貨單上輸入的箱數(boxQty),不用換算後主商品的數量
+  const vals = act.map(r => ({ r, v: (r.fixed !== undefined) ? r.fixed : ((basis === 'boxes' && r.boxQty > 0) ? r.boxQty : pcBasisValue(basis, r.product, r.qty, r.amountAud)) }));
   const missing = vals.filter(x => x.v === null).map(x => (x.r.product && x.r.product.name) || x.r.name || '?');
   if(missing.length) return { shares, missing: Array.from(new Set(missing)) };
   const sum = vals.reduce((s, x) => s + x.v, 0);
@@ -571,13 +572,15 @@ function pcMapTxItems(){
     let prod = products.find(p => p.id === it.productId);
     const offBooks = pcOffBooks(it.productId);
     let qty = Number(it.qty) || 0;
+    let boxQty;
     if(prod && prod.parentId && prod.autoConvertOnStockIn){
+      if(isCartonUnit(prod.unit) && qty > 0) boxQty = qty;   // 進貨單上輸入的箱數
       const parent = products.find(p => p.id === prod.parentId);
       qty = qty * (prod.childWeight || 1);
       prod = parent || prod;
     }
     const amountAud = (it.amount !== undefined && it.amount !== null && rate) ? Number(it.amount) * rate : 0;
-    return { key: it.batchItemId, product: prod, name: it.name, qty, amountAud, skip: it.docType === 'credit_note' || it.docType === 'others' || offBooks };
+    return { key: it.batchItemId, product: prod, name: it.name, qty, boxQty, amountAud, skip: it.docType === 'credit_note' || it.docType === 'others' || offBooks };
   }).concat(pcNonStockRows().filter(n => n.alloc && n.name).map(n => ({
     key: 'ns:' + n.id, product: null, name: n.name, qty: n.qty || 0, amountAud: n.aud || 0, skip: false, ns: true,
     fixed: pcNsFixed(pcState.basis, n.qty, n.basisVal, n.aud || 0, n.dims)
@@ -682,6 +685,7 @@ function pcRecompute(purchase){
   const costs = purchase.costs || { expenses: [], expensesAud: 0, basis: 'volume' };
   const rows = (purchase.items || []).map((it, i) => ({
     key: 'r' + i, product: products.find(p => p.id === it.productId), name: it.name, qty: Number(it.qty) || 0,
+    boxQty: (it.rcv && isCartonUnit(it.rcv.unit) && Number(it.rcv.qty) > 0) ? Number(it.rcv.qty) : undefined,
     amountAud: Number(it.amount) || 0, skip: it.docType === 'credit_note' || it.docType === 'others' || !!it.noAcct
   }));
   const nsAlloc = (purchase.nonStockItems || []).map((n, i) => ({ n, i })).filter(x => x.n.alloc);
