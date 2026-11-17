@@ -986,11 +986,16 @@ async function deleteEmptyCategoryAt(index){
   const name = movable[index]; if(!name) return;
   // 還有商品(含隱藏商品)在這個分類:不能刪除,跳提示讓使用者先處理商品
   const used = products.filter(p => (p.category || '未分類') === name);
-  if(used.length){ showInfoModal(tf('catDeleteBlocked', { name, n: used.length })); return; }
+  const active = used.filter(p => !p.hidden);
+  // 還有沒隱藏的商品:不能刪除,請先改分類或隱藏;只剩已隱藏的舊商品:確認後移到「未分類」再刪除分類(商品和進出貨紀錄都保留)
+  if(active.length){ showInfoModal(tf('catDeleteBlocked', { name, n: active.length })); return; }
+  if(used.length){ showConfirmModal(tf('catDeleteMoveHidden', { name, n: used.length }), () => doDeleteCategory(name)); return; }
   showConfirmModal(tf('catDeleteConfirm', { name }), () => doDeleteCategory(name));
 }
 async function doDeleteCategory(name){
-  if(products.some(p => (p.category || '未分類') === name)) return;
+  const left = products.filter(p => (p.category || '未分類') === name);
+  if(left.some(p => !p.hidden)) return;
+  if(left.length){ left.forEach(p => { p.category = '未分類'; }); try{ await saveProducts(); }catch(e){ console.error('移動已隱藏商品到未分類失敗', e); } }
   categoryOrder = categoryOrder.filter(c => c !== name);
   categoryManual = categoryManual.filter(c => c !== name);
   if(categoryOrderDraft) categoryOrderDraft = categoryOrderDraft.filter(c => c !== name);
