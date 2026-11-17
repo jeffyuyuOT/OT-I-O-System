@@ -666,8 +666,10 @@ function openSupplierEditModal(supplierId, prefillName){
   document.getElementById('supplierEditModalTitle').textContent = s ? t('modalEditSupplierTitle') : t('modalAddSupplierTitle');
   document.getElementById('supplierCodeText').textContent = s ? (s.code || '') : t('codeAutoAssigned');
   document.getElementById('supplierNameInput').value = s ? s.name : (prefillName || '');
+  document.getElementById('supplierCompanyInput').value = s ? s.companyName || '' : '';
   document.getElementById('supplierContactInput').value = s ? s.contact || '' : '';
   document.getElementById('supplierPhoneInput').value = s ? s.phone || '' : '';
+  document.getElementById('supplierEmailInput').value = s ? s.email || '' : '';
   document.getElementById('supplierAddressInput').value = s ? s.address || '' : '';
   document.getElementById('supplierNoteInput').value = s ? s.note || '' : '';
   document.getElementById('supplierMyobInput').value = s ? (myobCards['s:' + s.id] || '') : '';
@@ -683,6 +685,8 @@ function closeSupplierEditModal(){
 async function saveSupplierEdit(){
   const msgEl = document.getElementById('supplierEditModalMsg');
   const name = document.getElementById('supplierNameInput').value.trim();
+  const companyName = document.getElementById('supplierCompanyInput').value.trim();
+  const email = document.getElementById('supplierEmailInput').value.trim();
   const contact = document.getElementById('supplierContactInput').value.trim();
   const phone = document.getElementById('supplierPhoneInput').value.trim();
   const address = document.getElementById('supplierAddressInput').value.trim();
@@ -698,6 +702,7 @@ async function saveSupplierEdit(){
   const s = editingSupplierId ? purchaseSuppliers.find(x => x.id === editingSupplierId) : { id: genId(), code: nextEntityCode('S', purchaseSuppliers) };
   const oldName = s.name;
   s.name = name; s.contact = contact; s.phone = phone; s.address = address; s.note = note;
+  s.companyName = companyName; s.email = email;
   s.termsCleared = (terms === null && s.paymentTerms !== null && s.paymentTerms !== undefined);
   s.paymentTerms = terms;
   try{
