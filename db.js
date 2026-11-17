@@ -429,10 +429,13 @@ function supplierToRow(s){
   // 付款天數(purchase_suppliers.payment_terms,需先執行 sql/purchase_suppliers_payment_terms.sql);沒設定時不帶這個欄位
   if(s.paymentTerms !== undefined && s.paymentTerms !== null && s.paymentTerms !== '') row.payment_terms = Number(s.paymentTerms);
   else if(s.termsCleared) row.payment_terms = null;
+  // 公司名稱 / Email(需先執行 sql/purchase_suppliers_email_company.sql);沒填時不帶欄位,但原本有填過又清空要寫成 null
+  if(s.companyName) row.company_name = s.companyName; else if(s.companyName === '') row.company_name = null;
+  if(s.email) row.email = s.email; else if(s.email === '') row.email = null;
   return row;
 }
 function rowToSupplier(row){
-  return { id: row.id, name: row.name, code: row.code || '', contact: row.contact || '', phone: row.phone || '', address: row.address || '', note: row.note || '', paymentTerms: (row.payment_terms === null || row.payment_terms === undefined) ? null : Number(row.payment_terms) };
+  return { id: row.id, name: row.name, code: row.code || '', contact: row.contact || '', phone: row.phone || '', address: row.address || '', note: row.note || '', companyName: row.company_name || '', email: row.email || '', paymentTerms: (row.payment_terms === null || row.payment_terms === undefined) ? null : Number(row.payment_terms) };
 }
 async function loadPurchaseSuppliers(){
   try{
@@ -458,6 +461,12 @@ async function upsertPurchaseSupplier(s){
     console.warn('purchase_suppliers 缺少 payment_terms 欄位,請執行 sql/purchase_suppliers_payment_terms.sql');
     ({ error } = await sb.from('purchase_suppliers').upsert(row));
   }
+  if(error && /column/i.test(error.message || '') && /(email|company_name)/i.test(error.message || '')){
+    // 還沒執行 sql/purchase_suppliers_email_company.sql:先不帶公司名稱 / Email 存,其他資料不受影響
+    const row = supplierToRow(s); delete row.company_name; delete row.email;
+    console.warn('purchase_suppliers 缺少 company_name / email 欄位,請執行 sql/purchase_suppliers_email_company.sql');
+    ({ error } = await sb.from('purchase_suppliers').upsert(row));
+  }
   if(error){ console.error('儲存進貨方失敗', error); throw error; }
   scheduleAutoBackup();
 }
@@ -468,8 +477,8 @@ async function replaceAllPurchaseSuppliers(list){
   const rows = Array.isArray(list) ? list : [];
   for(const sup of rows){
     if(!sup || !sup.id || !sup.name) continue;
-    const { id, name, code, contact, phone, address, note, paymentTerms } = sup;
-    await upsertPurchaseSupplier({ id, name, code, contact, phone, address, note, paymentTerms });
+    const { id, name, code, contact, phone, address, note, paymentTerms, companyName, email } = sup;
+    await upsertPurchaseSupplier({ id, name, code, contact, phone, address, note, paymentTerms, companyName, email });
   }
   await loadPurchaseSuppliers();
 }
