@@ -2295,7 +2295,7 @@ async function submitTxBatchSimple(date, msg){
     if(typeof pcApplyToPurchase === 'function') pcApplyToPurchase(purchase); // 幣種換算 + 其他支出分攤 → 底價/總價
     // 管理者 / 會計自己登記進貨時,輸入或匯入的價錢就是他們自己對過收據的價錢,不用再另外「待核價」→ 直接標成已核價;
     // 沒有任何價錢的進貨單、或倉管登記的進貨單,照常是待核價(等會計核)。
-    if(typeof canSeeProductAcct === 'function' && canSeeProductAcct() && (purchase.items || []).some(it => Number(it.amount) > 0)){
+    if(typeof isAccountantUser === 'function' && isAccountantUser() && (purchase.items || []).some(it => Number(it.amount) > 0)){
       purchase.priceCheck = { status: 'checked', at: new Date().toISOString(), by: (currentUser && (currentUser.email || currentUser.name || currentUser.username)) || '' };
     }
     let purchaseSaved = false;
