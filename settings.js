@@ -984,6 +984,12 @@ async function addCategoryFromPanel(){
 async function deleteEmptyCategoryAt(index){
   const movable = (categoryOrderDraft || categoryOrder.filter(c => c !== '未分類'));
   const name = movable[index]; if(!name) return;
+  // 還有商品(含隱藏商品)在這個分類:不能刪除,跳提示讓使用者先處理商品
+  const used = products.filter(p => (p.category || '未分類') === name);
+  if(used.length){ showInfoModal(tf('catDeleteBlocked', { name, n: used.length })); return; }
+  showConfirmModal(tf('catDeleteConfirm', { name }), () => doDeleteCategory(name));
+}
+async function doDeleteCategory(name){
   if(products.some(p => (p.category || '未分類') === name)) return;
   categoryOrder = categoryOrder.filter(c => c !== name);
   categoryManual = categoryManual.filter(c => c !== name);
@@ -1116,7 +1122,7 @@ function renderCategoryOrderPanel(){
           <button onclick="moveCategoryOrder(${i}, -1)" ${i === 0 ? 'disabled' : ''} title="${t('titleMoveUp')}">↑</button>
           <button onclick="moveCategoryOrder(${i}, 1)" ${i === movable.length - 1 ? 'disabled' : ''} title="${t('titleMoveDown')}">↓</button>
           <button class="cat-order-rename-btn" onclick="renameCategoryAt(${i})" title="${t('titleRenameCategory')}">${t('btnRenameCategory')}</button>
-          ${products.some(p => (p.category || '未分類') === cat) ? '' : `<button class="cat-order-rename-btn" style="color:var(--crit);" onclick="deleteEmptyCategoryAt(${i})">${t('btnDeleteEmptyCategory')}</button>`}
+          <button class="cat-order-rename-btn" style="color:var(--crit);" onclick="deleteEmptyCategoryAt(${i})">${t('btnDeleteEmptyCategory')}</button>
         </div>
       `).join('')}
       <div style="display:flex;gap:8px;align-items:center;margin-top:12px;flex-wrap:wrap;">
