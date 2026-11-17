@@ -1614,7 +1614,6 @@ body.no-cost-view .cost-col{display:none !important;}
           <select id="txAdjReason" onchange="onAdjReasonChange()"></select>
           <input id="txAdjReasonOther" type="text" style="display:none;margin-top:6px;" placeholder="請輸入原因" data-i18n-placeholder="adjReasonOtherPh" />
           <div id="txAdjReasonHint" style="font-size:11.5px;color:var(--ink-soft);margin-top:4px;"></div>
-          <label id="txAdjSlipWrap" style="display:none;margin-top:8px;font-size:13px;cursor:pointer;"><input type="checkbox" id="txAdjSlip" onchange="nsUpdateAdjSlipUi()" style="width:auto;margin-right:6px;" /><span data-i18n="adjNeedSlipLabel">這批需要列印領貨單</span></label>
         </div>
         <div class="field" id="txNsRecipientWrap" style="display:none;">
           <label data-i18n="nsRecipientLabel">領貨人(選填)</label>
@@ -1685,7 +1684,10 @@ body.no-cost-view .cost-col{display:none !important;}
         <div id="txPostVerifyChangesList"></div>
       </div>
       <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:14px;">
-        <div class="section-title" style="font-size:13px;margin:0;" data-i18n="secAddProduct">新增商品</div>
+        <div style="display:flex;align-items:center;flex-wrap:wrap;gap:6px 18px;">
+          <div class="section-title" style="font-size:13px;margin:0;" data-i18n="secAddProduct">新增商品</div>
+          <label id="txAdjSlipWrap" style="display:none;margin:0;font-size:13px;cursor:pointer;"><input type="checkbox" id="txAdjSlip" onchange="nsUpdateAdjSlipUi()" style="width:auto;margin-right:6px;" /><span data-i18n="adjNeedSlipLabel">這批需要列印領貨單</span></label>
+        </div>
         <div id="txCopyLastRow" style="display:none;align-items:center;">
           <button type="button" class="btn ghost" onclick="txCopyLastPurchase()" data-i18n="btnCopyLastPurchase">📋 複製上次進貨商品</button>
         </div>
