@@ -169,6 +169,7 @@ function setTxType(type){
   const nsRecWrap = document.getElementById('txNsRecipientWrap');
   if(nsRecWrap) nsRecWrap.style.display = (type === 'out' && registerOutKind === 'nonsales') ? '' : 'none';
   if(typeof nsUpdateAdjSlipUi === 'function') nsUpdateAdjSlipUi();
+  if(typeof renderTxBatchList === 'function' && currentTxType === 'adjustment') renderTxBatchList();   // 增加/減少的標示跟著原因變
 }
 
 // ===== 庫存調整原因 =====
@@ -187,6 +188,18 @@ const ADJ_REASONS = [
   { code: 'stocktake_gain',    dir: 'in',  group: 'stocktake', hidden: true },
   { code: 'other',             dir: 'any', group: 'other' }
 ];
+// 庫存調整清單裡,這個品項是「增加庫存」嗎?(盤點差異:正數 = 增加;盤盈:正數 = 增加;其他原因維持 負數 = 增加)
+function txItemIsIncrease(it){
+  if(it.docType) return false;
+  if(currentTxType === 'adjustment'){
+    const sel = document.getElementById('txAdjReason');
+    const info = sel ? adjReasonInfo(sel.value) : null;
+    if(info && info.dir === 'signed') return it.qty > 0;
+    if(info && info.dir === 'in') return it.qty > 0;
+    if(info && info.dir === 'out') return false;
+  }
+  return it.qty < 0;
+}
 function adjReasonInfo(code){ return ADJ_REASONS.find(r => r.code === code) || null; }
 function adjReasonLabel(code){ return code ? t('adjReason_' + code) : ''; }
 function renderAdjReasonSelect(){
@@ -668,7 +681,7 @@ function renderTxExistingItems(){
       `;
     }
 
-    const qtyHtml = `${it.qty} ${it.unit}${it.qty < 0 ? ` <span style="color:var(--safe);font-weight:600;font-size:11px;">(${t('stockedInLabel')})</span>` : ''}`;
+    const qtyHtml = `${it.qty} ${it.unit}${txItemIsIncrease(it) ? ` <span style="color:var(--safe);font-weight:600;font-size:11px;">(${t('stockedInLabel')})</span>` : ''}`;
     const actionsHtml = `<span class="del-link" onclick="registerExistingItemEditKey='${it.productId}';renderTxExistingItems();">${t('btnEditQty')}</span>
         ${(typeof batchExistingItemButtonHtml === 'function') ? batchExistingItemButtonHtml(it, pending) : ''}
         <span class="del-link" style="color:var(--crit);" onclick="deleteTxExistingItem('${it.productId}')">${t('btnDelete')}</span>`;
@@ -1005,7 +1018,7 @@ function renderTxBatchList(){
     let badge = '';
     if(it.docType === 'credit_note'){
       badge = ` <span style="color:var(--crit);font-weight:600;font-size:11px;">(${t('docTypeCreditNoteBadge')})</span>`;
-    } else if(!it.docType && it.qty < 0){
+    } else if(txItemIsIncrease(it)){
       badge = ` <span style="color:var(--safe);font-weight:600;font-size:11px;">(${t('stockedInLabel')})</span>`;
     }
     rowsHtml += `
