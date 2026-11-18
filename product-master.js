@@ -963,7 +963,7 @@ function downloadMasterImportTemplate(){
     blank(p.boxWidthCm),
     blank(p.boxHeightCm),
     blank(p.weightKg),
-    p.gst ? 'TRUE' : 'FALSE',
+    p.gst === true ? 'TRUE' : (p.gst === false ? 'FALSE' : ''),
     p.hidden ? 'TRUE' : 'FALSE',
     p.parentId ? (p.autoConvertOnStockIn ? 'TRUE' : 'FALSE') : '',
     p.orderPageRemark || '',
