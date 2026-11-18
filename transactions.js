@@ -2933,8 +2933,11 @@ async function submitAdjustmentFlow(date, msg){
   if(!reasonInfo){ msg.className='msg error'; msg.textContent=t('errAdjReasonRequired'); return; }
   const reasonOther = ((document.getElementById('txAdjReasonOther') || {}).value || '').trim();
   if(reasonCode === 'other' && !reasonOther){ msg.className='msg error'; msg.textContent=t('errAdjReasonOtherRequired'); return; }
-  if(reasonInfo.dir === 'out' && txBatchItems.some(it => it.qty < 0)){ msg.className='msg error'; msg.textContent=t('errAdjReasonDecreaseOnly'); return; }
-  if(reasonInfo.dir === 'in' && txBatchItems.some(it => it.qty > 0)){ msg.className='msg error'; msg.textContent=t('errAdjReasonIncreaseOnly'); return; }
+  // 數字怎麼輸入:「只能減少」的原因(耗損、樣品、盤點虧損…)和「只能增加」的原因(盤點盤盈)都輸入正數,
+  // 數量就是增加/減少的量;「其他」(增減都可以)沿用原本的規則:正數 = 減少、負數 = 增加。
+  if(reasonInfo.dir !== 'any' && txBatchItems.some(it => it.qty < 0)){ msg.className='msg error'; msg.textContent=t('errAdjQtyPositive'); return; }
+  // adjItems:內部統一用「正數 = 減少、負數 = 增加」(跟舊的出貨流程一致);「只能增加」的原因把正數轉成負數
+  const adjItems = txBatchItems.map(it => reasonInfo.dir === 'in' ? Object.assign({}, it, { qty: -Math.abs(it.qty) }) : it);
   const extraNote = document.getElementById('txNote').value.trim();
   // 備註文字 = 原因(其他則用手動輸入的文字)+ 選填附註;結構化的原因代碼另存在 adjReason。
   const reasonText = reasonCode === 'other' ? `${adjReasonLabel('other').replace(/[((].*$/, '').trim()} - ${reasonOther}` : adjReasonLabel(reasonCode);
@@ -2954,7 +2957,7 @@ async function submitAdjustmentFlow(date, msg){
     const closeSlipWin = () => { try{ if(slipPw) slipPw.close(); }catch(e){} };
     // 庫存調整裡「減少」的品項(qty > 0,實際是 type='out')扣庫存之前,一樣先問清楚要從哪個
     // 位置扣——「增加」的品項(qty < 0,type='restock')不用問,新增的庫存一律先算未分布。
-    const decreaseItems = txBatchItems.filter(it => it.qty > 0);
+    const decreaseItems = adjItems.filter(it => it.qty > 0);
     let adjustmentLocationChoices = null;
     if(decreaseItems.length > 0){
       try{
@@ -2966,15 +2969,15 @@ async function submitAdjustmentFlow(date, msg){
     }
 
     const slipSuffix = wantSlip ? ` · ${t('nsNotePrefix')}${slipNo}` : '';
-    const newTxs = txBatchItems.map(it => ({
+    const newTxs = adjItems.map(it => ({
       id: genId(), productId: it.productId, type: it.qty > 0 ? 'out' : 'restock', qty: Math.abs(it.qty), date, party: '', note: `${t('adjustmentNotePrefix')}${note}${slipSuffix}`, adjReason: reasonCode
     }));
     transactions.push(...newTxs);
-    txBatchItems.forEach(it => { productStockMap[it.productId] = (productStockMap[it.productId]||0) - it.qty; });
+    adjItems.forEach(it => { productStockMap[it.productId] = (productStockMap[it.productId]||0) - it.qty; });
     try{ await insertTransactions(newTxs); }
     catch(e){
       newTxs.forEach(tx => { const i = transactions.indexOf(tx); if(i>=0) transactions.splice(i,1); });
-      txBatchItems.forEach(it => { productStockMap[it.productId] = (productStockMap[it.productId]||0) + it.qty; });
+      adjItems.forEach(it => { productStockMap[it.productId] = (productStockMap[it.productId]||0) + it.qty; });
       closeSlipWin();
       msg.className='msg error';
       msg.textContent = /adj_reason/.test(String((e && (e.message || e.details)) || '')) ? `⚠ ${t('errAdjNeedSql')}` : '⚠ 提交失敗,請重新整理頁面再試一次。';
@@ -2984,12 +2987,12 @@ async function submitAdjustmentFlow(date, msg){
     if(adjustmentLocationChoices){
       await applyLocationDeductions(adjustmentLocationChoices);
     }
-    logInventoryAction('tx_out', `Logged stock adjustment: ${txBatchItems.length} item(s) — ${note}${slipSuffix}`, null);
-    const count = txBatchItems.length;
+    logInventoryAction('tx_out', `Logged stock adjustment: ${adjItems.length} item(s) — ${note}${slipSuffix}`, null);
+    const count = adjItems.length;
     let slipSaved = true;
     if(wantSlip){
       slipSaved = await nsSaveAndPrintSlip({ no: slipNo, date, reasonCode, reasonText, reasonOther, extraNote, recipient: slipRecipient,
-        items: txBatchItems, txIds: newTxs.map(x => x.id), pw: slipPw });
+        items: adjItems, txIds: newTxs.map(x => x.id), pw: slipPw });
       const rec = document.getElementById('txNsRecipient'); if(rec) rec.value = '';
       const chk = document.getElementById('txAdjSlip'); if(chk) chk.checked = false;
     }
