@@ -480,6 +480,24 @@ async function saveProductEditModal(){
   if(!isNewChild && !isNewStandalone && !p) return;
   const isChild = isNewChild || !!(p && p.parentId);
 
+  // 商品從「不做批次追蹤」改成「做批次追蹤」:先確認,再把還沒有批次的庫存量轉成起始批次(成本 = 目前平均成本)
+  const trkEl0 = document.getElementById('editProdBatchTrack');
+  if(p && trkEl0 && trkEl0.checked && p.batchTrack === false && typeof nbCarryPlan === 'function'){
+    const plan = nbCarryPlan(p.id);
+    if(plan){
+      showConfirmModal(tf('nbCarryConfirm', { name: p.name, qty: plan.qty, unit: p.unit || '', cost: plan.total === null ? '–' : plan.total.toFixed(2) }), async () => {
+        try{ await nbCarryRun(plan); }
+        catch(e){
+          console.error('起始批次建立失敗', e);
+          if(msg){ msg.className = 'msg error'; msg.textContent = (typeof batchIsMissingFunctionError === 'function' && batchIsMissingFunctionError(e)) ? t('nbCarryNeedSql') : t('nbCarryFailed'); }
+          return;
+        }
+        saveProductEditModal();
+      });
+      return;
+    }
+  }
+
   const sku = document.getElementById('editProdSku').value.trim();
   const name = document.getElementById('editProdName').value.trim();
   const unit = document.getElementById('editProdUnit').value.trim() || '個';

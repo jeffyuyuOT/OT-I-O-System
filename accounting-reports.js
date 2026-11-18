@@ -223,12 +223,14 @@ function arpCompute(movements){
 //   當天餘量 = 現在餘量 − 當天之後的異動合計(異動 qty 出貨為負、退回為正);批次日期晚於 asOf 的批次不計。
 function arpInvCompute(pById, asOf, after){
   const invVal = {}; let total = 0, noCost = 0;
+  const nbSet = new Set((typeof nbIsUntracked === 'function' && typeof batchActive === 'function' && batchActive()) ? ((typeof products !== 'undefined') ? products : []).filter(p => p.batchTrack === false).map(p => p.id) : []);
   const items = (typeof batchData !== 'undefined' && batchData.items) ? batchData.items : [];
   items.forEach(it => {
     if(asOf && it.batchDate && it.batchDate > asOf) return;
     const rem = asOf ? arpN(it.remaining) - arpN((after || {})[it.id]) : arpN(it.remaining);
     if(rem <= 0.0000001) return;
     if(paProductOffBooks(it.productId)) return;
+    if(nbSet.has(it.productId)) return;   // 不做批次追蹤的商品改用下面的「庫存量 × 平均成本」
     // 帳上庫存(資產)只算底價:其他支出(運費、燃油附加費等)在報表裡列為費用,不放進資產;批次頁/商品成本/平均成本仍含分攤
     const c = (it.unitCostBase !== null && it.unitCostBase !== undefined) ? it.unitCostBase : it.unitCostTotal;
     if(c === null || c === undefined){ noCost++; return; }
@@ -237,7 +239,19 @@ function arpInvCompute(pById, asOf, after){
     const k = it.productId; (invVal[k] = invVal[k] || { name: p.name || k, sku: p.sku || '', category: p.category || '', unit: p.unit || '', qty: 0, value: 0 });
     invVal[k].qty += rem; invVal[k].value += v;
   });
-  return { total: arpR2(total), noCost, rows: Object.values(invVal).sort((a, b) => b.value - a.value), tracked: items.length > 0, asOf: asOf || '' };
+  // 不做批次追蹤的商品:庫存量 × 移動加權平均底價(沒有有價錢的進貨記錄的算沒有成本)
+  if(typeof nbIsUntracked === 'function'){
+    ((typeof products !== 'undefined') ? products : []).forEach(p => {
+      if(p.batchTrack !== false || !nbIsUntracked(p.id) || paProductOffBooks(p.id)) return;
+      const q = nbOnHand(p.id, asOf);
+      if(!(q > 0.0000001)) return;
+      const c = nbCost(p.id, asOf || null);
+      if(!c){ noCost++; return; }
+      const v = q * c.base; total += v;
+      invVal[p.id] = { name: p.name || p.id, sku: p.sku || '', category: p.category || '', unit: p.unit || '', qty: q, value: v };
+    });
+  }
+  return { total: arpR2(total), noCost, rows: Object.values(invVal).sort((a, b) => b.value - a.value), tracked: items.length > 0 || Object.keys(invVal).length > 0, asOf: asOf || '' };
 }
 async function arpLoadAfter(asOf){
   if(arpAfterCache[asOf]) return arpAfterCache[asOf];
