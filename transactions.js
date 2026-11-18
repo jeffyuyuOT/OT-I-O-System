@@ -182,8 +182,9 @@ const ADJ_REASONS = [
   { code: 'sample',            dir: 'out', group: 'sample', slip: true },
   { code: 'internal_use',      dir: 'out', group: 'internal', slip: true },
   { code: 'return_supplier',   dir: 'out', group: 'supplier_return', slip: true },
-  { code: 'stocktake_loss',    dir: 'out', group: 'stocktake' },
-  { code: 'stocktake_gain',    dir: 'in',  group: 'stocktake' },
+  { code: 'stocktake',         dir: 'signed', group: 'stocktake' },   // 盤點差異:正數 = 盤盈(增加)、負數 = 盤虧(減少);存檔時依每個品項的正負記成 stocktake_gain / stocktake_loss
+  { code: 'stocktake_loss',    dir: 'out', group: 'stocktake', hidden: true },   // 舊紀錄用(下拉選單不再顯示)
+  { code: 'stocktake_gain',    dir: 'in',  group: 'stocktake', hidden: true },
   { code: 'other',             dir: 'any', group: 'other' }
 ];
 function adjReasonInfo(code){ return ADJ_REASONS.find(r => r.code === code) || null; }
@@ -193,7 +194,7 @@ function renderAdjReasonSelect(){
   if(!sel) return;
   const cur = sel.value;
   const slipMode = (typeof nsIsSlipMode === 'function') && nsIsSlipMode();
-  sel.innerHTML = `<option value="">${t('adjReasonPick')}</option>` + ADJ_REASONS.filter(r => slipMode ? (r.slip || r.code === 'other') : !r.slip).map(r => `<option value="${r.code}">${adjReasonLabel(r.code)}</option>`).join('');
+  sel.innerHTML = `<option value="">${t('adjReasonPick')}</option>` + ADJ_REASONS.filter(r => !r.hidden).filter(r => slipMode ? (r.slip || r.code === 'other') : !r.slip).map(r => `<option value="${r.code}">${adjReasonLabel(r.code)}</option>`).join('');
   sel.value = cur && adjReasonInfo(cur) ? cur : '';
   onAdjReasonChange();
 }
@@ -204,7 +205,7 @@ function onAdjReasonChange(){
   const info = sel ? adjReasonInfo(sel.value) : null;
   if(other) other.style.display = info && info.code === 'other' ? '' : 'none';
   if(typeof nsUpdateAdjSlipUi === 'function') nsUpdateAdjSlipUi();
-  if(hint) hint.textContent = info ? (info.dir === 'out' ? t('adjHint_decrease') : info.dir === 'in' ? t('adjHint_increase') : '') : '';
+  if(hint) hint.textContent = info ? (info.dir === 'out' ? t('adjHint_decrease') : info.dir === 'in' ? t('adjHint_increase') : info.dir === 'signed' ? t('adjHint_signed') : '') : '';
 }
 function adjReasonReset(){
   const sel = document.getElementById('txAdjReason'); if(sel) sel.value = '';
@@ -2935,9 +2936,11 @@ async function submitAdjustmentFlow(date, msg){
   if(reasonCode === 'other' && !reasonOther){ msg.className='msg error'; msg.textContent=t('errAdjReasonOtherRequired'); return; }
   // 數字怎麼輸入:「只能減少」的原因(耗損、樣品、盤點虧損…)和「只能增加」的原因(盤點盤盈)都輸入正數,
   // 數量就是增加/減少的量;「其他」(增減都可以)沿用原本的規則:正數 = 減少、負數 = 增加。
-  if(reasonInfo.dir !== 'any' && txBatchItems.some(it => it.qty < 0)){ msg.className='msg error'; msg.textContent=t('errAdjQtyPositive'); return; }
+  if((reasonInfo.dir === 'out' || reasonInfo.dir === 'in') && txBatchItems.some(it => it.qty < 0)){ msg.className='msg error'; msg.textContent=t('errAdjQtyPositive'); return; }
   // adjItems:內部統一用「正數 = 減少、負數 = 增加」(跟舊的出貨流程一致);「只能增加」的原因把正數轉成負數
-  const adjItems = txBatchItems.map(it => reasonInfo.dir === 'in' ? Object.assign({}, it, { qty: -Math.abs(it.qty) }) : it);
+  // 「盤點差異」:正數 = 盤盈(增加)、負數 = 盤虧(減少)→ 內部要反過來(正 = 減少)
+  const adjItems = txBatchItems.map(it => reasonInfo.dir === 'in' ? Object.assign({}, it, { qty: -Math.abs(it.qty) }) : (reasonInfo.dir === 'signed' ? Object.assign({}, it, { qty: -it.qty }) : it));
+  if(adjItems.some(it => !it.qty)){ msg.className='msg error'; msg.textContent=t('errAdjQtyZero'); return; }
   const extraNote = document.getElementById('txNote').value.trim();
   // 備註文字 = 原因(其他則用手動輸入的文字)+ 選填附註;結構化的原因代碼另存在 adjReason。
   const reasonText = reasonCode === 'other' ? `${adjReasonLabel('other').replace(/[((].*$/, '').trim()} - ${reasonOther}` : adjReasonLabel(reasonCode);
@@ -2970,7 +2973,7 @@ async function submitAdjustmentFlow(date, msg){
 
     const slipSuffix = wantSlip ? ` · ${t('nsNotePrefix')}${slipNo}` : '';
     const newTxs = adjItems.map(it => ({
-      id: genId(), productId: it.productId, type: it.qty > 0 ? 'out' : 'restock', qty: Math.abs(it.qty), date, party: '', note: `${t('adjustmentNotePrefix')}${note}${slipSuffix}`, adjReason: reasonCode
+      id: genId(), productId: it.productId, type: it.qty > 0 ? 'out' : 'restock', qty: Math.abs(it.qty), date, party: '', note: `${t('adjustmentNotePrefix')}${note}${slipSuffix}`, adjReason: reasonCode === 'stocktake' ? (it.qty < 0 ? 'stocktake_gain' : 'stocktake_loss') : reasonCode
     }));
     transactions.push(...newTxs);
     adjItems.forEach(it => { productStockMap[it.productId] = (productStockMap[it.productId]||0) - it.qty; });
