@@ -86,7 +86,56 @@ function scrollToOrderToolbar(){
   if(el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
+// ===== 訂貨頁面草稿:存在這台裝置的瀏覽器裡(每位使用者各自一份),切分頁、重新整理、關掉程式都不會消失;
+// 提交訂單後清空,也可以按「清空資料」手動清掉。「幫既有訂單新增商品」模式的暫時挑選不會存。 =====
+let orderDraftRestoredFor = null;
+let orderDraftSaveTimer = null;
+function ordDraftKey(){ return 'orderDraft:' + ((typeof currentUser !== 'undefined' && currentUser && currentUser.id) || 'anon'); }
+function ordDraftSave(){
+  if(addingItemsToOrderId) return;
+  clearTimeout(orderDraftSaveTimer);
+  orderDraftSaveTimer = setTimeout(() => {
+    try{
+      const qty = {}; Object.keys(orderQtyDraft).forEach(k => { const v = parseFloat(orderQtyDraft[k]); if(v > 0) qty[k] = orderQtyDraft[k]; });
+      const g = id => { const el = document.getElementById(id); return el ? el.value : ''; };
+      const d = { date: g('orderDate'), partyId: g('orderParty'), note: g('orderNote'), qty, itemNotes: orderItemNoteDraft };
+      const empty = !Object.keys(qty).length && !Object.keys(orderItemNoteDraft).length && !d.note;
+      if(empty) localStorage.removeItem(ordDraftKey());
+      else localStorage.setItem(ordDraftKey(), JSON.stringify(d));
+    }catch(e){}
+  }, 300);
+}
+function ordDraftClearStore(){
+  clearTimeout(orderDraftSaveTimer);
+  try{ localStorage.removeItem(ordDraftKey()); }catch(e){}
+}
+function ordDraftRestoreOnce(){
+  const key = ordDraftKey();
+  if(orderDraftRestoredFor === key || addingItemsToOrderId) return;
+  if(typeof currentUser === 'undefined' || !currentUser) return;
+  orderDraftRestoredFor = key;
+  let d = null;
+  try{ d = JSON.parse(localStorage.getItem(key) || 'null'); }catch(e){}
+  if(!d) return;
+  orderQtyDraft = d.qty || {};
+  orderItemNoteDraft = d.itemNotes || {};
+  const setv = (id, v) => { const el = document.getElementById(id); if(el && v) el.value = v; };
+  setv('orderDate', d.date); setv('orderNote', d.note);
+  const sel = document.getElementById('orderParty');
+  if(sel && d.partyId && !sel.disabled && Array.from(sel.options).some(o => o.value === d.partyId)) sel.value = d.partyId;
+}
+function clearOrderDraft(){
+  showConfirmModal(t('confirmClearOrderDraft'), () => {
+    orderQtyDraft = {}; orderItemNoteDraft = {};
+    const n = document.getElementById('orderNote'); if(n) n.value = '';
+    const cn = document.getElementById('cartOrderNote'); if(cn) cn.value = '';
+    ordDraftClearStore();
+    renderOrderItemsTable();
+  });
+}
+
 function renderOrderItemsTable(){
+  ordDraftRestoreOnce();
   const container = document.getElementById('orderItemsTable');
   if(!container) return;
   const partySel = document.getElementById('orderParty');
@@ -151,7 +200,7 @@ function renderOrderItemsTable(){
         <td class="row-num row-qty qty-col-data">
           <span class="td-mobile-label">${t('colOrderQty')}</span>
           <div class="qty-cell-inner">
-            <input type="number" class="order-qty-input" id="orderQty_${p.id}" min="0" step="1"
+            <input type="number" class="order-qty-input${(parseFloat(orderQtyDraft[p.id]) > stock) ? ' qty-invalid' : ''}" id="orderQty_${p.id}" min="0" step="1"
               max="${stock}" placeholder="0" value="${orderQtyDraft[p.id] != null ? orderQtyDraft[p.id] : ''}" ${outOfStock ? 'disabled' : ''}
               oninput="validateOrderQtyInput('${p.id}')" /><span class="qty-unit-label">${p.unit}</span>
           </div>
@@ -202,6 +251,7 @@ function validateOrderQtyInput(productId){
   const input = document.getElementById(`orderQty_${productId}`);
   if(!input) return;
   orderQtyDraft[productId] = input.value;
+  ordDraftSave();
   const max = parseFloat(input.getAttribute('max')) || 0;
   const val = parseFloat(input.value);
   if(!isNaN(val) && val > max){ input.classList.add('qty-invalid'); }
@@ -355,6 +405,7 @@ function validateCartQtyInput(productId){
 function updateCartQty(productId){
   const input = document.getElementById(`cartQty_${productId}`);
   if(input) orderQtyDraft[productId] = input.value;
+  ordDraftSave();
   const { items } = collectOrderItems();
   renderCartTable(items);
   const msg = document.getElementById('cartMsg');
@@ -364,6 +415,7 @@ function updateCartQty(productId){
 // 購物車裡刪除商品:直接清空草稿數量,重新計算購物車內容(該商品因數量為 0 會自動從清單消失)。
 function removeCartItem(productId){
   orderQtyDraft[productId] = '';
+  ordDraftSave();
   const { items } = collectOrderItems();
   renderCartTable(items);
   const msg = document.getElementById('cartMsg');
@@ -497,6 +549,7 @@ async function doConfirmOrderFromCart(dateVal, noteVal, partyId, partyName, item
   document.getElementById('orderNote').value = '';
   orderQtyDraft = {};
   orderItemNoteDraft = {};
+  ordDraftClearStore();
   document.getElementById('orderCartSection').style.display = 'none';
   document.getElementById('orderFormSection').style.display = '';
   const formMsg = document.getElementById('orderMsg');
@@ -2829,3 +2882,7 @@ function closeSignatureViewModal(){
   document.getElementById('signatureViewModalOverlay').style.display = 'none';
   document.getElementById('signatureViewModalImg').src = '';
 }
+
+// 日期/出貨方/備註變動也存進草稿
+document.addEventListener('input', e => { if(e.target && (e.target.id === 'orderNote' || e.target.id === 'cartOrderNote' || e.target.id === 'orderDate')) ordDraftSave(); });
+document.addEventListener('change', e => { if(e.target && (e.target.id === 'orderParty' || e.target.id === 'orderDate')) ordDraftSave(); });
