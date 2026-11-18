@@ -229,7 +229,8 @@ function arpInvCompute(pById, asOf, after){
     const rem = asOf ? arpN(it.remaining) - arpN((after || {})[it.id]) : arpN(it.remaining);
     if(rem <= 0.0000001) return;
     if(paProductOffBooks(it.productId)) return;
-    const c = (it.unitCostTotal !== null && it.unitCostTotal !== undefined) ? it.unitCostTotal : it.unitCostBase;
+    // 帳上庫存(資產)只算底價:其他支出(運費、燃油附加費等)在報表裡列為費用,不放進資產;批次頁/商品成本/平均成本仍含分攤
+    const c = (it.unitCostBase !== null && it.unitCostBase !== undefined) ? it.unitCostBase : it.unitCostTotal;
     if(c === null || c === undefined){ noCost++; return; }
     const v = rem * c; total += v;
     const p = pById[it.productId] || {};
@@ -294,15 +295,15 @@ function arpBalDate(){
   return (arpFilter.to && arpFilter.to < today) ? arpFilter.to : today;
 }
 function arpPrevDay(d){ const x = new Date(d + 'T00:00:00Z'); x.setUTCDate(x.getUTCDate() - 1); return x.toISOString().slice(0, 10); }
-// Income statement(對齊會計師財報格式)。Purchases = 供應商進貨 + 進貨單相關費用(運費、關稅等,已分攤進庫存成本);Expenses = 獨立其他支出,依項目名稱分組。
+// Income statement(對齊會計師財報格式)。Purchases = 供應商進貨(底價);Expenses = 所有其他支出(獨立的 + 進貨單相關的運費、關稅等),依項目名稱分組,不放進庫存資產。
 function arpStmt(R){
   const st = R.stmt || {};
-  const purchases = arpR2(R.pur.ex + R.rel.ex);
+  const purchases = arpR2(R.pur.ex);
   const have = st.open !== null && st.open !== undefined && st.close !== null && st.close !== undefined;
   const cos = have ? arpR2(st.open + purchases - st.close) : null;
   const gp = cos === null ? null : arpR2(R.income.netEx - cos);
   const g = {};
-  (R.expRows || []).filter(en => en.kind === 'sa').forEach(en => {
+  (R.expRows || []).forEach(en => {
     const nm = (en.name || '').trim() || '(–)', k = nm.toLowerCase();
     (g[k] = g[k] || { name: nm, ex: 0 }).ex += en.info.ex;
   });

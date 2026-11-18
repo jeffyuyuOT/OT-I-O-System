@@ -4018,7 +4018,7 @@ function findMatchingProduct(cellText){
 
 async function loadData(){
   // 設定值一次抓回來 + 各資料表同時載入(原本全部是一項接一項依序等),大幅縮短開機時間
-  const prefetchP = prefetchAppData(['products','orderCounter','shippingParties','lang','autoBackupEnabled','autoConvertMultipack',
+  const prefetchP = prefetchAppData(['products','orderCounter','shippingParties','lang',(currentUser && currentUser.id ? 'lang:' + currentUser.id : 'lang'),'autoBackupEnabled','autoConvertMultipack',
     'disableDirectVerify','hideInvoice','disableAccountantEmail','accountingEmails','accountingEmail','stockLocationMode','stockLocationEnabledFields',
     'stockLocationShowOnPickingSlip','productSortMode','productManualRank','completedExportFormat',
     'hideMultipackIconOnOrderPage','categoryOrder','tabOrder','subTabOrder','quickLists','forecastPrefs','forecastRecords','exportEmailLogs',
@@ -4060,8 +4060,17 @@ async function loadData(){
   shippingParties.forEach(sp => { if(!Array.isArray(sp.hiddenProductIds)) sp.hiddenProductIds = []; });
   if(ensurePartyCodes()) saveShippingParties();   // 還沒有編號(C001…)的出貨方補上編號並存檔
   try{
-    const langResult = await dbGet('lang');
-    if(langResult && (langResult.value === 'en' || langResult.value === 'zh')) lang = langResult.value;
+    // 介面語言按使用者各自儲存(lang:<使用者id>);還沒存過的,先用這台裝置上次的選擇,再退回舊的共用設定
+    const myLangRes = (currentUser && currentUser.id) ? await dbGet('lang:' + currentUser.id) : null;
+    if(myLangRes && (myLangRes.value === 'en' || myLangRes.value === 'zh')) lang = myLangRes.value;
+    else {
+      let devLang = null; try{ devLang = localStorage.getItem('inventoryAppLang'); }catch(e){}
+      if(devLang === 'en' || devLang === 'zh') lang = devLang;
+      else {
+        const langResult = await dbGet('lang');
+        if(langResult && (langResult.value === 'en' || langResult.value === 'zh')) lang = langResult.value;
+      }
+    }
   } catch(e){ /* no stored preference yet, keep default */ }
   try{
     const abResult = await dbGet('autoBackupEnabled');
