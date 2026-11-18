@@ -1798,6 +1798,7 @@ async function runStockImportCore(items, skippedRows, clearBlanksMode, dryRun){
     const parent = products.find(p => p.sku === item.parentSku);
     if(!parent){ linkSkipped++; linkSkipDetails.push({ sku: item.sku, reason: tf('importLinkSkipReasonParentNotFound', {parentSku: item.parentSku}) }); return; } // 表格裡跟系統裡都找不到這個 ParentSKU,略過批量設定
     if(parent.parentId){ linkSkipped++; linkSkipDetails.push({ sku: item.sku, reason: tf('importLinkSkipReasonNestedParent', {parentSku: item.parentSku}) }); return; } // 主商品本身也是別人的批量商品,不支援兩層巢巢,略過
+    const wasLinked = child.parentId === parent.id;   // 已經是這個主商品的批量商品:不要再動它的「可訂貨」設定
     child.parentId = parent.id;
     if(item.childWeight !== null && item.childWeight !== undefined && !isNaN(item.childWeight)){
       child.childWeight = item.childWeight;
@@ -1807,7 +1808,7 @@ async function runStockImportCore(items, skippedRows, clearBlanksMode, dryRun){
     if(item.autoConvertOnStockIn !== null && item.autoConvertOnStockIn !== undefined){
       child.autoConvertOnStockIn = item.autoConvertOnStockIn;
     }
-    child.orderable = false; // 批量商品不能單獨被訂貨(比照「新增批量商品」介面的預設)
+    if(!wasLinked) child.orderable = false; // 新建立批量關係時,預設不能單獨被訂貨(比照「新增批量商品」介面);已經是批量商品的,保留原本的訂貨設定(使用者可能刻意開了)
     linked++;
   });
 
