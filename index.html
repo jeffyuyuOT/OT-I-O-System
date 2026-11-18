@@ -1996,6 +1996,7 @@ body.no-cost-view .cost-col{display:none !important;}
           <input type="search" id="orderSearchInput" oninput="renderOrderItemsTable()" data-i18n-placeholder="stockSearchPlaceholder" placeholder="搜尋商品名稱…" />
         </div>
         <button class="btn" onclick="openCart()" data-i18n="btnCart">🛒 購物車</button>
+        <button class="btn ghost" onclick="clearOrderDraft()" data-i18n="btnClearOrderDraft">🗑 清空資料</button>
       </div>
       <div id="orderItemsTable" style="margin-top:14px;">
         <div class="empty-note" data-i18n="noOrderableProducts">目前沒有標記為「可訂貨」的商品。</div>
@@ -3839,6 +3840,7 @@ function saveOrderItemNoteModal(){
   const val = document.getElementById('orderItemNoteModalInput').value.trim();
   if(val) orderItemNoteDraft[orderItemNoteModalProductId] = val;
   else delete orderItemNoteDraft[orderItemNoteModalProductId];
+  if(typeof ordDraftSave === 'function') ordDraftSave();
   closeOrderItemNoteModal();
   renderOrderItemsTable();
 }
