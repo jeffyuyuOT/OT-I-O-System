@@ -200,7 +200,7 @@ function renderOrderItemsTable(){
         <td class="row-num row-qty qty-col-data">
           <span class="td-mobile-label">${t('colOrderQty')}</span>
           <div class="qty-cell-inner">
-            <input type="number" class="order-qty-input" id="orderQty_${p.id}" min="0" step="1"
+            <input type="number" class="order-qty-input${(parseFloat(orderQtyDraft[p.id]) > stock) ? ' qty-invalid' : ''}" id="orderQty_${p.id}" min="0" step="1"
               max="${stock}" placeholder="0" value="${orderQtyDraft[p.id] != null ? orderQtyDraft[p.id] : ''}" ${outOfStock ? 'disabled' : ''}
               oninput="validateOrderQtyInput('${p.id}')" /><span class="qty-unit-label">${p.unit}</span>
           </div>
