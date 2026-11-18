@@ -39,6 +39,8 @@ function psCurrentBatchItem(pid){
 }
 // 回傳 { cost, batchNo, isOpening }(沒有批次回傳 null;批次沒有成本資料 cost 為 null)
 function psCostInfo(pid){
+  // 不做批次追蹤的商品:成本 = 移動加權平均(沒有批次),標成 nb
+  if(typeof nbIsUntracked === 'function' && nbIsUntracked(pid)){ const c = nbCost(pid); return { cost: c ? c.total : null, batchNo: '', isOpening: false, nb: true, item: null }; }
   const it = psCurrentBatchItem(pid);
   if(!it) return null;
   return { cost: spTotalUnit(it), batchNo: it.batchNo, isOpening: !!it.isOpening, item: it };
@@ -118,6 +120,7 @@ function psAvgCostMoving(pid, sell){
   return { cost: spRound2(avg), est, qty: onhand };
 }
 function psAvgCost(pid, sell){
+  if(typeof nbIsUntracked === 'function' && nbIsUntracked(pid)){ const c = nbCost(pid); return c ? { cost: spRound2(c.total), est: false, qty: c.qty } : null; }
   if(typeof batchActive !== 'function' || !batchActive()) return null;
   if(psAvgMethod === 'moving' && psMovByItem) return psAvgCostMoving(pid, sell);
   return psAvgCostBatches(pid, sell);
@@ -158,6 +161,7 @@ function psBatchIconHtml(pid){
 function psShowBatchCostInfo(pid){
   const ci = psCostInfo(pid);
   if(!ci) return;
+  if(ci.nb){ showInfoModal(tf('psNbCostInfo', { cost: ci.cost === null ? '–' : psFmt2(ci.cost) })); return; }
   showInfoModal(tf('psBatchCostInfo', { batch: ci.isOpening ? t('batchOpening') : ci.batchNo, cost: ci.cost === null ? '–' : psFmt2(ci.cost) })
     + (ci.isOpening && ci.cost !== null ? '\n\n' + t('psEstCostInfo') : ''));   // 期初批次的成本是推算的:同一個圖示一併說明
 }
@@ -342,7 +346,7 @@ function psRenderPage(){
     const sellCell = (setting && editable)
       ? `<input type="number" min="0" step="0.01" id="psSell_${psEsc(p.id)}" value="${sell === null || sell === undefined ? '' : Number(sell).toFixed(2)}" oninput="psOnSellInput('${psEsc(p.id)}', this.value)" style="width:100px;text-align:right;${edited ? 'background:#FFF8E1;' : ''}" />`
       : `<span>${psFmt2(sell)}</span>`;
-    const costCell = `<span id="psCostVal_${psEsc(p.id)}">${ci ? (cost === null ? `<span title="${psEsc(t('psNoCostHint'))}">–</span>` : psFmt2(cost)) : '–'}</span>` + (ci ? psBatchIconHtml(p.id) : '');
+    const costCell = `<span id="psCostVal_${psEsc(p.id)}">${ci ? (cost === null ? `<span title="${psEsc(t('psNoCostHint'))}">–</span>` : psFmt2(cost)) : '–'}</span>` + (ci ? psBatchIconHtml(p.id) : '') + (ci && ci.nb ? ` <span title="${psEsc(t('psNbTag'))}" style="font-size:10.5px;color:var(--ink-soft);border:1px solid var(--line);border-radius:4px;padding:0 3px;">Avg</span>` : '');
     const avgCell = `<span id="psAvgVal_${psEsc(p.id)}">${avg ? psFmt2(avg.cost) + (avg.est ? psEstIconHtml() : '') : '–'}</span>`;
     const bw = setting ? psBatchMarginWarn(p.id, sell) : null;
     const bwHtml = bw ? ` <span class="batch-link" title="${psEsc(t('psBatchWarnTitle'))}" style="cursor:pointer;" onclick="psShowBatchMarginInfo('${psEsc(p.id)}')">🏷️⚠️</span>` : '';
@@ -386,7 +390,7 @@ function psRenderPage(){
 function psBatchMarginWarn(pid, shownSell){
   if(!spIsSettingBasis()) return null;
   const ci = psCostInfo(pid);
-  if(!ci || ci.cost === null || ci.isOpening) return null;
+  if(!ci || ci.cost === null || ci.isOpening || ci.nb) return null;
   const m = spManualMargins[ci.item.batchId];
   if(m === undefined || m === null) return null;
   const suggested = spRound2(ci.cost * (1 + m / 100));
@@ -793,11 +797,13 @@ function psConfirmOpeningImport(files, updates, problems, problemText, say){
 }
 
 Object.assign(I18N.zh, {
+  psNbTag: '這個商品不做批次追蹤,成本以平均成本計算', psNbCostInfo: '這個商品沒有開啟批次追蹤,所以沒有批次成本,這裡顯示的是平均成本(移動加權平均):{cost}。每次有價錢的進貨會重新算,出貨不改變平均。',
   psHintCost: '成本價(目前批次):目前正在出貨的批次的單位成本。出貨順序是:期初批次 → 先到期先出 → 進貨日 FIFO。',
   psHintAvg: '平均成本:目前庫存各批次(剩餘量 × 單位成本)加總 ÷ 剩餘總量。批次出完就不再計入,每進新批次就會跟著調整。',
   psHintMargin: 'Margin:Sell price 相對所選成本基準(批次成本或平均成本)多出的百分比。'
 });
 Object.assign(I18N.en, {
+  psNbTag: 'Batch tracking is off for this product; cost is the average cost', psNbCostInfo: 'Batch tracking is off for this product, so there is no batch cost. The figure shown is the average cost (moving weighted average): {cost}. It is recalculated on every priced purchase; shipments do not change it.',
   psHintCost: 'Cost (current batch): the unit cost of the batch currently being shipped. Shipping order: opening batch → earliest expiry → FIFO by purchase date.',
   psHintAvg: 'Average cost: sum of (remaining qty × unit cost) over the batches in stock ÷ total remaining qty. A batch stops counting once it is used up, and the figure moves whenever a new batch arrives.',
   psHintMargin: 'Margin: how much the Sell price is above the selected cost basis (batch cost or average cost), in %.'

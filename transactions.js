@@ -1664,7 +1664,7 @@ async function runStockImportCore(items, skippedRows, clearBlanksMode, dryRun){
         boxWidthCm: (item.boxWidthCm !== null && item.boxWidthCm !== undefined && !isNaN(item.boxWidthCm)) ? item.boxWidthCm : undefined,
         boxHeightCm: (item.boxHeightCm !== null && item.boxHeightCm !== undefined && !isNaN(item.boxHeightCm)) ? item.boxHeightCm : undefined,
         weightKg: (item.weightKg !== null && item.weightKg !== undefined && !isNaN(item.weightKg)) ? item.weightKg : undefined,
-        gst: item.gst === true,
+        gst: item.gst === true ? true : (item.gst === false ? false : undefined),   // 空白 = 未設定(GST?)
         hidden: item.hidden === true,
         orderPageRemark: item.orderPageRemark || undefined,
         barcode: item.barcode || undefined,
@@ -1718,7 +1718,7 @@ async function runStockImportCore(items, skippedRows, clearBlanksMode, dryRun){
     else if(clearBlanksMode && (item.boxHeightCm === null || item.boxHeightCm === undefined) && existing.boxHeightCm !== null && existing.boxHeightCm !== undefined){ changedFields.push(tf('importFieldChangeLine', {field: t('fieldBoxHeight'), from: existing.boxHeightCm, to: '(空白)'})); existing.boxHeightCm = undefined; changed = true; }
     if(item.weightKg !== null && item.weightKg !== undefined && !isNaN(item.weightKg) && existing.weightKg !== item.weightKg){ changedFields.push(tf('importFieldChangeLine', {field: t('fieldWeightKg'), from: existing.weightKg, to: item.weightKg})); existing.weightKg = item.weightKg; changed = true; }
     else if(clearBlanksMode && (item.weightKg === null || item.weightKg === undefined) && existing.weightKg !== null && existing.weightKg !== undefined){ changedFields.push(tf('importFieldChangeLine', {field: t('fieldWeightKg'), from: existing.weightKg, to: '(空白)'})); existing.weightKg = undefined; changed = true; }
-    if(item.gst !== null && item.gst !== undefined && !!existing.gst !== item.gst){ changedFields.push(tf('importFieldChangeLine', {field: 'GST', from: !!existing.gst, to: item.gst})); existing.gst = item.gst; changed = true; }
+    if(item.gst !== null && item.gst !== undefined && existing.gst !== item.gst){ changedFields.push(tf('importFieldChangeLine', {field: 'GST', from: existing.gst === true ? 'TRUE' : (existing.gst === false ? 'FALSE' : 'GST?'), to: item.gst})); existing.gst = item.gst; changed = true; }
     if(item.hidden !== null && item.hidden !== undefined && existing.hidden !== item.hidden){ changedFields.push(tf('importFieldChangeLine', {field: t('hideAction'), from: existing.hidden, to: item.hidden})); existing.hidden = item.hidden; changed = true; }
     if(item.batchTrack !== null && item.batchTrack !== undefined && (existing.batchTrack !== false) !== item.batchTrack){ changedFields.push(tf('importFieldChangeLine', {field: 'Batch Tracking', from: existing.batchTrack !== false, to: item.batchTrack})); if(item.batchTrack) delete existing.batchTrack; else existing.batchTrack = false; changed = true; }
     if(item.noAccounting !== null && item.noAccounting !== undefined && (existing.noAccounting === true) !== item.noAccounting){ changedFields.push(tf('importFieldChangeLine', {field: 'Not On Books', from: existing.noAccounting === true, to: item.noAccounting})); if(item.noAccounting) existing.noAccounting = true; else delete existing.noAccounting; changed = true; }

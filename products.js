@@ -225,10 +225,13 @@ function renderProductEditModalBody(p, opts){
     </div>` : '';
   const acctPane = showAcctTab ? `<div id="prodPaneAcct" style="display:none;">
     <div class="field-block">
-      <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-weight:400;">
-        <input type="checkbox" id="editProdGst" ${(p.gst && p.noAccounting !== true) ? 'checked' : ''} ${p.noAccounting === true ? 'disabled' : ''} data-prev="${p.gst ? '1' : ''}" />
-        <span>${t('fieldProductGst')}<span style="color:var(--ink-soft);font-weight:400;"> ${t('fieldProductGstHint')}</span></span>
-      </label>
+      <label>${t('fieldProductGst')}</label>
+      <select id="editProdGst" ${p.noAccounting === true ? 'disabled' : ''} data-prev="${p.gst === true ? 'y' : (p.gst === false ? 'n' : '')}">
+        <option value="" ${(p.noAccounting !== true && p.gst !== true && p.gst !== false) ? 'selected' : ''}>${t('paGstUnset')}</option>
+        <option value="y" ${(p.noAccounting !== true && p.gst === true) ? 'selected' : ''}>${t('fieldProductGstInc')}</option>
+        <option value="n" ${(p.noAccounting === true || p.gst === false) ? 'selected' : ''}>${t('paGstNone')}</option>
+      </select>
+      <div class="field-hint">${t('fieldProductGstHint')}</div>
     </div>
     <div class="field-block">
       <label>${t('rcFieldLabel')}</label>
@@ -480,6 +483,24 @@ async function saveProductEditModal(){
   if(!isNewChild && !isNewStandalone && !p) return;
   const isChild = isNewChild || !!(p && p.parentId);
 
+  // 商品從「不做批次追蹤」改成「做批次追蹤」:先確認,再把還沒有批次的庫存量轉成起始批次(成本 = 目前平均成本)
+  const trkEl0 = document.getElementById('editProdBatchTrack');
+  if(p && trkEl0 && trkEl0.checked && p.batchTrack === false && typeof nbCarryPlan === 'function'){
+    const plan = nbCarryPlan(p.id);
+    if(plan){
+      showConfirmModal(tf('nbCarryConfirm', { name: p.name, qty: plan.qty, unit: p.unit || '', cost: plan.total === null ? '–' : plan.total.toFixed(2) }), async () => {
+        try{ await nbCarryRun(plan); }
+        catch(e){
+          console.error('起始批次建立失敗', e);
+          if(msg){ msg.className = 'msg error'; msg.textContent = (typeof batchIsMissingFunctionError === 'function' && batchIsMissingFunctionError(e)) ? t('nbCarryNeedSql') : t('nbCarryFailed'); }
+          return;
+        }
+        saveProductEditModal();
+      });
+      return;
+    }
+  }
+
   const sku = document.getElementById('editProdSku').value.trim();
   const name = document.getElementById('editProdName').value.trim();
   const unit = document.getElementById('editProdUnit').value.trim() || '個';
@@ -536,7 +557,7 @@ async function saveProductEditModal(){
       manualAvg: avgRaw === '' ? null : parseFloat(avgRaw),
       safetyStock: safetyRaw === '' ? null : parseFloat(safetyRaw),
       note, orderable: false, parentId: null, childWeight: null,
-      gst: (document.getElementById('editProdGst') || {}).checked === true ? true : undefined,
+      gst: (() => { const v = (document.getElementById('editProdGst') || {}).value; return v === 'y' ? true : (v === 'n' ? false : undefined); })(),
       reportCategory: ((document.getElementById('editProdReportCategory') || {}).value || '') || undefined,
       addedByAcct: addingProductFromAcct ? true : undefined,
       orderPageRemark: orderPageRemark || undefined,
@@ -571,7 +592,7 @@ async function saveProductEditModal(){
     const hiddenEl = document.getElementById('editProdHidden');
     if(hiddenEl) p.hidden = hiddenEl.checked;
     const gstEl = document.getElementById('editProdGst');
-    if(gstEl) p.gst = gstEl.checked;
+    if(gstEl){ if(gstEl.value === 'y') p.gst = true; else if(gstEl.value === 'n') p.gst = false; else delete p.gst; }
     const rcEl = document.getElementById('editProdReportCategory');
     if(rcEl){ if(rcEl.value) p.reportCategory = rcEl.value; else delete p.reportCategory; }
     const batchTrkEl = document.getElementById('editProdBatchTrack');
@@ -1375,8 +1396,8 @@ function onProdNoAcctToggle(el){
   // 不入公司帳的商品不會有 GST:勾起來時 GST 欄位鎖定(取消勾選),取消不入公司帳再恢復原本的設定
   const gst = document.getElementById('editProdGst');
   if(gst){
-    if(el.checked){ gst.dataset.prev = gst.checked ? '1' : ''; gst.checked = false; gst.disabled = true; }
-    else { gst.disabled = false; gst.checked = gst.dataset.prev === '1'; }
+    if(el.checked){ gst.dataset.prev = gst.value; gst.value = 'n'; gst.disabled = true; }
+    else { gst.disabled = false; gst.value = gst.dataset.prev || ''; }
   }
   const hide = document.getElementById('editProdHideFromExport');
   const mode = document.getElementById('editProdHideFromExportMode');
