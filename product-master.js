@@ -434,7 +434,7 @@ function setAllExportStoresChecked(checked){
 
 // ===== 匯出特定商品資料 =====
 // 跟上面「匯出報表」共用同一組「類型 / 對象 / 日期區間」設定,差別只在多了一份「商品清單」:清單是空的就匯出全部
-// 商品(預設);清單裡有商品的話,只匯出清單裡這些商品(以家族為單位,主商品跟它底下的 multipack 都算)的資料。
+// 商品(預設);清單裡有商品的話,只匯出清單裡這些商品(清單上顯示的那個商品本身,不連同家族裡其他 multipack)的資料。
 // 商品可以一個一個「新增商品」(有分類篩選跟名稱搜尋),也可以直接「Import quick list」把一份快捷清單整個帶進來。
 let exportProductIds = []; // 家族主商品 id
 
@@ -543,14 +543,15 @@ async function exportShipmentSheet(opts){
   if(dateFrom) rows = rows.filter(t => t.date >= dateFrom);
   if(dateTo) rows = rows.filter(t => t.date <= dateTo);
 
-  // 匯出特定商品資料:商品清單有東西才篩選(以家族為單位,主商品+底下全部 multipack);清單是空的 = 匯出全部商品。
+  // 匯出特定商品資料:商品清單有東西才篩選(只匯出清單上顯示的商品本身);清單是空的 = 匯出全部商品。
   let familyFilterApplied = false;
   if(exportProductIds.length > 0){
     const allowed = new Set();
     exportProductIds.forEach(id => {
       if(!productMap[id]) return;
-      allowed.add(id);
-      getChildProducts(id).forEach(c => allowed.add(c.id));
+      // 只匯出清單上顯示的那個商品本身(清單顯示的是家族的「代表商品」),不連同家族裡其他 multipack 一起匯出。
+      const shown = (typeof getTotalStockBasisProduct === 'function' && getTotalStockBasisProduct(productMap[id])) || productMap[id];
+      allowed.add(shown.id);
     });
     rows = rows.filter(t => allowed.has(t.productId));
     familyFilterApplied = true;
