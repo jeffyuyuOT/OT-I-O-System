@@ -1559,6 +1559,9 @@ function openPickingSlipViewer(pw, sheets, styleTag){
   .pb-bar button{ font-size:14px; padding:6px 14px; border-radius:6px; border:1px solid #888; background:#fff; color:#111; cursor:pointer; }
   .pb-bar button:disabled{ opacity:.4; cursor:default; }
   .pb-bar .pb-count{ min-width:56px; text-align:center; font-weight:700; font-size:16px; }
+  body{ padding-top:0 !important; }
+  /* 每張訂單自己留上方空白:原本只有 body 最上面有 24px,第二張以後的訂單頂端緊貼紙張邊緣,標題會被印表機的不可列印邊距切掉 */
+  .pb-sheet{ padding-top:24px; }
   .pb-sheet{ display:none; }
   .pb-sheet.pb-on{ display:block; }
   @media print{
