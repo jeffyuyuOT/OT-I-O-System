@@ -1565,9 +1565,6 @@ function openPickingSlipViewer(pw, sheets, styleTag){
     .pb-bar{ display:none !important; }
     body.pb-all .pb-sheet{ display:block; page-break-after:always; break-after:page; }
     body.pb-all .pb-sheet:last-child{ page-break-after:auto; break-after:auto; }
-    /* 雙面列印:每張訂單都從新的一張紙(正面)開始,不同訂單不會印在同一張紙的正反面;訂單自己超過一頁才用到背面 */
-    body.pb-all.pb-duplex .pb-sheet{ page-break-after:auto; break-after:auto; page-break-before:right; break-before:right; }
-    body.pb-all.pb-duplex .pb-sheet:first-of-type{ page-break-before:auto; break-before:auto; }
   }
 </style></head><body>
 <div class="pb-bar">${multi ? `<button id="pbPrev">◀ ${L.prev}</button><span class="pb-count" id="pbCount"></span><button id="pbNext">${L.next} ▶</button>` : ''}
@@ -1579,12 +1576,30 @@ ${sheets.map(sh => `<section class="pb-sheet" data-oid="${sh.id}">${sh.body}</se
   function mark(ids){ try{ if(window.opener && window.opener.pickingSlipMarkPrinted) window.opener.pickingSlipMarkPrinted(ids); }catch(e){} }
   function show(i){ cur=Math.max(0,Math.min(sheets.length-1,i)); sheets.forEach(function(s,k){ s.classList.toggle('pb-on',k===cur); });
     var c=document.getElementById('pbCount'); if(c){ c.textContent=(cur+1)+'/'+sheets.length; document.getElementById('pbPrev').disabled=cur===0; document.getElementById('pbNext').disabled=cur===sheets.length-1; } window.scrollTo(0,0); }
+  // 雙面列印:先量每張訂單大約會印幾頁(A4、邊距 0.1in),單數頁的訂單後面補一張空白頁,
+  // 這樣下一張訂單一定從新的一張紙的正面開始,不會跟前一張訂單共用同一張紙的背面。
+  function padDuplex(on){
+    [].slice.call(document.querySelectorAll('.pb-blank')).forEach(function(n){ n.parentNode.removeChild(n); });
+    if(!on) return;
+    var body=document.body, oldW=body.style.width, oldBox=body.style.boxSizing;
+    body.style.boxSizing='border-box'; body.style.width='775px';
+    var PAGE_H=1104;
+    for(var k=0;k<sheets.length-1;k++){
+      var pages=Math.max(1,Math.ceil(sheets[k].offsetHeight/PAGE_H));
+      if(pages%2===1){
+        var f=document.createElement('div'); f.className='pb-blank'; f.innerHTML='&nbsp;';
+        f.style.cssText='page-break-before:always;break-before:page;page-break-after:always;break-after:page;height:1px;overflow:hidden;';
+        sheets[k].parentNode.insertBefore(f, sheets[k].nextSibling);
+      }
+    }
+    body.style.width=oldW; body.style.boxSizing=oldBox;
+  }
   var pv=document.getElementById('pbPrev'), nx=document.getElementById('pbNext'), pa=document.getElementById('pbPrintAll');
   if(pv) pv.onclick=function(){ show(cur-1); };
   if(nx) nx.onclick=function(){ show(cur+1); };
   document.getElementById('pbPrintThis').onclick=function(){ document.body.classList.remove('pb-all'); mark([sheets[cur].getAttribute('data-oid')]); window.print(); };
   var dx=document.getElementById('pbDuplex'); if(dx){ try{ dx.checked=localStorage.getItem('pbDuplex')==='1'; }catch(e){} dx.onchange=function(){ try{ localStorage.setItem('pbDuplex', dx.checked?'1':'0'); }catch(e){} }; }
-  if(pa) pa.onclick=function(){ document.body.classList.toggle('pb-duplex', !!(dx && dx.checked)); document.body.classList.add('pb-all'); mark(sheets.map(function(s){ return s.getAttribute('data-oid'); })); window.print(); document.body.classList.remove('pb-all'); document.body.classList.remove('pb-duplex'); };
+  if(pa) pa.onclick=function(){ document.body.classList.add('pb-all'); padDuplex(!!(dx && dx.checked)); mark(sheets.map(function(s){ return s.getAttribute('data-oid'); })); window.print(); padDuplex(false); document.body.classList.remove('pb-all'); };
   document.addEventListener('keydown',function(e){ if(e.key==='ArrowLeft') show(cur-1); else if(e.key==='ArrowRight') show(cur+1); });
   show(0);
 })();
