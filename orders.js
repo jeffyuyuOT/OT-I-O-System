@@ -1552,7 +1552,7 @@ function pendingBatchBarRender(){
 // 瀏覽器沒辦法知道列印對話框最後是按列印還是取消,所以以「按下列印鈕」為準。
 function openPickingSlipViewer(pw, sheets, styleTag){
   const multi = sheets.length > 1;
-  const L = { prev: t('pbPrev'), next: t('pbNext'), printThis: multi ? t('pbPrintThis') : t('btnPrint'), printAll: t('pbPrintAll') };
+  const L = { prev: t('pbPrev'), next: t('pbNext'), printThis: multi ? t('pbPrintThis') : t('btnPrint'), printAll: t('pbPrintAll'), duplex: t('pbDuplex') };
   const doc = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Picking Slips</title>${styleTag}
 <style>
   .pb-bar{ position:sticky; top:0; z-index:5; display:flex; align-items:center; justify-content:center; gap:10px; padding:10px; background:#1e1e1b; color:#fff; font-family:Arial,sans-serif; font-size:14px; flex-wrap:wrap; }
@@ -1565,10 +1565,13 @@ function openPickingSlipViewer(pw, sheets, styleTag){
     .pb-bar{ display:none !important; }
     body.pb-all .pb-sheet{ display:block; page-break-after:always; break-after:page; }
     body.pb-all .pb-sheet:last-child{ page-break-after:auto; break-after:auto; }
+    /* 雙面列印:每張訂單都從新的一張紙(正面)開始,不同訂單不會印在同一張紙的正反面;訂單自己超過一頁才用到背面 */
+    body.pb-all.pb-duplex .pb-sheet{ page-break-after:auto; break-after:auto; page-break-before:right; break-before:right; }
+    body.pb-all.pb-duplex .pb-sheet:first-of-type{ page-break-before:auto; break-before:auto; }
   }
 </style></head><body>
 <div class="pb-bar">${multi ? `<button id="pbPrev">◀ ${L.prev}</button><span class="pb-count" id="pbCount"></span><button id="pbNext">${L.next} ▶</button>` : ''}
-  <button id="pbPrintThis">${L.printThis}</button>${multi ? `<button id="pbPrintAll">${L.printAll}</button>` : ''}</div>
+  <button id="pbPrintThis">${L.printThis}</button>${multi ? `<button id="pbPrintAll">${L.printAll}</button><label style="display:flex;align-items:center;gap:5px;cursor:pointer;"><input type="checkbox" id="pbDuplex" style="width:auto;" />${L.duplex}</label>` : ''}</div>
 ${sheets.map(sh => `<section class="pb-sheet" data-oid="${sh.id}">${sh.body}</section>`).join('')}
 <script>
 (function(){
@@ -1580,7 +1583,8 @@ ${sheets.map(sh => `<section class="pb-sheet" data-oid="${sh.id}">${sh.body}</se
   if(pv) pv.onclick=function(){ show(cur-1); };
   if(nx) nx.onclick=function(){ show(cur+1); };
   document.getElementById('pbPrintThis').onclick=function(){ document.body.classList.remove('pb-all'); mark([sheets[cur].getAttribute('data-oid')]); window.print(); };
-  if(pa) pa.onclick=function(){ document.body.classList.add('pb-all'); mark(sheets.map(function(s){ return s.getAttribute('data-oid'); })); window.print(); document.body.classList.remove('pb-all'); };
+  var dx=document.getElementById('pbDuplex'); if(dx){ try{ dx.checked=localStorage.getItem('pbDuplex')==='1'; }catch(e){} dx.onchange=function(){ try{ localStorage.setItem('pbDuplex', dx.checked?'1':'0'); }catch(e){} }; }
+  if(pa) pa.onclick=function(){ document.body.classList.toggle('pb-duplex', !!(dx && dx.checked)); document.body.classList.add('pb-all'); mark(sheets.map(function(s){ return s.getAttribute('data-oid'); })); window.print(); document.body.classList.remove('pb-all'); document.body.classList.remove('pb-duplex'); };
   document.addEventListener('keydown',function(e){ if(e.key==='ArrowLeft') show(cur-1); else if(e.key==='ArrowRight') show(cur+1); });
   show(0);
 })();
