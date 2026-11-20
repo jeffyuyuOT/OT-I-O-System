@@ -1552,7 +1552,7 @@ function pendingBatchBarRender(){
 // 瀏覽器沒辦法知道列印對話框最後是按列印還是取消,所以以「按下列印鈕」為準。
 function openPickingSlipViewer(pw, sheets, styleTag){
   const multi = sheets.length > 1;
-  const L = { prev: t('pbPrev'), next: t('pbNext'), printThis: multi ? t('pbPrintThis') : t('btnPrint'), printAll: t('pbPrintAll'), duplex: t('pbDuplex') };
+  const L = { prev: t('pbPrev'), next: t('pbNext'), printThis: multi ? t('pbPrintThis') : t('btnPrint'), printAll: t('pbPrintAll'), duplex: t('pbDuplex'), duplexHint: t('pbDuplexHint') };
   const doc = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Picking Slips</title>${styleTag}
 <style>
   .pb-bar{ position:sticky; top:0; z-index:5; display:flex; align-items:center; justify-content:center; gap:10px; padding:10px; background:#1e1e1b; color:#fff; font-family:Arial,sans-serif; font-size:14px; flex-wrap:wrap; }
@@ -1571,7 +1571,7 @@ function openPickingSlipViewer(pw, sheets, styleTag){
   }
 </style></head><body>
 <div class="pb-bar">${multi ? `<button id="pbPrev">◀ ${L.prev}</button><span class="pb-count" id="pbCount"></span><button id="pbNext">${L.next} ▶</button>` : ''}
-  <button id="pbPrintThis">${L.printThis}</button>${multi ? `<button id="pbPrintAll">${L.printAll}</button><label style="display:flex;align-items:center;gap:5px;cursor:pointer;"><input type="checkbox" id="pbDuplex" style="width:auto;" />${L.duplex}</label>` : ''}</div>
+  <button id="pbPrintThis">${L.printThis}</button>${multi ? `<button id="pbPrintAll">${L.printAll}</button><label style="display:flex;align-items:center;gap:5px;cursor:pointer;"><input type="checkbox" id="pbDuplex" style="width:auto;" />${L.duplex}</label><span style="flex-basis:100%;text-align:center;font-size:11.5px;color:#d8d6cc;">${L.duplexHint}</span>` : ''}</div>
 ${sheets.map(sh => `<section class="pb-sheet" data-oid="${sh.id}">${sh.body}</section>`).join('')}
 <script>
 (function(){
