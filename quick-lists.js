@@ -306,13 +306,25 @@ function onQlPickingNoteToggle(checked){
 // 相同的內容只出現一次。沒有任何符合的清單就回傳空字串。
 function getQuickListPickingNoteForProduct(productId){
   if(!hasFeature('quickListPickingSlipNote')) return '';
-  const anchor = normalizeToAnchorId(productId);
-  if(!anchor) return '';
+  if(!products.some(x => x.id === productId)) return '';
+  // 只有清單上實際「顯示」的那個商品才帶附註(清單顯示的是家族的代表商品,例如只選了 Carton,就只有 Carton 有附註),
+  // 同家族裡沒有出現在清單上的其他商品(例如主商品)不跟著帶附註。
+  const shownIds = ql => {
+    const set = new Set();
+    ql.productIds.forEach(pid => {
+      const a = normalizeToAnchorId(pid); if(!a) return;
+      const ap = products.find(x => x.id === a);
+      const basis = (typeof getTotalStockBasisProduct === 'function' && getTotalStockBasisProduct(ap)) || ap;
+      set.add(basis.id);
+      if(pid !== a) set.add(pid);   // 清單裡直接存的就是批量商品本身
+    });
+    return set;
+  };
   const texts = [];
   quickLists.forEach(ql => {
     const txt = (ql.pickingNoteText || '').trim();
     if(!ql.pickingNoteEnabled || !txt) return;
-    if(!getQuickListAnchorIds(ql.id).has(anchor)) return;
+    if(!shownIds(ql).has(productId)) return;
     if(!texts.includes(txt)) texts.push(txt);
   });
   return texts.join(', ');
