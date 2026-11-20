@@ -1559,9 +1559,10 @@ function openPickingSlipViewer(pw, sheets, styleTag){
   .pb-bar button{ font-size:14px; padding:6px 14px; border-radius:6px; border:1px solid #888; background:#fff; color:#111; cursor:pointer; }
   .pb-bar button:disabled{ opacity:.4; cursor:default; }
   .pb-bar .pb-count{ min-width:56px; text-align:center; font-weight:700; font-size:16px; }
+  @page{ margin:0.3in; }   /* 比原本 0.1in 大:每一頁(含訂單超過一頁的後續頁)頂端/左右都避開印表機的不可列印邊緣 */
   body{ padding-top:0 !important; }
-  /* 每張訂單自己留上方空白:原本只有 body 最上面有 24px,第二張以後的訂單頂端緊貼紙張邊緣,標題會被印表機的不可列印邊距切掉 */
-  .pb-sheet{ padding-top:24px; }
+  /* 每張訂單自己留一點上方空白(原本只有 body 最上面有 24px,第二張以後的訂單頂端緊貼紙張邊緣) */
+  .pb-sheet{ padding-top:8px; }
   .pb-sheet{ display:none; }
   .pb-sheet.pb-on{ display:block; }
   @media print{
@@ -1585,8 +1586,8 @@ ${sheets.map(sh => `<section class="pb-sheet" data-oid="${sh.id}">${sh.body}</se
     [].slice.call(document.querySelectorAll('.pb-blank')).forEach(function(n){ n.parentNode.removeChild(n); });
     if(!on) return;
     var body=document.body, oldW=body.style.width, oldBox=body.style.boxSizing;
-    body.style.boxSizing='border-box'; body.style.width='775px';
-    var PAGE_H=1104;
+    body.style.boxSizing='border-box'; body.style.width='736px';
+    var PAGE_H=1060;
     for(var k=0;k<sheets.length-1;k++){
       var pages=Math.max(1,Math.ceil(sheets[k].offsetHeight/PAGE_H));
       if(pages%2===1){
