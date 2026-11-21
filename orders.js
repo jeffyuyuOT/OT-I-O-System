@@ -1339,6 +1339,20 @@ async function printOrderDocument(orderId, opts){
   const order = orders.find(o => o.id === orderId);
   if(!order) return;
   const items = buildOrderExportRows(order);
+  // 列印時商品照「分類順序」排(跟庫存總覽/訂貨頁一致),同一分類內照商品排序設置;
+  // 不再照加入訂單的先後順序,後來才加進訂單的商品不會全部掉到最後面。找不到商品資料的排最後。
+  {
+    const catRank = c => { const i = categoryOrder.indexOf(c || '未分類'); return i === -1 ? 9999 : i; };
+    const pOf = it => products.find(x => x.id === it.productId);
+    items.forEach((it, i) => { it._i = i; });
+    items.sort((a, b) => {
+      const pa = pOf(a), pb = pOf(b);
+      if(!pa || !pb) return (pa ? 0 : 1) - (pb ? 0 : 1) || a._i - b._i;
+      const d = catRank(pa.category) - catRank(pb.category);
+      if(d !== 0) return d;
+      return compareProductsBySortMode(pa, pb) || a._i - b._i;
+    });
+  }
   const nsItems = (order.nonStockItems || []).map(n => ({ sku: '', name: n.name, qty: n.qty, unit: n.unit || '', productId: '', note: '', ns: true }));
   const includeCheck = !!opts.includeCheckColumn;
   const includeSku = opts.includeSkuColumn !== false; // 預設顯示,已完成訂單那邊會特別關掉
