@@ -786,11 +786,12 @@
       color:#fff; font-weight:700; font-size:14px; font-family:'Archivo Black',sans-serif;
       letter-spacing:0.3px; box-shadow:0 2px 6px rgba(0,0,0,0.15); white-space:normal;
     }
-    .subtab-btn:nth-child(1){ background:#2E75B6; }
-    .subtab-btn:nth-child(2){ background:#C0392B; }
-    .subtab-btn:nth-child(3){ background:#1F8A70; }
-    .subtab-btn:nth-child(4){ background:#B8860B; }
-    .subtab-btn:nth-child(5){ background:#6C5CE7; }
+    .subtab-bar > .subtab-btn:nth-child(1), .subtab-bar > :nth-child(1) > .subtab-btn{ background:#2E75B6; }
+    .subtab-bar > .subtab-btn:nth-child(2), .subtab-bar > :nth-child(2) > .subtab-btn{ background:#C0392B; }
+    .subtab-bar > .subtab-btn:nth-child(3), .subtab-bar > :nth-child(3) > .subtab-btn{ background:#1F8A70; }
+    .subtab-bar > .subtab-btn:nth-child(4), .subtab-bar > :nth-child(4) > .subtab-btn{ background:#B8860B; }
+    .subtab-bar > .subtab-btn:nth-child(5), .subtab-bar > :nth-child(5) > .subtab-btn{ background:#6C5CE7; }
+    /* 按鈕外面如果包了一層 span(例如待處理訂單要掛紅色數字提示),顏色要照那層 span 的順序算,不然會跟前一個按鈕同色 */
     .subtab-btn:hover{ color:#fff; }
     .subtab-btn.active{ box-shadow:0 0 0 3px #fff inset, 0 2px 6px rgba(0,0,0,0.15); }
 
