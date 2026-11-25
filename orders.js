@@ -134,8 +134,38 @@ function clearOrderDraft(){
   });
 }
 
+// ===== 出貨方「配送日」:出貨方編輯頁可以勾選禮拜幾配送(可多天),訂貨頁選日期時只能選那幾個星期幾。
+// 沒勾 = 不限制。原生日期欄位沒辦法把某幾天反灰,所以選到不能配送的日期時,自動跳到下一個可配送日並提示。 =====
+function orderPartyDeliveryDays(){
+  const sel = document.getElementById('orderParty');
+  const sp = sel ? shippingParties.find(x => x.id === sel.value) : null;
+  return (sp && Array.isArray(sp.deliveryDays) && sp.deliveryDays.length) ? sp.deliveryDays.map(Number) : [];
+}
+function orderDowName(d){ return t(['dowSun','dowMon','dowTue','dowWed','dowThu','dowFri','dowSat'][d]); }
+function orderDateDow(v){ const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(v || ''); return m ? new Date(+m[1], +m[2]-1, +m[3]).getDay() : -1; }
+function orderDateNextAllowed(v, days){
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(v || ''); if(!m) return v;
+  const d = new Date(+m[1], +m[2]-1, +m[3]);
+  for(let i = 0; i < 7 && !days.includes(d.getDay()); i++) d.setDate(d.getDate() + 1);
+  const z = n => String(n).padStart(2, '0');
+  return d.getFullYear() + '-' + z(d.getMonth()+1) + '-' + z(d.getDate());
+}
+function orderDateCheck(userPicked){
+  const el = document.getElementById('orderDate'); if(!el) return;
+  const hint = document.getElementById('orderDateHint');
+  const days = orderPartyDeliveryDays();
+  if(hint) hint.textContent = days.length ? tf('orderDeliveryDaysNote', { days: [1,2,3,4,5,6,0].filter(d => days.includes(d)).map(orderDowName).join(' / ') }) : '';
+  if(!days.length || !el.value) return;
+  if(days.includes(orderDateDow(el.value))) return;
+  const picked = el.value;
+  el.value = orderDateNextAllowed(picked, days);
+  if(userPicked) showInfoModal(tf('errOrderDateNotDeliveryDay', { date: picked, days: [1,2,3,4,5,6,0].filter(d => days.includes(d)).map(orderDowName).join(' / '), next: el.value }));
+  ordDraftSave();
+}
+
 function renderOrderItemsTable(){
   ordDraftRestoreOnce();
+  orderDateCheck(false);
   const container = document.getElementById('orderItemsTable');
   if(!container) return;
   const partySel = document.getElementById('orderParty');
@@ -273,6 +303,8 @@ function collectOrderItems(){
   if(currentUser && Array.isArray(currentUser.assignedPartyIds) && currentUser.assignedPartyIds.length > 0 && !currentUser.assignedPartyIds.includes(partyId)){
     return { dateVal, noteVal, partyId, partyObj, partyName, items: [], errors: [t('errAccountRestrictedToParty')] };
   }
+  { const dd = (partyObj && Array.isArray(partyObj.deliveryDays) && partyObj.deliveryDays.length) ? partyObj.deliveryDays.map(Number) : [];
+    if(dd.length && !dd.includes(orderDateDow(dateVal))) return { dateVal, noteVal, partyId, partyObj, partyName, items: [], errors: [tf('errOrderDateNotDeliveryDay', { date: dateVal, days: [1,2,3,4,5,6,0].filter(d => dd.includes(d)).map(orderDowName).join(' / '), next: orderDateNextAllowed(dateVal, dd) })] }; }
 
   const orderable = getOrderableProductsForParty(partyObj);
   const items = [];

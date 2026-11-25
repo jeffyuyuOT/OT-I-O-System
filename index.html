@@ -1969,11 +1969,12 @@ body.no-cost-view .cost-col{display:none !important;}
       <div class="form-grid" style="grid-template-columns:200px 200px 1fr;">
         <div class="field">
           <label data-i18n="fieldOrderDate">訂貨日期</label>
-          <input type="date" id="orderDate" />
+          <input type="date" id="orderDate" onchange="orderDateCheck(true)" />
+          <div id="orderDateHint" style="font-size:11.5px;color:var(--ink-soft);margin-top:3px;"></div>
         </div>
         <div class="field">
           <label data-i18n="fieldShippingParty">出貨方</label>
-          <select id="orderParty" onchange="renderOrderItemsTable()">
+          <select id="orderParty" onchange="renderOrderItemsTable(); orderDateCheck(false)">
             <option value="" data-i18n="optUnspecified">未指定</option>
           </select>
         </div>
@@ -3329,6 +3330,19 @@ body.no-cost-view .cost-col{display:none !important;}
     <div class="field-block">
       <label data-i18n="fieldOrderNote">備註(選填)</label>
       <textarea id="partyNoteInput" style="width:100%;min-height:60px;font-family:inherit;"></textarea>
+    </div>
+    <div class="field-block">
+      <label data-i18n="fieldDeliveryDays">配送日(可多選)</label>
+      <div id="partyDeliveryDays" style="display:flex;flex-wrap:wrap;gap:6px 14px;">
+        <label style="margin:0;display:inline-flex;align-items:center;gap:4px;font-weight:400;cursor:pointer;"><input type="checkbox" value="1" style="width:auto;" /><span data-i18n="dowMon">週一</span></label>
+        <label style="margin:0;display:inline-flex;align-items:center;gap:4px;font-weight:400;cursor:pointer;"><input type="checkbox" value="2" style="width:auto;" /><span data-i18n="dowTue">週二</span></label>
+        <label style="margin:0;display:inline-flex;align-items:center;gap:4px;font-weight:400;cursor:pointer;"><input type="checkbox" value="3" style="width:auto;" /><span data-i18n="dowWed">週三</span></label>
+        <label style="margin:0;display:inline-flex;align-items:center;gap:4px;font-weight:400;cursor:pointer;"><input type="checkbox" value="4" style="width:auto;" /><span data-i18n="dowThu">週四</span></label>
+        <label style="margin:0;display:inline-flex;align-items:center;gap:4px;font-weight:400;cursor:pointer;"><input type="checkbox" value="5" style="width:auto;" /><span data-i18n="dowFri">週五</span></label>
+        <label style="margin:0;display:inline-flex;align-items:center;gap:4px;font-weight:400;cursor:pointer;"><input type="checkbox" value="6" style="width:auto;" /><span data-i18n="dowSat">週六</span></label>
+        <label style="margin:0;display:inline-flex;align-items:center;gap:4px;font-weight:400;cursor:pointer;"><input type="checkbox" value="0" style="width:auto;" /><span data-i18n="dowSun">週日</span></label>
+      </div>
+      <div style="font-size:11.5px;color:var(--ink-soft);margin-top:3px;" data-i18n="deliveryDaysHint">都不勾代表不限制。有勾的話,這個出貨方在訂貨頁面只能選這些星期幾的日期。</div>
     </div>
     <div class="field-block">
       <label data-i18n="colOrderFrequency">出貨頻率</label>
