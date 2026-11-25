@@ -73,6 +73,8 @@
     display:flex; gap:2px; background:#fff; border:1px solid var(--line); padding:5px; overflow-x:auto;
     border-radius:2px; margin-bottom:16px;
   }
+  .party-sec{ font-size:12px; font-weight:700; letter-spacing:0.5px; color:var(--ink-soft); text-transform:uppercase; border-bottom:1px solid var(--line, #ddd); padding-bottom:4px; margin:18px 0 10px; }
+  #partyEditModalOverlay .party-sec:first-of-type{ margin-top:4px; }
   .subtab-btn{
     flex:1; white-space:nowrap; background:transparent; border:none; color:var(--ink-soft);
     font-family:'Inter',sans-serif; font-size:12px; font-weight:600; letter-spacing:0.2px;
@@ -3272,6 +3274,7 @@ body.no-cost-view .cost-col{display:none !important;}
 <div id="partyEditModalOverlay" class="modal-overlay" style="display:none;">
   <div class="modal-box" style="max-width:min(480px, 92vw);max-height:90vh;overflow-y:auto;">
     <div class="section-title" style="margin-bottom:12px;" id="partyEditModalTitle" data-i18n="modalAddPartyTitle">新增出貨方</div>
+    <div class="party-sec" data-i18n="partySecBasic">基本資料</div>
     <div class="field-block">
       <label data-i18n="colCode">編號</label>
       <div id="partyCodeText" style="font-family:'IBM Plex Mono',monospace;font-size:13px;color:var(--ink-soft);"></div>
@@ -3281,6 +3284,15 @@ body.no-cost-view .cost-col{display:none !important;}
       <input type="text" id="partyNameInput" style="width:100%;" oninput="onPartyNameInput()" />
     </div>
     <div class="field-block">
+      <label data-i18n="fieldPartyCompany">公司名稱(Invoice 顯示;選填)</label>
+      <input type="text" id="partyCompanyInput" style="width:100%;" oninput="onPartyCompanyInput()" />
+    </div>
+    <div class="field-block">
+      <label data-i18n="fieldPartyAbn">Customer ABN(選填)</label>
+      <input type="text" id="partyAbnInput" style="width:100%;" />
+    </div>
+    <div class="party-sec" data-i18n="partySecContact">聯絡方式</div>
+    <div class="field-block">
       <label data-i18n="fieldPartyContactPerson">聯繫人(選填)</label>
       <input type="text" id="partyContactPersonInput" style="width:100%;" />
     </div>
@@ -3289,13 +3301,10 @@ body.no-cost-view .cost-col{display:none !important;}
       <input type="text" id="partyPhoneInput" style="width:100%;" />
     </div>
     <div class="field-block">
-      <label data-i18n="fieldPartyCompany">公司名稱(Invoice 顯示;選填)</label>
-      <input type="text" id="partyCompanyInput" style="width:100%;" oninput="onPartyCompanyInput()" />
-    </div>
-    <div class="field-block">
       <label data-i18n="fieldPartyEmail">Email(選填)</label>
       <input type="text" id="partyEmailInput" style="width:100%;" />
     </div>
+    <div class="party-sec" data-i18n="partySecAddress">地址</div>
     <div class="field-block">
       <label data-i18n="fieldPartyBillTo">Bill To 地址(選填)</label>
       <textarea id="partyBillToInput" style="width:100%;min-height:54px;font-family:inherit;"></textarea>
@@ -3304,10 +3313,7 @@ body.no-cost-view .cost-col{display:none !important;}
       <label data-i18n="fieldPartyShipTo">Ship To 地址(選填)</label>
       <textarea id="partyShipToInput" style="width:100%;min-height:54px;font-family:inherit;"></textarea>
     </div>
-    <div class="field-block">
-      <label data-i18n="fieldPartyAbn">Customer ABN(選填)</label>
-      <input type="text" id="partyAbnInput" style="width:100%;" />
-    </div>
+    <div class="party-sec" data-i18n="partySecBilling">帳務</div>
     <div class="field-block">
       <label data-i18n="fieldMyobCard">MYOB 卡片名稱(選填)</label>
       <input type="text" id="partyMyobInput" style="width:100%;" />
@@ -3327,10 +3333,18 @@ body.no-cost-view .cost-col{display:none !important;}
       </select>
       <div style="font-size:11.5px;color:var(--ink-soft);margin-top:3px;" data-i18n="paymentTermHint">Invoice 的 Due Date = Invoice Date + Payment term。選 COD 時不能設定 Payment term。</div>
     </div>
-    <div class="field-block">
-      <label data-i18n="fieldOrderNote">備註(選填)</label>
-      <textarea id="partyNoteInput" style="width:100%;min-height:60px;font-family:inherit;"></textarea>
+    <div class="field-block" id="partyDiscountBlock">
+      <label>Discount</label>
+      <div style="display:flex;align-items:center;gap:6px;">
+        <input type="number" id="partyDiscountInput" min="0" max="100" step="any" placeholder="0" style="width:120px;" />
+        <span>%</span>
+        <label style="margin:0 0 0 12px;font-size:12px;" data-i18n="partyDiscountUntilLbl">到期日(選填)</label>
+        <input type="date" id="partyDiscountUntilInput" style="width:150px;" />
+        <span class="del-link" style="margin-left:10px;font-size:12px;white-space:nowrap;" onclick="partyShowDiscountHistory()" data-i18n="partyDiscHistoryLink">歷史紀錄</span>
+      </div>
+      <div style="font-size:11.5px;color:var(--ink-soft);margin-top:4px;" data-i18n="partyDiscountHint">輸入 10 代表 10% off:這個出貨方的待處理訂單商品價格 = 售價打 9 折。留空代表沒有折扣。</div>
     </div>
+    <div class="party-sec" data-i18n="partySecDelivery">配送</div>
     <div class="field-block">
       <label data-i18n="fieldDeliveryDays">配送日(可多選)</label>
       <div id="partyDeliveryDays" style="display:flex;flex-wrap:wrap;gap:6px 14px;">
@@ -3344,26 +3358,10 @@ body.no-cost-view .cost-col{display:none !important;}
       </div>
       <div style="font-size:11.5px;color:var(--ink-soft);margin-top:3px;" data-i18n="deliveryDaysHint">都不勾代表不限制。有勾的話,這個出貨方在訂貨頁面只能選這些星期幾的日期。</div>
     </div>
+    <div class="party-sec" data-i18n="partySecNote">備註</div>
     <div class="field-block">
-      <label data-i18n="colOrderFrequency">出貨頻率</label>
-      <select id="partyFrequencySelect" style="width:100%;">
-        <option value="weekly" data-i18n="freqWeekly">Weekly(每週)</option>
-        <option value="fortnight" data-i18n="freqFortnight">Fortnight(兩週)</option>
-        <option value="monthly" data-i18n="freqMonthly">Monthly(每月)</option>
-        <option value="none" data-i18n="freqNone">無固定頻率</option>
-      </select>
-      <div style="font-size:11.5px;color:var(--ink-soft);margin-top:3px;" data-i18n="freqNoneHint">此欄位僅作登記用,不影響訂貨頁面的每週平均用量。</div>
-    </div>
-    <div class="field-block" id="partyDiscountBlock">
-      <label>Discount</label>
-      <div style="display:flex;align-items:center;gap:6px;">
-        <input type="number" id="partyDiscountInput" min="0" max="100" step="any" placeholder="0" style="width:120px;" />
-        <span>%</span>
-        <label style="margin:0 0 0 12px;font-size:12px;" data-i18n="partyDiscountUntilLbl">到期日(選填)</label>
-        <input type="date" id="partyDiscountUntilInput" style="width:150px;" />
-        <span class="del-link" style="margin-left:10px;font-size:12px;white-space:nowrap;" onclick="partyShowDiscountHistory()" data-i18n="partyDiscHistoryLink">歷史紀錄</span>
-      </div>
-      <div style="font-size:11.5px;color:var(--ink-soft);margin-top:4px;" data-i18n="partyDiscountHint">輸入 10 代表 10% off:這個出貨方的待處理訂單商品價格 = 售價打 9 折。留空代表沒有折扣。</div>
+      <label data-i18n="fieldOrderNote">備註(選填)</label>
+      <textarea id="partyNoteInput" style="width:100%;min-height:60px;font-family:inherit;"></textarea>
     </div>
     <div id="partyEditModalMsg" class="msg"></div>
     <div class="modal-actions">
