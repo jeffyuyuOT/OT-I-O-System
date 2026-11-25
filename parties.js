@@ -208,7 +208,7 @@ function openPartyEditModal(id){
   document.getElementById('partyPaymentTermSelect').value = String((sp && Number(sp.paymentTerm) > 0) ? Number(sp.paymentTerm) : 7);
   onPartyPaymentTypeChange();
   document.getElementById('partyNoteInput').value = sp ? (sp.note || '') : '';
-  document.getElementById('partyFrequencySelect').value = (sp && sp.orderFrequency) ? sp.orderFrequency : (sp ? 'weekly' : 'weekly');
+  { const days = (sp && Array.isArray(sp.deliveryDays)) ? sp.deliveryDays.map(Number) : []; document.querySelectorAll('#partyDeliveryDays input').forEach(cb => { cb.checked = days.includes(Number(cb.value)); }); }
   const d = partyDiscountRaw(sp);
   document.getElementById('partyDiscountInput').value = d ? String(d) : '';
   document.getElementById('partyDiscountUntilInput').value = (sp && sp.discountUntil) || '';
@@ -258,7 +258,8 @@ async function savePartyEdit(){
   sp.paymentTerm = sp.paymentType === 'cod' ? 0 : (parseInt(document.getElementById('partyPaymentTermSelect').value, 10) || 7);   // COD 沒有 Payment term
   delete sp.address;   // 舊的聯繫地址取消,改用 Bill To / Ship To
   sp.note = document.getElementById('partyNoteInput').value.trim();
-  sp.orderFrequency = document.getElementById('partyFrequencySelect').value || 'weekly';   // 僅作登記用,不影響訂貨頁平均用量
+  { const days = Array.from(document.querySelectorAll('#partyDeliveryDays input:checked')).map(cb => Number(cb.value)); if(days.length) sp.deliveryDays = days; else delete sp.deliveryDays; }   // 配送日:都沒勾 = 不限制
+  delete sp.orderFrequency;   // 出貨頻率欄位已移除(沒有任何功能用到)
   // Discount 歷史:設定值(% 或到期日)有變就記一筆(含清除);第一次有歷史前,先把舊的設定補成一筆(時間不明)
   {
     const newUntil = (discount > 0 && document.getElementById('partyDiscountUntilInput').value) ? document.getElementById('partyDiscountUntilInput').value : '';

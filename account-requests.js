@@ -315,7 +315,7 @@ async function confirmAccountRequestApprove(id){
       id: genId(), hiddenProductIds: [], name: r.company_name, companyName: r.company_name, contactPerson: r.contact_name,
       phone: r.phone || '', email: r.email, billTo: r.bill_to || '', shipTo: r.ship_to || '', abn: arFmtAbn(r.abn),
       paymentType: payType, paymentTerm: payType === 'cod' ? 0 : (parseInt(document.getElementById('arPayTerm').value, 10) || 7),
-      note: '', orderFrequency: 'weekly', discount,
+      note: '', discount,
     };
     created.code = nextEntityCode('C', shippingParties);
     shippingParties.push(created);
