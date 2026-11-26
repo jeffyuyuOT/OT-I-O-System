@@ -33,7 +33,7 @@ function setTxType(type){
   // 底下選了「觀看紀錄」才會顯示(見 setTxDeliveryFlowType),切到其他類型一律先藏起來,
   // 不然選過一次之後切別的類型,這塊清單會一直卡著不消失。
   if(invoiceFieldWrap) invoiceFieldWrap.style.display = 'none';
-  if(mainGridEl) mainGridEl.style.gridTemplateColumns = '1fr 1fr 1.4fr';
+  if(mainGridEl) mainGridEl.style.gridTemplateColumns = 'minmax(150px,170px) minmax(160px,260px) 1fr';
   { const cp = document.getElementById('txCopyLastRow'); if(cp) cp.style.display = (type === 'in') ? 'flex' : 'none'; }
   if(deliveryViewSection) deliveryViewSection.style.display = 'none';
   const receiptWrap = document.getElementById('purchaseReceiptWrap');
@@ -80,7 +80,7 @@ function setTxType(type){
     const partyFieldWrap = document.getElementById('txPartyFieldWrap');
     const mainGrid = document.getElementById('txMainFormGrid');
     if(partyFieldWrap) partyFieldWrap.style.display = '';
-    if(mainGrid) mainGrid.style.gridTemplateColumns = '1fr 1fr 1.4fr';
+    if(mainGrid) mainGrid.style.gridTemplateColumns = 'minmax(150px,170px) minmax(160px,260px) 1fr';
     // 如果是從 Delivery Note 切過來的,要把 Delivery Note 那邊的暫存狀態清掉,不然待會切回
     // Delivery Note 時,會看到上一次的殘留狀態(例如還停在「載入」某一張舊 Note 的畫面)。
     registerDeliveryFlowType = '';
@@ -126,7 +126,7 @@ function setTxType(type){
     const existingSection = document.getElementById('txExistingItemsSection');
     const postVerifySection = document.getElementById('txPostVerifyChangesSection');
     if(partyFieldWrap) partyFieldWrap.style.display = 'none';
-    if(mainGrid) mainGrid.style.gridTemplateColumns = '1fr 1fr 1.4fr';
+    if(mainGrid) mainGrid.style.gridTemplateColumns = 'minmax(150px,170px) minmax(160px,260px) 1fr';
     if(noteLabel) noteLabel.textContent = t('adjNoteOptionalLabel');
     renderAdjReasonSelect();
     if(existingSection) existingSection.style.display = 'none';
@@ -374,7 +374,7 @@ function resetRegisterOutFlow(){
   const partyFieldWrap = document.getElementById('txPartyFieldWrap');
   if(partyFieldWrap) partyFieldWrap.style.display = '';
   const mainGrid = document.getElementById('txMainFormGrid');
-  if(mainGrid) mainGrid.style.gridTemplateColumns = '1fr 1fr 1.4fr';
+  if(mainGrid) mainGrid.style.gridTemplateColumns = 'minmax(150px,170px) minmax(160px,260px) 1fr';
   const dateInput = document.getElementById('txDate');
   if(dateInput) dateInput.disabled = false;
 }
@@ -406,7 +406,7 @@ function setTxOutFlowType(flowType){
   // 出貨的三種流程(新增訂單/載入待處理/載入已完成)都需要出貨方,固定顯示、固定三欄——庫存
   // 調整已經搬到「登記進出貨」的頂層類型自己處理,這裡不用再判斷了。
   if(partyFieldWrap) partyFieldWrap.style.display = '';
-  if(mainGrid) mainGrid.style.gridTemplateColumns = '1fr 1fr 1.4fr';
+  if(mainGrid) mainGrid.style.gridTemplateColumns = 'minmax(150px,170px) minmax(160px,260px) 1fr';
 
   if(flowType === 'load-pending' || flowType === 'load-completed'){
     if(orderWrap) orderWrap.style.display = '';
