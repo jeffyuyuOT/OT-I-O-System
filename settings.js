@@ -22,6 +22,8 @@ let abTime = '23:00';          // 每天備份時間(布里斯本)
 let abLog = [];                // [{date, ok, at, file, reason, mode, test}]
 let abSince = '';              // 開啟自動備份的日期
 let abRunning = false;
+let abRunStartedAt = 0;        // 這次備份開始的時間;超過 AB_STUCK_MS 還沒結束,就當作卡住,允許重新跑
+const AB_STUCK_MS = 3 * 60 * 1000;
 let abInited = false;
 let abTimerId = null;
 
@@ -74,24 +76,37 @@ function abRecord(entry){
 }
 
 // trigger: 'schedule' 時間到自動跑 | 'test' 使用者按「立即測試備份」
+// 任何一步卡住(網路、授權視窗沒回應、雲端同步資料夾寫入不動)都不能讓整個備份永遠卡在「備份中」
+function abWithTimeout(promise, ms, label){
+  let timer;
+  const timeout = new Promise((_, reject) => { timer = setTimeout(() => reject(new Error(label + ' ' + t('abErrTimeout'))), ms); });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+}
+
 async function abRunBackup(trigger){
-  if(abRunning) return null;
+  if(abRunning){
+    if(Date.now() - abRunStartedAt < AB_STUCK_MS) return null;
+    console.warn('上一次備份超過 3 分鐘沒結束,視為卡住,重新開始');
+  }
   abRunning = true;
+  abRunStartedAt = Date.now();
   const today = abNowBris().date;
   const filename = `stock_ledger_backup_${today}.json`;
   const entry = { date: today, ok: false, at: new Date().toISOString(), file: filename, reason: '', mode: backupDirHandle ? 'folder' : 'download', test: trigger === 'test' };
   try{
     if(backupDirHandle){
       // 要在使用者按鈕的當下就問權限(之後 await 太久會失去「使用者操作」狀態,瀏覽器就不給授權)
-      const perm = await abDirPermission(trigger === 'test');
+      const perm = await abWithTimeout(abDirPermission(trigger === 'test'), 60 * 1000, t('abStepPermission'));
       if(perm !== 'granted') throw new Error(t('abErrNeedReauth'));
     }
-    const backup = await buildFullBackupObject();
+    const backup = await abWithTimeout(buildFullBackupObject(), 120 * 1000, t('abStepRead'));
     const content = JSON.stringify(backup, null, 2);
     if(backupDirHandle){
-      const fh = await backupDirHandle.getFileHandle(filename, { create: true });
-      const w = await fh.createWritable();
-      await w.write(content); await w.close();
+      await abWithTimeout((async () => {
+        const fh = await backupDirHandle.getFileHandle(filename, { create: true });
+        const w = await fh.createWritable();
+        await w.write(content); await w.close();
+      })(), 60 * 1000, t('abStepWrite'));
     } else {
       downloadFile(filename, content, 'application/json');
     }
@@ -101,14 +116,14 @@ async function abRunBackup(trigger){
     const tag = e && e.backupTag;
     entry.reason = tag ? t('abErrPart_' + tag) : ((e && e.message) || String(e));
   }
-  abRecord(entry);
   abRunning = false;
+  abRecord(entry);
   updateAutoBackupStatus();
   return entry;
 }
 
 function abTick(){
-  if(!autoBackupEnabled || !abIsAdmin() || abRunning || !abInited) return;
+  if(!autoBackupEnabled || !abIsAdmin() || (abRunning && Date.now() - abRunStartedAt < AB_STUCK_MS) || !abInited) return;
   const n = abNowBris();
   if(n.time < abTime) return;
   if(abLog.some(e => e.date === n.date && e.ok)) return;
@@ -183,6 +198,7 @@ async function abTestBackup(){
   const el = document.getElementById('abTestMsg');
   if(el){ el.className = 'msg'; el.textContent = t('abTesting'); }
   const e = await abRunBackup('test');
+  if(el && !e){ el.className = 'msg error'; el.textContent = '⚠ ' + t('abBusy'); return; }
   if(el && e){ el.className = e.ok ? 'msg ok' : 'msg error'; el.textContent = e.ok ? tf('abTestOk', { file: e.file }) : ('⚠ ' + e.reason); }
 }
 async function abSaveTime(){
