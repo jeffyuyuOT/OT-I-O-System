@@ -195,7 +195,7 @@
   }
 
   .form-grid{ display:grid; grid-template-columns:2fr 1fr auto; gap:12px; align-items:end; }
-  .form-grid.tx{ grid-template-columns:1.6fr 1fr 1fr 1fr 1.4fr auto; }
+  .form-grid.tx{ grid-template-columns:1.6fr 1fr minmax(150px,170px) minmax(160px,260px) 1fr auto; }
   .field label{ display:block; font-size:11px; color:var(--ink-soft); margin-bottom:5px; font-weight:600; text-transform:uppercase; letter-spacing:0.3px; }
   .field input, .field select{
     width:100%; border:1px solid var(--line); background:#fff; border-radius:2px; padding:9px 10px;
@@ -1594,7 +1594,7 @@ body.no-cost-view .cost-col{display:none !important;}
       </div>
       </div>
       <div id="txMainFormArea">
-      <div class="form-grid" id="txMainFormGrid" style="grid-template-columns:1fr 1fr 1.4fr;">
+      <div class="form-grid" id="txMainFormGrid" style="align-items:start;grid-template-columns:minmax(150px,170px) minmax(160px,260px) 1fr;">
         <div class="field">
           <label data-i18n="lblDate">日期</label>
           <input id="txDate" type="date" />
@@ -1631,8 +1631,10 @@ body.no-cost-view .cost-col{display:none !important;}
         <div class="field">
           <label id="txNoteLabel" data-i18n="txNoteSharedLabel">備註(選填)</label>
           <select id="txNoteTarget" style="display:none;margin-bottom:6px;" onchange="onTxNoteTargetChange(this.value)"></select>
-          <input id="txNote" type="text" placeholder="例如:客戶訂單 #123" data-i18n-placeholder="txNotePlaceholderExample" />
-          <button type="button" class="btn" id="txNoteConfirmBtn" style="display:none;margin-top:6px;" onclick="txConfirmAddNow()" data-i18n="btnTxConfirmAdd">✓ 確認新增</button>
+          <div style="display:flex;gap:6px;align-items:center;">
+            <input id="txNote" type="text" placeholder="例如:客戶訂單 #123" data-i18n-placeholder="txNotePlaceholderExample" style="flex:1 1 auto;min-width:0;width:auto;" />
+            <button type="button" class="btn" id="txNoteConfirmBtn" style="display:none;flex:0 0 auto;white-space:nowrap;" onclick="txConfirmAddNow()" data-i18n="btnTxConfirmAdd">✓ 確認新增</button>
+          </div>
         </div>
       </div>
       <div id="txCnWrap" class="field" style="display:none;margin-top:10px;">
