@@ -569,6 +569,7 @@ function txNoteTargetInit(order){
   sel.innerHTML = `<option value="order">${t('noteTargetOrder')}</option>` + order.items.filter(it => !it.deleted).map(it => `<option value="${esc(it.productId)}">${it.sku ? esc(it.sku) + ' · ' : ''}${esc(it.name)}</option>`).join('');
   sel.value = 'order'; sel.style.display = '';
   const lbl = document.getElementById('txNoteLabel'); if(lbl) lbl.textContent = t('txNoteAddLabel');
+  const cb = document.getElementById('txNoteConfirmBtn'); if(cb) cb.style.display = registerOutFlowType === 'load-pending' ? '' : 'none';
 }
 function onTxNoteTargetChange(val){
   const input = document.getElementById('txNote');
@@ -608,6 +609,51 @@ function txApplyItemNotes(order){
     logInventoryAction('order_edit', `Order ${order.orderNo || order.id} - item note: ${item.name} "${old}" → "${value}"`, order.orderNo);
   });
   txItemNoteDrafts = {};
+}
+
+// 「確認新增」:不用按最下面的儲存,立刻把輸入框裡的附註(整張訂單或個別品項)跟清單裡待加入的商品存進這張待處理訂單,
+// 然後留在同一張訂單繼續編輯——新加入的商品馬上出現在上面的訂單品項裡,也可以立刻在附註的下拉選單選到它。
+// 改數量/刪除品項、日期這些仍然要按最下面的儲存才會生效。
+async function txConfirmAddNow(){
+  const msg = document.getElementById('txMsg');
+  if(!registerLoadedOrderId || registerOutFlowType !== 'load-pending') return;
+  const orderId = registerLoadedOrderId;
+  const order = orders.find(o => o.id === orderId);
+  if(!order){ msg.className='msg error'; msg.textContent=`⚠ ${t('errOrderNoLongerEditable')}`; return; }
+  txNoteCommit();
+  const noteInput = document.getElementById('txNote');
+  const newNote = noteInput ? noteInput.value.trim() : (order.note || '');
+  const noteChanged = newNote !== (order.note || '');
+  const itemNoteChanged = txItemNoteChanges(order).length > 0;
+  const hasNewItems = txBatchItems.length > 0;
+  if(!noteChanged && !itemNoteChanged && !hasNewItems){ msg.className='msg error'; msg.textContent=t('txConfirmAddNothing'); return; }
+  const oldNote = order.note || '';
+  if(noteChanged){
+    order.note = newNote;
+    logInventoryAction('order_edit', `Pending order ${order.orderNo || order.id} - note: "${oldNote}" → "${newNote}"`, order.orderNo);
+  }
+  txApplyItemNotes(order);
+  if(hasNewItems){
+    const newItems = txBatchItems.map(it => { const ni = { productId: it.productId, sku: it.sku||'', name: it.name, unit: it.unit, qty: it.qty }; spCarryTxPrice(ni, it); if(it.batchPicks && it.batchPicks.length) ni.batchPicks = it.batchPicks.map(x => ({ ...x })); return ni; });
+    const result = await mergeItemsIntoOrderCore(orderId, newItems);
+    if(!result.ok){
+      msg.className='msg error';
+      msg.textContent = result.reason === 'not_editable' ? `⚠ ${t('errOrderNoLongerEditable')}` : '⚠ 新增商品失敗,請重新整理頁面再試一次。';
+      return;
+    }
+    txBatchItems = [];
+  } else {
+    try{ await upsertOrders([order]); } catch(e){ console.error('儲存備註失敗', e); msg.className='msg error'; msg.textContent='⚠ 儲存失敗,請重新整理頁面再試一次。'; return; }
+  }
+  // 留在同一張訂單:輸入框回到目前訂單附註,附註下拉選單重建(新商品出現在選項裡),上面的品項清單重畫
+  if(noteInput) noteInput.value = order.note || '';
+  txNoteTargetInit(order);
+  renderTxExistingItems();
+  renderTxBatchList();
+  renderTxSubmitArea();
+  renderProductSelect();
+  try{ if(typeof renderPendingOrders === 'function') renderPendingOrders(); }catch(e){}
+  msg.className='msg ok'; msg.textContent=t('txConfirmAddDone');
 }
 
 // 編輯頁品項名稱:SKU 放在商品名稱上面(小字),品項備註接在商品名稱後面用斜體顯示

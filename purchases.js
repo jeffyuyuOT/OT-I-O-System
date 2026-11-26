@@ -546,6 +546,11 @@ function populateEditPurchasePartySelect(currentName, currentSupplierId){
     input.style.display = '';
     input.value = '';
     input.focus();
+    // 新增進貨方:同時跳出進貨方編輯視窗(跟「進貨方管理」同一個);存好後自動選到這個新進貨方
+    if(typeof openSupplierEditModal === 'function'){
+      openSupplierEditModal(null, '');
+      supplierEditOnSaved = sup => { if(sup && sup.id) populateEditPurchasePartySelect(sup.name, sup.id); };
+    }
   } else {
     const sup = purchaseSuppliers.find(x => x.id === value);
     editPurchaseSupplierId = sup ? sup.id : '';
