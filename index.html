@@ -1632,6 +1632,7 @@ body.no-cost-view .cost-col{display:none !important;}
           <label id="txNoteLabel" data-i18n="txNoteSharedLabel">備註(選填)</label>
           <select id="txNoteTarget" style="display:none;margin-bottom:6px;" onchange="onTxNoteTargetChange(this.value)"></select>
           <input id="txNote" type="text" placeholder="例如:客戶訂單 #123" data-i18n-placeholder="txNotePlaceholderExample" />
+          <button type="button" class="btn" id="txNoteConfirmBtn" style="display:none;margin-top:6px;" onclick="txConfirmAddNow()" data-i18n="btnTxConfirmAdd">✓ 確認新增</button>
         </div>
       </div>
       <div id="txCnWrap" class="field" style="display:none;margin-top:10px;">
