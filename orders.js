@@ -1482,8 +1482,8 @@ async function printOrderDocument(orderId, opts){
   function buildPrintRow(it, qtyOverride, locationLabelOverride){
     const remark = remarkFor(it);
     const nameCell = `${escapeHtmlForPrint(it.name)}${remark ? ` <span style="font-size:11px;color:#666;">(${remark})</span>` : ''}`;
-    const pickingNoteTd = (includeCheck && hasAnyNote) ? `<td class="borderless-col">${itemNoteFor(it)}</td>` : '';
-    const completedNoteTd = (!includeCheck && hasAnyNote) ? `<td class="fit-col">${itemNoteFor(it)}</td>` : '';
+    const pickingNoteTd = (includeCheck && hasAnyNote) ? `<td class="borderless-col note-wrap-col">${itemNoteFor(it)}</td>` : '';
+    const completedNoteTd = (!includeCheck && hasAnyNote) ? `<td class="fit-col note-wrap-col">${itemNoteFor(it)}</td>` : '';
     const displayQty = qtyOverride !== undefined ? qtyOverride : it.qty;
     const locationCell = locationLabelOverride !== undefined ? escapeHtmlForPrint(locationLabelOverride) : locationLabelFor(it);
     return `
@@ -1512,7 +1512,7 @@ async function printOrderDocument(orderId, opts){
   const checkTh = includeCheck ? `<th class="check-col">${escapeHtmlForPrint('Check')}</th>` : '';
   const skuTh = includeSku ? `<th class="sku-col">${escapeHtmlForPrint('SKU')}</th>` : '';
   const locationTh = (includeCheck && stockLocationShowOnPickingSlip) ? `<th class="location-col">${escapeHtmlForPrint(t('colStockLocation'))}</th>` : '';
-  const pickingNoteTh = (includeCheck && hasAnyNote) ? `<th class="borderless-col">${escapeHtmlForPrint('Note')}</th>` : '';
+  const pickingNoteTh = (includeCheck && hasAnyNote) ? `<th class="borderless-col note-wrap-col">${escapeHtmlForPrint('Note')}</th>` : '';
   const cartonTh = (includeCheck && hasFeature('pickingSlipQtyReference')) ? `<th class="borderless-col"></th>` : '';
   const completedNoteTh = (!includeCheck && hasAnyNote) ? `<th class="fit-col">${escapeHtmlForPrint('Note')}</th>` : '';
 
@@ -1538,6 +1538,8 @@ async function printOrderDocument(orderId, opts){
   .borderless-col{ border:none; font-size:12px; color:#555; width:1%; white-space:nowrap; }
   .location-col{ width:1%; white-space:nowrap; }
   .fit-col{ width:1%; white-space:nowrap; }
+  /* 附註欄:太長要自己換行,最寬佔整張表約四分之一;不然附註會把欄位撐到整張表那麼寬,商品名稱等其他欄被擠得很窄、列變很高,還會因為超出紙張寬度被縮小印刷(連分頁數都跟預估的不一樣) */
+  .note-wrap-col{ width:24%; max-width:24%; white-space:normal !important; overflow-wrap:anywhere; word-break:break-word; }
 </style>
 </head>
 <body>
