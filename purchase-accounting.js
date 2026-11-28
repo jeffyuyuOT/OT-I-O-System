@@ -328,7 +328,8 @@ function paEditLoad(p){
 }
 function paEditSetGst(i, v){
   const it = editPurchaseWorkingItems[i]; if(!it) return;
-  if(v === 'y') it.gst = true; else if(v === 'n') it.gst = false; else delete it.gst;
+  const idx = (typeof editPurchaseGroupIdx === 'function' && typeof editPurchaseIsBatchTracked === 'function' && editPurchaseIsBatchTracked() && ((typeof canViewPrice !== 'function') || canViewPrice())) ? editPurchaseGroupIdx(i) : [i];   // 併成一行顯示的多批,一起設
+  idx.forEach(k => { const x = editPurchaseWorkingItems[k]; if(!x) return; if(v === 'y') x.gst = true; else if(v === 'n') x.gst = false; else delete x.gst; });
   renderEditPurchaseItemsList();
 }
 // 儲存前檢查(回傳錯誤文字或 ''),並把設定寫進 p

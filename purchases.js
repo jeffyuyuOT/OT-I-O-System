@@ -564,6 +564,7 @@ function populateEditPurchasePartySelect(currentName, currentSupplierId){
   editPurchaseWorkingReceiptFiles = getPurchaseReceiptFileList(p).slice();
   editPurchasePreviewIdx = -1;
   editPurchaseWorkingItems = (p.items || []).map(it => ({...it}));
+  { const vm = document.getElementById('editPurchaseViewMode'); if(vm) vm.value = 'amount'; }   // 每次打開都從「金額」開始
   if(typeof paEditLoad === 'function') paEditLoad(p);   // 進貨帳務:入會計紀錄 / GST
   document.getElementById('editPurchaseDateInput').value = p.date || '';
   { const _amt = document.getElementById('editPurchaseAddItemAmount'); if(_amt){ _amt.disabled = !canEditPrice(); if(!canEditPrice()) _amt.value = ''; } }
@@ -697,6 +698,15 @@ async function handleEditPurchaseReceiptUpload(inputEl){
 function renderEditPurchaseItemsList(){
   const wrap = document.getElementById('editPurchaseItemsWrap');
   if(!wrap) return;
+  // Enter:跳到下一行商品的同一欄(金額 / 有效期 / 批號 / 備註),不是跳到數量
+  wrap.onkeydown = function(e){
+    if(e.key !== 'Enter' || e.isComposing) return;
+    const col = e.target && e.target.dataset && e.target.dataset.epcol; if(!col) return;
+    e.preventDefault();
+    const list = Array.from(wrap.querySelectorAll('[data-epcol="' + col + '"]')).filter(x => !x.readOnly);
+    const nx = list[list.indexOf(e.target) + 1];
+    if(nx){ nx.focus(); if(nx.select) try{ nx.select(); }catch(_){} } else e.target.blur();
+  };
   if(editPurchaseWorkingItems.length === 0){
     wrap.innerHTML = `<div class="empty-note" style="padding:8px 0;">${lang === 'en' ? 'No items.' : '（沒有品項）'}</div>`;
     return;
@@ -706,12 +716,39 @@ function renderEditPurchaseItemsList(){
   const paOnNow = (typeof paOn === 'function' && paOn());
   const batchOn = editPurchaseIsBatchTracked();
   const priceVis = (typeof canViewPrice !== 'function') || canViewPrice();   // 沒有「查看價錢」權限(倉管)整個價格區都不顯示
+  // 「顯示欄位」下拉(在收據 GST 總額那一行最右邊,只有批次追蹤的進貨單、看得到價錢的人才有):
+  // 預設「金額」(金額 / 不含稅 / GST);選有效期限、供應商批號、備註時,清單改成只顯示品名、數量,和所選的那一項可以直接輸入。
+  const vmWrap = document.getElementById('editPurchaseViewModeWrap');
+  if(vmWrap) vmWrap.style.display = (batchOn && priceVis) ? 'inline-flex' : 'none';
+  const viewMode = (batchOn && priceVis) ? ((document.getElementById('editPurchaseViewMode') || {}).value || 'amount') : 'amount';
+  if(viewMode !== 'amount'){
+    const fieldCol = viewMode === 'expiry' ? '170px' : (viewMode === 'lot' ? 'minmax(200px,320px)' : 'minmax(260px,1fr)');
+    const vgrid = `display:grid;grid-template-columns:minmax(220px,1fr) 84px 54px ${fieldCol} 30px 44px;gap:8px;align-items:center;min-width:660px;`;
+    const vhdr = `<div style="${vgrid}font-size:11px;color:var(--ink-soft);position:sticky;top:0;background:var(--bg,#fff);z-index:1;padding:2px 0;"><span></span><span>${t('colQty')}</span><span></span><span>${viewMode === 'expiry' ? t('batchColExpiry') : (viewMode === 'lot' ? t('batchLotLabel') : t('batchFieldNote'))}</span><span></span><span></span></div>`;
+    wrap.innerHTML = `<div style="overflow-x:auto;"><div style="display:flex;flex-direction:column;gap:0;">${vhdr}${editPurchaseWorkingItems.map((it, i) => {
+      const noField = it.noBatch || it.docType === 'credit_note';
+      let field = '<span style="color:var(--ink-soft);">—</span>';
+      if(!noField){
+        if(viewMode === 'expiry') field = `<input data-epcol="expiry" type="date" value="${it.expiry || ''}" style="width:100%;" onchange="updateEditPurchaseItemExpiry(${i}, this.value)" />`;
+        else if(viewMode === 'lot') field = `<input data-epcol="lot" type="text" value="${escapeHtmlForPrint(it.supplierLot || '')}" style="width:100%;" oninput="updateEditPurchaseItemLot(${i}, this.value)" />`;
+        else { const cur = it.batchNote !== undefined ? it.batchNote : batchLineNote(editPurchaseTargetId, it.productId, it.expiry || ''); field = `<input data-epcol="note" type="text" value="${escapeHtmlForPrint(cur || '')}" style="width:100%;" oninput="updateEditPurchaseItemNote(${i}, this.value)" />`; }
+      }
+      return `<div style="${vgrid}padding:5px 0;border-bottom:1px solid var(--line);">
+        <div style="min-width:0;font-size:12.5px;line-height:1.3;">${escapeHtmlForPrint(it.name || '')}${it.sku ? ` <span style="color:var(--ink-soft);">(${escapeHtmlForPrint(it.sku)})</span>` : ''}${it.docType === 'credit_note' ? ` <span style="color:var(--crit);font-weight:600;font-size:11px;">(${t('docTypeCreditNoteBadge')})</span>` : ''}</div>
+        <input type="number" value="${it.qty}" min="0" step="any" style="width:100%;" onchange="updateEditPurchaseItemQty(${i}, this.value); renderEditPurchaseItemsList();" />
+        <span style="font-size:11.5px;color:var(--ink-soft);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtmlForPrint(it.unit || '')}</span>
+        ${field}
+        ${noField ? '<span></span>' : `<button type="button" class="btn ghost" style="padding:0 8px;" title="${t('epAddSplitTip')}" onclick="addEditPurchaseSplit(${i})">＋</button>`}
+        <span class="del-link" onclick="removeEditPurchaseItem(${i})">${t('btnRemoveItem')}</span>
+      </div>`; }).join('')}</div></div>`;
+    return;
+  }
   const cols = ['minmax(220px,1fr)', '84px', '54px'];
   if(priceVis) cols.push('110px');
   if(paOnNow && priceVis) cols.push('84px', '78px', '96px');   // 不含稅 / GST 金額 / GST 選項
   // 看得到價錢的人:有效期、供應商批號收進 📝 詳細資料視窗,空間留給金額與 GST;倉管維持直接在清單上輸入
   const expInDetail = batchOn && priceVis;
-  if(batchOn) cols.push(...(expInDetail ? ['46px'] : ['138px', '120px', '46px']));
+  if(batchOn) cols.push(...(expInDetail ? ['46px'] : ['138px', '120px', '46px', '30px']));
   cols.push('44px');
   const grid = `display:grid;grid-template-columns:${cols.join(' ')};gap:8px;align-items:center;min-width:${cols.reduce((s, c) => s + (parseInt((c.match(/\d+/) || [0])[0], 10) || 0), 0) + 8 * cols.length}px;`;
   const flags = editPurchasePriceFlags();
@@ -721,7 +758,7 @@ function renderEditPurchaseItemsList(){
   const hdr = `<div style="${grid}${hdrCss}position:sticky;top:0;background:var(--bg,#fff);z-index:1;padding:2px 0;">
           <span></span><span>${t('colQty')}</span><span></span>${priceVis ? `<span>${t('colAmount')} (${cur})</span>` : ''}
           ${(paOnNow && priceVis) ? `<span style="text-align:right;">${t('paColEx')}</span><span style="text-align:right;">${t('paColGstAmt')}</span><span>GST</span>` : ''}
-          ${batchOn ? (expInDetail ? '<span></span>' : `<span>${t('batchColExpiry')}</span><span>${t('batchLotLabel')}</span><span></span>`) : ''}
+          ${batchOn ? (expInDetail ? '<span></span>' : `<span>${t('batchColExpiry')}</span><span>${t('batchLotLabel')}</span><span></span><span></span>`) : ''}
           <span></span>
         </div>`;
   wrap.innerHTML = `
@@ -729,26 +766,27 @@ function renderEditPurchaseItemsList(){
     <div style="overflow-x:auto;">
      <div style="display:flex;flex-direction:column;gap:0;">
       ${hdr}
-      ${editPurchaseWorkingItems.map((it, i) => `
+      ${epDisplayRows(expInDetail).map(({ it, i, grp, n }) => { const fl = grp ? editPurchaseFlagFor(it, editPurchaseFlagLast) : flags[i]; return `
         <div style="${grid}padding:5px 0;border-bottom:1px solid var(--line);${it._scanUpdated ? 'background:var(--warn-bg);' : ''}">
           <div style="min-width:0;font-size:12.5px;line-height:1.3;">
             ${escapeHtmlForPrint(it.name || '')}${it.sku ? ` <span style="color:var(--ink-soft);">(${escapeHtmlForPrint(it.sku)})</span>` : ''}
+            ${grp ? `<span style="color:var(--ink-soft);font-size:11px;">(${tf('epBatchCount', { n })})</span>` : ''}
             ${it.docType === 'credit_note' ? ` <span style="color:var(--crit);font-weight:600;font-size:11px;">(${t('docTypeCreditNoteBadge')})</span>` : ''}
             ${it._scanUpdated ? `<span style="color:var(--warn-dark);font-size:11px;margin-left:4px;">🔍</span>` : ''}
-            <span id="epFlagMk_${i}" style="display:${flags[i] ? 'inline' : 'none'};color:#d97706;cursor:help;" title="${flags[i] ? escapeHtmlForPrint(flags[i].msg) : ''}">⚠</span>
+            <span id="epFlagMk_${i}" style="display:${fl ? 'inline' : 'none'};color:#d97706;cursor:help;" title="${fl ? escapeHtmlForPrint(fl.msg) : ''}">⚠</span>
           </div>
-          <input type="number" value="${it.qty}" min="0" step="any" style="width:100%;" oninput="updateEditPurchaseItemQty(${i}, this.value)" />
+          ${grp ? `<input type="number" value="${it.qty}" readonly title="${t('epGroupQtyTip')}" style="width:100%;background:var(--bg-soft,#f4f4f4);" />` : `<input type="number" value="${it.qty}" min="0" step="any" style="width:100%;" oninput="updateEditPurchaseItemQty(${i}, this.value)" />`}
           <span style="font-size:11.5px;color:var(--ink-soft);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtmlForPrint(it.unit || '')}</span>
-          ${priceVis ? `          <input type="number" value="${it.amount !== undefined && it.amount !== null ? it.amount : ''}" min="0" step="any" placeholder="$" style="width:100%;${flags[i] ? 'background:#fff4dc;border-color:#d97706;' : ''}" ${canEditPrice() ? (flags[i] ? 'title="' + escapeHtmlForPrint(flags[i].msg) + '"' : '') : 'readonly title="' + t('priceReadOnlyTitle') + '"'} oninput="updateEditPurchaseItemAmount(${i}, this.value, this)" />
+          ${priceVis ? `           <input data-epcol="amount" type="number" value="${it.amount !== undefined && it.amount !== null ? it.amount : ''}" min="0" step="any" placeholder="$" style="width:100%;${fl ? 'background:#fff4dc;border-color:#d97706;' : ''}" ${canEditPrice() ? (fl ? 'title="' + escapeHtmlForPrint(fl.msg) + '"' : '') : 'readonly title="' + t('priceReadOnlyTitle') + '"'} ${grp ? `onchange="epGroupAmount(${i}, this.value)"` : `oninput="updateEditPurchaseItemAmount(${i}, this.value, this)"`} />
           ${(paOnNow && priceVis) ? (() => { const sp = paGstSplitStr(it, (document.getElementById('editPurchaseGstMode') || {}).value === 'inc' ? 'inc' : 'ex', paEditSkipRow(it)); return `<span id="epEx_${i}" style="text-align:right;font-size:12.5px;">${sp[0]}</span><span id="epGs_${i}" style="text-align:right;font-size:12.5px;">${sp[1]}</span>`; })() : ''}
           ${paOnNow ? (it.noAcct ? '<span style="font-size:11.5px;color:var(--ink-soft);">' + t('paOffBooksShort') + '</span>' : ((typeof pcEd !== 'undefined' && pcEd && pcEd.import) ? paImportNoteHtml() : paGstSelectHtml(it.gst, 'paEditSetGst(' + i + ', this.value)'))) : ''}` : ''}
           ${batchOn ? ((!it.noBatch) ? `
-          ${expInDetail ? '' : `<input type="date" value="${it.expiry || ''}" title="${t('batchColExpiry')}" style="width:100%;" onchange="updateEditPurchaseItemExpiry(${i}, this.value)" />
-          <input type="text" value="${escapeHtmlForPrint(it.supplierLot || '')}" title="${t('batchFieldLot')}" style="width:100%;" oninput="updateEditPurchaseItemLot(${i}, this.value)" />`}
-          ${(it.docType === 'credit_note') ? '<span></span>' : `<button type="button" class="btn ghost" style="padding:2px 8px;" title="${t('batchFieldNote')}" onclick="editPurchaseOpenLineNote(${i})">📝${(it.batchNote !== undefined ? it.batchNote : batchLineNote(editPurchaseTargetId, it.productId, it.expiry || '')) ? ' ✓' : ''}</button>`}` : (expInDetail ? '<span></span>' : '<span></span><span></span><span></span>')) : ''}
-          <span class="del-link" onclick="removeEditPurchaseItem(${i})">${t('btnRemoveItem')}</span>
+          ${expInDetail ? '' : `<input data-epcol="expiry" type="date" value="${it.expiry || ''}" title="${t('batchColExpiry')}" style="width:100%;" onchange="updateEditPurchaseItemExpiry(${i}, this.value)" />
+          <input data-epcol="lot" type="text" value="${escapeHtmlForPrint(it.supplierLot || '')}" title="${t('batchFieldLot')}" style="width:100%;" oninput="updateEditPurchaseItemLot(${i}, this.value)" />`}
+          ${(it.docType === 'credit_note') ? '<span></span>' : `<button type="button" class="btn ghost" style="padding:2px 8px;" title="${t('batchFieldNote')}" onclick="editPurchaseOpenLineNote(${i})">📝${(it.batchNote !== undefined ? it.batchNote : batchLineNote(editPurchaseTargetId, it.productId, it.expiry || '')) ? ' ✓' : ''}</button>`}${expInDetail ? '' : (it.docType === 'credit_note' ? '<span></span>' : `<button type="button" class="btn ghost" style="padding:0 8px;" title="${t('epAddSplitTip')}" onclick="addEditPurchaseSplit(${i})">＋</button>`)}` : (expInDetail ? '<span></span>' : '<span></span><span></span><span></span><span></span>')) : ''}
+          <span class="del-link" onclick="${grp ? 'removeEditPurchaseGroup' : 'removeEditPurchaseItem'}(${i})">${t('btnRemoveItem')}</span>
         </div>
-      `).join('')}
+      `; }).join('')}
      </div>
     </div>
   `;
@@ -764,9 +802,15 @@ function updateEditPurchaseItemExpiry(index, value){
   if(!it) return;
   if(value) it.expiry = value; else delete it.expiry;
   // 同商品、同有效期的品項合併成一列(有效期不同才分開列);合併後重畫清單
-  if(editPurchaseMergeDuplicateAt(index)) renderEditPurchaseItemsList();
+  if(editPurchaseMergeDuplicateAt(index)){ renderEditPurchaseItemsList(); epShowMergeNotice(); }
 }
 // 兩列是不是「同一批」:同商品、同單據類型(發票 / Credit Note)、同有效期
+let epMergeNotice = '';
+function epShowMergeNotice(){
+  if(!epMergeNotice) return;
+  const m = document.getElementById('editPurchaseModalMsg'); if(m){ m.className = 'msg'; m.textContent = '⚠ ' + epMergeNotice; }
+  epMergeNotice = '';
+}
 function editPurchaseSameLineKey(a, b){
   return a.productId === b.productId && (a.docType || '') === (b.docType || '') && (a.expiry || '') === (b.expiry || '');
 }
@@ -778,45 +822,130 @@ function editPurchaseMergeDuplicateAt(index){
   if(!target) return false;
   target.qty = (target.qty || 0) + (it.qty || 0);
   if(it.amount !== undefined && it.amount !== null) target.amount = (target.amount || 0) + it.amount;
-  if(!target.supplierLot && it.supplierLot) target.supplierLot = it.supplierLot;
+  // 有效期相同 → 併成一批:批號、備註都保留(批號用 " / " 串起來,備註換行串起來),並提示一次
+  const lots = (target.supplierLot || '').split(' / ').map(x => x.trim()).filter(Boolean);
+  (it.supplierLot || '').split(' / ').map(x => x.trim()).filter(Boolean).forEach(l => { if(!lots.includes(l)) lots.push(l); });
+  if(lots.length) target.supplierLot = lots.join(' / ');
+  const tn = target.batchNote !== undefined ? target.batchNote : batchLineNote(editPurchaseTargetId, target.productId, target.expiry || '');
+  const inn = it.batchNote !== undefined ? it.batchNote : '';
+  if(inn && inn !== tn) target.batchNote = tn ? tn + '\n' + inn : inn;
+  if(lots.length > 1 || (it.supplierLot && it.supplierLot !== (target.supplierLot || ''))) epMergeNotice = tf('epMergedNotice', { name: target.name || '', lots: lots.join(' / ') });
   editPurchaseWorkingItems.splice(index, 1);
   return true;
 }
 // 商品行備註:點 📝 開小視窗編輯(存進批次,顯示在批次追蹤商品頁的詳細資料)
+// 看得到價錢的人:同一個商品的所有批(有效期/批號/數量/備註)列在同一個視窗裡,按「＋」多加一批。
+let epNoteLines = [], epNoteLeader = -1, epNoteOrig = null;
 function editPurchaseOpenLineNote(index){
   const it = editPurchaseWorkingItems[index];
   if(!it) return;
-  const cur = it.batchNote !== undefined ? it.batchNote : batchLineNote(editPurchaseTargetId, it.productId, it.expiry || '');
+  const priceVis = (typeof canViewPrice !== 'function') || canViewPrice();
+  const idx = priceVis ? editPurchaseGroupIdx(index) : [index];
+  epNoteLeader = idx[0];
+  const ms = idx.map(k => editPurchaseWorkingItems[k]);
+  epNoteOrig = { qty: ms.reduce((a, x) => a + (Number(x.qty) || 0), 0), amt: ms.reduce((a, x) => a + (Number(x.amount) || 0), 0), hasAmt: ms.some(x => x.amount !== undefined && x.amount !== null) };
+  epNoteLines = ms.map(x => ({ ref: x, expiry: x.expiry || '', lot: x.supplierLot || '', qty: Number(x.qty) || 0, note: x.batchNote !== undefined ? x.batchNote : batchLineNote(editPurchaseTargetId, x.productId, x.expiry || '') }));
+  epRenderNoteModal();
+}
+function epRenderNoteModal(){
+  const first = epNoteLines[0] && epNoteLines[0].ref; if(!first) return;
+  const priceVis = (typeof canViewPrice !== 'function') || canViewPrice();
+  const multi = epNoteLines.length > 1;
   const old = document.getElementById('editPurchaseLineNoteOverlay'); if(old) old.remove();
   const ov = document.createElement('div');
   ov.id = 'editPurchaseLineNoteOverlay'; ov.className = 'modal-overlay'; ov.style.display = 'flex'; ov.style.zIndex = '1250';
-  ov.innerHTML = `<div class="modal-box" style="max-width:min(420px,94vw);">
-    <div class="section-title" style="margin-top:0;">${t('batchFieldNote')} · ${escapeHtmlForPrint(it.name || '')}${(editPurchaseIsBatchTracked() && !it.noBatch && typeof batchLineNoHtml === 'function') ? batchLineNoHtml(editPurchaseTargetId, it.productId, it.expiry || '') : ''}</div>
-    ${((typeof canViewPrice !== 'function') || canViewPrice()) ? `<div class="field"><label>${t('batchColExpiry')}</label><input id="editPurchaseLineExpiryInput" type="date" value="${escapeHtmlForPrint(it.expiry || '')}" style="width:100%;" /></div>
-    <div class="field" style="margin-top:8px;"><label>${t('batchFieldLot')}</label><input id="editPurchaseLineLotInput" type="text" value="${escapeHtmlForPrint(it.supplierLot || '')}" style="width:100%;" /></div>
-    <div style="font-size:12px;color:var(--ink-soft);margin:8px 0 2px;">${t('batchFieldNote')}</div>` : ''}
-    <textarea id="editPurchaseLineNoteInput" rows="4" style="width:100%;box-sizing:border-box;">${escapeHtmlForPrint(cur)}</textarea>
-    <div class="modal-actions"><button class="btn ghost" onclick="document.getElementById('editPurchaseLineNoteOverlay').remove()">${t('btnCancel')}</button><button class="btn" onclick="editPurchaseSaveLineNote(${index})">${t('btnSave')}</button></div>
+  const lineHtml = epNoteLines.map((l, k) => `<div style="${multi ? 'border:1px solid var(--line);border-radius:8px;padding:8px;margin-bottom:8px;' : ''}">
+      ${priceVis ? `<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;">
+        <div class="field" style="flex:1 1 140px;margin:0;"><label>${t('batchColExpiry')}</label><input type="date" value="${escapeHtmlForPrint(l.expiry)}" style="width:100%;" oninput="epNoteLines[${k}].expiry = this.value" /></div>
+        <div class="field" style="flex:1 1 140px;margin:0;"><label>${t('batchFieldLot')}</label><input type="text" value="${escapeHtmlForPrint(l.lot)}" style="width:100%;" oninput="epNoteLines[${k}].lot = this.value" /></div>
+        ${multi ? `<div class="field" style="flex:0 0 90px;margin:0;"><label>${t('colQty')}</label><input id="epNoteQty_${k}" type="number" min="0" step="any" value="${l.qty}" style="width:100%;" oninput="epNoteQtyInput(${k}, this.value)" /></div>` : ''}
+        ${k > 0 ? `<span class="del-link" onclick="epNoteRemoveLine(${k})">${t('btnRemoveItem')}</span>` : ''}
+      </div>` : ''}
+      <div style="font-size:12px;color:var(--ink-soft);margin:8px 0 2px;">${t('batchFieldNote')}</div>
+      <textarea rows="${multi ? 2 : 4}" style="width:100%;box-sizing:border-box;" oninput="epNoteLines[${k}].note = this.value">${escapeHtmlForPrint(l.note || '')}</textarea>
+    </div>`).join('');
+  ov.innerHTML = `<div class="modal-box" style="max-width:min(520px,94vw);max-height:90vh;overflow:auto;">
+    <div class="section-title" style="margin-top:0;">${t('batchFieldNote')} · ${escapeHtmlForPrint(first.name || '')}${(editPurchaseIsBatchTracked() && !first.noBatch && typeof batchLineNoHtml === 'function' && !multi) ? batchLineNoHtml(editPurchaseTargetId, first.productId, first.expiry || '') : ''}</div>
+    ${lineHtml}
+    ${priceVis ? `<button type="button" class="btn ghost" style="margin-bottom:8px;" onclick="epNoteAddLine()">＋ ${t('epAddSplitTip')}</button>` : ''}
+    <div class="modal-actions"><button class="btn ghost" onclick="document.getElementById('editPurchaseLineNoteOverlay').remove()">${t('btnCancel')}</button><button class="btn" onclick="editPurchaseSaveLineNote()">${t('btnSave')}</button></div>
   </div>`;
   document.body.appendChild(ov);
 }
-function editPurchaseSaveLineNote(index){
-  const it = editPurchaseWorkingItems[index];
-  const el = document.getElementById('editPurchaseLineNoteInput');
-  if(it && el) it.batchNote = el.value.trim();
-  const exEl = document.getElementById('editPurchaseLineExpiryInput'), lotEl = document.getElementById('editPurchaseLineLotInput');
-  let merged = false;
-  if(it && lotEl) updateEditPurchaseItemLotValue(it, lotEl.value);
-  if(it && exEl){
-    const nv = exEl.value || '';
-    if(nv !== (it.expiry || '')){ if(nv) it.expiry = nv; else delete it.expiry; merged = editPurchaseMergeDuplicateAt(index); }
+function epNoteAddLine(){ epNoteLines.push({ ref: null, expiry: '', lot: '', qty: 0, note: '' }); epRenderNoteModal(); }
+function epNoteRemoveLine(k){
+  const l = epNoteLines[k]; if(!l) return;
+  if(k > 0) epNoteLines[0].qty = Math.round((epNoteLines[0].qty + (Number(l.qty) || 0)) * 1e6) / 1e6;   // 這批的數量退回第一批
+  epNoteLines.splice(k, 1);
+  epRenderNoteModal();
+}
+// 第 2 批起輸入的數量,從第一批扣掉(總數不變)
+function epNoteQtyInput(k, v){
+  const l = epNoteLines[k]; if(!l) return;
+  const n = parseFloat(v), nv = Number.isFinite(n) && n > 0 ? n : 0;
+  if(k > 0){
+    const d = nv - (Number(l.qty) || 0);
+    epNoteLines[0].qty = Math.max(0, Math.round((epNoteLines[0].qty - d) * 1e6) / 1e6);
+    const el0 = document.getElementById('epNoteQty_0'); if(el0) el0.value = epNoteLines[0].qty;
+  }
+  l.qty = nv;
+}
+function editPurchaseSaveLineNote(){
+  const lines = epNoteLines.filter((l, k) => k === 0 || l.qty > 0);
+  const multi = lines.length > 1;
+  const priceVis = (typeof canViewPrice !== 'function') || canViewPrice();
+  const leader = editPurchaseWorkingItems[epNoteLeader];
+  if(!leader) { const ov0 = document.getElementById('editPurchaseLineNoteOverlay'); if(ov0) ov0.remove(); return; }
+  const oldRefs = epNoteLines.map(l => l.ref).filter(Boolean);
+  const anchor = oldRefs[0];
+  // 單一批(沒按＋):維持原本行為,只更新有效期/批號/備註
+  const up = (epNoteOrig.hasAmt && epNoteOrig.qty > 0) ? epNoteOrig.amt / epNoteOrig.qty : 0;
+  // 先把有 ref 的列更新、沒有 ref 的新增,依畫面順序重排進清單
+  const rows = lines.map((l, k) => {
+    let it = l.ref;
+    if(!it){ it = epMakeSplitItem(anchor); delete it._splitOf; }
+    it.qty = l.qty;
+    delete it.rcv;
+    if(priceVis){
+      if(l.expiry) it.expiry = l.expiry; else delete it.expiry;
+      updateEditPurchaseItemLotValue(it, l.lot);
+    }
+    it.batchNote = (l.note || '').trim();
+    return it;
+  });
+  if(multi || oldRefs.length > 1){
+    if(epNoteOrig.hasAmt){
+      const sumQ = rows.reduce((a, x) => a + (Number(x.qty) || 0), 0);
+      let rem = epNoteOrig.amt;
+      rows.forEach((x, k) => {
+        const same = Math.abs(sumQ - epNoteOrig.qty) < 1e-9;
+        const v = (k === rows.length - 1 && same) ? rem : Math.round((x.qty || 0) * up * 100) / 100;
+        x.amount = Math.round(v * 100) / 100; rem = Math.round((rem - x.amount) * 100) / 100;
+        if(up > 0) x._up = up;
+      });
+    }
+  }
+  // 舊列先拿出清單,新的批次列(依畫面順序)放回原本第一列的位置
+  const pos = Math.max(0, editPurchaseWorkingItems.indexOf(oldRefs[0]));
+  editPurchaseWorkingItems = editPurchaseWorkingItems.filter(x => !oldRefs.includes(x));
+  editPurchaseWorkingItems.splice(Math.min(pos, editPurchaseWorkingItems.length), 0, ...rows);
+  rows.forEach(x => { x._splitOf = (x !== rows[0]) ? epRid(rows[0]) : undefined; if(x._splitOf === undefined) delete x._splitOf; });
+  // 有效期相同的批併成一批
+  for(let k = rows.length - 1; k >= 0; k--){
+    const at = editPurchaseWorkingItems.indexOf(rows[k]);
+    if(at >= 0) editPurchaseMergeDuplicateAt(at);
   }
   const ov = document.getElementById('editPurchaseLineNoteOverlay'); if(ov) ov.remove();
   renderEditPurchaseItemsList();
+  epShowMergeNotice();
 }
 function updateEditPurchaseItemLotValue(it, value){
   const v = (value || '').trim();
   if(v) it.supplierLot = v; else delete it.supplierLot;
+}
+function updateEditPurchaseItemNote(index, value){
+  const it = editPurchaseWorkingItems[index]; if(!it) return;
+  it.batchNote = (value || '').trim();
 }
 function updateEditPurchaseItemLot(index, value){
   const it = editPurchaseWorkingItems[index];
@@ -828,8 +957,82 @@ function updateEditPurchaseItemQty(index, value){
   const it = editPurchaseWorkingItems[index];
   if(!it) return;
   const n = parseFloat(value);
+  const old = it.qty || 0;
   it.qty = Number.isFinite(n) ? n : 0;
   delete it.rcv;   // 數量被改過,收據原始單位/數量不再準確 → 退回顯示主商品單位
+  // 「＋」分出來的列:數量從原本那一列扣掉(總數不變,不夠再自己改原本那列);金額照單價跟著算
+  if(it._splitOf){
+    const par = editPurchaseWorkingItems.find(x => x._rid === it._splitOf);
+    if(par){ par.qty = Math.max(0, Math.round(((par.qty || 0) - (it.qty - old)) * 1e6) / 1e6); delete par.rcv; epApplyUnitPrice(par); }
+  }
+  epApplyUnitPrice(it);
+}
+function epApplyUnitPrice(it){
+  if(it._up > 0) it.amount = Math.round((it.qty || 0) * it._up * 100) / 100;
+}
+function epRid(it){ if(!it._rid) it._rid = 'r' + Math.random().toString(36).slice(2, 10); return it._rid; }
+// 一個商品(同單據類型)的所有列的 index——批次追蹤、看得到價錢時,金額檢視把它們併成一行顯示
+function editPurchaseGroupIdx(i){
+  const it = editPurchaseWorkingItems[i]; if(!it) return [];
+  if(it.noBatch) return [i];
+  const out = [];
+  editPurchaseWorkingItems.forEach((x, k) => { if(!x.noBatch && x.productId === it.productId && (x.docType || '') === (it.docType || '')) out.push(k); });
+  return out.length ? out : [i];
+}
+function epDisplayRows(group){
+  const items = editPurchaseWorkingItems;
+  if(!group) return items.map((it, i) => ({ it, i, grp: false, n: 1 }));
+  const rows = [], seen = new Set();
+  items.forEach((it, i) => {
+    if(seen.has(i)) return;
+    const idx = editPurchaseGroupIdx(i);
+    idx.forEach(k => seen.add(k));
+    if(idx.length <= 1){ rows.push({ it, i, grp: false, n: 1 }); return; }
+    const ms = idx.map(k => items[k]);
+    const syn = { ...it, qty: ms.reduce((a, x) => a + (Number(x.qty) || 0), 0) };
+    const amts = ms.filter(x => x.amount !== undefined && x.amount !== null);
+    if(amts.length) syn.amount = amts.reduce((a, x) => a + Number(x.amount || 0), 0); else delete syn.amount;
+    rows.push({ it: syn, i, grp: true, n: idx.length });
+  });
+  return rows;
+}
+// 併成一行時改金額:依數量比例分給各批
+function epGroupAmount(i, value){
+  if(!canEditPrice()) return;
+  const idx = editPurchaseGroupIdx(i), ms = idx.map(k => editPurchaseWorkingItems[k]);
+  if(value === ''){ ms.forEach(x => { delete x.amount; delete x._up; }); renderEditPurchaseItemsList(); return; }
+  const n = parseFloat(value);
+  if(!Number.isFinite(n)){ renderEditPurchaseItemsList(); return; }
+  const tq = ms.reduce((a, x) => a + (Number(x.qty) || 0), 0);
+  let rem = n;
+  ms.forEach((x, k) => {
+    const share = k === ms.length - 1 ? rem : (tq > 0 ? Math.round(n * (x.qty || 0) / tq * 100) / 100 : Math.round(n / ms.length * 100) / 100);
+    x.amount = share; rem = Math.round((rem - share) * 100) / 100;
+    if(tq > 0) x._up = n / tq; else delete x._up;
+  });
+  renderEditPurchaseItemsList();
+}
+function removeEditPurchaseGroup(i){
+  const idx = new Set(editPurchaseGroupIdx(i));
+  editPurchaseWorkingItems = editPurchaseWorkingItems.filter((x, k) => !idx.has(k));
+  renderEditPurchaseItemsList();
+}
+// 新增一列「另一個有效期限/批號」:數量先填 0,輸入後從原本那一列扣掉
+function addEditPurchaseSplit(i){
+  const src = editPurchaseWorkingItems[i]; if(!src) return;
+  const idx = editPurchaseGroupIdx(i);
+  const first = editPurchaseWorkingItems[idx[0]];
+  const ni = epMakeSplitItem(first);
+  editPurchaseWorkingItems.splice(idx[idx.length - 1] + 1, 0, ni);
+  renderEditPurchaseItemsList();
+}
+function epMakeSplitItem(first){
+  const q = Number(first.qty) || 0, a = Number(first.amount);
+  if(!first._up && q > 0 && a > 0) first._up = a / q;
+  const ni = { productId: first.productId, sku: first.sku, name: first.name, unit: first.unit, qty: 0, _splitOf: epRid(first) };
+  ['docType', 'gst', 'noAcct', 'noBatch'].forEach(k => { if(first[k] !== undefined) ni[k] = first[k]; });
+  if(first._up > 0) { ni._up = first._up; ni.amount = 0; }
+  return ni;
 }
 // 會計核價輔助:缺價(沒填或 0)、或單價和同商品上一次進貨差超過 20% 的行,標黃色請會計確認
 function editPurchasePriceFlags(){
@@ -876,6 +1079,7 @@ function updateEditPurchaseItemAmount(index, value, el){
   if(!canEditPrice()) return; // 沒有「編輯價錢」權限只能看不能改
   const it = editPurchaseWorkingItems[index];
   if(!it) return;
+  delete it._up;
   if(value === ''){ delete it.amount; editPurchaseRefreshFlagUI(index, el); if(typeof paEditRefreshCells === 'function') paEditRefreshCells(index); return; }
   const n = parseFloat(value);
   it.amount = Number.isFinite(n) ? n : undefined;
@@ -1116,6 +1320,7 @@ async function confirmEditPurchase(){
   const invoiceVal = document.getElementById('editPurchaseInvoiceInput').value.trim();
   const noteVal = document.getElementById('editPurchaseNoteInput').value.trim();
   if(!dateVal){ msgEl.className = 'msg error'; msgEl.textContent = t('errSelectOrderDate'); return; }
+  editPurchaseWorkingItems = editPurchaseWorkingItems.filter(it => !(it._splitOf && !(it.qty > 0)));   // 「＋」新增了但沒填數量的列直接丟掉
   if(editPurchaseWorkingItems.some(it => !(it.qty > 0))){
     msgEl.className = 'msg error';
     msgEl.textContent = t('errEnterPositiveQty');
@@ -1133,7 +1338,7 @@ async function confirmEditPurchase(){
   // 品項清單存檔前先去掉 _scanUpdated(只是編輯畫面上用來標記「這行剛被掃描結果蓋過」的暫時
   // UI 旗標,不是資料本身的一部分,不能真的存進 purchase.items 裡)。
   const cleanItems = editPurchaseWorkingItems.map(it => {
-    const { _scanUpdated, batchNote, ...rest } = it;
+    const { _scanUpdated, batchNote, _rid, _splitOf, _up, ...rest } = it;
     return rest;
   });
   if(typeof paEditCheck === 'function'){
