@@ -749,8 +749,17 @@ function orderItemDimStyle(it){
   const off = (typeof isOffBooksProduct === 'function' && isOffBooksProduct(p)) || p.hideFromCompletedOrderExport === true;
   return off ? 'opacity:.55;' : '';
 }
-function orderItemNoteInline(it){
-  return it && it.note ? ` <i style="font-size:11.5px;color:var(--ink-soft);font-weight:400;">${String(it.note).replace(/&/g,'&amp;').replace(/</g,'&lt;')}</i>` : '';
+function orderItemNoteInline(it, withPickingNote){
+  // withPickingNote:已完成訂單畫面用——除了訂貨時加的品項備註,也接上「快捷清單 → 在 Picking Slip 附註顯示內容」的附註
+  // (跟 picking slip 附註欄印出來的內容一樣,倉庫人員在已完成訂單上就能看到同樣的提示)
+  const parts = [];
+  if(it && it.note) parts.push(String(it.note));
+  if(withPickingNote && it && it.productId && typeof getQuickListPickingNoteForProduct === 'function'){
+    const qn = getQuickListPickingNoteForProduct(it.productId);
+    if(qn) parts.push(qn);
+  }
+  if(!parts.length) return '';
+  return ` <i style="font-size:11.5px;color:var(--ink-soft);font-weight:400;">${parts.join(', ').replace(/&/g,'&amp;').replace(/</g,'&lt;')}</i>`;
 }
 function orderItemRowHtml(o, it, isPending, readOnly, context){
   context = context || 'default';
@@ -804,7 +813,7 @@ function orderItemRowHtml(o, it, isPending, readOnly, context){
   const actionLinks = `${canEdit ? `<span class="del-link" style="margin-left:8px;" onclick="startEditOrderItemQty('${context}','${o.id}','${it.productId}')">${t('btnEditQty')}</span>` : ''}
         ${(canEdit && context === 'verify' && typeof batchOrderItemButtonHtml === 'function') ? batchOrderItemButtonHtml(o, it) : ''}
         ${canEdit ? `<span class="del-link" style="margin-left:8px;color:var(--crit);" onclick="${deleteFn}('${o.id}','${it.productId}')">${t('btnDelete')}</span>` : ''}`;
-  const nameHtml = (it.sku ? `<span class="sku-tooltip-trigger" data-sku="${it.sku.replace(/"/g,'&quot;')}">${it.name}</span>` : it.name) + orderItemNoteInline(it) + orderItemAcctTag(it);
+  const nameHtml = (it.sku ? `<span class="sku-tooltip-trigger" data-sku="${it.sku.replace(/"/g,'&quot;')}">${it.name}</span>` : it.name) + orderItemNoteInline(it, context === 'completed' || context === 'pending') + orderItemAcctTag(it);
   const tail = `${(context === 'verify' && typeof batchOrderItemPreviewHtml === 'function') ? batchOrderItemPreviewHtml(o, it) : ''}`;
   if(priceOn){
     return `
