@@ -564,6 +564,7 @@ function populateEditPurchasePartySelect(currentName, currentSupplierId){
   editPurchaseWorkingReceiptFiles = getPurchaseReceiptFileList(p).slice();
   editPurchasePreviewIdx = -1;
   editPurchaseWorkingItems = (p.items || []).map(it => ({...it}));
+  { const vm = document.getElementById('editPurchaseViewMode'); if(vm) vm.value = 'amount'; }   // 每次打開都從「金額」開始
   if(typeof paEditLoad === 'function') paEditLoad(p);   // 進貨帳務:入會計紀錄 / GST
   document.getElementById('editPurchaseDateInput').value = p.date || '';
   { const _amt = document.getElementById('editPurchaseAddItemAmount'); if(_amt){ _amt.disabled = !canEditPrice(); if(!canEditPrice()) _amt.value = ''; } }
@@ -706,6 +707,32 @@ function renderEditPurchaseItemsList(){
   const paOnNow = (typeof paOn === 'function' && paOn());
   const batchOn = editPurchaseIsBatchTracked();
   const priceVis = (typeof canViewPrice !== 'function') || canViewPrice();   // 沒有「查看價錢」權限(倉管)整個價格區都不顯示
+  // 「顯示欄位」下拉(在收據 GST 總額那一行最右邊,只有批次追蹤的進貨單、看得到價錢的人才有):
+  // 預設「金額」(金額 / 不含稅 / GST);選有效期限、供應商批號、備註時,清單改成只顯示品名、數量,和所選的那一項可以直接輸入。
+  const vmWrap = document.getElementById('editPurchaseViewModeWrap');
+  if(vmWrap) vmWrap.style.display = (batchOn && priceVis) ? 'inline-flex' : 'none';
+  const viewMode = (batchOn && priceVis) ? ((document.getElementById('editPurchaseViewMode') || {}).value || 'amount') : 'amount';
+  if(viewMode !== 'amount'){
+    const fieldCol = viewMode === 'expiry' ? '170px' : (viewMode === 'lot' ? 'minmax(200px,320px)' : 'minmax(260px,1fr)');
+    const vgrid = `display:grid;grid-template-columns:minmax(220px,1fr) 84px 54px ${fieldCol} 44px;gap:8px;align-items:center;min-width:620px;`;
+    const vhdr = `<div style="${vgrid}font-size:11px;color:var(--ink-soft);position:sticky;top:0;background:var(--bg,#fff);z-index:1;padding:2px 0;"><span></span><span>${t('colQty')}</span><span></span><span>${viewMode === 'expiry' ? t('batchColExpiry') : (viewMode === 'lot' ? t('batchLotLabel') : t('batchFieldNote'))}</span><span></span></div>`;
+    wrap.innerHTML = `<div style="overflow-x:auto;"><div style="display:flex;flex-direction:column;gap:0;">${vhdr}${editPurchaseWorkingItems.map((it, i) => {
+      const noField = it.noBatch || it.docType === 'credit_note';
+      let field = '<span style="color:var(--ink-soft);">—</span>';
+      if(!noField){
+        if(viewMode === 'expiry') field = `<input type="date" value="${it.expiry || ''}" style="width:100%;" onchange="updateEditPurchaseItemExpiry(${i}, this.value)" />`;
+        else if(viewMode === 'lot') field = `<input type="text" value="${escapeHtmlForPrint(it.supplierLot || '')}" style="width:100%;" oninput="updateEditPurchaseItemLot(${i}, this.value)" />`;
+        else { const cur = it.batchNote !== undefined ? it.batchNote : batchLineNote(editPurchaseTargetId, it.productId, it.expiry || ''); field = `<input type="text" value="${escapeHtmlForPrint(cur || '')}" style="width:100%;" oninput="updateEditPurchaseItemNote(${i}, this.value)" />`; }
+      }
+      return `<div style="${vgrid}padding:5px 0;border-bottom:1px solid var(--line);">
+        <div style="min-width:0;font-size:12.5px;line-height:1.3;">${escapeHtmlForPrint(it.name || '')}${it.sku ? ` <span style="color:var(--ink-soft);">(${escapeHtmlForPrint(it.sku)})</span>` : ''}${it.docType === 'credit_note' ? ` <span style="color:var(--crit);font-weight:600;font-size:11px;">(${t('docTypeCreditNoteBadge')})</span>` : ''}</div>
+        <input type="number" value="${it.qty}" min="0" step="any" style="width:100%;" oninput="updateEditPurchaseItemQty(${i}, this.value)" />
+        <span style="font-size:11.5px;color:var(--ink-soft);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtmlForPrint(it.unit || '')}</span>
+        ${field}
+        <span class="del-link" onclick="removeEditPurchaseItem(${i})">${t('btnRemoveItem')}</span>
+      </div>`; }).join('')}</div></div>`;
+    return;
+  }
   const cols = ['minmax(220px,1fr)', '84px', '54px'];
   if(priceVis) cols.push('110px');
   if(paOnNow && priceVis) cols.push('84px', '78px', '96px');   // 不含稅 / GST 金額 / GST 選項
@@ -817,6 +844,10 @@ function editPurchaseSaveLineNote(index){
 function updateEditPurchaseItemLotValue(it, value){
   const v = (value || '').trim();
   if(v) it.supplierLot = v; else delete it.supplierLot;
+}
+function updateEditPurchaseItemNote(index, value){
+  const it = editPurchaseWorkingItems[index]; if(!it) return;
+  it.batchNote = (value || '').trim();
 }
 function updateEditPurchaseItemLot(index, value){
   const it = editPurchaseWorkingItems[index];
