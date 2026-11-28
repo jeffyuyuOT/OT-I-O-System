@@ -802,9 +802,15 @@ function updateEditPurchaseItemExpiry(index, value){
   if(!it) return;
   if(value) it.expiry = value; else delete it.expiry;
   // 同商品、同有效期的品項合併成一列(有效期不同才分開列);合併後重畫清單
-  if(editPurchaseMergeDuplicateAt(index)) renderEditPurchaseItemsList();
+  if(editPurchaseMergeDuplicateAt(index)){ renderEditPurchaseItemsList(); epShowMergeNotice(); }
 }
 // 兩列是不是「同一批」:同商品、同單據類型(發票 / Credit Note)、同有效期
+let epMergeNotice = '';
+function epShowMergeNotice(){
+  if(!epMergeNotice) return;
+  const m = document.getElementById('editPurchaseModalMsg'); if(m){ m.className = 'msg'; m.textContent = '⚠ ' + epMergeNotice; }
+  epMergeNotice = '';
+}
 function editPurchaseSameLineKey(a, b){
   return a.productId === b.productId && (a.docType || '') === (b.docType || '') && (a.expiry || '') === (b.expiry || '');
 }
@@ -816,7 +822,14 @@ function editPurchaseMergeDuplicateAt(index){
   if(!target) return false;
   target.qty = (target.qty || 0) + (it.qty || 0);
   if(it.amount !== undefined && it.amount !== null) target.amount = (target.amount || 0) + it.amount;
-  if(!target.supplierLot && it.supplierLot) target.supplierLot = it.supplierLot;
+  // 有效期相同 → 併成一批:批號、備註都保留(批號用 " / " 串起來,備註換行串起來),並提示一次
+  const lots = (target.supplierLot || '').split(' / ').map(x => x.trim()).filter(Boolean);
+  (it.supplierLot || '').split(' / ').map(x => x.trim()).filter(Boolean).forEach(l => { if(!lots.includes(l)) lots.push(l); });
+  if(lots.length) target.supplierLot = lots.join(' / ');
+  const tn = target.batchNote !== undefined ? target.batchNote : batchLineNote(editPurchaseTargetId, target.productId, target.expiry || '');
+  const inn = it.batchNote !== undefined ? it.batchNote : '';
+  if(inn && inn !== tn) target.batchNote = tn ? tn + '\n' + inn : inn;
+  if(lots.length > 1 || (it.supplierLot && it.supplierLot !== (target.supplierLot || ''))) epMergeNotice = tf('epMergedNotice', { name: target.name || '', lots: lots.join(' / ') });
   editPurchaseWorkingItems.splice(index, 1);
   return true;
 }
@@ -924,6 +937,7 @@ function editPurchaseSaveLineNote(){
   }
   const ov = document.getElementById('editPurchaseLineNoteOverlay'); if(ov) ov.remove();
   renderEditPurchaseItemsList();
+  epShowMergeNotice();
 }
 function updateEditPurchaseItemLotValue(it, value){
   const v = (value || '').trim();
