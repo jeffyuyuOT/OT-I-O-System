@@ -698,6 +698,15 @@ async function handleEditPurchaseReceiptUpload(inputEl){
 function renderEditPurchaseItemsList(){
   const wrap = document.getElementById('editPurchaseItemsWrap');
   if(!wrap) return;
+  // Enter:跳到下一行商品的同一欄(金額 / 有效期 / 批號 / 備註),不是跳到數量
+  wrap.onkeydown = function(e){
+    if(e.key !== 'Enter' || e.isComposing) return;
+    const col = e.target && e.target.dataset && e.target.dataset.epcol; if(!col) return;
+    e.preventDefault();
+    const list = Array.from(wrap.querySelectorAll('[data-epcol="' + col + '"]')).filter(x => !x.readOnly);
+    const nx = list[list.indexOf(e.target) + 1];
+    if(nx){ nx.focus(); if(nx.select) try{ nx.select(); }catch(_){} } else e.target.blur();
+  };
   if(editPurchaseWorkingItems.length === 0){
     wrap.innerHTML = `<div class="empty-note" style="padding:8px 0;">${lang === 'en' ? 'No items.' : '（沒有品項）'}</div>`;
     return;
@@ -720,9 +729,9 @@ function renderEditPurchaseItemsList(){
       const noField = it.noBatch || it.docType === 'credit_note';
       let field = '<span style="color:var(--ink-soft);">—</span>';
       if(!noField){
-        if(viewMode === 'expiry') field = `<input type="date" value="${it.expiry || ''}" style="width:100%;" onchange="updateEditPurchaseItemExpiry(${i}, this.value)" />`;
-        else if(viewMode === 'lot') field = `<input type="text" value="${escapeHtmlForPrint(it.supplierLot || '')}" style="width:100%;" oninput="updateEditPurchaseItemLot(${i}, this.value)" />`;
-        else { const cur = it.batchNote !== undefined ? it.batchNote : batchLineNote(editPurchaseTargetId, it.productId, it.expiry || ''); field = `<input type="text" value="${escapeHtmlForPrint(cur || '')}" style="width:100%;" oninput="updateEditPurchaseItemNote(${i}, this.value)" />`; }
+        if(viewMode === 'expiry') field = `<input data-epcol="expiry" type="date" value="${it.expiry || ''}" style="width:100%;" onchange="updateEditPurchaseItemExpiry(${i}, this.value)" />`;
+        else if(viewMode === 'lot') field = `<input data-epcol="lot" type="text" value="${escapeHtmlForPrint(it.supplierLot || '')}" style="width:100%;" oninput="updateEditPurchaseItemLot(${i}, this.value)" />`;
+        else { const cur = it.batchNote !== undefined ? it.batchNote : batchLineNote(editPurchaseTargetId, it.productId, it.expiry || ''); field = `<input data-epcol="note" type="text" value="${escapeHtmlForPrint(cur || '')}" style="width:100%;" oninput="updateEditPurchaseItemNote(${i}, this.value)" />`; }
       }
       return `<div style="${vgrid}padding:5px 0;border-bottom:1px solid var(--line);">
         <div style="min-width:0;font-size:12.5px;line-height:1.3;">${escapeHtmlForPrint(it.name || '')}${it.sku ? ` <span style="color:var(--ink-soft);">(${escapeHtmlForPrint(it.sku)})</span>` : ''}${it.docType === 'credit_note' ? ` <span style="color:var(--crit);font-weight:600;font-size:11px;">(${t('docTypeCreditNoteBadge')})</span>` : ''}</div>
@@ -768,12 +777,12 @@ function renderEditPurchaseItemsList(){
           </div>
           ${grp ? `<input type="number" value="${it.qty}" readonly title="${t('epGroupQtyTip')}" style="width:100%;background:var(--bg-soft,#f4f4f4);" />` : `<input type="number" value="${it.qty}" min="0" step="any" style="width:100%;" oninput="updateEditPurchaseItemQty(${i}, this.value)" />`}
           <span style="font-size:11.5px;color:var(--ink-soft);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtmlForPrint(it.unit || '')}</span>
-          ${priceVis ? `          <input type="number" value="${it.amount !== undefined && it.amount !== null ? it.amount : ''}" min="0" step="any" placeholder="$" style="width:100%;${fl ? 'background:#fff4dc;border-color:#d97706;' : ''}" ${canEditPrice() ? (fl ? 'title="' + escapeHtmlForPrint(fl.msg) + '"' : '') : 'readonly title="' + t('priceReadOnlyTitle') + '"'} ${grp ? `onchange="epGroupAmount(${i}, this.value)"` : `oninput="updateEditPurchaseItemAmount(${i}, this.value, this)"`} />
+          ${priceVis ? `           <input data-epcol="amount" type="number" value="${it.amount !== undefined && it.amount !== null ? it.amount : ''}" min="0" step="any" placeholder="$" style="width:100%;${fl ? 'background:#fff4dc;border-color:#d97706;' : ''}" ${canEditPrice() ? (fl ? 'title="' + escapeHtmlForPrint(fl.msg) + '"' : '') : 'readonly title="' + t('priceReadOnlyTitle') + '"'} ${grp ? `onchange="epGroupAmount(${i}, this.value)"` : `oninput="updateEditPurchaseItemAmount(${i}, this.value, this)"`} />
           ${(paOnNow && priceVis) ? (() => { const sp = paGstSplitStr(it, (document.getElementById('editPurchaseGstMode') || {}).value === 'inc' ? 'inc' : 'ex', paEditSkipRow(it)); return `<span id="epEx_${i}" style="text-align:right;font-size:12.5px;">${sp[0]}</span><span id="epGs_${i}" style="text-align:right;font-size:12.5px;">${sp[1]}</span>`; })() : ''}
           ${paOnNow ? (it.noAcct ? '<span style="font-size:11.5px;color:var(--ink-soft);">' + t('paOffBooksShort') + '</span>' : ((typeof pcEd !== 'undefined' && pcEd && pcEd.import) ? paImportNoteHtml() : paGstSelectHtml(it.gst, 'paEditSetGst(' + i + ', this.value)'))) : ''}` : ''}
           ${batchOn ? ((!it.noBatch) ? `
-          ${expInDetail ? '' : `<input type="date" value="${it.expiry || ''}" title="${t('batchColExpiry')}" style="width:100%;" onchange="updateEditPurchaseItemExpiry(${i}, this.value)" />
-          <input type="text" value="${escapeHtmlForPrint(it.supplierLot || '')}" title="${t('batchFieldLot')}" style="width:100%;" oninput="updateEditPurchaseItemLot(${i}, this.value)" />`}
+          ${expInDetail ? '' : `<input data-epcol="expiry" type="date" value="${it.expiry || ''}" title="${t('batchColExpiry')}" style="width:100%;" onchange="updateEditPurchaseItemExpiry(${i}, this.value)" />
+          <input data-epcol="lot" type="text" value="${escapeHtmlForPrint(it.supplierLot || '')}" title="${t('batchFieldLot')}" style="width:100%;" oninput="updateEditPurchaseItemLot(${i}, this.value)" />`}
           ${(it.docType === 'credit_note') ? '<span></span>' : `<button type="button" class="btn ghost" style="padding:2px 8px;" title="${t('batchFieldNote')}" onclick="editPurchaseOpenLineNote(${i})">📝${(it.batchNote !== undefined ? it.batchNote : batchLineNote(editPurchaseTargetId, it.productId, it.expiry || '')) ? ' ✓' : ''}</button>`}${expInDetail ? '' : (it.docType === 'credit_note' ? '<span></span>' : `<button type="button" class="btn ghost" style="padding:0 8px;" title="${t('epAddSplitTip')}" onclick="addEditPurchaseSplit(${i})">＋</button>`)}` : (expInDetail ? '<span></span>' : '<span></span><span></span><span></span><span></span>')) : ''}
           <span class="del-link" onclick="${grp ? 'removeEditPurchaseGroup' : 'removeEditPurchaseItem'}(${i})">${t('btnRemoveItem')}</span>
         </div>
