@@ -813,7 +813,7 @@ function orderItemRowHtml(o, it, isPending, readOnly, context){
   const actionLinks = `${canEdit ? `<span class="del-link" style="margin-left:8px;" onclick="startEditOrderItemQty('${context}','${o.id}','${it.productId}')">${t('btnEditQty')}</span>` : ''}
         ${(canEdit && context === 'verify' && typeof batchOrderItemButtonHtml === 'function') ? batchOrderItemButtonHtml(o, it) : ''}
         ${canEdit ? `<span class="del-link" style="margin-left:8px;color:var(--crit);" onclick="${deleteFn}('${o.id}','${it.productId}')">${t('btnDelete')}</span>` : ''}`;
-  const nameHtml = (it.sku ? `<span class="sku-tooltip-trigger" data-sku="${it.sku.replace(/"/g,'&quot;')}">${it.name}</span>` : it.name) + orderItemNoteInline(it, context === 'completed') + orderItemAcctTag(it);
+  const nameHtml = (it.sku ? `<span class="sku-tooltip-trigger" data-sku="${it.sku.replace(/"/g,'&quot;')}">${it.name}</span>` : it.name) + orderItemNoteInline(it, context === 'completed' || context === 'pending') + orderItemAcctTag(it);
   const tail = `${(context === 'verify' && typeof batchOrderItemPreviewHtml === 'function') ? batchOrderItemPreviewHtml(o, it) : ''}`;
   if(priceOn){
     return `
